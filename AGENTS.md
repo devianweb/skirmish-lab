@@ -1,0 +1,48 @@
+# AGENTS.md
+
+## Project Overview
+This is a browser-based 3D version of Trench Crusade, built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play.
+
+## Tech Stack Constraints
+- **Language:** TypeScript (frontend and backend)
+- **Renderer:** Three.js for 3D rendering, cameras, and model visualization
+- **Networking:** WebRTC data channels for P2P gameplay, custom Node.js + TypeScript + ws for signaling
+- **Target:** Desktop browsers only
+- **Art Style:** Low poly (will need to convert .STL models to low poly in future)
+- **Players:** Human vs Human only (no AI opponent)
+- **Rules:** Follow Trench Crusade rules exactly as much as possible
+
+## Core Architecture Rules
+
+### State Management
+- **NEVER** store game state in Three.js objects (meshes, groups, etc.). Keep a separate serializable game state object.
+- **Host is authoritative.** The host validates all actions against rules. The guest sends actions to host and applies confirmed state from host.
+- **State must be serializable.** All game state must be JSON-serializable for snapshots and reconnection.
+- **Separate concerns:** Game logic/state is completely decoupled from rendering.
+
+### Networking
+- **Signaling only:** The ws server is strictly for signaling (SDP/ICE exchange). Once WebRTC data channel is open, server gets out of the way.
+- **Invite codes:** Use XXX-XXX format room codes, no matchmaking.
+- **Rooms are ephemeral:** Rooms expire after inactivity or when game ends. Clean up on server.
+- **Server-rolled dice:** All dice rolls must go through the server's RNG and be broadcast to both peers simultaneously.
+- **Confirmed actions only:** Only broadcast final confirmed positions/actions, no real-time dragging sync.
+
+### Development Do's
+- Keep game state pure and serializable
+- Validate all actions on the host
+- Use action logs + snapshots for resilience
+- Cache game state snapshots on guest for potential rehosting
+- Use heartbeats/pings over data channel for connection monitoring
+- Keep networking protocol well-documented
+- Write TypeScript with strict types
+- Follow Three.js best practices for performance
+
+### Development Don'ts
+- Don't put game logic in Three.js scene objects
+- Don't trust client-side validation
+- Don't relay game messages through signaling server (signaling only)
+- Don't implement full host migration for v1 (just rejoin host if possible)
+- Don't add AI/matchmaking features
+- Don't optimize for mobile
+- Don't use third-party WebRTC signaling services
+- Don't allow real-time drag synchronization
