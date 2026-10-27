@@ -18,7 +18,7 @@ export class WebRTCClient {
   private lastPongTime: number = Date.now();
   private heartbeatTimeout: number = 10000;
 
-  private iceServers = {
+  private rtcConfig = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
@@ -29,7 +29,7 @@ export class WebRTCClient {
   }
 
   async createPeerConnection(): Promise<RTCPeerConnection> {
-    this.peerConnection = new RTCPeerConnection(this.iceServers);
+    this.peerConnection = new RTCPeerConnection(this.rtcConfig);
     return this.peerConnection;
   }
 
