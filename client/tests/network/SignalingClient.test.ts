@@ -8,53 +8,73 @@ describe('SignalingClient', () => {
     client = new SignalingClient('ws://localhost:8080');
   });
 
-  it('should create instance with default url', () => {
-    const defaultClient = new SignalingClient();
-    expect(defaultClient).toBeInstanceOf(SignalingClient);
-  });
-
-  it('should create instance with custom url', () => {
-    expect(client).toBeInstanceOf(SignalingClient);
-  });
-
-  it('should register event handlers', () => {
+  it('should route messages to registered handlers by type', () => {
     const handler = vi.fn();
     client.on('room-created', handler);
+    
+    // Access private method for testing
+    (client as any).handleMessage({ type: 'room-created', code: 'ABC-123' });
+    
+    expect(handler).toHaveBeenCalledWith({ type: 'room-created', code: 'ABC-123' });
+  });
+
+  it('should call multiple handlers for the same message type', () => {
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+    client.on('peer-joined', handler1);
+    client.on('peer-joined', handler2);
+    
+    (client as any).handleMessage({ type: 'peer-joined' });
+    
+    expect(handler1).toHaveBeenCalled();
+    expect(handler2).toHaveBeenCalled();
+  });
+
+  it('should remove handlers when off is called', () => {
+    const handler = vi.fn();
+    client.on('error', handler);
+    client.off('error', handler);
+    
+    (client as any).handleMessage({ type: 'error', message: 'test' });
+    
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('should unregister event handlers', () => {
-    const handler = vi.fn();
-    client.on('room-created', handler);
-    client.off('room-created', handler);
-    expect(handler).not.toHaveBeenCalled();
+  it('should call wildcard handlers for all messages', () => {
+    const wildcardHandler = vi.fn();
+    client.on('*', wildcardHandler);
+    
+    (client as any).handleMessage({ type: 'room-created', code: 'ABC-123' });
+    
+    expect(wildcardHandler).toHaveBeenCalled();
   });
 
-  it('should have createRoom method', () => {
-    expect(typeof client.createRoom).toBe('function');
+  it('should format room creation message correctly', () => {
+    const sendSpy = vi.spyOn(client, 'send').mockImplementation(() => {});
+    client.createRoom();
+    expect(sendSpy).toHaveBeenCalledWith({ type: 'create-room' });
   });
 
-  it('should have joinRoom method', () => {
-    expect(typeof client.joinRoom).toBe('function');
+  it('should format room join message correctly', () => {
+    const sendSpy = vi.spyOn(client, 'send').mockImplementation(() => {});
+    client.joinRoom('ABC-123');
+    expect(sendSpy).toHaveBeenCalledWith({ type: 'join-room', code: 'ABC-123' });
   });
 
-  it('should have sendOffer method', () => {
-    expect(typeof client.sendOffer).toBe('function');
+  it('should format offer message correctly', () => {
+    const sendSpy = vi.spyOn(client, 'send').mockImplementation(() => {});
+    const sdp = { type: 'offer', sdp: 'test' } as RTCSessionDescriptionInit;
+    client.sendOffer(sdp);
+    expect(sendSpy).toHaveBeenCalledWith({ type: 'offer', sdp });
   });
 
-  it('should have sendAnswer method', () => {
-    expect(typeof client.sendAnswer).toBe('function');
-  });
-
-  it('should have sendIceCandidate method', () => {
-    expect(typeof client.sendIceCandidate).toBe('function');
-  });
-
-  it('should have ping method', () => {
-    expect(typeof client.ping).toBe('function');
-  });
-
-  it('should have disconnect method', () => {
-    expect(typeof client.disconnect).toBe('function');
+  it('should format dice roll request correctly', () => {
+    const sendSpy = vi.spyOn(client, 'send').mockImplementation(() => {});
+    client.requestDiceRoll('roll-1', [{ count: 2, sides: 6 }]);
+    expect(sendSpy).toHaveBeenCalledWith({ 
+      type: 'roll-dice-request', 
+      rollId: 'roll-1', 
+      dice: [{ count: 2, sides: 6 }] 
+    });
   });
 });
