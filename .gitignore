@@ -1,3 +1,4 @@
+---
 node_modules
 dist
 build
@@ -10,4 +11,3 @@ build
 *.tsbuildinfo
 coverage
 .nyc_output
-package-lock.json
