@@ -1,4 +1,4 @@
-import { DiceSpec, DiceResult } from '@trench-crusade/shared';
+import { DiceSpec, DiceResult } from '@trench-heresy/shared';
 import * as crypto from 'crypto';
 
 export class DiceRoller {

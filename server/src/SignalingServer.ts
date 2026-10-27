@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomManager } from './Room';
 import { DiceRoller } from './DiceRoller';
-import { SignalingMessage } from '@trench-crusade/shared';
+import { SignalingMessage } from '@trench-heresy/shared';
 
 export class SignalingServer {
   private wss: WebSocketServer;

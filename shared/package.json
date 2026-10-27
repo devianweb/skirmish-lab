@@ -1,5 +1,5 @@
 {
-  "name": "@trench-crusade/shared",
+  "name": "@trench-heresy/shared",
   "version": "1.0.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

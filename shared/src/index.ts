@@ -1,2 +1,2 @@
-// Shared types for Trench Crusade
+// Shared types for Trench Heresy
 export * from './types';
