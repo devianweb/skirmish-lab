@@ -48,22 +48,22 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 **Goal:** Establish peer-to-peer connection between clients
 
 ### Tasks
-- [ ] SignalingClient (WebSocket to signaling server)
-- [ ] WebRTCClient (RTCPeerConnection, data channel)
-- [ ] Connection flow implementation
-- [ ] Message serialization/deserialization
-- [ ] Heartbeat/ping-pong system
-- [ ] Connection state management
-- [ ] Basic UI for lobby (create/join room)
+- [x] SignalingClient (WebSocket to signaling server)
+- [x] WebRTCClient (RTCPeerConnection, data channel)
+- [x] Connection flow implementation
+- [x] Message serialization/deserialization
+- [x] Heartbeat/ping-pong system
+- [x] Connection state management
+- [x] Basic UI for lobby (create/join room)
 
 ### Acceptance Criteria
-- [ ] Host can create room and see code
-- [ ] Guest can enter code and join
-- [ ] WebRTC connection establishes successfully
-- [ ] Data channel opens
-- [ ] Heartbeats work, disconnection detected
-- [ ] Signaling server no longer needed after connection
-- [ ] Connection works on desktop browsers
+- [x] Host can create room and see code
+- [x] Guest can enter code and join
+- [x] WebRTC connection establishes successfully
+- [x] Data channel opens
+- [x] Heartbeats work, disconnection detected
+- [x] Signaling server no longer needed after connection
+- [x] Connection works on desktop browsers
 
 ## Phase 3: Core Game State & Host Authority
 **Goal:** Implement game state model and host-authoritative architecture
