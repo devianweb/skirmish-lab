@@ -13,7 +13,7 @@ export class RoomManager {
   private rooms: Map<string, Room> = new Map();
   private readonly codeLength = 6;
   private readonly inactivityTimeout = 5 * 60 * 1000; // 5 minutes
-  private readonly maxLifetime = 60 * 60 * 1000; // 1 hour
+  private readonly maxLifetime = 3 * 60 * 60 * 1000; // 3 hours
   private cleanupInterval: NodeJS.Timeout;
 
   constructor() {
