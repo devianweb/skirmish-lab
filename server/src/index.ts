@@ -1,17 +1,18 @@
-import { WebSocketServer } from 'ws';
+import { SignalingServer } from './SignalingServer';
 
-const wss = new WebSocketServer({ port: 8080 });
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
+const server = new SignalingServer(PORT);
 
-console.log('Signaling server running on port 8080');
-
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-  
-  ws.on('message', (message) => {
-    console.log('Received:', message.toString());
-  });
-  
-  ws.on('close', () => {
-    console.log('Client disconnected');
-  });
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\nShutting down signaling server...');
+  server.close();
+  process.exit(0);
 });
+
+process.on('SIGTERM', () => {
+  console.log('\nShutting down signaling server...');
+  server.close();
+  process.exit(0);
+});
+
