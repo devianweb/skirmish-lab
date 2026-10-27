@@ -1,10 +1,10 @@
 # Systems Document
 
 ## Overview
-This document specifies the concrete implementation details for Trench Heresy rules, game systems, combat math, validation, and mechanics. The goal is to follow Trench Heresy rules exactly as much as possible.
+This document specifies the concrete implementation details for Trench Crusade rules, game systems, combat math, validation, and mechanics. The goal is to follow Trench Crusade rules exactly as much as possible.
 
 ## Phase Structure
-Trench Heresy follows a specific turn structure. The exact phases must be implemented per official rules.
+Trench Crusade follows a specific turn structure. The exact phases must be implemented per official rules.
 
 ```typescript
 const TURN_PHASES: TurnPhase[] = [
@@ -18,7 +18,7 @@ const TURN_PHASES: TurnPhase[] = [
 ];
 ```
 
-*Note: Phase order and details should be verified against official Trench Heresy ruleset and implemented faithfully.*
+*Note: Phase order and details should be verified against official Trench Crusade ruleset and implemented faithfully.*
 
 ## Action Validation (Host-Side)
 
@@ -93,7 +93,7 @@ type MovementType =
 4. **Morale:** Check morale as needed
 
 ### Combat Math
-All combat calculations must follow Trench Heresy rules exactly:
+All combat calculations must follow Trench Crusade rules exactly:
 - **To Hit:** Roll >= to-hit value on d6 (modified by rules)
 - **To Wound:** Compare strength vs toughness per wound table
 - **Armor Save:** Roll >= save value (modified by AP)
@@ -194,7 +194,7 @@ interface WeaponDefinition {
 - Engagement restrictions apply
 
 ## Special Rules & Abilities
-Trench Heresy has many special rules. These need to be implemented as data-driven systems where possible:
+Trench Crusade has many special rules. These need to be implemented as data-driven systems where possible:
 - Keyword system
 - Ability triggers
 - Special rule effects
@@ -222,7 +222,7 @@ When host applies a valid action:
 6. Return new state
 
 ## Win Conditions
-Implement Trench Heresy victory conditions. Specific conditions depend on mission/scenario - need to support standard mission types.
+Implement Trench Crusade victory conditions. Specific conditions depend on mission/scenario - need to support standard mission types.
 
 ## Balance & Validation
 - Host enforces all rules strictly
@@ -248,4 +248,4 @@ Implement Trench Heresy victory conditions. Specific conditions depend on missio
 - Action log grows over time but game length is reasonable
 
 ## Rules Reference
-This document will be expanded as rules are implemented. Always refer to official Trench Heresy ruleset for accuracy. The goal is to follow them exactly as much as possible.
+This document will be expanded as rules are implemented. Always refer to official Trench Crusade ruleset for accuracy. The goal is to follow them exactly as much as possible.

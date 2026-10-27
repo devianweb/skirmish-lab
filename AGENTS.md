@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Overview
-This is a browser-based 3D version of Trench Heresy, built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play.
+This is a browser-based 3D version of Trench Crusade, built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play.
 
 ## Tech Stack Constraints
 - **Language:** TypeScript (frontend and backend)
@@ -10,7 +10,7 @@ This is a browser-based 3D version of Trench Heresy, built with TypeScript and T
 - **Target:** Desktop browsers only
 - **Art Style:** Low poly (will need to convert .STL models to low poly in future)
 - **Players:** Human vs Human only (no AI opponent)
-- **Rules:** Follow Trench Heresy rules exactly as much as possible
+- **Rules:** Follow Trench Crusade rules exactly as much as possible
 
 ## Core Architecture Rules
 

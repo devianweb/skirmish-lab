@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Overview
-Phased development plan for Trench Heresy browser game with verifiable acceptance criteria. Focus on incremental, testable milestones.
+Phased development plan for Trench Crusade browser game with verifiable acceptance criteria. Focus on incremental, testable milestones.
 
 ## Phase 0: Project Setup & Documentation
 **Goal:** Establish project structure and tooling
@@ -130,7 +130,7 @@ Phased development plan for Trench Heresy browser game with verifiable acceptanc
 - [ ] UI reflects current game state
 - [ ] Phase transitions work
 
-## Phase 6: Trench Heresy Rules Implementation
+## Phase 6: Trench Crusade Rules Implementation
 **Goal:** Implement core rules as faithfully as possible
 
 ### Tasks
@@ -151,7 +151,7 @@ Phased development plan for Trench Heresy browser game with verifiable acceptanc
 - [ ] Dice rolls go through server
 - [ ] All rolls visible to both players
 - [ ] Rules enforced by host validation
-- [ ] Combat follows Trench Heresy mechanics
+- [ ] Combat follows Trench Crusade mechanics
 - [ ] Game follows proper phase order
 
 ## Phase 7: Reconnection & Resilience
