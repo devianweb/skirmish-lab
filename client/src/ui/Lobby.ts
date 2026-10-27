@@ -72,7 +72,6 @@ export class Lobby {
     this.webrtcClient.onIceCandidate((candidate) => {
       this.signalingClient.sendIceCandidate(candidate.toJSON());
     });
-    this.webrtcClient.on('heartbeat-ping', () => {});
   }
 
   private async setupWebRTCAsGuest(): Promise<void> {
