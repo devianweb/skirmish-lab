@@ -51,3 +51,10 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 - Always work on feature branches, never commit directly to master/main
 - Create a PR for review before merging
 - Use descriptive branch names (e.g., phase-X-description)
+
+## Testing Requirements
+- Write unit tests for pure logic (utilities, state management, validation)
+- Write integration tests for networking flows
+- All new features must have tests before merging
+- Tests should run in CI and pass locally
+- Use Vitest for both client and server tests
