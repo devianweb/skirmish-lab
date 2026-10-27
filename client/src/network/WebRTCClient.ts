@@ -124,6 +124,8 @@ export class WebRTCClient {
   send(message: GameMessage): void {
     if (this.dataChannel && this.dataChannel.readyState === 'open') {
       this.dataChannel.send(JSON.stringify(message));
+    } else {
+      console.warn('Cannot send message: data channel not open', message.type);
     }
   }
 

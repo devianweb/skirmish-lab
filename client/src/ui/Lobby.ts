@@ -77,11 +77,12 @@ export class Lobby {
 
   private async setupWebRTCAsGuest(): Promise<void> {
     if (!this.webrtcClient) return;
-    await this.webrtcClient.createPeerConnection();
-    this.webrtcClient.onDataChannel((event) => {
-      this.webrtcClient!.setupDataChannelFromEvent(event);
+    const client = this.webrtcClient;
+    await client.createPeerConnection();
+    client.onDataChannel((event) => {
+      client.setupDataChannelFromEvent(event);
     });
-    this.webrtcClient.onIceCandidate((candidate) => {
+    client.onIceCandidate((candidate) => {
       this.signalingClient.sendIceCandidate(candidate.toJSON());
     });
   }

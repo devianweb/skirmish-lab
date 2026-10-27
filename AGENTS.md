@@ -65,3 +65,10 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 - **Test integrations.** Prefer integration tests for network flows (WebRTC signaling, room management).
 - **Avoid tautologies.** Tests like 'constructor creates instance' or 'method is a function' are not useful.
 - **Test edge cases.** Focus on failures, disconnects, timeouts, and boundary conditions.
+
+## Documentation Requirements
+- **Always read relevant docs first.** Before implementing features, read GDD.md, ARCHITECTURE.md, NETWORKING.md, DATA_MODEL.md, and SYSTEMS.md as they apply.
+- **Keep docs updated.** When making architectural changes, update the relevant docs in doc/.
+- **Follow the patterns.** All implementations must follow the architecture and patterns documented.
+- **Update ROADMAP.** Mark tasks complete when finished.
+- **Update AGENTS.md** if new constraints or patterns emerge.
