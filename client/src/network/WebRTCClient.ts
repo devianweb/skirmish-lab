@@ -12,7 +12,7 @@ type GameMessageHandler = (message: GameMessage) => void;
 
 export class WebRTCClient {
   private peerConnection: RTCPeerConnection | null = null;
-  public dataChannel: RTCDataChannel | null = null;
+  private dataChannel: RTCDataChannel | null = null;
   private handlers: Map<string, GameMessageHandler[]> = new Map();
   private heartbeatInterval: number | null = null;
   private lastPongTime: number = Date.now();
@@ -159,6 +159,10 @@ export class WebRTCClient {
       window.clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
+  }
+
+  getDataChannel(): RTCDataChannel | null {
+    return this.dataChannel;
   }
 
   isConnected(): boolean {
