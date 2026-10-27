@@ -10,3 +10,5 @@ build
 *.tsbuildinfo
 coverage
 .nyc_output
+package-lock.json
+package-lock.json
