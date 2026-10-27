@@ -46,3 +46,8 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 - Don't optimize for mobile
 - Don't use third-party WebRTC signaling services
 - Don't allow real-time drag synchronization
+
+## Git Workflow
+- Always work on feature branches, never commit directly to master/main
+- Create a PR for review before merging
+- Use descriptive branch names (e.g., phase-X-description)
