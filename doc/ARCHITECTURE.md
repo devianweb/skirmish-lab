@@ -152,3 +152,10 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 | Signaling only server | Minimal attack surface, cheap to host, no game state on server |
 | Separate game state from rendering | Critical for serialization, snapshots, reconnection, and maintainability |
 | XXX-XXX invite codes | Simple, memorable, direct play without accounts |
+
+## Phase 2 Implementation (Completed)
+- Frontend WebRTC client implemented with RTCPeerConnection and data channel
+- Signaling client connects to ws server for room creation/joining and SDP/ICE exchange
+- Lobby UI for creating/joining rooms with XXX-XXX codes
+- Heartbeat/ping-pong over data channel for connection monitoring
+- Connection flow: host creates offer, guest answers, ICE candidates exchanged

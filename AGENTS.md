@@ -51,3 +51,24 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 - Always work on feature branches, never commit directly to master/main
 - Create a PR for review before merging
 - Use descriptive branch names (e.g., phase-X-description)
+
+## Testing Requirements
+- Write unit tests for pure logic (utilities, state management, validation)
+- Write integration tests for networking flows
+- All new features must have tests before merging
+- Tests should run in CI and pass locally
+- Use Vitest for both client and server tests
+
+## Testing Philosophy
+- **Test behavior, not structure.** Don't test that methods exist or types compile - TypeScript handles that.
+- **Test logic you wrote.** Focus on custom logic: message routing, state transitions, validation, timeouts, error handling.
+- **Test integrations.** Prefer integration tests for network flows (WebRTC signaling, room management).
+- **Avoid tautologies.** Tests like 'constructor creates instance' or 'method is a function' are not useful.
+- **Test edge cases.** Focus on failures, disconnects, timeouts, and boundary conditions.
+
+## Documentation Requirements
+- **Always read relevant docs first.** Before implementing features, read GDD.md, ARCHITECTURE.md, NETWORKING.md, DATA_MODEL.md, and SYSTEMS.md as they apply.
+- **Keep docs updated.** When making architectural changes, update the relevant docs in doc/.
+- **Follow the patterns.** All implementations must follow the architecture and patterns documented.
+- **Update ROADMAP.** Mark tasks complete when finished.
+- **Update AGENTS.md** if new constraints or patterns emerge.
