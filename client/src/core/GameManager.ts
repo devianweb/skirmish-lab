@@ -9,7 +9,7 @@ export class GameManager {
   private maxSnapshots: number = 50;
 
   constructor(webrtcClient: WebRTCClient, isHost: boolean) {
-    this.webrtcClient = isHost ? webrtcClient : webrtcClient; // both use same client
+    this.webrtcClient = webrtcClient;
     this.isHost = isHost;
     this.setupHandlers();
   }
