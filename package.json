@@ -2,7 +2,7 @@
   "name": "trench-crusade-web",
   "version": "1.0.0",
   "private": true,
-  "description": "Browser-based 3D Trench Crusade with P2P WebRTC",
+  "description": "Browser-based 3D Trench Heresy with P2P WebRTC",
   "workspaces": [
     "client",
     "server",

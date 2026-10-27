@@ -33,7 +33,7 @@ src/
 │   ├── GameState.ts      # Pure, serializable game state types & utilities
 │   ├── GameEngine.ts     # Host-side validation & state transitions
 │   ├── ActionLog.ts      # Action log management
-│   └── Rules.ts          # Trench Crusade rule implementations
+│   └── Rules.ts          # Trench Heresy rule implementations
 ├── network/
 │   ├── SignalingClient.ts # WebSocket connection to signaling server
 │   ├── WebRTCClient.ts   # WebRTC peer connection & data channel
@@ -147,7 +147,7 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 | --- | --- |
 | Three.js | Full 3D control, good for viewing models on battlefield, widely used |
 | Host-authoritative | Simpler than P2P consensus, prevents cheating, easier to validate against complex rules |
-| Turn-based confirmed actions | Fits Trench Crusade's turn structure, easier to sync, less bandwidth, easier to animate |
+| Turn-based confirmed actions | Fits Trench Heresy's turn structure, easier to sync, less bandwidth, easier to animate |
 | Server-rolled dice | Fair for friends without complex crypto, trivial with existing ws server |
 | Signaling only server | Minimal attack surface, cheap to host, no game state on server |
 | Separate game state from rendering | Critical for serialization, snapshots, reconnection, and maintainability |
