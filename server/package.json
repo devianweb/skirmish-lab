@@ -1,5 +1,5 @@
 {
-  "name": "@trench-crusade/server",
+  "name": "@trench-heresy/server",
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --watch src --exec tsx src/index.ts",
@@ -7,7 +7,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@trench-crusade/shared": "1.0.0",
+    "@trench-heresy/shared": "1.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
