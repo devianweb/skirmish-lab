@@ -25,22 +25,24 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 **Goal:** Build minimal WebSocket signaling server with room management
 
 ### Tasks
-- [ ] Implement RoomManager with XXX-XXX code generation
-- [ ] Implement SignalingServer for WebSocket connections
-- [ ] Room creation/joining logic
-- [ ] SDP/ICE message relay
-- [ ] DiceRoller with server-side RNG
-- [ ] Room expiration and cleanup
-- [ ] Basic error handling
+- [x] Implement RoomManager with XXX-XXX code generation
+- [x] Implement SignalingServer for WebSocket connections
+- [x] Room creation/joining logic
+- [x] SDP/ICE message relay
+- [x] DiceRoller with server-side RNG
+- [x] Room expiration and cleanup
+- [x] Basic error handling
+- [x] Add unit and integration tests
 
 ### Acceptance Criteria
-- [ ] Server can generate unique XXX-XXX room codes
-- [ ] Host can create room, guest can join with code
-- [ ] SDP offers/answers relayed correctly
-- [ ] ICE candidates relayed correctly
-- [ ] Dice rolls generated server-side and broadcast to both peers
-- [ ] Rooms expire after inactivity
-- [ ] Server handles disconnections gracefully
+- [x] Server can generate unique XXX-XXX room codes
+- [x] Host can create room, guest can join with code
+- [x] SDP offers/answers relayed correctly
+- [x] ICE candidates relayed correctly
+- [x] Dice rolls generated server-side and broadcast to both peers simultaneously
+- [x] Rooms expire after inactivity
+- [x] Server handles disconnections gracefully
+- [x] All tests passing (22/22)
 
 ## Phase 2: WebRTC P2P Connection
 **Goal:** Establish peer-to-peer connection between clients
