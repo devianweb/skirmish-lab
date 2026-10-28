@@ -144,7 +144,9 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 
 ### Key Components
 - **SceneManager:** Initializes Three.js scene, camera, lighting, renderer
-- **CameraController:** Desktop camera controls for viewing the battlefield
+- **CameraController:** Desktop camera controls for viewing the battlefield, with player-perspective positioning:
+  - Host views from South isometric corner `(20, 20, -20)` looking north (+z) over friendly forces
+  - Guest views from North isometric corner `(-20, 20, 20)` looking south (-z) over friendly forces
 - **BoardRenderer:** Renders terrain, trenches, obstacles from game state (registered terrain types render as curated GLB models)
 - **UnitRenderer:** Creates/updates/removes meshes based on units in game state; provides raycast picking for the unit layer
 - **ModelLoader:** Loads and caches GLTF models; hosts a unit/terrain/marker asset registry — registered types get a procedural placeholder that swaps to the GLB clone once loaded (per-instance geometry/materials keep tinting and disposal safe)
@@ -158,14 +160,17 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 1. **Host creates room:** Client connects to signaling server, requests room creation, gets XXX-XXX code
 2. **Guest joins:** Client connects to signaling server, provides room code, joins room
 3. **Signaling:** Peers exchange offers/answers and ICE candidates through signaling server
-4. **Connection established:** WebRTC data channel opens, signaling server role complete
-5. **Gameplay:** All game messages flow over data channel. Heartbeats monitor connection.
-6. **Disconnect:** Heartbeat timeout detected, connection lost
-7. **Reconnection:** If host reconnects to signaling server with same room code, attempt to re-sync state. Guest has cached snapshot.
+4. **Connection established:** WebRTC data channel opens; signaling WebSocket switches to 25s keep-alive mode for server dice requests
+5. **Gameplay:** All game movements, selection, and turn events flow over P2P data channel; attacks request authoritative server dice rolls via signaling server
+6. **Disconnect & Grace Window:** If signaling connection drops, server preserves room for a 5-minute grace window; client auto-reconnects with `reconnect-room`
+7. **Reconnection & Idempotent Rolls:** Host and guest can reclaim room slots; dice rolls retry automatically and use server-cached roll results
 
 ## Error Handling & Resilience
 
 - **Heartbeat/Timeout:** Ping/pong over data channel every N seconds, timeout after M missed pongs
+- **Signaling Keep-Alive & Auto-Reconnect:** 25s ping interval beats Azure proxy timeouts; automatic client reconnection
+- **Room Grace Period:** 5-minute server grace window protects against dropped connections, Wi-Fi blips, and reboots
+- **Idempotent Dice Retries:** Combat actions retry server dice requests every 2s before timing out, backed by server roll caching
 - **State validation:** Host validates all actions, rejects invalid actions with reason
 - **Desync detection:** Action log + sequence numbers to detect if states diverge
 - **Graceful degradation:** Clear UI feedback on connection issues

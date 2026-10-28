@@ -96,10 +96,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Create GitHub Actions workflow for `release` branch (build + test + deploy client to Pages & server to Azure App Service)
 - [x] Configure signaling server with HTTP health probe (`GET /healthz`) for Azure App Service
 - [x] Package self-contained server bundle in deploy workflow for Azure App Service
-- [ ] Deploy signaling server to Azure App Service (Linux, Node 20 LTS, Free F1 tier) tracking the `release` branch
-- [ ] Configure GitHub Pages for client deployment
+- [x] Deploy signaling server to Azure App Service (Linux, Node 24 LTS, Free F1 tier) tracking the `release` branch
+- [x] Configure GitHub Pages for client deployment
 - [x] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
-- [ ] Set up WSS endpoint for production
+- [x] Set up WSS endpoint for production (`wss://skirmish-lab-signaling.azurewebsites.net`)
 - [x] Configure Vite `base` for GitHub Pages
 - [x] Add deployment status badges to README
 - [x] Document deployment process in `doc/DEPLOYMENT.md`
@@ -107,10 +107,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ### Acceptance Criteria
 - [x] PRs to main/master run build and tests without deploying
 - [x] Merged PRs into `release` trigger build, test, and deploy to GitHub Pages (direct pushes do not deploy)
-- [ ] Signaling server auto-deploys from `release` branch to Azure App Service with WSS support
-- [ ] Client deploys to GitHub Pages successfully
-- [ ] Deployed client can connect to deployed signaling server over WSS
-- [ ] Can demo lobby/connection flow from deployed GitHub Pages URL
+- [x] Signaling server auto-deploys from `release` branch to Azure App Service with WSS support
+- [x] Client deploys to GitHub Pages successfully
+- [x] Deployed client can connect to deployed signaling server over WSS
+- [x] Can demo lobby/connection flow from deployed GitHub Pages URL
 - [x] CI workflows pass on a clean checkout
 - [x] Release flow is intentional (PR `master` → `release`, merged when ready)
 

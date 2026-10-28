@@ -248,6 +248,10 @@ Track all modifiers to rolls:
   the derived outcome) is attached to the action log entry and broadcast in
   the state — both players' dice displays read from state, never from
   local rolls.
+- **Resilient Dice Roll Requests:** `SignalingDiceProvider` retries roll
+  requests every 2 seconds (up to 3 retries) and reconnects on demand
+  (`ensureConnected()`). The signaling server caches recent roll results by
+  `rollId` (`room.rollCache`), ensuring retries are strictly idempotent.
 
 ## Line of Sight & Targeting
 
