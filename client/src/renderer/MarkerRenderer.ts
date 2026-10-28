@@ -26,7 +26,6 @@ const SELECTION_COLOR = 0x29b6f6;
 const TARGET_COLOR = 0xff5252;
 const REACHABLE_TARGET_COLOR = 0x8e2424;
 const RANGE_COLOR = 0xffd54f;
-const ATTACK_RANGE_COLOR = 0xef5350;
 const PATH_COLOR = 0x69f0ae;
 const OUTCOME_COLOR = 0xef5350;
 
@@ -115,24 +114,21 @@ export class MarkerRenderer {
   }
 
   /**
-   * Thin attack-range ring sized to the weapon/charge max range (red), plus a
-   * dark transparent red Line-of-Sight fill inside the ring that is blank
-   * wherever LoS is blocked by terrain or fighters.
+   * Dark transparent red Line-of-Sight shadow fan sized to the weapon/charge
+   * max range, cut out wherever LoS is blocked by terrain or fighters (no outer
+   * ring outline).
    */
   setAttackRange(spec: AttackRangeMarker | null): void {
     this.removeMarker('attackRange');
     if (!spec || spec.range <= 0) return;
 
-    // Keep world-space rim thickness constant (~0.08 board units) regardless of
-    // how large `spec.range` is so a 24" shoot circle stays a crisp thin line.
-    const normalizedThickness = Math.min(0.25, 0.08 / spec.range);
-    const marker = this.modelLoader.createMarkerMesh('attack-range', () =>
-      this.createRangeRing(ATTACK_RANGE_COLOR, 1, normalizedThickness)
-    );
-    this.applyTint(marker, ATTACK_RANGE_COLOR);
-    if (spec.losPolygon && spec.losPolygon.length >= 3) {
-      marker.add(this.createLosFanMesh(spec.position, spec.range, spec.losPolygon));
-    }
+    const polygon =
+      spec.losPolygon && spec.losPolygon.length >= 3
+        ? spec.losPolygon
+        : this.createDefaultCirclePolygon(spec.position, spec.range, 64);
+
+    const marker = new THREE.Group();
+    marker.add(this.createLosFanMesh(spec.position, spec.range, polygon));
     marker.name = 'marker-attack-range';
     marker.position.set(spec.position.x, 0.035, spec.position.z);
     marker.scale.set(spec.range, 1, spec.range);
@@ -409,5 +405,21 @@ export class MarkerRenderer {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = 'los-shadow-fan';
     return mesh;
+  }
+
+  private createDefaultCirclePolygon(
+    origin: Vector3,
+    range: number,
+    steps: number
+  ): Array<{ x: number; z: number }> {
+    const pts: Array<{ x: number; z: number }> = [];
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      pts.push({
+        x: origin.x + Math.cos(a) * range,
+        z: origin.z + Math.sin(a) * range,
+      });
+    }
+    return pts;
   }
 }

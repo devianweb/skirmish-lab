@@ -501,24 +501,33 @@ describe('GameHUD', () => {
     expect(container.querySelector('.sl-hud-room')?.textContent).toBe('Room: ABC-123');
   });
 
-  it('renders a terrain debug card and emits hoveredTerrainId when hovering over a terrain piece', () => {
+  it('toggles the terrain debug card and hoveredTerrainId marker with F9', () => {
     const state = scenarioState();
     const { hud, container } = setup(HOST, state);
     const emitted: MarkerSnapshot[] = [];
     hud.onMarkers((m) => emitted.push(m));
 
-    // Hover over terrain-wall-north at (0, 0, 5)
+    // Hover over terrain-wall-north at (0, 0, 5) while F9 debugger is OFF (default)
     hud.handleBoardHover({
       kind: 'position',
       position: { x: 0, y: 0, z: 5 },
       terrainId: 'terrain-wall-north',
     });
+    expect(container.querySelector('.sl-hud-terrain-debug')).toBeNull();
+    expect(emitted.at(-1)?.hoveredTerrainId).toBeNull();
 
+    // Press F9 to turn the terrain debugger ON
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
     const debugCard = container.querySelector('.sl-hud-terrain-debug');
     expect(debugCard).toBeTruthy();
     expect(debugCard?.textContent).toContain('terrain-wall-north');
     expect(debugCard?.textContent).toContain('models/wall.glb');
     expect(debugCard?.textContent).toContain('3.00" × 0.50"');
     expect(emitted.at(-1)?.hoveredTerrainId).toBe('terrain-wall-north');
+
+    // Press F9 again to turn it OFF
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+    expect(container.querySelector('.sl-hud-terrain-debug')).toBeNull();
+    expect(emitted.at(-1)?.hoveredTerrainId).toBeNull();
   });
 });

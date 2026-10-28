@@ -67,6 +67,9 @@ export class GameHUD {
   private hoveredUnitId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
+  /** Whether the F9 terrain hover debugger is enabled. */
+  private terrainDebugEnabled = false;
+  private keydownHandler: (event: KeyboardEvent) => void;
   /** Action button currently hovered in the action bar (e.g. 'move'). */
   private hoveredAction: string | null = null;
   /** Clamped move destination previewed under the cursor during move targeting. */
@@ -91,6 +94,25 @@ export class GameHUD {
     this.root.className = 'sl-hud';
     this.root.style.display = 'none';
     this.container.appendChild(this.root);
+
+    this.keydownHandler = (event: KeyboardEvent) => {
+      if (event.key === 'F9') {
+        event.preventDefault();
+        this.toggleTerrainDebug();
+      }
+    };
+    window.addEventListener('keydown', this.keydownHandler);
+  }
+
+  /** Toggle the F9 terrain hover debugger (HUD inspector card + 3D wireframe bounds). */
+  toggleTerrainDebug(force?: boolean): boolean {
+    this.terrainDebugEnabled = force ?? !this.terrainDebugEnabled;
+    this.showToast(
+      this.terrainDebugEnabled
+        ? 'Terrain debugger: ON (hover terrain to inspect, F9 to hide)'
+        : 'Terrain debugger: OFF'
+    );
+    return this.terrainDebugEnabled;
   }
 
   /** Re-render everything from the confirmed state (single source of truth). */
@@ -208,6 +230,7 @@ export class GameHUD {
   }
 
   dispose(): void {
+    window.removeEventListener('keydown', this.keydownHandler);
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.root.remove();
   }
@@ -902,7 +925,7 @@ export class GameHUD {
   }
 
   private renderTerrainDebugCard(): string {
-    if (!this.state || !this.hoveredTerrainId) return '';
+    if (!this.terrainDebugEnabled || !this.state || !this.hoveredTerrainId) return '';
     const piece = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
     if (!piece) return '';
     const info = describeTerrainPiece(piece);
@@ -1068,7 +1091,7 @@ export class GameHUD {
       movementRangeUnitId: null,
       attackRange: null,
       movePath: null,
-      hoveredTerrainId: this.hoveredTerrainId,
+      hoveredTerrainId: this.terrainDebugEnabled ? this.hoveredTerrainId : null,
       outcome,
     };
 
