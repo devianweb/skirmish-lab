@@ -69,24 +69,24 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 **Goal:** Implement game state model and host-authoritative architecture
 
 ### Tasks
-- [ ] Implement GameState types (from DATA_MODEL.md)
-- [ ] GameEngine with validation framework
-- [ ] Action log implementation
-- [ ] State transition logic
-- [ ] Host: validate actions, apply to state, broadcast updates
-- [ ] Guest: send action requests, apply state updates
-- [ ] Snapshot system (guest caches state)
-- [ ] Action serialization
+- [x] Implement GameState types (from DATA_MODEL.md)
+- [x] GameEngine with validation framework (basic)
+- [x] Action log implementation
+- [x] State transition logic (basic)
+- [x] Host: validate actions, apply to state, broadcast updates
+- [x] Guest: send action requests, apply state updates
+- [x] Snapshot system (guest caches state)
+- [x] Action serialization
 
 ### Acceptance Criteria
-- [ ] Game state is fully serializable
-- [ ] No Three.js objects in game state
-- [ ] Host validates all actions
-- [ ] Guest cannot apply actions directly
-- [ ] State updates flow correctly host → guest
-- [ ] Action log tracks all confirmed actions
-- [ ] Guest caches snapshots after state updates
-- [ ] State round-trips through JSON correctly
+- [x] Game state is fully serializable
+- [x] No Three.js objects in game state
+- [x] Host validates all actions
+- [x] Guest cannot apply actions directly
+- [x] State updates flow correctly host → guest
+- [x] Action log tracks all confirmed actions
+- [x] Guest caches snapshots after state updates
+- [x] State round-trips through JSON correctly
 
 ## Phase 4: Three.js Rendering Foundation
 **Goal:** Set up 3D rendering decoupled from game state
