@@ -20,13 +20,22 @@ export function disposeObject3D(root: THREE.Object3D): void {
 }
 
 /**
- * Deep-clone an Object3D including per-instance materials, so instances
- * never share materials with (and therefore never recolor) the prototype.
+ * Deep-clone an Object3D including per-instance geometries and materials.
+ * Object3D.clone() shares geometry and material references across clones —
+ * cloning both here means each instance fully owns its GPU resources, so
+ * disposing one instance never affects the prototype or its siblings.
+ *
+ * Note: per-instance geometry clones are cheap for the current procedural
+ * low-poly primitives; revisit with geometry sharing/instancing when real
+ * GLTF assets land.
  */
 export function cloneObject3D(root: THREE.Object3D): THREE.Object3D {
   const clone = root.clone(true);
   clone.traverse((child) => {
     const mesh = child as THREE.Mesh;
+    if (mesh.geometry) {
+      mesh.geometry = mesh.geometry.clone();
+    }
     const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
     if (Array.isArray(material)) {
       mesh.material = material.map((m) => m.clone());

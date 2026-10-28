@@ -35,6 +35,21 @@ describe('BoardRenderer', () => {
     expect(position.count).toBe(expectedPoints);
   });
 
+  it('renders an exact line count with fractional grid sizes (no float drift)', () => {
+    const { renderer, boardGroup } = setup();
+    const state = makeState();
+    state.board = { ...state.board, width: 4, height: 6, gridSize: 0.5 };
+
+    renderer.renderBoard(state);
+
+    const grid = boardGroup.children.find((c) => c.name === 'grid') as THREE.LineSegments;
+    const position = grid.geometry.getAttribute('position');
+    // Board is 4*0.5=2 x 6*0.5=3 world units, cells of 0.5 -> exactly 4 and 6
+    // divisions -> 5 + 7 lines -> 24 points. A drifting loop would overshoot
+    // the boundary and emit an extra line.
+    expect(position.count).toBe((4 + 1 + 6 + 1) * 2);
+  });
+
   it('renders nothing into the scene groups before renderBoard is called', () => {
     const { boardGroup, terrainGroup } = setup();
     expect(boardGroup.children.length).toBe(0);

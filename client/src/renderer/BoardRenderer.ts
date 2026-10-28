@@ -95,17 +95,22 @@ export class BoardRenderer {
 
   /**
    * Rectangular grid of lines spaced one gridSize apart, matching the
-   * ground plane exactly (GridHelper only supports squares).
+   * ground plane exactly (GridHelper only supports squares). Index-based
+   * loop to avoid float accumulation with fractional grid sizes.
    */
   private createGrid(worldWidth: number, worldHeight: number, step: number): THREE.LineSegments {
     const halfW = worldWidth / 2;
     const halfH = worldHeight / 2;
     const points: number[] = [];
 
-    for (let x = -halfW; x <= halfW + step / 2; x += step) {
+    const xDivisions = Math.max(1, Math.round(worldWidth / step));
+    for (let i = 0; i <= xDivisions; i++) {
+      const x = -halfW + i * step;
       points.push(x, 0, -halfH, x, 0, halfH);
     }
-    for (let z = -halfH; z <= halfH + step / 2; z += step) {
+    const zDivisions = Math.max(1, Math.round(worldHeight / step));
+    for (let i = 0; i <= zDivisions; i++) {
+      const z = -halfH + i * step;
       points.push(-halfW, 0, z, halfW, 0, z);
     }
 

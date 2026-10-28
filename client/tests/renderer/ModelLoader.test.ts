@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { ModelLoader } from '../../src/renderer/ModelLoader';
+import { disposeObject3D } from '../../src/renderer/utils';
 import { collectHexColors } from './helpers';
 
 function makeProto(name = 'proto'): THREE.Object3D {
@@ -85,6 +86,28 @@ describe('ModelLoader', () => {
       expect(hex).not.toBe('ff0000');
     }
     expect(second.position.x).toBe(0);
+  });
+
+  it('gives each instance its own geometry — disposing one unit cannot break another', () => {
+    const loader = new ModelLoader();
+    const first = loader.createUnitMesh('trooper') as THREE.Group;
+    const second = loader.createUnitMesh('trooper') as THREE.Group;
+
+    const firstGeometry = (first.children[0] as THREE.Mesh).geometry;
+    const secondGeometry = (second.children[0] as THREE.Mesh).geometry;
+    expect(firstGeometry).not.toBe(secondGeometry); // not shared with prototype/siblings
+
+    // Simulate the renderer removing `first` (dispose on remove).
+    disposeObject3D(first);
+
+    // The surviving instance still has usable geometry.
+    expect((secondGeometry as THREE.BufferGeometry).getAttribute('position')).not.toBeNull();
+    // And a fresh instance of the same type is unaffected.
+    const third = loader.createUnitMesh('trooper') as THREE.Group;
+    expect((third.children[0] as THREE.Mesh).geometry).not.toBe(firstGeometry);
+    expect(
+      ((third.children[0] as THREE.Mesh).geometry as THREE.BufferGeometry).getAttribute('position')
+    ).not.toBeNull();
   });
 
   it('reuses the same prototype per unit type (no rebuild growth)', () => {

@@ -123,6 +123,26 @@ describe('UnitRenderer', () => {
     expect(unitGroup.children.length).toBe(0);
   });
 
+  it('a re-added unit of a removed unit type renders with intact geometry', () => {
+    const { renderer, unitGroup } = setup();
+    const state = makeState({ units: [makeUnit({ id: 'a', unitType: 'trooper' })] });
+
+    renderer.syncFromState(state);
+    state.units = [];
+    renderer.syncFromState(state); // removal path disposes the mesh
+    expect(unitGroup.children.length).toBe(0);
+
+    state.units = [makeUnit({ id: 'b', unitType: 'trooper' })];
+    renderer.syncFromState(state);
+
+    expect(unitGroup.children.length).toBe(1);
+    const mesh = unitGroup.children[0] as THREE.Group;
+    const geometry = (mesh.children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh)
+      .geometry as THREE.BufferGeometry;
+    expect(geometry.getAttribute('position')).not.toBeNull();
+    expect(geometry.getAttribute('position').count).toBeGreaterThan(0);
+  });
+
   it('never modifies the game state it renders', () => {
     const { renderer } = setup();
     const state = makeState({ units: [makeUnit(), makeUnit({ ownerId: 'guest-1' })] });
