@@ -201,6 +201,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 6: OPR Skirmish Rules Engine
 **Goal:** Implement OPR-style skirmish mechanics from first principles
 
+> **Specification:** See **[RULES_SPECIFICATION.md](./RULES_SPECIFICATION.md)** for the complete mathematical definition, action maneuvers, casualty/trauma tables, and the 29-trait special rules engine matrix.
+>
 > **Status:** The OPR pivot's rebrand (R1), docs re-spec (R2), and schema refactor (R3) are
 > complete — the first two tasks below landed with the schema refactor (state schema
 > v2.0.0, see `doc/DATA_MODEL.md`). The remaining pivot-plan work (army data schema +
