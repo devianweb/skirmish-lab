@@ -566,6 +566,46 @@ describe('GameManager', () => {
       expect(host.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
       expect(guest.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
     });
+
+    it('rebinds host GameManager and re-broadcasts state when a guest rejoins over a new channel', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const guest1 = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      // Host activates a unit before the guest disconnects.
+      const hostUnitId = host.getGameState()!.units[0].id;
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostUnitId,
+        })
+      );
+      expect(guest1.getGameState()!.turnState.activeUnitId).toBe(hostUnitId);
+
+      // Guest disconnects and reconnects over a brand-new WebRTC channel pair.
+      const channel2 = makeChannelPair();
+      const guest2 = new GameManager(channel2.guestWebRTC, false);
+      host.rebindWebRTCClient(channel2.hostWebRTC);
+
+      // Rejoined guest immediately receives the current in-progress state.
+      expect(guest2.getGameState()!.turnState.activeUnitId).toBe(hostUnitId);
+
+      // And subsequent actions from the rejoined guest work over the new channel.
+      host.sendAction(createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' }));
+      const guestUnitId = guest2
+        .getGameState()!
+        .units.find((u: any) => u.ownerId === GUEST_PLAYER_ID)!.id;
+      guest2.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestUnitId,
+        })
+      );
+      await Promise.resolve();
+      expect(host.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
+      expect(guest2.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
+    });
   });
 
   describe('onActionRejected subscription', () => {

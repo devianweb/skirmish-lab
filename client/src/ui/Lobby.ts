@@ -7,6 +7,7 @@ export interface PeerReadyContext {
   signalingClient: SignalingClient;
   role: 'host' | 'guest';
   roomCode: string;
+  initialState?: any;
 }
 
 export interface LobbyOptions {
@@ -56,16 +57,20 @@ export class Lobby {
       this.render();
     });
 
-    this.signalingClient.on('room-joined', (msg: any) => {
+    this.signalingClient.on('room-joined', async (msg: any) => {
       this.roomCode = msg.code;
       this.role = 'guest';
       this.webrtcClient = new WebRTCClient();
-      this.setupWebRTCAsGuest();
+      await this.setupWebRTCAsGuest();
       this.render();
     });
 
     this.signalingClient.on('peer-joined', async () => {
-      if (this.role === 'host' && this.webrtcClient) {
+      if (this.role === 'host') {
+        this.peerReadyFired = false;
+        this.webrtcClient?.close();
+        this.webrtcClient = new WebRTCClient();
+        await this.setupWebRTCAsHost();
         await this.createAndSendOffer();
       }
     });
@@ -89,6 +94,12 @@ export class Lobby {
     });
 
     this.signalingClient.on('error', (msg: any) => {
+      // Ignore peer disconnect notices once the P2P game has already handed off
+      // (full mid-game reconnection is Phase 7).
+      if (this.peerReadyFired) {
+        console.warn('Signaling notice:', msg.message);
+        return;
+      }
       alert(msg.message);
     });
   }
@@ -122,7 +133,7 @@ export class Lobby {
       if (status) status.textContent = 'Connected!';
       this.maybeFirePeerReady();
     });
-    client.on('state-update', () => this.maybeFirePeerReady());
+    client.on('state-update', (msg: any) => this.maybeFirePeerReady(msg.state));
   }
 
   private async createAndSendOffer(): Promise<void> {
@@ -142,7 +153,7 @@ export class Lobby {
    * The first heartbeat ping from the peer proves the data channel is open
    * in both directions — hand the connection to the app exactly once.
    */
-  private maybeFirePeerReady(): void {
+  private maybeFirePeerReady(rejoiningState?: any): void {
     if (this.peerReadyFired || !this.webrtcClient || !this.role || !this.roomCode) return;
     if (!this.webrtcClient.isConnected()) return;
     this.peerReadyFired = true;
@@ -151,6 +162,7 @@ export class Lobby {
       signalingClient: this.signalingClient,
       role: this.role,
       roomCode: this.roomCode,
+      initialState: rejoiningState,
     });
   }
 

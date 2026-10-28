@@ -52,25 +52,45 @@ function applyMarkers(markers: MarkerSnapshot): void {
   }
 }
 
+// Separate containers for Lobby and HUD so hiding the lobby never hides the HUD.
+const lobbyContainer = document.createElement('div');
+lobbyContainer.id = 'lobby-container';
+app.appendChild(lobbyContainer);
+
 let hud: GameHUD | null = null;
+let gameManager: GameManager | null = null;
+let stopKeepAlive: (() => void) | null = null;
+let viewWired = false;
 
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
-const lobby = new Lobby(app, {
-  onPeerReady: ({ webrtcClient, signalingClient, role }) => {
+const lobby = new Lobby(lobbyContainer, {
+  onPeerReady: ({ webrtcClient, signalingClient, role, initialState }) => {
     void role;
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
 
+    // If the host already has a game in progress and the guest rejoined the
+    // room over a fresh WebRTC data channel, re-bind the existing GameManager
+    // to the new WebRTCClient and re-broadcast the current confirmed state.
+    if (isHost && gameManager && gameManager.getGameState()) {
+      gameManager.rebindWebRTCClient(webrtcClient);
+      lobby.hide();
+      hud?.show();
+      return;
+    }
+
     // Host rolls dice through the signaling server (never client-side).
-    const gameManager = new GameManager(webrtcClient, isHost, {
+    gameManager = new GameManager(webrtcClient, isHost, {
       diceProvider: new SignalingDiceProvider(signalingClient),
     });
 
+    hud?.dispose();
     hud = new GameHUD(app, {
       localPlayerId,
-      controller: { submitAction: (action) => gameManager.sendAction(action) },
+      controller: { submitAction: (action) => gameManager?.sendAction(action) },
     });
+    hud.show();
 
     gameManager.onStateUpdate((state) => {
       latestState = state;
@@ -79,20 +99,27 @@ const lobby = new Lobby(app, {
     });
     gameManager.onActionRejected(({ reason }) => hud?.notifyRejected(reason));
 
-    gameView.onPick((target: PickTarget) => hud?.handleBoardPick(target));
+    if (!viewWired) {
+      viewWired = true;
+      gameView.onPick((target: PickTarget) => hud?.handleBoardPick(target));
+    }
     hud.onMarkers(applyMarkers);
 
     // Keep the signaling room alive while the game runs over WebRTC so
     // mid-game dice requests still reach the server.
-    signalingClient.startKeepAlive();
+    stopKeepAlive?.();
+    stopKeepAlive = signalingClient.startKeepAlive();
 
     if (isHost) {
       gameManager.startGame('Host', 'Guest');
+    } else if (initialState) {
+      // If state-update was the first message that triggered onPeerReady,
+      // feed it to the newly created guest GameManager.
+      gameManager.applyStateUpdate(initialState);
     }
     // The guest receives the starting state through the data channel.
 
     lobby.hide();
-    hud.show();
   },
 });
 

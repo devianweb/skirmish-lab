@@ -86,12 +86,30 @@ export class GameManager {
     }
   }
 
+  /**
+   * Re-bind to a new WebRTCClient when a guest reconnects to the room and
+   * immediately broadcast the current confirmed state to the rejoined guest.
+   */
+  rebindWebRTCClient(webrtcClient: WebRTCClient): void {
+    this.webrtcClient = webrtcClient;
+    this.setupHandlers();
+    if (this.isHost && this.gameState) {
+      this.broadcastState('rejoin');
+    }
+  }
+
+  /** Apply a confirmed state update on the guest (e.g. initial state on connect). */
+  applyStateUpdate(state: GameState): void {
+    if (this.isHost) return;
+    this.gameState = state;
+    this.saveSnapshot(state);
+    this.emitStateUpdate();
+  }
+
   private setupHandlers(): void {
     this.webrtcClient.on('state-update', (msg: GameMessage) => {
       if (!this.isHost && msg.type === 'state-update') {
-        this.gameState = msg.state;
-        this.saveSnapshot(msg.state);
-        this.emitStateUpdate();
+        this.applyStateUpdate(msg.state);
       }
     });
 
