@@ -252,4 +252,64 @@ describe('SignalingServer Integration', () => {
     const notFoundRes = await fetch(`http://localhost:${port}/other`);
     expect(notFoundRes.status).toBe(404);
   });
+
+  it('should allow host to reconnect to an existing room and roll dice with cached idempotency', async () => {
+    let hostWs = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => hostWs.on('open', resolve));
+
+    hostWs.send(JSON.stringify({ type: 'create-room' }));
+    const createdMsg = await new Promise<any>((resolve) => {
+      hostWs.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    const code = createdMsg.code;
+
+    // First dice roll
+    hostWs.send(JSON.stringify({
+      type: 'roll-dice-request',
+      rollId: 'roll-abc',
+      dice: [{ count: 2, sides: 6, purpose: 'to-hit' }],
+    }));
+    const firstRoll = await new Promise<any>((resolve) => {
+      hostWs.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    expect(firstRoll.type).toBe('roll-dice-result');
+    expect(firstRoll.rollId).toBe('roll-abc');
+
+    // Simulate host network drop
+    hostWs.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Room is preserved during grace period
+    expect(server['roomManager'].getRoom(code)).toBeDefined();
+
+    // Reconnect with a new socket
+    const reconnectedHost = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => reconnectedHost.on('open', resolve));
+
+    reconnectedHost.send(JSON.stringify({
+      type: 'reconnect-room',
+      code,
+      role: 'host',
+    }));
+    const reconnectedMsg = await new Promise<any>((resolve) => {
+      reconnectedHost.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    expect(reconnectedMsg.type).toBe('room-reconnected');
+    expect(reconnectedMsg.code).toBe(code);
+    expect(reconnectedMsg.role).toBe('host');
+
+    // Send the same rollId again (retry simulation) -> should return identical cached result
+    reconnectedHost.send(JSON.stringify({
+      type: 'roll-dice-request',
+      rollId: 'roll-abc',
+      dice: [{ count: 2, sides: 6, purpose: 'to-hit' }],
+    }));
+    const secondRoll = await new Promise<any>((resolve) => {
+      reconnectedHost.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    expect(secondRoll.type).toBe('roll-dice-result');
+    expect(secondRoll.results).toEqual(firstRoll.results);
+
+    reconnectedHost.close();
+  });
 });

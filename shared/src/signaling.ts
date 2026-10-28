@@ -4,7 +4,10 @@ export type SignalingMessage =
   | { type: 'room-created', code: string }
   | { type: 'join-room', code: string }
   | { type: 'room-joined', code: string, role: 'host' | 'guest' }
+  | { type: 'reconnect-room', code: string, role: 'host' | 'guest' }
+  | { type: 'room-reconnected', code: string, role: 'host' | 'guest' }
   | { type: 'peer-joined' }
+  | { type: 'peer-reconnected', role: 'host' | 'guest' }
   | { type: 'offer', sdp: any }
   | { type: 'answer', sdp: any }
   | { type: 'ice-candidate', candidate: any }
