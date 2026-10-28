@@ -71,9 +71,17 @@ export class SignalingServer {
       case 'roll-dice-request':
         this.handleDiceRoll(ws, message);
         break;
-      case 'ping':
+      case 'ping': {
+        // Pings double as signaling keep-alive: refreshing room activity here
+        // prevents inactivity cleanup from deleting a room mid-game (dice
+        // requests require the room to exist even after WebRTC is connected).
+        const roomCode = this.clientRooms.get(ws);
+        if (roomCode) {
+          this.roomManager.updateActivity(roomCode);
+        }
         this.send(ws, { type: 'pong' });
         break;
+      }
       case 'leave-room':
         this.handleLeaveRoom(ws);
         break;

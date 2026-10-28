@@ -209,4 +209,32 @@ describe('SignalingServer Integration', () => {
     guest1.close();
     guest2.close();
   });
+
+  it('should refresh room activity on ping so mid-game rooms survive cleanup', async () => {
+    const host = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => host.on('open', resolve));
+
+    host.send(JSON.stringify({ type: 'create-room' }));
+    const roomMsg = await new Promise<any>((resolve) => {
+      host.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    const code = roomMsg.code;
+
+    // Age the room past the inactivity timeout, then ping.
+    const room = server['roomManager'].getRoom(code)!;
+    room.lastActivity = Date.now() - 10 * 60 * 1000;
+
+    host.send(JSON.stringify({ type: 'ping' }));
+    const pong = await new Promise<any>((resolve) => {
+      host.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    expect(pong.type).toBe('pong');
+
+    // The ping refreshed the activity timestamp, so cleanup keeps the room.
+    expect(room.lastActivity).toBeGreaterThan(Date.now() - 60 * 1000);
+    server['roomManager'].cleanup();
+    expect(server['roomManager'].getRoom(code)).toBeDefined();
+
+    host.close();
+  });
 });
