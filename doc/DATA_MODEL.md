@@ -313,8 +313,9 @@ The v1 game ships a data pack in `shared/src/data/` — pure data, no engine log
   five fighters each (`FighterDefinition` incl. a `modelType` for the renderer),
   and `createUnitFromFighter` which copies stats/weapons into spawned `Unit`s.
 - **`scenario.ts`** — default deployment: both players' five fighters on
-  opposite edges of the 44×60 board (facing each other) plus a central
-  terrain layout (walls, crates, columns) with cover/LOS flags.
+  opposite edges of the 36×36 skirmish board (deployed 24" apart, facing each
+  other) plus a central terrain layout (walls, crates, columns) with cover/LOS
+  flags.
 
 Deterministic player IDs (`player-host` / `player-guest`) let both peers
 identify the local player without negotiation.

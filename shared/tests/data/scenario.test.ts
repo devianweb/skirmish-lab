@@ -29,8 +29,8 @@ describe('scenario data pack', () => {
 
   it('deploys the armies on opposite edges inside the board', () => {
     const units = createDefaultScenarioUnits(HOST, GUEST);
-    const halfW = 22;
-    const halfH = 30;
+    const halfW = 18;
+    const halfH = 18;
     for (const unit of units) {
       expect(Math.abs(unit.position.x)).toBeLessThanOrEqual(halfW);
       expect(Math.abs(unit.position.z)).toBeLessThanOrEqual(halfH);

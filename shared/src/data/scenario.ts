@@ -11,12 +11,13 @@ import {
  * middle. Terrain types match the renderer's asset manifest (walls, crates,
  * columns). Pure data — the engine has no scenario-specific logic.
  *
- * Board: 44 x 60 board units, centered at the origin (x: -22..22, z: -30..30).
+ * Board: 36 x 36 board units (standard skirmish size), centered at the origin
+ * (x: -18..18, z: -18..18), with forces deployed 24" apart (z = ±12).
  */
 
 const DEPLOYMENT_SPREAD = [-8, -4, 0, 4, 8];
-const HOST_DEPLOYMENT_Z = -26;
-const GUEST_DEPLOYMENT_Z = 26;
+const HOST_DEPLOYMENT_Z = -12;
+const GUEST_DEPLOYMENT_Z = 12;
 
 function deployArmy(
   army: typeof ARMY_FRONTIER_WARDENS,
@@ -51,7 +52,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-wall-north',
       terrainType: 'wall',
-      position: { x: 0, y: 0, z: 10 },
+      position: { x: 0, y: 0, z: 5 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 3, y: 1.5, z: 0.5 },
       blocksLineOfSight: true,
@@ -61,7 +62,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-wall-south',
       terrainType: 'wall-window',
-      position: { x: -6, y: 0, z: -10 },
+      position: { x: -4, y: 0, z: -5 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 3, y: 1.5, z: 0.5 },
       blocksLineOfSight: true,
@@ -71,7 +72,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-wall-east',
       terrainType: 'wall-doorway',
-      position: { x: 12, y: 0, z: 0 },
+      position: { x: 8, y: 0, z: 0 },
       rotation: { x: 0, y: Math.PI / 2, z: 0 },
       scale: { x: 3, y: 1.5, z: 0.5 },
       blocksLineOfSight: true,
@@ -101,7 +102,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-crate-west',
       terrainType: 'crate',
-      position: { x: -12, y: 0, z: 6 },
+      position: { x: -8, y: 0, z: 3 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       blocksLineOfSight: false,
@@ -111,7 +112,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-column-west',
       terrainType: 'column',
-      position: { x: -10, y: 0, z: 14 },
+      position: { x: -7, y: 0, z: 7 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 2.5, z: 1 },
       blocksLineOfSight: true,
@@ -121,7 +122,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-column-east',
       terrainType: 'column',
-      position: { x: 10, y: 0, z: -14 },
+      position: { x: 7, y: 0, z: -7 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 2.5, z: 1 },
       blocksLineOfSight: true,

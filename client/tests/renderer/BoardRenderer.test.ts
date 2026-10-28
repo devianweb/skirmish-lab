@@ -20,8 +20,8 @@ describe('BoardRenderer', () => {
     const ground = boardGroup.children.find((c) => c.name === 'ground') as THREE.Mesh;
     expect(ground).toBeDefined();
     const params = (ground.geometry as THREE.PlaneGeometry).parameters;
-    expect(params.width).toBe(44); // board.width 44 * gridSize 1
-    expect(params.height).toBe(60);
+    expect(params.width).toBe(36); // board.width 36 * gridSize 1
+    expect(params.height).toBe(36);
   });
 
   it('renders a grid with one line per gridSize step across the board', () => {
@@ -30,9 +30,9 @@ describe('BoardRenderer', () => {
 
     const grid = boardGroup.children.find((c) => c.name === 'grid') as THREE.LineSegments;
     expect(grid).toBeDefined();
-    // board.width 44, board.height 60, gridSize 1 -> 45 vertical + 61 horizontal lines
+    // board.width 36, board.height 36, gridSize 1 -> 37 vertical + 37 horizontal lines
     const position = grid.geometry.getAttribute('position');
-    const expectedPoints = (44 + 1 + 60 + 1) * 2;
+    const expectedPoints = (36 + 1 + 36 + 1) * 2;
     expect(position.count).toBe(expectedPoints);
   });
 
