@@ -10,19 +10,21 @@ This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the
 
 ## 1) Deploy the Signaling Server
 
-You need a persistent WebSocket server reachable over `wss://`. Recommended hosts: Railway (easiest) or Fly.io.
+You need a persistent WebSocket server reachable over `wss://`. Recommended host: Railway.
 
 ### Railway (Recommended)
 
+> **Monorepo note:** do **not** set the service Root Directory to `server/`. The server depends on `@skirmish-lab/shared`, which is an npm workspace resolved via the root `package-lock.json` — installing from `server/` alone would fail. The repo root contains a `railway.json` that tells Railway how to build and start the server, so most of the configuration is already in the repo.
+
 1. Sign up at [railway.app](https://railway.app/) and connect your GitHub account.
-2. Create a new project → Deploy from GitHub repo → select this repo.
-3. Set the root/service to deploy the `server/` directory (set **Root Directory** to `server/`).
+2. Create a new project → Deploy from GitHub repo → select `devianweb/skirmish-lab`.
+3. Leave the service root at the repo root (Railway picks up `railway.json`, which provides the build and start commands below). If Railway does not pick it up, set these in the service settings manually:
+   - Custom Build Command: `npm run build --workspace=shared && npm run build --workspace=server`
+   - Custom Start Command: `node server/dist/index.js`
 4. In the service settings → Source, set the **branch to track** to `release` (so it auto-deploys only when you merge to `release`).
-5. Railway will auto-detect Node, but set the start command if needed:
-   - Build: `npm run build` (or let it run)
-   - Start: `npm run start` (runs `node dist/index.js`)
-6. Railway will provide a public domain (e.g. `your-app.up.railway.app`). Use `wss://your-app.up.railway.app`.
-7. Ensure the server listens on `process.env.PORT` (it does via the fix in `server/src/index.ts`).
+5. In Settings → Networking, generate a public domain. Use `wss://<your-app>.up.railway.app` as `VITE_SIGNALING_URL`.
+
+The server already listens on `process.env.PORT` (`server/src/index.ts`), which Railway provides.
 
 ### Fly.io (Alternative)
 
@@ -35,28 +37,11 @@ You need a persistent WebSocket server reachable over `wss://`. Recommended host
 
 ## 2) Configure the Client for the Deployed Server
 
-The client needs to know where the signaling server is in production.
+Already implemented in the repo:
 
-### Update SignalingClient
-
-In `client/src/network/SignalingClient.ts`, read from Vite env:
-
-```ts
-constructor(url: string = import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8080') {
-  this.url = url;
-}
-```
-
-### Update Vite Config for GitHub Pages
-
-In `client/vite.config.ts`, set the base path to your repo name:
-
-```ts
-export default defineConfig({
-  base: '/skirmish-lab/', // replace with your repo name
-  // ...
-})
-```
+- `client/src/network/SignalingClient.ts` defaults its URL to `import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8080'`.
+- `client/vite.config.ts` sets `base: '/skirmish-lab/'` for GitHub Pages.
+- `client/src/vite-env.d.ts` declares the `VITE_SIGNALING_URL` type.
 
 For local development, leave the env var unset to use `ws://localhost:8080`.
 
@@ -66,84 +51,14 @@ For local development, leave the env var unset to use `ws://localhost:8080`.
 2. Source: **GitHub Actions**
 3. Save
 
-## 4) Create GitHub Actions Workflows
+## 4) GitHub Actions Workflows
 
-Add the following workflows to `.github/workflows/`.
+Both workflows live in the repo — see `.github/workflows/`:
 
-### `.github/workflows/ci.yml` (PR checks - build + test, no deploy)
+- **`.github/workflows/ci.yml`** — PR checks: triggers on PRs to `master` (and pushes to `master`). Runs `npm ci`, builds all workspaces (root build script orders them shared → client → server, since client/server compile against `shared/dist`), and runs all workspace tests. **Never deploys.**
+- **`.github/workflows/deploy.yml`** — release deploys: triggers only on pushes to `release`. Builds and tests everything, rebuilds the client with `VITE_SIGNALING_URL` from repo secrets, and deploys `client/dist` to GitHub Pages via the official Pages actions.
 
-```yaml
-name: CI
-
-on:
-  pull_request:
-    branches: [ master, main ]
-
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run build --workspaces --if-present
-      - run: npm test --workspaces --if-present
-```
-
-### `.github/workflows/deploy.yml` (Release branches - build + test + deploy)
-
-```yaml
-name: Deploy to GitHub Pages
-
-on:
-  push:
-    branches:
-      - 'release'
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: 'pages'
-  cancel-in-progress: true
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run build --workspaces --if-present
-      - run: npm test --workspaces --if-present
-      - name: Build client for Pages
-        run: npm run build --workspace=client
-        env:
-          VITE_SIGNALING_URL: ${{ secrets.VITE_SIGNALING_URL }}
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./client/dist
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-```
+To change CI/deploy behavior, edit those files — this document only describes them.
 
 ## 5) Add Secrets
 
@@ -152,10 +67,10 @@ In your repo → Settings → Secrets and variables → Actions, add:
 
 ## 6) Deploy
 
-1. Push the workflows and client config changes.
-2. When ready to demo, merge `main` into `release` and push: `git checkout release && git merge main && git push`
+1. Push the workflows and client config changes (done via the Phase 3.5 PR), and create the `release` branch once: `git push origin master:release`.
+2. When ready to demo, merge `master` into `release` and push: `git checkout release && git merge master && git push`
 3. Railway will auto-deploy the server from `release`. GitHub Actions will build, test, and deploy the client to GitHub Pages from `release`. Check the Actions tab for progress.
-4. Once deployed, visit `https://<username>.github.io/<repo-name>/`
+4. Once deployed, visit `https://devianweb.github.io/skirmish-lab/`
 5. Share with friends - they can create/join rooms and connect over WebRTC via your signaling server.
 
 ## Troubleshooting

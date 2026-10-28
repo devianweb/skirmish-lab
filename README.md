@@ -1,5 +1,8 @@
 # SkirmishLab
 
+[![CI](https://github.com/devianweb/skirmish-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/devianweb/skirmish-lab/actions/workflows/ci.yml)
+[![Deploy](https://github.com/devianweb/skirmish-lab/actions/workflows/deploy.yml/badge.svg)](https://github.com/devianweb/skirmish-lab/actions/workflows/deploy.yml)
+
 An unofficial, unendorsed tabletop skirmish simulator for [One Page Rules](https://onepagerules.com/) games, built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play.
 
 **Currently targeting:** Grimdark Future: Firefight. Age of Fantasy: Skirmish support is planned (the engine is ruleset-agnostic — rulesets are data packs).
@@ -72,7 +75,7 @@ skirmish-lab/
 
 - **PR Checks**: Pull requests run build and tests across all workspaces (no deployment).
 - **Demos**: Merges/pushes to the `release` branch trigger deployments. The client deploys to [GitHub Pages](https://pages.github.com/), and the signaling server (deployed to Railway/Fly.io) auto-deploys from the `release` branch over WSS.
-- **Release Flow**: Merge `main` → `release` when ready to demo/show off.
+- **Release Flow**: Merge `master` → `release` when ready to demo/show off.
 
 See [doc/DEPLOYMENT.md](doc/DEPLOYMENT.md) for setup instructions.
 

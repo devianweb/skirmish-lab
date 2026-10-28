@@ -64,7 +64,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 
 ## CI/CD & Deployment
 - **PR Checks:** Pull requests to `main`/`master` must build and run tests across all workspaces. No deployments from PRs.
-- **Release Deployments:** Only merges/pushes to the `release` branch trigger deployment. Railway tracks the `release` branch for the signaling server (auto-deploy), and GitHub Actions deploys the client to GitHub Pages from the `release` branch. Deployments are intentional - merge `main` → `release` when ready to demo.
+- **Release Deployments:** Only merges/pushes to the `release` branch trigger deployment. Railway tracks the `release` branch for the signaling server (auto-deploy), and GitHub Actions deploys the client to GitHub Pages from the `release` branch. Deployments are intentional - merge `master` → `release` when ready to demo.
 - **Configuration:** The client uses `VITE_SIGNALING_URL` to point to the deployed signaling server. For GitHub Pages, ensure `base` is configured correctly in `client/vite.config.ts`.
 - **Documentation:** See [DEPLOYMENT.md](doc/DEPLOYMENT.md) for full setup instructions.
 
