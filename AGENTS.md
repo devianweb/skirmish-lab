@@ -74,6 +74,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - All new features must have tests before merging
 - Tests should run in CI and pass locally
 - Use Vitest for both client and server tests
+- Client and server tests resolve `@skirmish-lab/shared` via the workspace's compiled `shared/dist` output, not its TypeScript sources — if shared code changes don't appear in client/server tests, rebuild first (`npm run build --workspace=shared`)
 
 ## Testing Philosophy
 - **Test behavior, not structure.** Don't test that methods exist or types compile - TypeScript handles that.

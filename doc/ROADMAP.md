@@ -162,9 +162,17 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 6: OPR Skirmish Rules Engine
 **Goal:** Implement OPR-style skirmish mechanics from first principles
 
+> **Status:** The OPR pivot's rebrand (R1), docs re-spec (R2), and schema refactor (R3) are
+> complete — the first two tasks below landed with the schema refactor (state schema
+> v2.0.0, see `doc/DATA_MODEL.md`). The remaining pivot-plan work (army data schema +
+> two hardcoded armies, and the Q/D rules engine) is folded into this phase; it is
+> tracked here only, in ROADMAP order (after Phases 3.5–5).
+> Army data must use original/generic faction names until any OPR endorsement
+> discussion clarifies acceptable data use.
+
 ### Tasks
-- [ ] Refactor stat schema to OPR standard (Quality Q, Defense D, speed, wounds)
-- [ ] Alternating activation turn state (replaces TC phase structure)
+- [x] Refactor stat schema to OPR standard (Quality Q, Defense D, speed, wounds)
+- [x] Alternating activation turn state (replaces TC phase structure)
 - [ ] To-hit rolls vs Quality (d6 target number)
 - [ ] Defense rolls to block hits (cover modifiers)
 - [ ] Wound/stun application and tracking
