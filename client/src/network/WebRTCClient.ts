@@ -55,6 +55,9 @@ export class WebRTCClient {
     this.dataChannel.onopen = () => {
       console.log('Data channel opened');
       this.startHeartbeat();
+      // Send an immediate ping so both peers know the channel is live without
+      // waiting for the first 3-second heartbeat interval.
+      this.send({ type: 'heartbeat-ping', timestamp: Date.now() });
     };
 
     this.dataChannel.onclose = () => {

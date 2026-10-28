@@ -33,14 +33,14 @@ Players of One Page Rules skirmish games (Grimdark Future: Firefight first) who 
 - [ ] WebRTC P2P connection with invite codes
 - [ ] Custom Node.js + ws signaling server
 - [ ] Host-authoritative alternating-activation gameplay
-- [ ] 3D battlefield rendering with Three.js
+- [x] 3D battlefield rendering with Three.js
 - [ ] OPR skirmish rule implementation (Q/D rolls, alternating activations, wounds/stun, morale)
 - [ ] Two hardcoded armies as data files (original faction names)
 - [ ] Server-rolled dice
 - [ ] Action confirmation system (no real-time dragging)
 - [ ] Basic reconnection (rejoin host's state if host returns)
 - [ ] Game state snapshots and action log
-- [ ] Low-poly model rendering
+- [x] Low-poly model rendering
 
 ### Out of Scope (v1)
 - [ ] AI opponent

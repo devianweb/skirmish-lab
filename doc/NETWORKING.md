@@ -115,6 +115,23 @@ Guest wants to move unit:
 8. Both renderers update from new game state
 ```
 
+### Game Start Flow (Phase 5, as shipped)
+```
+1. Both peers complete the WebRTC handshake; the first heartbeat proves
+   the channel is alive → Lobby fires onPeerReady exactly once
+2. Both clients construct GameManager (host also with a
+   SignalingDiceProvider) and wire GameManager.onStateUpdate →
+   GameView + GameHUD
+3. Host calls GameManager.startGame(): creates initial state, applies the
+   default scenario data pack, broadcasts state-update ("game-start")
+4. Guest receives the starting state; both HUDs render "your turn" for
+   the host (round 1 starter)
+5. Signaling keep-alive pings begin; the P2P game is live
+```
+
+Player IDs are deterministic (`player-host` / `player-guest` in shared),
+so both peers know their local identity without negotiation.
+
 ## Dice Rolling
 
 ### Server-Authoritative RNG
@@ -131,6 +148,34 @@ Guest wants to move unit:
 4. Server sends roll-dice-result to both host and guest simultaneously
 5. Both peers display and apply results to game state resolution
 ```
+
+### Phase 5 Dice Flow (as shipped)
+The host client drives attack resolution (`SignalingDiceProvider` +
+`GameManager`):
+
+```
+1. Attacker confirms a shoot/fight action in the HUD
+2. HUD → GameManager.sendAction (host: local; guest: action-request over
+   the data channel)
+3. Host validates the action first — illegal actions never spend a roll
+4. Host computes the dice specs (N to-hit + N defense d6) and sends
+   roll-dice-request with rollId = the action id
+5. Server rolls (crypto RNG) and broadcasts roll-dice-result to both peers
+6. Host resolves deterministically, attaches the DiceResolution to the
+   action log entry, and broadcasts state-update
+7. Both peers' HUDs render the dice panel from the confirmed state
+```
+
+The host processes one action at a time; actions arriving while dice are
+in flight are rejected with "Another action is being processed".
+
+### Signaling Keep-Alive
+Once gameplay runs over the data channel, the signaling WebSocket sees no
+natural traffic — but dice requests still need the room to exist on the
+server. Clients therefore ping the signaling server every 60 s
+(`SignalingClient.startKeepAlive`); the server's `ping` handler refreshes
+room activity, so rooms no longer expire mid-game. (Rooms still expire on
+the max-lifetime and disconnect rules.)
 
 ### Dice Types
 Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resolution).

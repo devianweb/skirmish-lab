@@ -26,30 +26,39 @@ This project is split into two main components: a frontend (browser-based Three.
 
 ## Frontend Architecture
 
-### Folder Structure (Proposed)
+### Folder Structure (as of Phase 5)
 ```
-src/
+shared/src/
+├── engine/                    # Pure rules logic (host-authoritative)
+│   ├── activation.ts          # Alternating activations & round management
+│   ├── combat.ts              # Q/D d6 resolution from server dice
+│   └── actions.ts             # Action validation + application
+├── data/                      # Data packs (no engine logic)
+│   ├── weapons.ts             # Weapon profiles
+│   ├── armies.ts              # Fighter definitions, two original armies
+│   └── scenario.ts            # Default deployment + terrain layout
+
+src/                           # client/src
 ├── core/
-│   ├── GameState.ts      # Pure, serializable game state types & utilities
-│   ├── GameEngine.ts     # Host-side validation & state transitions
-│   ├── ActionLog.ts      # Action log management
-│   └── Rules.ts          # Rules engine implementations (OPR-style skirmish math)
+│   └── GameManager.ts        # Host authority, engine application, dice orchestration
 ├── network/
-│   ├── SignalingClient.ts # WebSocket connection to signaling server
-│   ├── WebRTCClient.ts   # WebRTC peer connection & data channel
-│   ├── Protocol.ts       # Message types & serialization
-│   └── Heartbeat.ts      # Connection monitoring
+│   ├── SignalingClient.ts     # WebSocket connection to signaling server (+ keep-alive)
+│   ├── SignalingDiceProvider.ts # Server-rolled dice for the host
+│   ├── WebRTCClient.ts        # WebRTC peer connection & data channel
+│   └── Protocol.ts            # Message types & serialization
 ├── renderer/
-│   ├── SceneManager.ts   # Three.js scene setup
-│   ├── CameraController.ts # Camera controls
-│   ├── ModelLoader.ts    # Asset loading (low poly)
-│   ├── BoardRenderer.ts  # Terrain/board visualization
-│   └── UnitRenderer.ts   # Unit model rendering (syncs from game state)
+│   ├── SceneManager.ts        # Three.js scene setup
+│   ├── CameraController.ts    # Desktop camera controls
+│   ├── ModelLoader.ts         # Asset loading + GLB registry with placeholder swap
+│   ├── assetManifest.ts       # Curated CC0 (Kenney) asset mappings
+│   ├── BoardRenderer.ts       # Terrain/board visualization
+│   ├── UnitRenderer.ts        # Unit models (syncs from game state) + raycast picking
+│   ├── MarkerRenderer.ts      # Selection/target/range markers, outcome tokens
+│   └── GameView.ts            # State-driven facade + click picking
 ├── ui/
-│   ├── Lobby.ts          # Invite code creation/joining
-│   ├── HUD.ts            # Game UI, turn info, actions
-│   └── DiceRoller.ts     # Display dice results
-└── main.ts               # Entry point
+│   ├── Lobby.ts               # Invite code creation/joining, peer-ready handoff
+│   └── GameHUD.ts             # Turn info, action selection, confirmation, dice display
+└── main.ts                    # Entry point: wires Lobby → GameManager → GameView + HUD
 ```
 
 ### Data Flow
@@ -62,7 +71,24 @@ src/
 6. **State Application** → Both peers apply confirmed state to their local game state copies
 7. **Render Sync** → Renderer reads from game state and updates Three.js objects to match (one-way binding)
 
-**Critical:** The renderer MUST read from game state. Game state MUST NOT read from Three.js objects.
+**Critical:** the renderer MUST read from game state. Game state MUST NOT read from Three.js objects.
+
+### Phase 5 Flow (as shipped)
+```
+Lobby (onPeerReady) ─► GameManager ── GameHUD (submit confirmed actions)
+        │                   │   ▲               │
+        │            (host) validate ──► shared engine (validateAction)
+        │            (host) dice ──► SignalingDiceProvider ──► signaling server
+        │            (host) applyAction ──► new state ──► broadcast + emit
+        ▼                   ▼
+  SignalingClient    GameManager.onStateUpdate ──► GameView.syncFromState
+  (keep-alive ping)                                     │
+                                                  scene + markers
+  GameView.onPick(board click) ──► GameHUD.handleBoardPick (selection/targeting)
+```
+
+Only confirmed actions leave the HUD; the host processes one action at a
+time (dice requests are awaited); rejections surface to both peers.
 
 ## Backend Architecture (Signaling Server)
 
@@ -119,9 +145,13 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 ### Key Components
 - **SceneManager:** Initializes Three.js scene, camera, lighting, renderer
 - **CameraController:** Desktop camera controls for viewing the battlefield
-- **BoardRenderer:** Renders terrain, trenches, obstacles from game state
-- **UnitRenderer:** Creates/updates/removes meshes based on units in game state
-- **ModelLoader:** Loads low-poly GLTF/OBJ models (future: converted from .STL)
+- **BoardRenderer:** Renders terrain, trenches, obstacles from game state (registered terrain types render as curated GLB models)
+- **UnitRenderer:** Creates/updates/removes meshes based on units in game state; provides raycast picking for the unit layer
+- **ModelLoader:** Loads and caches GLTF models; hosts a unit/terrain/marker asset registry — registered types get a procedural placeholder that swaps to the GLB clone once loaded (per-instance geometry/materials keep tinting and disposal safe)
+- **assetManifest:** Maps fighter roles, terrain types, and UI markers to curated CC0 (Kenney prototype kit) GLBs in `client/public/models/`
+- **MarkerRenderer:** Gameplay UI markers — selection and target indicators, movement-range ring, auto-clearing wound outcome tokens (GLB with procedural fallbacks)
+- **GameView:** State-driven rendering facade — the single entry point that turns game state into a scene (board/terrain rebuilt only on change, units diffed every sync), plus click picking (units and ground positions, camera drags filtered out). The renderer layer is injectable for tests, so scene logic is testable without WebGL
+- **GameHUD:** In-game overlay — round/turn info, unit list, action selection with explicit confirmation for every action, dice result and action log panels; driven purely by confirmed state
 
 ## Connection Lifecycle
 

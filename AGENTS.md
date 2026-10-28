@@ -64,7 +64,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 
 ## CI/CD & Deployment
 - **PR Checks:** Pull requests to `main`/`master` must build and run tests across all workspaces. No deployments from PRs.
-- **Release Deployments:** Only a **merged PR into the `release` branch** triggers client deployment. Railway tracks the `release` branch for the signaling server (auto-deploy), and GitHub Actions deploys the client to GitHub Pages when a PR targeting `release` is merged. Deployments are intentional - open a PR (`master` → `release`) and merge it when ready to demo.
+- **Release Deployments:** Only a **merged PR into the `release` branch** triggers deployment. GitHub Actions deploys the client to GitHub Pages and the signaling server to Azure App Service (Linux Node 20 LTS, Free F1 tier) when a PR targeting `release` is merged. Deployments are intentional — open a PR (`master` → `release`) and merge it when ready to demo.
 - **Configuration:** The client uses `VITE_SIGNALING_URL` to point to the deployed signaling server. For GitHub Pages, ensure `base` is configured correctly in `client/vite.config.ts`.
 - **Documentation:** See [DEPLOYMENT.md](doc/DEPLOYMENT.md) for full setup instructions.
 
@@ -74,7 +74,9 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - All new features must have tests before merging
 - Tests should run in CI and pass locally
 - Use Vitest for both client and server tests
-- Client and server tests resolve `@skirmish-lab/shared` via the workspace's compiled `shared/dist` output, not its TypeScript sources — if shared code changes don't appear in client/server tests, rebuild first (`npm run build --workspace=shared`)
+- Server tests resolve `@skirmish-lab/shared` via the workspace's compiled `shared/dist` output, not its TypeScript sources — if shared code changes don't appear in server tests, rebuild first (`npm run build --workspace=shared`). The client's Vite config aliases `@skirmish-lab/shared` to its TypeScript source (shared compiles to CommonJS whose barrel re-exports Vite's bundler cannot statically analyze), so client tests and builds always use current shared sources.
+- Rules logic lives in `shared/src/engine/` as pure functions over `GameState` — test it in the shared workspace; the client's `GameManager` orchestration (dice requests, broadcast, rejection) is tested in the client workspace with injected dice providers
+- Renderer tests use real Three.js scene classes, which run headless (node environment) for pure scene logic (board/unit/model/game-view); DOM- or WebGL-dependent components use the `jsdom` environment (via `@vitest-environment jsdom` docblock) with `three`'s `WebGLRenderer` mocked
 
 ## Testing Philosophy
 - **Test behavior, not structure.** Don't test that methods exist or types compile - TypeScript handles that.

@@ -1,20 +1,35 @@
+import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomManager } from './Room';
 import { DiceRoller } from './DiceRoller';
 import { SignalingMessage } from '@skirmish-lab/shared';
 
 export class SignalingServer {
+  private httpServer: http.Server;
   private wss: WebSocketServer;
   private roomManager: RoomManager;
   private diceRoller: DiceRoller;
   private clientRooms: Map<WebSocket, string> = new Map();
 
   constructor(port: number) {
-    this.wss = new WebSocketServer({ port });
+    this.httpServer = http.createServer((req, res) => {
+      if (req.method === 'GET' && (req.url === '/' || req.url === '/healthz')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', service: 'skirmish-lab-signaling' }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    });
+
+    this.wss = new WebSocketServer({ server: this.httpServer });
     this.roomManager = new RoomManager();
     this.diceRoller = new DiceRoller();
     this.setupServer();
-    console.log(`Signaling server running on port ${port}`);
+
+    this.httpServer.listen(port, () => {
+      console.log(`Signaling server running on port ${port}`);
+    });
   }
 
   private setupServer(): void {
@@ -71,9 +86,17 @@ export class SignalingServer {
       case 'roll-dice-request':
         this.handleDiceRoll(ws, message);
         break;
-      case 'ping':
+      case 'ping': {
+        // Pings double as signaling keep-alive: refreshing room activity here
+        // prevents inactivity cleanup from deleting a room mid-game (dice
+        // requests require the room to exist even after WebRTC is connected).
+        const roomCode = this.clientRooms.get(ws);
+        if (roomCode) {
+          this.roomManager.updateActivity(roomCode);
+        }
         this.send(ws, { type: 'pong' });
         break;
+      }
       case 'leave-room':
         this.handleLeaveRoom(ws);
         break;
@@ -186,5 +209,6 @@ export class SignalingServer {
   close(): void {
     this.roomManager.destroy();
     this.wss.close();
+    this.httpServer.close();
   }
 }

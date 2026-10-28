@@ -11,7 +11,7 @@ Instead of per-player phases, the game uses **alternating unit activations**:
 2. The starting player activates one of their units.
 3. Players alternate: each activation, the other player then activates one of their own units.
 4. When one player has no unactivated units left, the other player activates their remaining units one after another.
-5. When all units on both sides have activated, the round ends: cleanup, morale checks, then a new round begins with the other player starting.
+5. When all units on both sides have activated, the round ends: cleanup, morale checks, then a new round begins with the player who finished activating all of their units first in the previous round (the opponent of the player who took the final activation).
 
 ### Activation State
 ```typescript
@@ -29,6 +29,32 @@ An activated unit may typically:
 - **Move and/or act** (shoot or fight), in either order or only one
 - **Hold** (stay put, no action)
 Movement allowances and action restrictions come from unit data and special rules (e.g., some units may not shoot after moving).
+
+### Phase 5 Implementation (as shipped)
+The basic action set is live in the shared engine (`shared/src/engine/`):
+
+- **`activate-unit`** marks the unit activated, clears `stunned`, and sets
+  `turnState.activeUnitId`. A `hold` is a one-step activation: the unit
+  activates, does nothing, and the activation ends immediately.
+- **`move-unit`** spends `remainingMovement` by straight-line path length;
+  every path point must stay inside the board. Engaged units cannot move
+  away. (Pathfinding around obstacles is Phase 6.)
+- **`shoot`** requires a ranged weapon, an enemy target in range, and the
+  attacker not engaged. Resolution needs server-rolled dice (below).
+- **`charge`** moves the charger to engagement distance 1 of the target
+  (path end must match), consumes all remaining movement, and marks both
+  units `engaged`. Already-engaged units must fight instead.
+- **`fight`** requires the attacker `engaged`, the target within 1.5 board
+  units, and a melee weapon.
+- **`end-activation`** passes initiative: the opponent activates next if
+  they still have units; otherwise the current player keeps activating
+  their remaining units; when all units have activated, the round ends and
+  a new one begins with the other player starting.
+- **`end-round`** is only legal when the round is complete (normally
+  rounds end automatically via `end-activation`).
+- Engagements persist across rounds; stun clears only via the unit's own
+  activation. Win condition (v1): elimination — the game ends when a player
+  has no living units.
 
 ## Combat Resolution (Quality / Defense)
 
@@ -122,7 +148,6 @@ interface FighterDefinition {
   weapons: string[];         // Weapon profile IDs
   specialRules: string[];    // Special rule IDs
 }
-
 interface ArmyDefinition {
   id: string;
   name: string;
@@ -130,6 +155,14 @@ interface ArmyDefinition {
   fighters: FighterDefinition[];
 }
 ```
+
+> **Phase 5 note:** the shipped `FighterDefinition` (in
+> `shared/src/data/armies.ts`) adds a `modelType` field
+> (`leader | trooper | specialist | heavy`) that the renderer maps to a
+> curated model. The v1 pack ships two original armies — **Frontier
+> Wardens** (defensive) and **Rust Raiders** (fast) — each with five
+> fighters, plus a default scenario (`shared/src/data/scenario.ts`):
+> edge deployment, five units per side, and a central terrain layout.
 
 - **v1 ships two hardcoded armies** as data files with original faction names and fighters.
 - The schema is intentionally shaped so external roster formats (e.g., Army Forge) can be ingested later as a data-layer feature without engine changes.
@@ -199,6 +232,22 @@ Track all modifiers to rolls:
 - Quality modifiers (to-hit)
 - Defense modifiers (cover, AP)
 - Re-rolls where special rules provide them
+
+### Phase 5 Implementation (as shipped)
+- Dice specs are computed by the host (`getDiceSpecs` in
+  `shared/src/engine/actions.ts`): `attacks` to-hit dice plus `attacks`
+  defense dice, all d6. Dice-expression attack counts (e.g. `D3`) are
+  rules-engine territory (Phase 6) and rejected in Phase 5.
+- Defense dice pair with **hits** in order: the 1st hit uses the 1st
+  defense die, the 2nd hit the 2nd, etc. Defense dice beyond the number of
+  hits are unused. Both peers see the full roll, so this is transparent.
+- **Cover:** a defender with `in-cover` status imposes +1 on the effective
+  Quality needed to hit them (cover makes targets harder to hit).
+- The host validates an action *before* requesting dice, so illegal actions
+  never spend a server roll. The resolution (`DiceResolution`, including
+  the derived outcome) is attached to the action log entry and broadcast in
+  the state — both players' dice displays read from state, never from
+  local rolls.
 
 ## Line of Sight & Targeting
 

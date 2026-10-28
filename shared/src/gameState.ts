@@ -1,6 +1,13 @@
 import { GameState, GameAction, Player, TurnState, Board, Unit, UnitStatus } from './gameTypes';
 
-export const SCHEMA_VERSION = '2.0.0';
+export const SCHEMA_VERSION = '2.1.0';
+
+/**
+ * Deterministic player IDs. Roles are fixed for v1 (one host, one guest), so
+ * both peers can compute the local player's ID without extra negotiation.
+ */
+export const HOST_PLAYER_ID = 'player-host';
+export const GUEST_PLAYER_ID = 'player-guest';
 
 export function createInitialGameState(hostId: string, guestId: string, hostName: string = 'Host', guestName: string = 'Guest'): GameState {
   const now = Date.now();
@@ -34,8 +41,8 @@ export function createInitialGameState(hostId: string, guestId: string, hostName
   };
 
   const board: Board = {
-    width: 44,
-    height: 60,
+    width: 36,
+    height: 36,
     gridSize: 1,
     scale: 1,
     terrain: [],
@@ -144,10 +151,12 @@ export function validateActionBasic(action: GameAction, state: GameState): { val
       return { valid: false, reason: 'Unit is destroyed' };
     }
 
-    if (action.type === 'activate-unit') {
-      // Starting an activation: unit must not have already activated this
-      // round. A stunned unit may be activated (its activation is spent
-      // clearing the stun), but a routed unit cannot activate at all.
+    if (action.type === 'activate-unit' || action.type === 'hold') {
+      // Starting an activation (hold is a one-step activation: the unit
+      // activates, does nothing, and the activation ends). The unit must not
+      // have already activated this round. A stunned unit may activate (its
+      // activation is spent clearing the stun), but a routed unit cannot
+      // activate at all.
       if (state.turnState.unitsActivatedThisRound.includes(unitId) || unit.isActivated) {
         return { valid: false, reason: 'Unit already activated this round' };
       }

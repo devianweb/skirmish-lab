@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GameManager } from '../../src/core/GameManager';
 import { WebRTCClient } from '../../src/network/WebRTCClient';
-import { createAction } from '@skirmish-lab/shared';
+import {
+  HOST_PLAYER_ID,
+  GUEST_PLAYER_ID,
+  createAction,
+} from '@skirmish-lab/shared';
 
 describe('GameManager', () => {
   let mockWebRTC: WebRTCClient;
@@ -127,5 +131,555 @@ describe('GameManager', () => {
     const action = createAction('host1', 'end-round', { type: 'end-round' });
     gameManagerHost.sendAction(action);
     expect(mockWebRTC.send).not.toHaveBeenCalled();
+  });
+
+  describe('startGame', () => {
+    it('spawns the default scenario as host and broadcasts the starting state', () => {
+      const handler = vi.fn();
+      gameManagerHost.onStateUpdate(handler);
+
+      gameManagerHost.startGame('Alice', 'Bob');
+
+      const state = gameManagerHost.getGameState()!;
+      expect(state.status).toBe('in-progress');
+      expect(state.units).toHaveLength(10);
+      expect(state.terrain.length).toBeGreaterThan(0);
+      expect(state.players[0].name).toBe('Alice');
+      expect(state.players[1].name).toBe('Bob');
+      expect(state.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(mockWebRTC.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'state-update', actionId: 'game-start' })
+      );
+    });
+
+    it('is a no-op for the guest (state arrives via updates)', () => {
+      gameManagerGuest.startGame();
+      expect(gameManagerGuest.getGameState()).toBeNull();
+      expect(mockWebRTC.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Phase 5 action flow (host authoritative)', () => {
+    function startedHost(diceProvider?: any): GameManager {
+      const manager = new GameManager(mockWebRTC, true, { diceProvider });
+      manager.startGame();
+      (mockWebRTC.send as any).mockClear();
+      return manager;
+    }
+
+    it('applies a confirmed activation as host and emits the new state', () => {
+      const manager = startedHost();
+      const handler = vi.fn();
+      manager.onStateUpdate(handler);
+
+      const unitId = manager.getGameState()!.units[0].id;
+      const action = createAction(HOST_PLAYER_ID, 'activate-unit', {
+        type: 'activate-unit',
+        unitId,
+      });
+      manager.sendAction(action);
+
+      const state = manager.getGameState()!;
+      expect(state.turnState.activeUnitId).toBe(unitId);
+      expect(state.actionLog).toHaveLength(1);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(mockWebRTC.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'state-update', actionId: action.id })
+      );
+    });
+
+    it('rejects an illegal action, surfaces it locally, and notifies the guest', () => {
+      const manager = startedHost();
+      const rejectionHandler = vi.fn();
+      manager.onActionRejected(rejectionHandler);
+
+      // Guest tries to act on the host's turn.
+      const action = createAction(GUEST_PLAYER_ID, 'hold', {
+        type: 'hold',
+        unitId: 'whatever',
+      });
+      manager.sendAction(action);
+
+      expect(manager.getGameState()!.actionLog).toHaveLength(0);
+      expect(rejectionHandler).toHaveBeenCalledWith({
+        actionId: action.id,
+        reason: 'Not your turn',
+      });
+      expect(mockWebRTC.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'action-rejected', reason: 'Not your turn' })
+      );
+    });
+
+    it('routes guest action requests through host validation and application', () => {
+      const manager = startedHost();
+
+      // Make it the guest's turn and let the guest activate their leader.
+      const guestUnit = manager
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
+      manager.getGameState()!.turnState.currentPlayerId = GUEST_PLAYER_ID;
+      // Feed the mutation through the manager's own state (deep copy guard):
+      const patched = manager.getGameState()!;
+      patched.turnState.currentPlayerId = GUEST_PLAYER_ID;
+      (manager as any).gameState = patched;
+
+      const action = createAction(GUEST_PLAYER_ID, 'activate-unit', {
+        type: 'activate-unit',
+        unitId: guestUnit.id,
+      });
+      handlers.get('action-request')!({ type: 'action-request', action });
+
+      expect(manager.getGameState()!.turnState.activeUnitId).toBe(guestUnit.id);
+      expect(mockWebRTC.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'state-update', actionId: action.id })
+      );
+    });
+
+    it('requests server dice for shoot and applies the resolution', async () => {
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+        ]),
+      };
+      const manager = startedHost(diceProvider);
+
+      const state = manager.getGameState()!;
+      // Host activates their first fighter (a ranged rifle trooper).
+      const attacker = state.units.find(
+        (u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.profile.type === 'ranged')
+      )!;
+      manager.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: attacker.id })
+      );
+      // Move the attacker into rifle range of a guest unit.
+      const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
+      (manager as any).gameState.units.find((u: any) => u.id === attacker.id).position = {
+        x: target.position.x,
+        y: 0,
+        z: target.position.z - 10,
+      };
+
+      const action = createAction(HOST_PLAYER_ID, 'shoot', {
+        type: 'shoot',
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
+      });
+      manager.sendAction(action);
+      await Promise.resolve(); // let the dice promise settle
+
+      expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
+        { count: 1, sides: 6, purpose: 'to-hit' },
+        { count: 1, sides: 6, purpose: 'defense' },
+      ]);
+
+      const after = manager.getGameState()!;
+      const entry = after.actionLog.find((e) => e.action.id === action.id)!;
+      // Roll 6 hits (Q4), defense 1 fails to block (D5) — one wound.
+      expect(entry.dice!.outcome.wounds).toBe(1);
+      const targetAfter = after.units.find((u) => u.id === target.id)!;
+      expect(targetAfter.wounds).toBe(targetAfter.maxWounds - 1);
+    });
+
+    it('rejects the action when server dice are unavailable', async () => {
+      const diceProvider = {
+        requestRoll: vi.fn().mockRejectedValue(new Error('timeout')),
+      };
+      const manager = startedHost(diceProvider);
+      const rejectionHandler = vi.fn();
+      manager.onActionRejected(rejectionHandler);
+
+      const state = manager.getGameState()!;
+      const attacker = state.units.find(
+        (u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.profile.type === 'ranged')
+      )!;
+      manager.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: attacker.id })
+      );
+      const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
+      (manager as any).gameState.units.find((u: any) => u.id === attacker.id).position = {
+        x: target.position.x,
+        y: 0,
+        z: target.position.z - 10,
+      };
+
+      const action = createAction(HOST_PLAYER_ID, 'shoot', {
+        type: 'shoot',
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
+      });
+      manager.sendAction(action);
+      await Promise.resolve();
+
+      expect(rejectionHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'Dice roll failed or timed out' })
+      );
+      expect(manager.getGameState()!.actionLog.find((e) => e.action.id === action.id)).toBeUndefined();
+    });
+
+    it('rejects actions submitted while dice are still in flight', async () => {
+      let releaseDice: (results: any[]) => void = () => {};
+      const diceProvider = {
+        requestRoll: vi.fn().mockImplementation(
+          () => new Promise((resolve) => (releaseDice = resolve))
+        ),
+      };
+      const manager = startedHost(diceProvider);
+      const rejectionHandler = vi.fn();
+      manager.onActionRejected(rejectionHandler);
+
+      const state = manager.getGameState()!;
+      const attacker = state.units.find(
+        (u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.profile.type === 'ranged')
+      )!;
+      manager.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: attacker.id })
+      );
+      const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
+      (manager as any).gameState.units.find((u: any) => u.id === attacker.id).position = {
+        x: target.position.x,
+        y: 0,
+        z: target.position.z - 10,
+      };
+
+      const shoot = createAction(HOST_PLAYER_ID, 'shoot', {
+        type: 'shoot',
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
+      });
+      manager.sendAction(shoot); // in flight — never resolved yet
+
+      const second = createAction(HOST_PLAYER_ID, 'hold', {
+        type: 'hold',
+        unitId: 'some-unit',
+      });
+      manager.sendAction(second);
+
+      expect(rejectionHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'Another action is being processed' })
+      );
+
+      releaseDice([
+        { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
+        { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      ]);
+      await Promise.resolve();
+      expect(manager.getGameState()!.actionLog.find((e) => e.action.id === shoot.id)).toBeDefined();
+    });
+  });
+
+  describe('host <-> guest integration over a fake data channel', () => {
+    function makeChannelPair() {
+      // Two WebRTCClient mocks wired so either side's send() delivers to the
+      // other side's registered handlers, mimicking an open data channel.
+      const hostHandlers = new Map<string, Function[]>();
+      const guestHandlers = new Map<string, Function[]>();
+
+      const hostWebRTC = {
+        on: vi.fn((type: string, handler: Function) => {
+          hostHandlers.set(type, [...(hostHandlers.get(type) ?? []), handler]);
+        }),
+        send: vi.fn((message: any) => {
+          for (const handler of guestHandlers.get(message.type) ?? []) handler(message);
+        }),
+      } as any;
+      const guestWebRTC = {
+        on: vi.fn((type: string, handler: Function) => {
+          guestHandlers.set(type, [...(guestHandlers.get(type) ?? []), handler]);
+        }),
+        send: vi.fn((message: any) => {
+          for (const handler of hostHandlers.get(message.type) ?? []) handler(message);
+        }),
+      } as any;
+
+      return { hostWebRTC, guestWebRTC };
+    }
+
+    it('runs a full alternating activation turn across the wire', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const guest = new GameManager(guestWebRTC, false);
+      const guestStates: any[] = [];
+      guest.onStateUpdate((state) => guestStates.push(state));
+
+      host.startGame();
+
+      // Guest received the starting state.
+      expect(guest.getGameState()?.units).toHaveLength(10);
+      expect(guestStates[0].status).toBe('in-progress');
+
+      // Host activates their first unit.
+      const hostUnitId = host.getGameState()!.units[0].id;
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostUnitId,
+        })
+      );
+      expect(host.getGameState()!.turnState.activeUnitId).toBe(hostUnitId);
+      host.sendAction(createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' }));
+
+      // Initiative passed to the guest — the guest UI acts through the wire.
+      const guestUnitId = guest
+        .getGameState()!
+        .units.find((u: any) => u.ownerId === GUEST_PLAYER_ID)!.id;
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestUnitId,
+        })
+      );
+      await Promise.resolve();
+
+      // The host applied the guest's action and both sides agree.
+      const hostState = host.getGameState()!;
+      const guestState = guest.getGameState()!;
+      expect(hostState.turnState.activeUnitId).toBe(guestUnitId);
+      expect(guestState.turnState.activeUnitId).toBe(guestUnitId);
+      expect(guestState.actionLog).toEqual(hostState.actionLog);
+    });
+
+    it('delivers guest rejections back across the wire', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame();
+
+      // Host has not ended their activation — the guest tries to activate on
+      // the host's turn; the host must reject and the guest must be told why.
+      const guestUnitId = host
+        .getGameState()!
+        .units.find((u: any) => u.ownerId === GUEST_PLAYER_ID)!.id;
+      const rejections: any[] = [];
+      guest.onActionRejected((rejection) => rejections.push(rejection));
+
+      const badAction = createAction(GUEST_PLAYER_ID, 'activate-unit', {
+        type: 'activate-unit',
+        unitId: guestUnitId,
+      });
+      guest.sendAction(badAction);
+      await Promise.resolve();
+
+      expect(rejections).toHaveLength(1);
+      expect(rejections[0].reason).toBe('Not your turn');
+      // The guest's state was never updated — no activation happened.
+      expect(guest.getGameState()!.turnState.activeUnitId).toBeFalsy();
+    });
+
+    it('integrates host and guest GameHUDs + GameManagers + dice across a round', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6, 6], total: 12, finalTotal: 12, purpose: 'to-hit' },
+          { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'defense' },
+        ]),
+      };
+      const host = new GameManager(hostWebRTC, true, { diceProvider });
+      const guest = new GameManager(guestWebRTC, false);
+
+      host.startGame('Host', 'Guest');
+
+      // 1. Host charges a guest fighter and fights it to destruction; surviving
+      //    charger must have 'engaged' cleared once the melee target dies.
+      const hostCharger = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.wounds === 1)!;
+
+      // Place target within charge range (5" away).
+      const patched = host.getGameState()!;
+      patched.units.find((u) => u.id === guestTarget.id)!.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+        })
+      );
+      expect(
+        host.getGameState()!.units.find((u) => u.id === hostCharger.id)!.status
+      ).toContain('engaged');
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'fight', {
+          type: 'fight',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          weaponId: 'blade',
+        })
+      );
+      await Promise.resolve();
+
+      // Target destroyed → charger is no longer engaged; guest sees the same state + dice.
+      const afterFight = guest.getGameState()!;
+      expect(afterFight.units.find((u) => u.id === guestTarget.id)!.isDestroyed).toBe(true);
+      expect(afterFight.units.find((u) => u.id === hostCharger.id)!.status).not.toContain(
+        'engaged'
+      );
+      expect(afterFight.actionLog[afterFight.actionLog.length - 1].dice!.outcome.wounds).toBe(2);
+
+      // Host ends activation → Guest's turn.
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
+      );
+      expect(guest.getGameState()!.turnState.currentPlayerId).toBe(GUEST_PLAYER_ID);
+
+      // Guest activates a unit and chooses Hold from the action bar → passes back to Host.
+      const guestUnit = guest
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && !u.isDestroyed)!;
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestUnit.id,
+        })
+      );
+      await Promise.resolve();
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'hold', {
+          type: 'hold',
+          unitId: guestUnit.id,
+        })
+      );
+      await Promise.resolve();
+
+      expect(host.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+      expect(guest.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+    });
+
+    it('rebinds host GameManager and re-broadcasts state when a guest rejoins over a new channel', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const guest1 = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      // Host activates a unit before the guest disconnects.
+      const hostUnitId = host.getGameState()!.units[0].id;
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostUnitId,
+        })
+      );
+      expect(guest1.getGameState()!.turnState.activeUnitId).toBe(hostUnitId);
+
+      // Guest disconnects and reconnects over a brand-new WebRTC channel pair.
+      const channel2 = makeChannelPair();
+      const guest2 = new GameManager(channel2.guestWebRTC, false);
+      host.rebindWebRTCClient(channel2.hostWebRTC);
+
+      // Rejoined guest immediately receives the current in-progress state.
+      expect(guest2.getGameState()!.turnState.activeUnitId).toBe(hostUnitId);
+
+      // And subsequent actions from the rejoined guest work over the new channel.
+      host.sendAction(createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' }));
+      const guestUnitId = guest2
+        .getGameState()!
+        .units.find((u: any) => u.ownerId === GUEST_PLAYER_ID)!.id;
+      guest2.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestUnitId,
+        })
+      );
+      await Promise.resolve();
+      expect(host.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
+      expect(guest2.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
+    });
+  });
+
+  describe('onActionRejected subscription', () => {
+    it('stops emitting after unsubscribe', () => {
+      const handler = vi.fn();
+      const unsubscribe = gameManagerHost.onActionRejected(handler);
+      unsubscribe();
+
+      gameManagerHost.sendAction(createAction('host1', 'end-round', { type: 'end-round' }));
+      gameManagerHost.initializeGame('host1', 'guest1');
+      gameManagerHost.sendAction(createAction('guest1', 'end-round', { type: 'end-round' }));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onStateUpdate', () => {
+    it('should emit state to subscribers when host initializes the game', () => {
+      const handler = vi.fn();
+      gameManagerHost.onStateUpdate(handler);
+
+      gameManagerHost.initializeGame('host1', 'guest1');
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].hostId).toBe('host1');
+    });
+
+    it('should emit state to subscribers when host processes an action', () => {
+      gameManagerHost.initializeGame('host1', 'guest1');
+      const handler = vi.fn();
+      gameManagerHost.onStateUpdate(handler);
+
+      const action = createAction('host1', 'end-round', { type: 'end-round' });
+      gameManagerHost.sendAction(action);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].lastActionId).toBe(action.id);
+    });
+
+    it('should emit state updates received from the host to guest subscribers', () => {
+      gameManagerHost.initializeGame('host1', 'guest1');
+      const hostState = gameManagerHost.getGameState()!;
+
+      const handler = vi.fn();
+      gameManagerGuest.onStateUpdate(handler);
+      handlers.get('state-update')!({ type: 'state-update', state: hostState, actionId: 'x' });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].hostId).toBe('host1');
+    });
+
+    it('should emit deep copies — mutating the emitted state does not affect the manager', () => {
+      gameManagerHost.initializeGame('host1', 'guest1');
+      let emitted: any;
+      gameManagerHost.onStateUpdate((state) => { emitted = state; });
+
+      // Trigger an emission, then mutate what we received.
+      gameManagerHost.sendAction(createAction('host1', 'end-round', { type: 'end-round' }));
+      expect(emitted).toBeDefined();
+
+      emitted.units.push({ id: 'injected' } as any);
+
+      expect(gameManagerHost.getGameState()!.units.length).toBe(0);
+    });
+
+    it('should stop emitting after unsubscribe', () => {
+      const handler = vi.fn();
+      const unsubscribe = gameManagerHost.onStateUpdate(handler);
+      unsubscribe();
+
+      gameManagerHost.initializeGame('host1', 'guest1');
+      gameManagerHost.sendAction(createAction('host1', 'end-round', { type: 'end-round' }));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
   });
 });

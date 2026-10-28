@@ -104,6 +104,17 @@ export class SignalingClient {
     this.send({ type: 'ping' });
   }
 
+  /**
+   * Periodic signaling pings. These keep the room alive on the server while
+   * a game runs over WebRTC: without signaling traffic the room would hit
+   * the inactivity timeout and mid-game dice requests would fail.
+   * Returns a stop function.
+   */
+  startKeepAlive(intervalMs = 60000): () => void {
+    const interval = setInterval(() => this.ping(), intervalMs);
+    return () => clearInterval(interval);
+  }
+
   disconnect(): void {
     if (this.ws) {
       this.ws.close();

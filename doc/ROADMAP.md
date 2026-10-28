@@ -93,8 +93,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 ### Tasks
 - [x] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
-- [x] Create GitHub Actions workflow for `release` branch (build + test + deploy)
-- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io) tracking the `release` branch
+- [x] Create GitHub Actions workflow for `release` branch (build + test + deploy client to Pages & server to Azure App Service)
+- [x] Configure signaling server with HTTP health probe (`GET /healthz`) for Azure App Service
+- [x] Package self-contained server bundle in deploy workflow for Azure App Service
+- [ ] Deploy signaling server to Azure App Service (Linux, Node 20 LTS, Free F1 tier) tracking the `release` branch
 - [ ] Configure GitHub Pages for client deployment
 - [x] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
 - [ ] Set up WSS endpoint for production
@@ -103,61 +105,98 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Document deployment process in `doc/DEPLOYMENT.md`
 
 ### Acceptance Criteria
-- [ ] PRs to main/master run build and tests without deploying
-- [ ] Merged PRs into `release` trigger build, test, and deploy to GitHub Pages (direct pushes do not deploy)
-- [ ] Signaling server auto-deploys from `release` branch to free WebSocket host with WSS support
+- [x] PRs to main/master run build and tests without deploying
+- [x] Merged PRs into `release` trigger build, test, and deploy to GitHub Pages (direct pushes do not deploy)
+- [ ] Signaling server auto-deploys from `release` branch to Azure App Service with WSS support
 - [ ] Client deploys to GitHub Pages successfully
 - [ ] Deployed client can connect to deployed signaling server over WSS
 - [ ] Can demo lobby/connection flow from deployed GitHub Pages URL
-- [ ] CI workflows pass on a clean checkout
-- [ ] Release flow is intentional (PR `master` → `release`, merged when ready)
+- [x] CI workflows pass on a clean checkout
+- [x] Release flow is intentional (PR `master` → `release`, merged when ready)
 
 ## Phase 4: Three.js Rendering Foundation
 **Goal:** Set up 3D rendering decoupled from game state
 
 ### Tasks
-- [ ] SceneManager setup
-- [ ] CameraController (desktop controls)
-- [ ] BoardRenderer
-- [ ] UnitRenderer (syncs from game state)
-- [ ] ModelLoader for low-poly models
-- [ ] Lighting setup
-- [ ] Basic board/terrain rendering
-- [ ] State-driven rendering (game state → renderer)
+- [x] SceneManager setup
+- [x] CameraController (desktop controls)
+- [x] BoardRenderer
+- [x] UnitRenderer (syncs from game state)
+- [x] ModelLoader for low-poly models
+- [x] Lighting setup
+- [x] Basic board/terrain rendering
+- [x] State-driven rendering (game state → renderer)
+
+> **Implementation notes:** `GameView` is the state-driven entry point — it diffs a
+> board/terrain signature (rebuilding the board only on change) and syncs unit
+> meshes every call. Renderer components are injectable for tests (no WebGL
+> needed). Until real GLTF assets exist, `ModelLoader` resolves unit types to
+> procedural low-poly fighters; the GLTF path is tested with a stub loader.
+> `GameManager.onStateUpdate` is the app-level hook that feeds confirmed state
+> to `GameView` (Phase 5 wires the full game-start flow).
 
 ### Acceptance Criteria
-- [ ] Three.js scene renders
-- [ ] Camera can be controlled
-- [ ] Units rendered from game state data
-- [ ] Renderer reads from game state only
-- [ ] Game state never modified by renderer
-- [ ] Low-poly models load correctly
-- [ ] Performance acceptable for desktop
+- [x] Three.js scene renders
+- [x] Camera can be controlled
+- [x] Units rendered from game state data
+- [x] Renderer reads from game state only
+- [x] Game state never modified by renderer (covered by renderer tests)
+- [x] Low-poly models load correctly (procedural low-poly path; GLTF assets land with the .STL pipeline)
+- [x] Performance acceptable for desktop (verified manually in browser at `npm run dev` — steady 60fps, no memory growth)
 
 ## Phase 5: Basic Gameplay & UI (Alternating Activations)
 **Goal:** Implement alternating-activation gameplay flow
 
 ### Tasks
-- [ ] Lobby UI
-- [ ] Game HUD (round, current activator, unit info)
-- [ ] Action selection UI
-- [ ] Unit selection
-- [ ] Action confirmation (no real-time dragging)
-- [ ] Alternating activation management (activate one unit, pass initiative)
-- [ ] Round management (all units activated → cleanup → new round)
-- [ ] Dice result display
-- [ ] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
+- [x] Lobby UI
+- [x] Game HUD (round, current activator, unit info)
+- [x] Action selection UI
+- [x] Unit selection
+- [x] Action confirmation (no real-time dragging)
+- [x] Alternating activation management (activate one unit, pass initiative)
+- [x] Round management (all units activated → cleanup → new round)
+- [x] Dice result display
+- [x] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
+- [x] Replace procedural placeholders with curated Kenney prototype-kit GLBs (CC0, staged in `assets-src/`): figurines for unit roles, walls/crates/columns for terrain, `indicator-*`/`target-*`/`number-*` models for movement/attack/dice UI markers
+
+> **Implementation notes:** The shared engine (`shared/src/engine/`) owns
+> activation/round management and Q/D combat resolution as pure functions;
+> the host `GameManager` validates, requests server dice via
+> `SignalingDiceProvider`, applies deterministically, and broadcasts —
+> both peers' HUDs render everything (including dice) from confirmed state
+> only. Every action requires explicit confirmation before submission; the
+> host processes one action at a time. Hold is a one-step activation
+> (spends the activation clearing stun). Engaged units can't move, shoot,
+> or charge — they fight. Charge ends at engagement distance 1 and consumes
+> all movement. Rounds end automatically when all units activated; the
+> starting player alternates. v1 win condition: elimination. Signaling
+> keep-alive pings keep rooms alive for mid-game dice requests. Curated
+> Kenney GLBs live in `client/public/models/` with mappings in the asset
+> manifest; unregistered types fall back to procedural placeholders.
 
 ### Acceptance Criteria
-- [ ] Players can connect and start game
-- [ ] Players alternate activating units
-- [ ] When one player runs out of units, other activates remaining
-- [ ] Round ends when all units activated; new round starts with alternating first player
-- [ ] Actions require confirmation
-- [ ] Only confirmed actions sent to host
-- [ ] Dice results displayed to both players
-- [ ] UI reflects current game state
-- [ ] Stunned/routed units cannot activate
+- [x] Players can connect and start game (automated: GameManager host↔guest integration over a simulated channel)
+- [x] Players alternate activating units (automated: engine activation tests)
+- [x] When one player runs out of units, other activates remaining (automated: engine activation tests)
+- [x] Round ends when all units activated; new round starts with alternating first player (automated: engine round-management tests)
+- [x] Actions require confirmation (automated: GameHUD tests)
+- [x] Only confirmed actions sent to host (automated: GameHUD + GameManager tests)
+- [x] Dice results displayed to both players (automated: state-driven dice panel renders for either player; server broadcast covered by signaling integration tests)
+- [x] UI reflects current game state (automated: GameHUD renders purely from confirmed state)
+- [x] Stunned/routed units cannot activate (automated: engine validation tests — routed rejected; stunned may activate, spending the activation clearing the stun)
+
+### Manual Test Checklist (browser, `npm run dev` — two windows)
+- [x] Host creates room, guest joins, both reach the game without errors
+- [x] Starting armies deploy (figurines, terrain) and HUD shows round 1
+- [x] Host activates a unit, moves it (distance summary + confirm), turn passes
+- [x] Guest activates, shoots the host unit in range — both windows show the same dice panel and wound token
+- [x] Charge + fight across an engagement (both marked ENGAGED, fight-only)
+- [x] Hold on a stunned unit clears the stun
+- [x] Exhausting one side's units lets the other activate their remaining units
+- [x] Round increments and the other player starts round 2
+- [x] Illegal submissions surface a rejection toast (e.g., out-of-range shot)
+- [x] Final unit destroyed → game-over banner on both windows
+- [x] GLB models render at sensible sizes (Kenney figurines/terrain/markers — visual scale check; adjust `assetManifest` scales if needed)
 
 ## Phase 6: OPR Skirmish Rules Engine
 **Goal:** Implement OPR-style skirmish mechanics from first principles
@@ -228,6 +267,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Test action validation
 - [ ] Performance testing
 - [ ] UI/UX polish
+- [ ] "Play Again" / rematch option on the game-over screen (reset game state over the existing peer connection without returning to the lobby)
 - [ ] Bug fixes
 - [ ] Documentation updates
 

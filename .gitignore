@@ -14,3 +14,7 @@ build
 *.tsbuildinfo
 coverage
 .nyc_output
+
+# Raw third-party asset sources (Kenney etc.) — staging only, never shipped or
+# committed. Curated GLBs get copied into client/public/models/ deliberately.
+assets-src
