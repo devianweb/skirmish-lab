@@ -121,7 +121,8 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 - **CameraController:** Desktop camera controls for viewing the battlefield
 - **BoardRenderer:** Renders terrain, trenches, obstacles from game state
 - **UnitRenderer:** Creates/updates/removes meshes based on units in game state
-- **ModelLoader:** Loads low-poly GLTF/OBJ models (future: converted from .STL)
+- **ModelLoader:** Loads low-poly GLTF/OBJ models (future: converted from .STL); until assets exist, unit types resolve to procedural low-poly fighters
+- **GameView:** State-driven rendering facade — the single entry point that turns game state into a scene (board/terrain rebuilt only on change, units diffed every sync). The renderer layer is injectable for tests, so scene logic is testable without WebGL
 
 ## Connection Lifecycle
 

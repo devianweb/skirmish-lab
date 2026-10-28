@@ -128,4 +128,65 @@ describe('GameManager', () => {
     gameManagerHost.sendAction(action);
     expect(mockWebRTC.send).not.toHaveBeenCalled();
   });
+
+  describe('onStateUpdate', () => {
+    it('should emit state to subscribers when host initializes the game', () => {
+      const handler = vi.fn();
+      gameManagerHost.onStateUpdate(handler);
+
+      gameManagerHost.initializeGame('host1', 'guest1');
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].hostId).toBe('host1');
+    });
+
+    it('should emit state to subscribers when host processes an action', () => {
+      gameManagerHost.initializeGame('host1', 'guest1');
+      const handler = vi.fn();
+      gameManagerHost.onStateUpdate(handler);
+
+      const action = createAction('host1', 'end-round', { type: 'end-round' });
+      gameManagerHost.sendAction(action);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].lastActionId).toBe(action.id);
+    });
+
+    it('should emit state updates received from the host to guest subscribers', () => {
+      gameManagerHost.initializeGame('host1', 'guest1');
+      const hostState = gameManagerHost.getGameState()!;
+
+      const handler = vi.fn();
+      gameManagerGuest.onStateUpdate(handler);
+      handlers.get('state-update')!({ type: 'state-update', state: hostState, actionId: 'x' });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].hostId).toBe('host1');
+    });
+
+    it('should emit deep copies — mutating the emitted state does not affect the manager', () => {
+      gameManagerHost.initializeGame('host1', 'guest1');
+      let emitted: any;
+      gameManagerHost.onStateUpdate((state) => { emitted = state; });
+
+      // Trigger an emission, then mutate what we received.
+      gameManagerHost.sendAction(createAction('host1', 'end-round', { type: 'end-round' }));
+      expect(emitted).toBeDefined();
+
+      emitted.units.push({ id: 'injected' } as any);
+
+      expect(gameManagerHost.getGameState()!.units.length).toBe(0);
+    });
+
+    it('should stop emitting after unsubscribe', () => {
+      const handler = vi.fn();
+      const unsubscribe = gameManagerHost.onStateUpdate(handler);
+      unsubscribe();
+
+      gameManagerHost.initializeGame('host1', 'guest1');
+      gameManagerHost.sendAction(createAction('host1', 'end-round', { type: 'end-round' }));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });

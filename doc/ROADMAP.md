@@ -116,23 +116,31 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 **Goal:** Set up 3D rendering decoupled from game state
 
 ### Tasks
-- [ ] SceneManager setup
-- [ ] CameraController (desktop controls)
-- [ ] BoardRenderer
-- [ ] UnitRenderer (syncs from game state)
-- [ ] ModelLoader for low-poly models
-- [ ] Lighting setup
-- [ ] Basic board/terrain rendering
-- [ ] State-driven rendering (game state → renderer)
+- [x] SceneManager setup
+- [x] CameraController (desktop controls)
+- [x] BoardRenderer
+- [x] UnitRenderer (syncs from game state)
+- [x] ModelLoader for low-poly models
+- [x] Lighting setup
+- [x] Basic board/terrain rendering
+- [x] State-driven rendering (game state → renderer)
+
+> **Implementation notes:** `GameView` is the state-driven entry point — it diffs a
+> board/terrain signature (rebuilding the board only on change) and syncs unit
+> meshes every call. Renderer components are injectable for tests (no WebGL
+> needed). Until real GLTF assets exist, `ModelLoader` resolves unit types to
+> procedural low-poly fighters; the GLTF path is tested with a stub loader.
+> `GameManager.onStateUpdate` is the app-level hook that feeds confirmed state
+> to `GameView` (Phase 5 wires the full game-start flow).
 
 ### Acceptance Criteria
-- [ ] Three.js scene renders
-- [ ] Camera can be controlled
-- [ ] Units rendered from game state data
-- [ ] Renderer reads from game state only
-- [ ] Game state never modified by renderer
-- [ ] Low-poly models load correctly
-- [ ] Performance acceptable for desktop
+- [x] Three.js scene renders
+- [x] Camera can be controlled
+- [x] Units rendered from game state data
+- [x] Renderer reads from game state only
+- [x] Game state never modified by renderer (covered by renderer tests)
+- [x] Low-poly models load correctly (procedural low-poly path; GLTF assets land with the .STL pipeline)
+- [ ] Performance acceptable for desktop (verify in browser at `npm run dev` — basic scene, expected fine)
 
 ## Phase 5: Basic Gameplay & UI (Alternating Activations)
 **Goal:** Implement alternating-activation gameplay flow
