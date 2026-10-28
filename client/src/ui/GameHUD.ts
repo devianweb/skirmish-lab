@@ -338,10 +338,14 @@ export class GameHUD {
 
   private confirmPending(): void {
     if (this.flow.mode !== 'confirming') return;
-    // Only confirmed actions ever leave the HUD — no optimistic dispatch.
-    this.controller.submitAction(this.flow.action);
+    const action = this.flow.action;
     this.flow = { mode: 'waiting' };
     this.render();
+    // Only confirmed actions ever leave the HUD — no optimistic dispatch.
+    // Set 'waiting' BEFORE submitting because on the host, synchronous actions
+    // (activate, move, hold, charge, end-activation) invoke syncFromState()
+    // synchronously inside submitAction(), which transitions 'waiting' → 'idle'.
+    this.controller.submitAction(action);
   }
 
   private cancel(): void {

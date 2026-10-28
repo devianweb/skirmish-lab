@@ -336,6 +336,33 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Hold');
   });
 
+  it('transitions directly to the action bar when submitAction synchronously calls syncFromState (host flow)', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    let hud!: GameHUD;
+    const controller = {
+      submitAction: vi.fn((action) => {
+        // Simulate host GameManager synchronously emitting the updated state:
+        const next = JSON.parse(JSON.stringify(state)) as GameState;
+        activateUnit(next, HOST, action.payload.unitId);
+        hud.syncFromState(next);
+      }),
+    };
+    hud = new GameHUD(container, { localPlayerId: HOST, controller });
+    hud.show();
+    hud.syncFromState(state);
+
+    hud.handleBoardPick({ kind: 'unit', unitId: unit.id });
+    clickByText(container, 'Confirm');
+
+    // Must not get stuck on "Waiting for the host…" — action bar should be visible!
+    expect(container.textContent).not.toContain('Waiting for the host');
+    expect(container.querySelectorAll('.sl-hud-actions').length).toBe(1);
+  });
+
   it('shows a game-over banner instead of the action bar', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
