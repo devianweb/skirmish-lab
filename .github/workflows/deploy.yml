@@ -105,8 +105,7 @@ jobs:
     name: Deploy to Azure App Service
     needs: build
     runs-on: ubuntu-latest
-    # Only run when Azure publish profile is configured in repository secrets
-    if: github.event.pull_request.merged == true && secrets.AZURE_WEBAPP_PUBLISH_PROFILE != ''
+    if: github.event.pull_request.merged == true
     steps:
       - name: Download Signaling Server artifact
         uses: actions/download-artifact@v4
