@@ -1,8 +1,13 @@
 import * as THREE from 'three';
-import { GameState, Vector3 } from '@skirmish-lab/shared';
+import { GameState, TerrainPiece, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
-import { MarkerRenderer, MarkerUnit } from './MarkerRenderer';
+import {
+  AttackRangeMarker,
+  MarkerRenderer,
+  MarkerUnit,
+  MovePathMarker,
+} from './MarkerRenderer';
 import { ModelLoader } from './ModelLoader';
 import { SceneManager } from './SceneManager';
 import { UnitRenderer } from './UnitRenderer';
@@ -20,7 +25,7 @@ export interface SceneManagerLike {
 
 export type PickTarget =
   | { kind: 'unit'; unitId: string }
-  | { kind: 'position'; position: Vector3 };
+  | { kind: 'position'; position: Vector3; terrainId?: string };
 
 export interface GameViewOptions {
   /** Mount point for the real Three.js canvas (used when sceneManager is not injected). */
@@ -65,6 +70,7 @@ export class GameView {
   private camera: THREE.Camera | null;
   private inputElement: HTMLElement | null;
   private pickHandlers: Array<(target: PickTarget) => void> = [];
+  private hoverHandlers: Array<(target: PickTarget | null) => void> = [];
   private pointerDownAt: { x: number; y: number } | null = null;
   /** Max pointer travel (px) between down and up to count as a pick click. */
   private static readonly PICK_DRAG_TOLERANCE = 5;
@@ -114,9 +120,12 @@ export class GameView {
     this.unitRenderer.syncFromState(state);
   }
 
-  /** Start the render loop (camera controls are updated each frame). */
+  /** Start the render loop (camera controls and outcome orientation are updated each frame). */
   start(): void {
-    this.sceneManager.startAnimationLoop(() => this.cameraController?.update());
+    this.sceneManager.startAnimationLoop(() => {
+      this.cameraController?.update();
+      this.markerRenderer.orientOutcomeToCamera(this.camera);
+    });
   }
 
   /**
@@ -130,6 +139,17 @@ export class GameView {
     };
   }
 
+  /**
+   * Subscribe to pointer hover over the board (unit or ground position).
+   * Returns an unsubscribe function.
+   */
+  onHover(handler: (target: PickTarget | null) => void): () => void {
+    this.hoverHandlers.push(handler);
+    return () => {
+      this.hoverHandlers = this.hoverHandlers.filter((h) => h !== handler);
+    };
+  }
+
   // --- Gameplay UI markers (delegates to MarkerRenderer) -----------------
 
   setSelectionMarker(unit: MarkerUnit | null): void {
@@ -140,8 +160,24 @@ export class GameView {
     this.markerRenderer.setTarget(unit);
   }
 
+  setReachableTargetsMarker(units: MarkerUnit[]): void {
+    this.markerRenderer.setReachableTargets(units);
+  }
+
   setMovementRangeMarker(unit: MarkerUnit | null): void {
     this.markerRenderer.setMovementRange(unit);
+  }
+
+  setAttackRangeMarker(spec: AttackRangeMarker | null): void {
+    this.markerRenderer.setAttackRange(spec);
+  }
+
+  setMovePathMarker(path: MovePathMarker | null): void {
+    this.markerRenderer.setMovePath(path);
+  }
+
+  setTerrainDebugMarker(piece: TerrainPiece | null): void {
+    this.markerRenderer.setTerrainDebug(piece);
   }
 
   showOutcomeToken(position: Vector3, wounds: number): void {
@@ -152,11 +188,31 @@ export class GameView {
     this.markerRenderer.clearAll();
   }
 
+  /** Clear the entire 3D battlefield (board, terrain, units, and markers). */
+  clear(): void {
+    this.boardRenderer.clear();
+    this.unitRenderer.clear();
+    this.markerRenderer.clearAll();
+    this.boardSignature = null;
+  }
+
   // --- internals ----------------------------------------------------------
 
   private setupPicking(element: HTMLElement): void {
     element.addEventListener('pointerdown', (event) => {
       this.pointerDownAt = { x: event.clientX, y: event.clientY };
+    });
+    element.addEventListener('pointermove', (event) => {
+      if (this.hoverHandlers.length === 0) return;
+      const target = this.computePickTarget(event, element);
+      for (const handler of this.hoverHandlers) {
+        handler(target);
+      }
+    });
+    element.addEventListener('pointerleave', () => {
+      for (const handler of this.hoverHandlers) {
+        handler(null);
+      }
     });
     element.addEventListener('click', (event) => {
       if (!this.pointerDownAt) return;
@@ -193,11 +249,17 @@ export class GameView {
       return { kind: 'unit', unitId };
     }
 
+    const terrainId = this.boardRenderer.raycastTerrain?.(raycaster) ?? null;
+
     // No unit hit — resolve the ground plane (y = 0).
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const point = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(groundPlane, point)) {
-      return { kind: 'position', position: { x: point.x, y: 0, z: point.z } };
+      return {
+        kind: 'position',
+        position: { x: point.x, y: 0, z: point.z },
+        ...(terrainId ? { terrainId } : {}),
+      };
     }
     return null;
   }

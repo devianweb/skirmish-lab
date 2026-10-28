@@ -574,7 +574,7 @@ describe('applyAction: end-activation & end-round', () => {
     expect(outcome.state!.turnState.currentPlayerId).toBe(GUEST);
   });
 
-  it('automatically ends the round after the last activation', () => {
+  it('automatically ends the round after the last activation and gives first turn to the other player', () => {
     const state = makeState([
       makeUnit('h1', HOST, { isActivated: true }),
       makeUnit('g1', GUEST, { isActivated: true }),
@@ -585,8 +585,10 @@ describe('applyAction: end-activation & end-round', () => {
     const outcome = act(state, action);
 
     expect(outcome.state!.turnState.roundNumber).toBe(2);
-    expect(outcome.state!.turnState.currentPlayerId).toBe(GUEST);
-    expect(outcome.state!.turnState.startingPlayerId).toBe(GUEST);
+    // GUEST took the final activation of Round 1, so HOST (who finished
+    // activating first) gets the first turn of Round 2.
+    expect(outcome.state!.turnState.currentPlayerId).toBe(HOST);
+    expect(outcome.state!.turnState.startingPlayerId).toBe(HOST);
     // Units reset for the new round.
     expect(outcome.state!.units.every((u) => !u.isActivated)).toBe(true);
   });

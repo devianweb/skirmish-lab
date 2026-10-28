@@ -26,17 +26,36 @@ export const UNIT_ASSETS: Record<string, AssetDefinition> = {
 };
 
 export const TERRAIN_ASSETS: Record<string, AssetDefinition> = {
-  wall: model('wall.glb'),
-  'wall-window': model('wall-window-medium.glb'),
-  'wall-doorway': model('wall-doorway.glb'),
-  crate: model('crate.glb'),
-  column: model('column.glb'),
+  // Kenney wall GLBs are authored with length (1.0) along Z and thickness (0.2 or 0.3)
+  // along X. Normalize thickness to 1.0 and rotate 90° around Y so the unscaled
+  // container is a 1×1×1 unit block with the wall running along local X, matching
+  // piece.scale (e.g. 3 × 1.5 × 0.5) and spatial.ts collision/LoS bounds identically.
+  wall: {
+    url: `${MODELS_BASE}wall.glb`,
+    scaleVector: { x: 5, y: 1, z: 1 },
+    rotationY: Math.PI / 2,
+  },
+  'wall-window': {
+    url: `${MODELS_BASE}wall-window-medium.glb`,
+    scaleVector: { x: 1 / 0.3, y: 1, z: 1 },
+    rotationY: Math.PI / 2,
+  },
+  'wall-doorway': {
+    url: `${MODELS_BASE}wall-doorway.glb`,
+    scaleVector: { x: 1 / 0.3, y: 1, z: 1 },
+    rotationY: Math.PI / 2,
+  },
+  crate: model('crate.glb', 1.4),
+  column: {
+    url: `${MODELS_BASE}column.glb`,
+    scaleVector: { x: 2.5, y: 1, z: 2.5 },
+  },
 };
 
 export const MARKER_ASSETS: Record<string, AssetDefinition> = {
-  selection: model('indicator-square-a.glb', 1.4),
-  'movement-range': model('indicator-round-a.glb'),
-  target: model('target-a-round.glb', 1.4),
+  selection: model('indicator-round-b.glb', 1.4),
+  target: model('indicator-round-b.glb', 1.4),
+  'reachable-target': model('indicator-round-b.glb', 1.4),
 };
 
 /** Wound-count outcome tokens: number-N models (1..5). */

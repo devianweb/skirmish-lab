@@ -1,4 +1,5 @@
 import {
+  computeLosVisibilityPolygon,
   GameState,
   GUEST_PLAYER_ID,
   HOST_PLAYER_ID,
@@ -46,7 +47,34 @@ function unitForMarkers(unitId: string | null): MarkerUnit | null {
 function applyMarkers(markers: MarkerSnapshot): void {
   gameView.setSelectionMarker(unitForMarkers(markers.selectedUnitId));
   gameView.setTargetMarker(unitForMarkers(markers.targetUnitId));
+  const reachable = (markers.reachableTargetIds ?? [])
+    .map((id) => unitForMarkers(id))
+    .filter((u): u is MarkerUnit => u !== null);
+  gameView.setReachableTargetsMarker(reachable);
   gameView.setMovementRangeMarker(unitForMarkers(markers.movementRangeUnitId));
+  const attackRangeUnit = markers.attackRange
+    ? unitForMarkers(markers.attackRange.unitId)
+    : null;
+  gameView.setAttackRangeMarker(
+    attackRangeUnit && markers.attackRange && latestState
+      ? {
+          position: attackRangeUnit.position,
+          range: markers.attackRange.range,
+          losPolygon: computeLosVisibilityPolygon(
+            latestState,
+            attackRangeUnit.position,
+            markers.attackRange.range,
+            markers.attackRange.unitId
+          ),
+        }
+      : null
+  );
+  gameView.setMovePathMarker(markers.movePath ?? null);
+  const hoveredTerrain =
+    latestState && markers.hoveredTerrainId
+      ? latestState.terrain.find((t) => t.id === markers.hoveredTerrainId) ?? null
+      : null;
+  gameView.setTerrainDebugMarker(hoveredTerrain);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }
@@ -65,7 +93,7 @@ let viewWired = false;
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
 const lobby = new Lobby(lobbyContainer, {
-  onPeerReady: ({ webrtcClient, signalingClient, role, initialState }) => {
+  onPeerReady: ({ webrtcClient, signalingClient, role, roomCode, initialState }) => {
     void role;
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
@@ -88,7 +116,20 @@ const lobby = new Lobby(lobbyContainer, {
     hud?.dispose();
     hud = new GameHUD(app, {
       localPlayerId,
-      controller: { submitAction: (action) => gameManager?.sendAction(action) },
+      roomCode,
+      controller: {
+        submitAction: (action) => gameManager?.sendAction(action),
+        onReturnToLobby: () => {
+          stopKeepAlive?.();
+          stopKeepAlive = null;
+          hud?.dispose();
+          hud = null;
+          gameManager = null;
+          latestState = null;
+          gameView.clear();
+          lobby.reset();
+        },
+      },
     });
     hud.show();
 
@@ -102,6 +143,7 @@ const lobby = new Lobby(lobbyContainer, {
     if (!viewWired) {
       viewWired = true;
       gameView.onPick((target: PickTarget) => hud?.handleBoardPick(target));
+      gameView.onHover((target: PickTarget | null) => hud?.handleBoardHover(target));
     }
     hud.onMarkers(applyMarkers);
 

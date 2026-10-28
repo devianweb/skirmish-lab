@@ -61,8 +61,9 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Round 3');
     expect(container.textContent).toContain("Your turn");
     expect(container.textContent).toContain('Alice — Fighters');
-    // Five units of the local player are listed with stats.
-    expect(container.querySelectorAll('.sl-hud-unit').length).toBe(5);
+    // Five units of the local player + five enemy units are listed with stats.
+    expect(container.querySelectorAll('.sl-hud-unit:not(.enemy)').length).toBe(5);
+    expect(container.querySelectorAll('.sl-hud-unit.enemy').length).toBe(5);
     expect(container.textContent).toContain('Q4+');
   });
 
@@ -134,7 +135,7 @@ describe('GameHUD', () => {
     const { container } = setup(HOST, state);
 
     const buttons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];
-    const byLabel = (label: string) => buttons.find((b) => b.textContent === label)!;
+    const byLabel = (label: string) => buttons.find((b) => b.textContent?.startsWith(label))!;
     expect(byLabel('Move').disabled).toBe(true);
     expect(byLabel('Shoot').disabled).toBe(true);
     expect(byLabel('Fight').disabled).toBe(false);
@@ -149,7 +150,7 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
-    expect(container.textContent).toContain('Select a destination');
+    expect(container.textContent).toContain('Click a destination on the board');
 
     const destination = { x: start.x + 3, y: 0, z: start.z + 4 }; // 5" away
     hud.handleBoardPick({ kind: 'position', position: destination });
@@ -164,7 +165,7 @@ describe('GameHUD', () => {
     expect(action.payload.path).toEqual([start, destination]);
   });
 
-  it('move flow: refuses destinations beyond remaining movement without confirming', () => {
+  it('move flow: clamps destinations beyond remaining movement to the max movement radius (and stops before friendly fighters)', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     const start = { ...unit.position };
@@ -172,11 +173,24 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
+    // Moving sideways (+x) toward Warden Trooper 2 at (-4, 0, -12) stops in front of the fighter (~3.3")
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 20, y: 0, z: start.z } });
+    expect(container.textContent).toContain('3.3" — 2.7" left');
+    clickByText(container, 'Cancel');
 
-    expect(container.textContent).toContain('Too far');
-    expect(container.textContent).not.toContain('Confirm');
-    expect(controller.submitAction).not.toHaveBeenCalled();
+    // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
+    clickByText(container, 'Move');
+    hud.handleBoardPick({ kind: 'position', position: { x: start.x, y: 0, z: start.z + 20 } });
+
+    expect(container.textContent).toContain(`${unit.remainingMovement.toFixed(1)}" — all movement spent`);
+    expect(container.textContent).toContain('Confirm');
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].payload.finalPosition).toEqual({
+      x: start.x,
+      y: 0,
+      z: start.z + unit.remainingMovement,
+    });
   });
 
   it('shoot flow: enemy target in range → confirmed action with weapon', () => {
@@ -223,28 +237,48 @@ describe('GameHUD', () => {
     expect(controller.submitAction).not.toHaveBeenCalled();
   });
 
-  it('hold and end-activation require confirmation too', () => {
+  it('hold and end-activation require confirmation too (Hold before acting, End Activation after)', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     activateUnit(state, HOST, unit.id);
     const { hud, container, controller } = setup(HOST, state);
 
+    // Before moving or attacking, Hold is shown instead of End Activation.
+    expect(clickByText(container, 'End Activation')).toBeFalsy();
     clickByText(container, 'Hold');
     expect(container.textContent).toContain('holds position');
     clickByText(container, 'Confirm');
     expect(controller.submitAction.mock.calls[0][0].type).toBe('hold');
 
-    // The hold resolved (state update arrives): simulate the confirmed state
-    // where another unit is now mid-activation.
+    // Once a unit has moved or attacked, End Activation is shown instead of Hold.
     const state2 = scenarioState();
     const other = state2.units.find((u) => u.ownerId === HOST && u.id !== unit.id)!;
     activateUnit(state2, HOST, other.id);
+    other.hasMoved = true;
     hud.syncFromState(state2);
 
+    expect(clickByText(container, 'Hold')).toBeFalsy();
     clickByText(container, 'End Activation');
     expect(container.textContent).toContain('End ');
     clickByText(container, 'Confirm');
     expect(controller.submitAction.mock.calls[1][0].type).toBe('end-activation');
+  });
+
+  it('allows switching to another unit while confirming an activation without clicking Cancel', () => {
+    const state = scenarioState();
+    const [u1, u2] = state.units.filter((u) => u.ownerId === HOST);
+    const { hud, container, controller } = setup(HOST, state);
+
+    hud.handleBoardPick({ kind: 'unit', unitId: u1.id });
+    expect(container.textContent).toContain(`Activate ${u1.name}`);
+
+    // Directly pick u2 without cancelling first:
+    hud.handleBoardPick({ kind: 'unit', unitId: u2.id });
+    expect(container.textContent).toContain(`Activate ${u2.name}`);
+    clickByText(container, 'Confirm');
+
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].payload.unitId).toBe(u2.id);
   });
 
   it('cancel returns to the idle flow without submitting anything', () => {
@@ -376,7 +410,7 @@ describe('GameHUD', () => {
     expect(container.querySelectorAll('.sl-hud-actions').length).toBe(0);
   });
 
-  it('emits marker snapshots as the flow changes', () => {
+  it('emits marker snapshots as the flow changes (including selection, attack range, and hover)', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     const unitId = unit.id;
@@ -384,20 +418,116 @@ describe('GameHUD', () => {
     const snapshots: MarkerSnapshot[] = [];
     hud.onMarkers((markers) => snapshots.push(markers));
 
-    // Selecting a unit for activation should mark it.
+    // Selecting a unit for activation marks that unit immediately.
     hud.handleBoardPick({ kind: 'unit', unitId });
-    clickByText(container, 'Confirm');
+    expect(snapshots[snapshots.length - 1].selectedUnitId).toBe(unitId);
 
+    clickByText(container, 'Confirm');
     const last = snapshots[snapshots.length - 1];
-    expect(last.selectedUnitId).toBeNull(); // no active unit yet in stale state
     expect(last.outcome).toBeNull();
 
-    // With an active unit, the marker snapshot reflects it.
+    // With an active unit, selection is shown, but movement-range ring is ONLY shown when Move is hovered/clicked.
     const state2 = scenarioState();
-    const active = state2.units.find((u) => u.ownerId === HOST)!;
+    const active = state2.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle')
+    )!;
     activateUnit(state2, HOST, active.id);
     hud.syncFromState(state2);
     const withActive = snapshots[snapshots.length - 1];
     expect(withActive.selectedUnitId).toBe(active.id);
+    expect(withActive.movementRangeUnitId).toBeNull();
+
+    clickByText(container, 'Move');
+    expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBe(active.id);
+    clickByText(container, 'Cancel');
+    expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBeNull();
+
+    clickByText(container, 'Shoot');
+    const targetingSnap = snapshots[snapshots.length - 1];
+    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24 });
+    // Enemies within 24" and Line of Sight appear in reachableTargetIds.
+    expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
+  });
+
+  it('auto-selects the target and jumps to confirmation when clicking Fight with only one enemy in melee range', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
+    )!;
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 1 };
+    attacker.status = ['engaged'];
+    target.status = ['engaged'];
+    activateUnit(state, HOST, attacker.id);
+
+    const { container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Fight');
+    // Should skip manual targeting and go straight to confirmation for the single engaged enemy.
+    expect(container.textContent).toContain(`strikes ${target.name}`);
+    expect(container.textContent).toContain('Confirm');
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].type).toBe('fight');
+    expect(controller.submitAction.mock.calls[0][0].payload.targetId).toBe(target.id);
+  });
+
+  it('renders an RTS-style unit data card above the action bar when a unit is active or selected', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    activateUnit(state, HOST, unit.id);
+    const { container } = setup(HOST, state);
+
+    const card = container.querySelector('.sl-hud-datacard');
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain(unit.name);
+    expect(card?.textContent).toContain(`Q${unit.quality}+`);
+    expect(card?.textContent).toContain(`D${unit.defense}+`);
+  });
+
+  it('displays the room code in the top-right header when provided', () => {
+    const controller = { submitAction: vi.fn() };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hud = new GameHUD(container, {
+      localPlayerId: HOST,
+      roomCode: 'ABC-123',
+      controller,
+    });
+    hud.show();
+    hud.syncFromState(scenarioState());
+
+    expect(container.querySelector('.sl-hud-room')?.textContent).toBe('Room: ABC-123');
+  });
+
+  it('toggles the terrain debug card and hoveredTerrainId marker with F9', () => {
+    const state = scenarioState();
+    const { hud, container } = setup(HOST, state);
+    const emitted: MarkerSnapshot[] = [];
+    hud.onMarkers((m) => emitted.push(m));
+
+    // Hover over terrain-wall-north at (0, 0, 5) while F9 debugger is OFF (default)
+    hud.handleBoardHover({
+      kind: 'position',
+      position: { x: 0, y: 0, z: 5 },
+      terrainId: 'terrain-wall-north',
+    });
+    expect(container.querySelector('.sl-hud-terrain-debug')).toBeNull();
+    expect(emitted.at(-1)?.hoveredTerrainId).toBeNull();
+
+    // Press F9 to turn the terrain debugger ON
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+    const debugCard = container.querySelector('.sl-hud-terrain-debug');
+    expect(debugCard).toBeTruthy();
+    expect(debugCard?.textContent).toContain('terrain-wall-north');
+    expect(debugCard?.textContent).toContain('models/wall.glb');
+    expect(debugCard?.textContent).toContain('3.00" × 0.50"');
+    expect(emitted.at(-1)?.hoveredTerrainId).toBe('terrain-wall-north');
+
+    // Press F9 again to turn it OFF
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+    expect(container.querySelector('.sl-hud-terrain-debug')).toBeNull();
+    expect(emitted.at(-1)?.hoveredTerrainId).toBeNull();
   });
 });

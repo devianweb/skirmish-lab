@@ -15,6 +15,7 @@ import {
   getAttackDiceSpecs,
   resolveAttack,
 } from './combat';
+import { findMoveBlocker, hasLineOfSight } from './spatial';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -183,6 +184,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: 'Move leaves the board' };
         }
       }
+      const blocker = findMoveBlocker(state, unit.result, path);
+      if (blocker.blocked) {
+        return { valid: false, reason: blocker.reason };
+      }
       return { valid: true };
     }
 
@@ -206,6 +211,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (distance > weapon.profile.range + 0.01) {
         return { valid: false, reason: 'Target out of range' };
       }
+      if (!hasLineOfSight(state, attacker.result, target.result)) {
+        return { valid: false, reason: 'No line of sight to target' };
+      }
       return { valid: true };
     }
 
@@ -228,9 +236,19 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!path || path.length === 0) {
         return { valid: false, reason: 'Charge path is empty' };
       }
-      const distance = pathLength([{ ...attacker.result.position }, ...path]);
+      const fullPath = [{ ...attacker.result.position }, ...path];
+      const distance = pathLength(fullPath);
       if (distance > attacker.result.speed + 0.01) {
         return { valid: false, reason: 'Target out of charge range' };
+      }
+      if (!hasLineOfSight(state, attacker.result, target.result)) {
+        return { valid: false, reason: 'No line of sight to target' };
+      }
+      const chargeBlocker = findMoveBlocker(state, attacker.result, fullPath, {
+        ignoreUnitId: target.result.id,
+      });
+      if (chargeBlocker.blocked) {
+        return { valid: false, reason: chargeBlocker.reason };
       }
       const engagementPos = engagementPosition(target.result, attacker.result.position);
       const end = path[path.length - 1];

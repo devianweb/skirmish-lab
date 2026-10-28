@@ -48,6 +48,20 @@ export class Lobby {
     this.container.style.display = '';
   }
 
+  /** Reset back to the initial lobby screen (e.g. after a game ends). */
+  reset(): void {
+    this.webrtcClient?.close();
+    this.webrtcClient = null;
+    if (this.roomCode) {
+      this.signalingClient.send({ type: 'leave-room' });
+    }
+    this.roomCode = null;
+    this.role = null;
+    this.peerReadyFired = false;
+    this.show();
+    this.render();
+  }
+
   private setupSignalingHandlers(): void {
     this.signalingClient.on('room-created', (msg: any) => {
       this.roomCode = msg.code;

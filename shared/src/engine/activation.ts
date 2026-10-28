@@ -60,13 +60,21 @@ export function advanceActivation(state: GameState): void {
 }
 
 /**
- * End-of-round cleanup: reset per-round unit flags and start a new round
- * with the other player as the starting player. Engagements persist across
- * rounds (melees carry over); stun clears only via a unit's own activation.
+ * End-of-round cleanup: reset per-round unit flags and start a new round.
+ *
+ * The player who finished activating all of their units first in the previous
+ * round (i.e. the opponent of whichever player took the final activation of
+ * the round, `currentPlayerId`) activates first in the new round. This matches
+ * OPR skirmish rules and prevents the last player of round N from also taking
+ * the first activation of round N+1.
+ *
+ * Engagements persist across rounds (melees carry over); stun clears only via
+ * a unit's own activation.
  */
 export function endRound(state: GameState): void {
+  const lastActivatingPlayer = state.turnState.currentPlayerId;
   state.turnState.roundNumber += 1;
-  state.turnState.startingPlayerId = getOpponentId(state, state.turnState.startingPlayerId);
+  state.turnState.startingPlayerId = getOpponentId(state, lastActivatingPlayer);
   state.turnState.currentPlayerId = state.turnState.startingPlayerId;
   state.turnState.unitsActivatedThisRound = [];
   state.turnState.activeUnitId = null;
