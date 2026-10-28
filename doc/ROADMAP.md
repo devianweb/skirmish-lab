@@ -88,6 +88,29 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 - [x] Guest caches snapshots after state updates
 - [x] State round-trips through JSON correctly
 
+## Phase 3.5: CI/CD & Deployment
+**Goal:** Enable automated testing and deployment for demos
+
+### Tasks
+- [ ] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
+- [ ] Create GitHub Actions workflow for `release/*` branches (build + test + deploy)
+- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io)
+- [ ] Configure GitHub Pages for client deployment
+- [ ] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
+- [ ] Set up WSS endpoint for production
+- [ ] Configure Vite `base` for GitHub Pages
+- [ ] Add deployment status badges to README
+- [ ] Document deployment process in `doc/DEPLOYMENT.md`
+
+### Acceptance Criteria
+- [ ] PRs to main/master run build and tests without deploying
+- [ ] Pushes to `release/*` branches trigger build, test, and deploy to GitHub Pages
+- [ ] Signaling server deployed to free WebSocket host with WSS support
+- [ ] Client deploys to GitHub Pages successfully
+- [ ] Deployed client can connect to deployed signaling server over WSS
+- [ ] Can demo lobby/connection flow from deployed GitHub Pages URL
+- [ ] CI workflows pass on a clean checkout
+
 ## Phase 4: Three.js Rendering Foundation
 **Goal:** Set up 3D rendering decoupled from game state
 
