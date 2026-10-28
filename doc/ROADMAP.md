@@ -155,6 +155,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Round management (all units activated → cleanup → new round)
 - [ ] Dice result display
 - [ ] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
+- [ ] Replace procedural placeholders with curated Kenney prototype-kit GLBs (CC0, staged in `assets-src/`): figurines for unit roles, walls/crates/columns for terrain, `indicator-*`/`target-*`/`number-*` models for movement/attack/dice UI markers
 
 ### Acceptance Criteria
 - [ ] Players can connect and start game
