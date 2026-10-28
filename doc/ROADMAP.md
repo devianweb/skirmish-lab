@@ -94,7 +94,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ### Tasks
 - [x] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
 - [x] Create GitHub Actions workflow for `release` branch (build + test + deploy)
-- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io) tracking the `release` branch
+- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io) tracking the `release` branch — *deferred: Railway is not accepting new accounts (Oct 2026); revisit when signups reopen or use Fly.io*
 - [ ] Configure GitHub Pages for client deployment
 - [x] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
 - [ ] Set up WSS endpoint for production
