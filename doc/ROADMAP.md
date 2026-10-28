@@ -93,8 +93,8 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 
 ### Tasks
 - [ ] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
-- [ ] Create GitHub Actions workflow for `release/*` branches (build + test + deploy)
-- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io)
+- [ ] Create GitHub Actions workflow for `release` branch (build + test + deploy)
+- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io) tracking the `release` branch
 - [ ] Configure GitHub Pages for client deployment
 - [ ] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
 - [ ] Set up WSS endpoint for production
@@ -104,12 +104,13 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 
 ### Acceptance Criteria
 - [ ] PRs to main/master run build and tests without deploying
-- [ ] Pushes to `release/*` branches trigger build, test, and deploy to GitHub Pages
-- [ ] Signaling server deployed to free WebSocket host with WSS support
+- [ ] Pushes/merges to `release` branch trigger build, test, and deploy to GitHub Pages
+- [ ] Signaling server auto-deploys from `release` branch to free WebSocket host with WSS support
 - [ ] Client deploys to GitHub Pages successfully
 - [ ] Deployed client can connect to deployed signaling server over WSS
 - [ ] Can demo lobby/connection flow from deployed GitHub Pages URL
 - [ ] CI workflows pass on a clean checkout
+- [ ] Release flow is intentional (merge `main` → `release` when ready)
 
 ## Phase 4: Three.js Rendering Foundation
 **Goal:** Set up 3D rendering decoupled from game state

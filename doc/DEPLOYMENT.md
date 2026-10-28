@@ -5,8 +5,8 @@ This guide covers deploying the Trench Heresy demo using **GitHub Pages** (for t
 ## Overview
 
 - **Client**: Static Vite app hosted on GitHub Pages
-- **Signaling Server**: Node.js WebSocket server hosted on [Railway](https://railway.app/) or [Fly.io](https://fly.io/) (free tier)
-- **CI/CD**: GitHub Actions - PRs build and test only; pushes to `release/*` branches build, test, and deploy to GitHub Pages
+- **Signaling Server**: Node.js WebSocket server hosted on [Railway](https://railway.app/) or [Fly.io](https://fly.io/) (free tier), tracking the `release` branch
+- **CI/CD**: GitHub Actions - PRs build and test only; merges/pushes to the `release` branch build, test, and deploy the client to GitHub Pages. Merge `main` → `release` when ready to demo.
 
 ## 1) Deploy the Signaling Server
 
@@ -16,12 +16,13 @@ You need a persistent WebSocket server reachable over `wss://`. Recommended host
 
 1. Sign up at [railway.app](https://railway.app/) and connect your GitHub account.
 2. Create a new project → Deploy from GitHub repo → select this repo.
-3. Set the root/service to deploy the `server/` directory.
-4. Railway will auto-detect Node, but set the start command if needed:
+3. Set the root/service to deploy the `server/` directory (set **Root Directory** to `server/`).
+4. In the service settings → Source, set the **branch to track** to `release` (so it auto-deploys only when you merge to `release`).
+5. Railway will auto-detect Node, but set the start command if needed:
    - Build: `npm run build` (or let it run)
    - Start: `npm run start` (runs `node dist/index.js`)
-5. Railway will provide a public domain (e.g. `your-app.up.railway.app`). Use `wss://your-app.up.railway.app`.
-6. Ensure the server listens on `process.env.PORT` (it does via the fix in `server/src/index.ts`).
+6. Railway will provide a public domain (e.g. `your-app.up.railway.app`). Use `wss://your-app.up.railway.app`.
+7. Ensure the server listens on `process.env.PORT` (it does via the fix in `server/src/index.ts`).
 
 ### Fly.io (Alternative)
 
@@ -100,7 +101,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - 'release/*'
+      - 'release'
 
 permissions:
   contents: read
@@ -152,8 +153,8 @@ In your repo → Settings → Secrets and variables → Actions, add:
 ## 6) Deploy
 
 1. Push the workflows and client config changes.
-2. Create a release branch: `git checkout -b release/v0.1-demo && git push -u origin release/v0.1-demo`
-3. GitHub Actions will build, test, and deploy. Check Actions tab for progress.
+2. When ready to demo, merge `main` into `release` and push: `git checkout release && git merge main && git push`
+3. Railway will auto-deploy the server from `release`. GitHub Actions will build, test, and deploy the client to GitHub Pages from `release`. Check the Actions tab for progress.
 4. Once deployed, visit `https://<username>.github.io/<repo-name>/`
 5. Share with friends - they can create/join rooms and connect over WebRTC via your signaling server.
 
@@ -165,7 +166,7 @@ In your repo → Settings → Secrets and variables → Actions, add:
 | Assets fail to load on Pages | Verify `base` in `client/vite.config.ts` matches your repo name. |
 | Server cold start delays | Free hosts may sleep; first connection can take a few seconds. Retry if needed. |
 | Mixed content errors | GitHub Pages is HTTPS, so the server must be reachable over WSS. |
-| PRs triggering deploys | Ensure the deploy workflow only triggers on `release/*` branches as shown above. |
+| PRs triggering deploys | Ensure the deploy workflow only triggers on the `release` branch as shown above. |
 
 ## Notes
 

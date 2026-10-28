@@ -54,7 +54,7 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 
 ## CI/CD & Deployment
 - **PR Checks:** Pull requests to `main`/`master` must build and run tests across all workspaces. No deployments from PRs.
-- **Release Deployments:** Only pushes to `release/*` branches trigger deployment. The client deploys to GitHub Pages, and the signaling server is deployed separately to a free WebSocket host (Railway/Fly.io) over WSS.
+- **Release Deployments:** Only merges/pushes to the `release` branch trigger deployment. Railway tracks the `release` branch for the signaling server (auto-deploy), and GitHub Actions deploys the client to GitHub Pages from the `release` branch. Deployments are intentional - merge `main` → `release` when ready to demo.
 - **Configuration:** The client uses `VITE_SIGNALING_URL` to point to the deployed signaling server. For GitHub Pages, ensure `base` is configured correctly in `client/vite.config.ts`.
 - **Documentation:** See [DEPLOYMENT.md](doc/DEPLOYMENT.md) for full setup instructions.
 

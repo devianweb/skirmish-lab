@@ -67,8 +67,8 @@ trench-heresy/
 ## CI/CD & Deployment
 
 - **PR Checks**: Pull requests run build and tests across all workspaces (no deployment).
-- **Demos**: Pushes to `release/*` branches build, test, and deploy the client to [GitHub Pages](https://pages.github.com/).
-- **Signaling Server**: Deployed to a free WebSocket host (Railway/Fly.io) over WSS.
+- **Demos**: Merges/pushes to the `release` branch trigger deployments. The client deploys to [GitHub Pages](https://pages.github.com/), and the signaling server (deployed to Railway/Fly.io) auto-deploys from the `release` branch over WSS.
+- **Release Flow**: Merge `main` → `release` when ready to demo/show off.
 
 See [doc/DEPLOYMENT.md](doc/DEPLOYMENT.md) for setup instructions.
 
