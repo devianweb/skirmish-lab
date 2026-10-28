@@ -7,12 +7,14 @@ export interface Room {
   createdAt: number;
   lastActivity: number;
   gameStarted: boolean;
+  rollCache?: Map<string, any>;
 }
 
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
   private readonly codeLength = 6;
   private readonly inactivityTimeout = 5 * 60 * 1000; // 5 minutes
+  private readonly graceTimeout = 5 * 60 * 1000; // 5 minutes grace window for disconnected peer
   private readonly maxLifetime = 3 * 60 * 60 * 1000; // 3 hours
   private cleanupInterval: NodeJS.Timeout;
 
@@ -79,18 +81,38 @@ export class RoomManager {
     }
   }
 
+  reconnectRoom(code: string, role: 'host' | 'guest', ws: WebSocket): Room | null {
+    const room = this.rooms.get(code.toUpperCase());
+    if (!room) {
+      return null;
+    }
+    if (role === 'host') {
+      room.host = ws;
+      room.lastActivity = Date.now();
+      console.log(`Host reconnected to room ${code}`);
+      return room;
+    }
+    if (role === 'guest') {
+      room.guest = ws;
+      room.lastActivity = Date.now();
+      console.log(`Guest reconnected to room ${code}`);
+      return room;
+    }
+    return null;
+  }
+
   removeClient(ws: WebSocket): string | null {
     for (const [code, room] of this.rooms.entries()) {
       if (room.host === ws) {
-        // Host disconnected - remove room or mark for cleanup
-        this.rooms.delete(code);
-        console.log(`Room ${code} removed (host disconnected)`);
+        room.host = null;
+        room.lastActivity = Date.now();
+        console.log(`Host disconnected from room ${code} (5-min grace window started)`);
         return code;
       }
       if (room.guest === ws) {
         room.guest = null;
         room.lastActivity = Date.now();
-        console.log(`Guest left room ${code}`);
+        console.log(`Guest disconnected from room ${code} (5-min grace window started)`);
         return code;
       }
     }
@@ -110,10 +132,12 @@ export class RoomManager {
     for (const [code, room] of this.rooms.entries()) {
       const inactive = now - room.lastActivity > this.inactivityTimeout;
       const expired = now - room.createdAt > this.maxLifetime;
+      const hostGoneLongEnough = !room.host && (now - room.lastActivity > this.graceTimeout);
+      const abandoned = !room.host && !room.guest && (now - room.lastActivity > this.graceTimeout);
       
-      if (inactive || expired || (!room.host && !room.guest)) {
+      if (inactive || expired || hostGoneLongEnough || abandoned) {
         this.rooms.delete(code);
-        console.log(`Room ${code} cleaned up (inactive/expired/empty)`);
+        console.log(`Room ${code} cleaned up (inactive/expired/grace expired)`);
       }
     }
   }

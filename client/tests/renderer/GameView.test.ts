@@ -272,5 +272,25 @@ describe('GameView', () => {
       expect(scene.getObjectByName('terrain-terrain-1')).toBeUndefined();
       expect(scene.getObjectByName('marker-selection')).toBeUndefined();
     });
+
+    it('setupCameraForRole delegates to injected cameraController.setupForRole', () => {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = {
+        getScene: () => scene,
+        startAnimationLoop: () => {},
+      };
+      const setupForRoleSpy = vi.fn();
+      const cameraController = {
+        update: () => {},
+        setupForRole: setupForRoleSpy,
+      };
+      const gameView = new GameView({ sceneManager, cameraController });
+
+      gameView.setupCameraForRole('host');
+      expect(setupForRoleSpy).toHaveBeenCalledWith('host');
+
+      gameView.setupCameraForRole('guest');
+      expect(setupForRoleSpy).toHaveBeenCalledWith('guest');
+    });
   });
 });

@@ -78,6 +78,9 @@ export class SignalingServer {
       case 'join-room':
         this.handleJoinRoom(ws, message.code);
         break;
+      case 'reconnect-room':
+        this.handleReconnectRoom(ws, message.code, message.role);
+        break;
       case 'offer':
       case 'answer':
       case 'ice-candidate':
@@ -127,6 +130,25 @@ export class SignalingServer {
     }
   }
 
+  private handleReconnectRoom(ws: WebSocket, code: string, role: 'host' | 'guest'): void {
+    const room = this.roomManager.reconnectRoom(code, role, ws);
+    if (!room) {
+      this.send(ws, { type: 'error', message: 'Room not found or expired' });
+      return;
+    }
+
+    this.clientRooms.set(ws, room.code);
+    this.send(ws, { type: 'room-reconnected', code: room.code, role });
+
+    // Notify other peer if present
+    if (role === 'host' && room.guest) {
+      this.send(room.guest, { type: 'peer-reconnected', role: 'host' });
+    } else if (role === 'guest' && room.host) {
+      this.send(room.host, { type: 'peer-reconnected', role: 'guest' });
+    }
+    console.log(`Client reconnected to room ${room.code} as ${role}`);
+  }
+
   private relayMessage(ws: WebSocket, message: SignalingMessage): void {
     const roomCode = this.clientRooms.get(ws);
     if (!roomCode) {
@@ -164,8 +186,19 @@ export class SignalingServer {
 
     this.roomManager.updateActivity(roomCode);
 
-    // Roll dice on server
-    const results = this.diceRoller.rollDice(message.dice);
+    if (!room.rollCache) {
+      room.rollCache = new Map();
+    }
+
+    let results = room.rollCache.get(message.rollId);
+    if (!results) {
+      results = this.diceRoller.rollDice(message.dice);
+      room.rollCache.set(message.rollId, results);
+      if (room.rollCache.size > 100) {
+        const firstKey = room.rollCache.keys().next().value;
+        if (firstKey) room.rollCache.delete(firstKey);
+      }
+    }
     
     // Broadcast to both peers simultaneously
     const resultMessage = {

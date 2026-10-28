@@ -248,6 +248,10 @@ Track all modifiers to rolls:
   the derived outcome) is attached to the action log entry and broadcast in
   the state — both players' dice displays read from state, never from
   local rolls.
+- **Resilient Dice Roll Requests:** `SignalingDiceProvider` retries roll
+  requests every 2 seconds (up to 3 retries) and reconnects on demand
+  (`ensureConnected()`). The signaling server caches recent roll results by
+  `rollId` (`room.rollCache`), ensuring retries are strictly idempotent.
 
 ## Line of Sight & Targeting
 
@@ -309,4 +313,6 @@ Victory conditions are mission data. v1 ships a simple elimination mission; obje
 - Action log grows over game length but remains reasonable
 
 ## Rules Reference
-This document defines the engine's mechanics as implemented. Where OPR mechanics are the target, they are re-derived from first principles — never copied from published text. Details are finalized and verified through playtesting during implementation.
+This document defines the engine's mechanics as implemented. Where OPR mechanics are the target, they are re-derived from first principles — never copied from published text.
+
+For the exhaustive mathematical and procedural specification of the tabletop skirmish engine (including full trait schemas, activation maneuvers, trauma/casualty tables, and dynamic terrain rules), see **[RULES_SPECIFICATION.md](./RULES_SPECIFICATION.md)**.

@@ -28,11 +28,16 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Separate concerns:** Game logic/state is completely decoupled from rendering.
 
 ### Networking
-- **Signaling only:** The ws server is strictly for signaling (SDP/ICE exchange). Once WebRTC data channel is open, server gets out of the way.
+- **Signaling & dice only:** The ws server is strictly for signaling (SDP/ICE exchange) and authoritative dice rolls. Once WebRTC data channel is open, all gameplay actions, state updates, and movements flow P2P directly over the data channel.
 - **Invite codes:** Use XXX-XXX format room codes, no matchmaking.
-- **Rooms are ephemeral:** Rooms expire after inactivity or when game ends. Clean up on server.
-- **Server-rolled dice:** All dice rolls must go through the server's RNG and be broadcast to both peers simultaneously.
+- **Rooms are ephemeral with disconnect grace:** Rooms expire after inactivity (5 minutes) or max lifetime (3 hours). A 5-minute disconnect grace window preserves active rooms to allow socket recovery or reboots without dropping the game.
+- **Server-rolled dice:** All dice rolls must go through the server's RNG and be broadcast to both peers simultaneously. Roll requests retry with backoff and the server caches results by `rollId` for strict idempotency.
+- **Keep-alive:** Periodic signaling keep-alive pings (25s interval) ensure WebSocket connections stay active under cloud load balancer idle timeouts (e.g. Azure's 230s limit) even under browser background timer throttling.
 - **Confirmed actions only:** Only broadcast final confirmed positions/actions, no real-time dragging sync.
+
+### Rendering & Camera
+- **Role-dependent perspective:** The camera starts positioned from each player's deployment corner looking across the battlefield (Host at South corner `(20, 20, -20)` looking +z; Guest at North corner `(-20, 20, 20)` looking -z).
+- **Decoupled from state:** Scene meshes are purely visual and reactive; game state is never stored in Three.js objects.
 
 ### Development Do's
 - Keep game state pure and serializable
@@ -64,7 +69,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 
 ## CI/CD & Deployment
 - **PR Checks:** Pull requests to `main`/`master` must build and run tests across all workspaces. No deployments from PRs.
-- **Release Deployments:** Only a **merged PR into the `release` branch** triggers deployment. GitHub Actions deploys the client to GitHub Pages and the signaling server to Azure App Service (Linux Node 20 LTS, Free F1 tier) when a PR targeting `release` is merged. Deployments are intentional — open a PR (`master` → `release`) and merge it when ready to demo.
+- **Release Deployments:** Only a **merged PR into the `release` branch** triggers deployment. GitHub Actions deploys the client to GitHub Pages and the signaling server to Azure App Service (Linux Node 24 LTS, Free F1 tier) when a PR targeting `release` is merged. Deployments are intentional — open a PR (`master` → `release`) and merge it when ready to demo.
 - **Configuration:** The client uses `VITE_SIGNALING_URL` to point to the deployed signaling server. For GitHub Pages, ensure `base` is configured correctly in `client/vite.config.ts`.
 - **Documentation:** See [DEPLOYMENT.md](doc/DEPLOYMENT.md) for full setup instructions.
 

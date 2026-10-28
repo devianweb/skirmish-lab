@@ -26,10 +26,10 @@ This document details the networking architecture for the SkirmishLab browser ga
 6. Server removes room and cleans up resources
 
 ### Room Expiration Rules
-- **Inactivity:** No signaling activity for X minutes (configurable)
+- **Inactivity:** No signaling activity for 5 minutes (`inactivityTimeout = 5 * 60 * 1000`)
+- **Disconnect Grace Window:** If host or guest disconnects, the room is preserved for 5 minutes (`graceTimeout = 5 * 60 * 1000`) rather than destroyed immediately, allowing reboots or temporary socket drops to recover without losing the session
 - **Post-game:** Room expires after game ends + grace period
-- **Disconnect:** If both peers disconnect and no reconnection, expire
-- **Max lifetime:** Absolute maximum room lifetime as safety measure
+- **Max lifetime:** Absolute maximum room lifetime (3 hours) as safety measure
 
 ## WebRTC Connection
 
@@ -169,13 +169,31 @@ The host client drives attack resolution (`SignalingDiceProvider` +
 The host processes one action at a time; actions arriving while dice are
 in flight are rejected with "Another action is being processed".
 
-### Signaling Keep-Alive
+### Signaling Keep-Alive & Auto-Reconnect
 Once gameplay runs over the data channel, the signaling WebSocket sees no
 natural traffic — but dice requests still need the room to exist on the
-server. Clients therefore ping the signaling server every 60 s
-(`SignalingClient.startKeepAlive`); the server's `ping` handler refreshes
-room activity, so rooms no longer expire mid-game. (Rooms still expire on
-the max-lifetime and disconnect rules.)
+server. Clients therefore ping the signaling server every 25 s
+(`SignalingClient.startKeepAlive(intervalMs = 25000)`). A 25s interval ensures
+connections stay active under Azure App Service's 230-second TCP idle proxy
+timeout even when browsers aggressively throttle timers in background tabs.
+The server's `ping` handler refreshes room activity, preventing mid-game
+inactivity cleanup.
+
+If the WebSocket disconnects unexpectedly (e.g. WiFi hiccup or Azure socket recycling),
+`SignalingClient` automatically reconnects and issues `reconnect-room` to re-bind
+to its active room slot.
+
+### Resilient Server-Rolled Dice
+To prevent actions from hanging or failing if a temporary disconnect occurs right
+as an attack is submitted:
+1. `SignalingDiceProvider` verifies connection state via `isConnected()`, and calls
+   `ensureConnected()` to initiate an immediate reconnect if needed.
+2. The roll request automatically re-transmits every 2 seconds (up to 3 retries) with
+   the same `rollId` if no answer has arrived yet.
+3. The signaling server caches recent roll results by `rollId` (`room.rollCache`),
+   ensuring that roll requests are strictly idempotent: retries return the exact
+   same dice values rather than re-rolling.
+4. Total timeout is 10 seconds before rejecting the action.
 
 ### Dice Types
 Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resolution).
@@ -192,9 +210,9 @@ Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resol
 ```
 1. Connection drops (heartbeat timeout detected)
 2. UI shows disconnected state
-3. If host drops: Guest keeps last snapshot cached
-4. Host attempts to reconnect to signaling server with same room code
-5. Signaling server recognizes room (if not expired) and allows rejoin
+3. If host drops: Guest keeps last snapshot cached; server preserves room in 5-min grace window
+4. Host reconnects to signaling server with { type: 'reconnect-room', code, role: 'host' }
+5. Signaling server re-links host WebSocket to existing room
 6. Peers re-establish WebRTC connection through signaling
 7. Host sends current authoritative state to guest (or guest has snapshot)
 8. Game resumes from last confirmed state
@@ -205,7 +223,7 @@ Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resol
 - **Guest Recovery:** Aim to rejoin host's state if host reconnects
 - **No Auto-Migration:** Don't implement full guest-takeover for v1
 - **State Sync:** On reconnection, host sends full state snapshot to guest
-- **Room Persistence:** Room must not be expired during reconnection attempt window
+- **Room Persistence:** 5-minute grace window preserves room on server during reconnection attempts
 
 ## Connection Monitoring
 
@@ -249,8 +267,9 @@ if (now - lastPongTime > timeout) {
   port: 8080,
   roomCodeLength: 6,        // XXX-XXX format
   roomInactivityTimeout: 300000, // 5 minutes
-  roomMaxLifetime: 3600000,      // 1 hour
-  cleanupInterval: 60000        // 1 minute
+  roomGraceTimeout: 300000,      // 5 minutes disconnect grace window
+  roomMaxLifetime: 10800000,     // 3 hours
+  cleanupInterval: 60000         // 1 minute
 }
 ```
 

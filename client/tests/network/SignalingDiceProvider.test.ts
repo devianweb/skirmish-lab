@@ -70,4 +70,51 @@ describe('SignalingDiceProvider', () => {
     // Listener cleaned up after the timeout too.
     expect(handlers.get('roll-dice-result')).toHaveLength(0);
   });
+
+  it('retries requestDiceRoll on configured retry interval until resolved', async () => {
+    vi.useFakeTimers();
+    const provider = new SignalingDiceProvider(signaling, {
+      timeoutMs: 5000,
+      retryIntervalMs: 1000,
+      maxRetries: 3,
+    });
+
+    const pending = provider.requestRoll('roll-retry', specs);
+    expect(signaling.requestDiceRoll).toHaveBeenCalledTimes(1);
+
+    // After 1000ms: retry 1
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signaling.requestDiceRoll).toHaveBeenCalledTimes(2);
+
+    // After 2000ms: retry 2
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signaling.requestDiceRoll).toHaveBeenCalledTimes(3);
+
+    // Deliver result on retry
+    deliver({ type: 'roll-dice-result', rollId: 'roll-retry', results });
+    await expect(pending).resolves.toEqual(results);
+
+    // Timers stopped: no further retries
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signaling.requestDiceRoll).toHaveBeenCalledTimes(3);
+  });
+
+  it('attempts ensureConnected before requesting roll if disconnected', async () => {
+    const isConnectedMock = vi.fn(() => false);
+    const ensureConnectedMock = vi.fn(async () => {});
+    (signaling as any).isConnected = isConnectedMock;
+    (signaling as any).ensureConnected = ensureConnectedMock;
+
+    const provider = new SignalingDiceProvider(signaling);
+    const pending = provider.requestRoll('roll-reconn', specs);
+
+    expect(isConnectedMock).toHaveBeenCalled();
+    expect(ensureConnectedMock).toHaveBeenCalled();
+
+    // Allow ensureConnected promise to resolve and attach the listener
+    await Promise.resolve();
+
+    deliver({ type: 'roll-dice-result', rollId: 'roll-reconn', results });
+    await expect(pending).resolves.toEqual(results);
+  });
 });
