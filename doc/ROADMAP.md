@@ -146,27 +146,55 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 **Goal:** Implement alternating-activation gameplay flow
 
 ### Tasks
-- [ ] Lobby UI
-- [ ] Game HUD (round, current activator, unit info)
-- [ ] Action selection UI
-- [ ] Unit selection
-- [ ] Action confirmation (no real-time dragging)
-- [ ] Alternating activation management (activate one unit, pass initiative)
-- [ ] Round management (all units activated → cleanup → new round)
-- [ ] Dice result display
-- [ ] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
-- [ ] Replace procedural placeholders with curated Kenney prototype-kit GLBs (CC0, staged in `assets-src/`): figurines for unit roles, walls/crates/columns for terrain, `indicator-*`/`target-*`/`number-*` models for movement/attack/dice UI markers
+- [x] Lobby UI
+- [x] Game HUD (round, current activator, unit info)
+- [x] Action selection UI
+- [x] Unit selection
+- [x] Action confirmation (no real-time dragging)
+- [x] Alternating activation management (activate one unit, pass initiative)
+- [x] Round management (all units activated → cleanup → new round)
+- [x] Dice result display
+- [x] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
+- [x] Replace procedural placeholders with curated Kenney prototype-kit GLBs (CC0, staged in `assets-src/`): figurines for unit roles, walls/crates/columns for terrain, `indicator-*`/`target-*`/`number-*` models for movement/attack/dice UI markers
+
+> **Implementation notes:** The shared engine (`shared/src/engine/`) owns
+> activation/round management and Q/D combat resolution as pure functions;
+> the host `GameManager` validates, requests server dice via
+> `SignalingDiceProvider`, applies deterministically, and broadcasts —
+> both peers' HUDs render everything (including dice) from confirmed state
+> only. Every action requires explicit confirmation before submission; the
+> host processes one action at a time. Hold is a one-step activation
+> (spends the activation clearing stun). Engaged units can't move, shoot,
+> or charge — they fight. Charge ends at engagement distance 1 and consumes
+> all movement. Rounds end automatically when all units activated; the
+> starting player alternates. v1 win condition: elimination. Signaling
+> keep-alive pings keep rooms alive for mid-game dice requests. Curated
+> Kenney GLBs live in `client/public/models/` with mappings in the asset
+> manifest; unregistered types fall back to procedural placeholders.
 
 ### Acceptance Criteria
-- [ ] Players can connect and start game
-- [ ] Players alternate activating units
-- [ ] When one player runs out of units, other activates remaining
-- [ ] Round ends when all units activated; new round starts with alternating first player
-- [ ] Actions require confirmation
-- [ ] Only confirmed actions sent to host
-- [ ] Dice results displayed to both players
-- [ ] UI reflects current game state
-- [ ] Stunned/routed units cannot activate
+- [x] Players can connect and start game (automated: GameManager host↔guest integration over a simulated channel)
+- [x] Players alternate activating units (automated: engine activation tests)
+- [x] When one player runs out of units, other activates remaining (automated: engine activation tests)
+- [x] Round ends when all units activated; new round starts with alternating first player (automated: engine round-management tests)
+- [x] Actions require confirmation (automated: GameHUD tests)
+- [x] Only confirmed actions sent to host (automated: GameHUD + GameManager tests)
+- [x] Dice results displayed to both players (automated: state-driven dice panel renders for either player; server broadcast covered by signaling integration tests)
+- [x] UI reflects current game state (automated: GameHUD renders purely from confirmed state)
+- [x] Stunned/routed units cannot activate (automated: engine validation tests — routed rejected; stunned may activate, spending the activation clearing the stun)
+
+### Manual Test Checklist (browser, `npm run dev` — two windows)
+- [ ] Host creates room, guest joins, both reach the game without errors
+- [ ] Starting armies deploy (figurines, terrain) and HUD shows round 1
+- [ ] Host activates a unit, moves it (distance summary + confirm), turn passes
+- [ ] Guest activates, shoots the host unit in range — both windows show the same dice panel and wound token
+- [ ] Charge + fight across an engagement (both marked ENGAGED, fight-only)
+- [ ] Hold on a stunned unit clears the stun
+- [ ] Exhausting one side's units lets the other activate their remaining units
+- [ ] Round increments and the other player starts round 2
+- [ ] Illegal submissions surface a rejection toast (e.g., out-of-range shot)
+- [ ] Final unit destroyed → game-over banner on both windows
+- [ ] GLB models render at sensible sizes (Kenney figurines/terrain/markers — visual scale check; adjust `assetManifest` scales if needed)
 
 ## Phase 6: OPR Skirmish Rules Engine
 **Goal:** Implement OPR-style skirmish mechanics from first principles
