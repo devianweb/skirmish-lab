@@ -5,9 +5,12 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "typescript": "^7.0.0"
+    "typescript": "^7.0.0",
+    "vitest": "^2.1.8"
   }
 }

@@ -7,7 +7,7 @@ export class SignalingClient {
   private handlers: Map<string, MessageHandler[]> = new Map();
   private url: string;
 
-  constructor(url: string = 'ws://localhost:8080') {
+  constructor(url: string = import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8080') {
     this.url = url;
   }
 

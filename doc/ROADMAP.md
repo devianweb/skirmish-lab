@@ -92,15 +92,15 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 **Goal:** Enable automated testing and deployment for demos
 
 ### Tasks
-- [ ] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
-- [ ] Create GitHub Actions workflow for `release` branch (build + test + deploy)
+- [x] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
+- [x] Create GitHub Actions workflow for `release` branch (build + test + deploy)
 - [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io) tracking the `release` branch
 - [ ] Configure GitHub Pages for client deployment
-- [ ] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
+- [x] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
 - [ ] Set up WSS endpoint for production
-- [ ] Configure Vite `base` for GitHub Pages
-- [ ] Add deployment status badges to README
-- [ ] Document deployment process in `doc/DEPLOYMENT.md`
+- [x] Configure Vite `base` for GitHub Pages
+- [x] Add deployment status badges to README
+- [x] Document deployment process in `doc/DEPLOYMENT.md`
 
 ### Acceptance Criteria
 - [ ] PRs to main/master run build and tests without deploying
