@@ -1,15 +1,35 @@
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
 
+/** Fired once the P2P data channel is alive (first heartbeat round-trip). */
+export interface PeerReadyContext {
+  webrtcClient: WebRTCClient;
+  signalingClient: SignalingClient;
+  role: 'host' | 'guest';
+  roomCode: string;
+}
+
+export interface LobbyOptions {
+  onPeerReady?: (context: PeerReadyContext) => void;
+}
+
+/**
+ * Lobby UI: room creation/joining via invite codes and the WebRTC handshake.
+ * Once the data channel is alive it hands the connection pieces to the app
+ * (onPeerReady) — main.ts wires them into GameManager/GameView/GameHUD.
+ */
 export class Lobby {
   private container: HTMLElement;
   private signalingClient: SignalingClient;
   private webrtcClient: WebRTCClient | null = null;
   private roomCode: string | null = null;
   private role: 'host' | 'guest' | null = null;
+  private options: LobbyOptions;
+  private peerReadyFired = false;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
+    this.options = options;
     this.signalingClient = new SignalingClient();
     this.setupSignalingHandlers();
   }
@@ -17,6 +37,14 @@ export class Lobby {
   async init(): Promise<void> {
     await this.signalingClient.connect();
     this.render();
+  }
+
+  hide(): void {
+    this.container.style.display = 'none';
+  }
+
+  show(): void {
+    this.container.style.display = '';
   }
 
   private setupSignalingHandlers(): void {
@@ -99,6 +127,22 @@ export class Lobby {
     this.signalingClient.sendAnswer(answer);
   }
 
+  /**
+   * The first heartbeat ping from the peer proves the data channel is open
+   * in both directions — hand the connection to the app exactly once.
+   */
+  private maybeFirePeerReady(): void {
+    if (this.peerReadyFired || !this.webrtcClient || !this.role || !this.roomCode) return;
+    if (!this.webrtcClient.isConnected()) return;
+    this.peerReadyFired = true;
+    this.options.onPeerReady?.({
+      webrtcClient: this.webrtcClient,
+      signalingClient: this.signalingClient,
+      role: this.role,
+      roomCode: this.roomCode,
+    });
+  }
+
   private render(): void {
     if (this.roomCode && this.role) {
       this.container.innerHTML = `
@@ -109,12 +153,14 @@ export class Lobby {
           <p id="status">Waiting for peer...</p>
         </div>
       `;
-      
+
       if (this.webrtcClient) {
         this.webrtcClient.on('heartbeat-ping', () => {
           const status = document.getElementById('status');
           if (status) status.textContent = 'Connected!';
+          this.maybeFirePeerReady();
         });
+        this.webrtcClient.on('state-update', () => this.maybeFirePeerReady());
       }
     } else {
       this.container.innerHTML = `
@@ -127,11 +173,11 @@ export class Lobby {
           </div>
         </div>
       `;
-      
+
       document.getElementById('createBtn')?.addEventListener('click', () => {
         this.signalingClient.createRoom();
       });
-      
+
       document.getElementById('joinBtn')?.addEventListener('click', () => {
         const input = document.getElementById('codeInput') as HTMLInputElement;
         if (input.value) {

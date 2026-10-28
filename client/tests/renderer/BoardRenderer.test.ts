@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { BoardRenderer } from '../../src/renderer/BoardRenderer';
+import { ModelLoader } from '../../src/renderer/ModelLoader';
 import { makeState, makeTerrain } from './helpers';
 
 describe('BoardRenderer', () => {
@@ -114,5 +115,29 @@ describe('BoardRenderer', () => {
     renderer.renderTerrain(state);
 
     expect(JSON.stringify(state)).toBe(before);
+  });
+
+  it('renders registered terrain types through the ModelLoader (GLB path)', async () => {
+    const glb = new THREE.Group();
+    glb.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
+    const loadFn = vi.fn().mockResolvedValue(glb);
+    const loader = new ModelLoader(loadFn);
+    loader.registerTerrainAsset('crate', { url: 'crate.glb' });
+
+    const scene = new THREE.Scene();
+    const renderer = new BoardRenderer(scene, loader);
+    renderer.renderTerrain(
+      makeState({
+        terrain: [makeTerrain({ terrainType: 'crate', scale: { x: 2, y: 2, z: 2 } })],
+      })
+    );
+
+    const piece = scene.getObjectByName('terrain-terrain-1')!;
+    expect(piece).toBeDefined();
+    // Sizing always comes from the terrain data, not the model.
+    expect(piece.scale.x).toBe(2);
+    await vi.waitFor(() => {
+      expect(loadFn).toHaveBeenCalledWith('crate.glb');
+    });
   });
 });
