@@ -265,6 +265,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Test action validation
 - [ ] Performance testing
 - [ ] UI/UX polish
+- [ ] "Play Again" / rematch option on the game-over screen (reset game state over the existing peer connection without returning to the lobby)
 - [ ] Bug fixes
 - [ ] Documentation updates
 
