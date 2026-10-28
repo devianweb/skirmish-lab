@@ -32,10 +32,11 @@ Used by `MarkerRenderer` for selection, targeting, range rings, and floating wou
 
 | Marker Key | GLB File | Manifest Scale | Purpose & Behavior |
 | :--- | :--- | :---: | :--- |
-| `selection` | `indicator-square-a.glb` | `1.4` | Flat blue (`0x4fc3f7`) floor square under the selected, active, or hovered friendly unit |
-| `target` | `indicator-round-b.glb` | `1.4` | Flat red (`0xef5350`) floor ring under the hovered or targeted enemy unit |
-| `movement-range` | `indicator-round-a.glb` | `2.0` *(× `remainingMovement`)* | Yellow (`0xffd54f`) ring around the active unit sized to its remaining movement radius (raw GLB diameter is `1.0` / radius `0.5`, so `2.0` base scale = `1.0` unit radius) |
-| `attack-range` | `indicator-round-b.glb` | `2.0` *(× weapon/charge range)* | Red (`0xef5350`) ring around the active unit showing max shoot/charge/fight range while targeting |
+| `selection` | `indicator-round-b.glb` | `1.4` | Flat blue (`0x29b6f6`) floor ring under the selected, active, or hovered friendly unit |
+| `target` | `indicator-round-b.glb` | `1.4` | Bright red (`0xff5252`) floor ring under the hovered or selected enemy target |
+| `reachable-target` | `indicator-round-b.glb` | `1.4` | Darker red (`0x8e2424`) floor ring under all reachable enemy targets within the attack range circle |
+| `movement-range` | `indicator-round-a.glb` | `2.0` *(× `remainingMovement`)* | Yellow/blue disc around the active unit sized to its remaining movement radius (raw GLB diameter is `1.0` / radius `0.5`, so `2.0` base scale = `1.0` unit radius) |
+| `attack-range` | *(Procedural `RingGeometry`)* | `1.0` *(× weapon/charge range)* | Crisp, constant-thickness (`0.08"` rim) red (`0xef5350`) circle around the active unit showing max shoot/charge/fight range while targeting |
 | `outcome-1` .. `outcome-5` | `number-1.glb` .. `number-5.glb` | `1.2` | Floating red (`0xef5350`) wound-count digit above a wounded target; oriented toward the camera each frame so digits never appear mirrored |
 
 ### Shared Texture

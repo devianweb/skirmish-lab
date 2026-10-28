@@ -11,7 +11,7 @@ Instead of per-player phases, the game uses **alternating unit activations**:
 2. The starting player activates one of their units.
 3. Players alternate: each activation, the other player then activates one of their own units.
 4. When one player has no unactivated units left, the other player activates their remaining units one after another.
-5. When all units on both sides have activated, the round ends: cleanup, morale checks, then a new round begins with the other player starting.
+5. When all units on both sides have activated, the round ends: cleanup, morale checks, then a new round begins with the player who finished activating all of their units first in the previous round (the opponent of the player who took the final activation).
 
 ### Activation State
 ```typescript

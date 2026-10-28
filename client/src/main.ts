@@ -46,6 +46,10 @@ function unitForMarkers(unitId: string | null): MarkerUnit | null {
 function applyMarkers(markers: MarkerSnapshot): void {
   gameView.setSelectionMarker(unitForMarkers(markers.selectedUnitId));
   gameView.setTargetMarker(unitForMarkers(markers.targetUnitId));
+  const reachable = (markers.reachableTargetIds ?? [])
+    .map((id) => unitForMarkers(id))
+    .filter((u): u is MarkerUnit => u !== null);
+  gameView.setReachableTargetsMarker(reachable);
   gameView.setMovementRangeMarker(unitForMarkers(markers.movementRangeUnitId));
   const attackRangeUnit = markers.attackRange
     ? unitForMarkers(markers.attackRange.unitId)
@@ -106,7 +110,7 @@ const lobby = new Lobby(lobbyContainer, {
           hud = null;
           gameManager = null;
           latestState = null;
-          gameView.clearMarkers();
+          gameView.clear();
           lobby.reset();
         },
       },

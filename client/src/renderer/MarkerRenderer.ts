@@ -20,8 +20,9 @@ export interface MovePathMarker {
   to: Vector3;
 }
 
-const SELECTION_COLOR = 0x4fc3f7;
-const TARGET_COLOR = 0xef5350;
+const SELECTION_COLOR = 0x29b6f6;
+const TARGET_COLOR = 0xff5252;
+const REACHABLE_TARGET_COLOR = 0x8e2424;
 const RANGE_COLOR = 0xffd54f;
 const ATTACK_RANGE_COLOR = 0xef5350;
 const PATH_COLOR = 0x69f0ae;
@@ -30,7 +31,8 @@ const OUTCOME_COLOR = 0xef5350;
 /**
  * Renders gameplay UI markers in the scene: selection indicator under the
  * player's chosen unit, target indicator under a prospective attack target,
- * movement-range ring for the active unit, attack-range ring during
+ * darker red rings under all reachable enemy targets within range,
+ * movement-range ring for the active unit, thin attack-range ring during
  * shoot/charge/fight targeting, movement path preview line, and floating
  * wound-count tokens after an attack resolves.
  *
@@ -43,6 +45,7 @@ export class MarkerRenderer {
   private modelLoader: ModelLoader;
   private selection: THREE.Object3D | null = null;
   private target: THREE.Object3D | null = null;
+  private reachableTargets: THREE.Group | null = null;
   private range: THREE.Object3D | null = null;
   private attackRange: THREE.Object3D | null = null;
   private movePath: THREE.Object3D | null = null;
@@ -56,18 +59,38 @@ export class MarkerRenderer {
     scene.add(this.markerGroup);
   }
 
-  /** Indicator under the selected/active/hovered unit (blue). */
+  /** Indicator under the selected/active/hovered unit (blue circle). */
   setSelection(unit: MarkerUnit | null): void {
     this.replaceMarker('selection', unit, SELECTION_COLOR, () =>
       this.createFlatRing(SELECTION_COLOR, 0.55, 0.02)
     );
   }
 
-  /** Indicator under a prospective attack target (red floor ring). */
+  /** Indicator under a hovered or selected attack target (bright red floor ring). */
   setTarget(unit: MarkerUnit | null): void {
     this.replaceMarker('target', unit, TARGET_COLOR, () =>
       this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
     );
+  }
+
+  /** Darker red floor rings under all enemy units within attack range. */
+  setReachableTargets(units: MarkerUnit[]): void {
+    this.removeMarker('reachableTargets');
+    if (!units || units.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-reachable-targets';
+    for (const unit of units) {
+      const ring = this.modelLoader.createMarkerMesh('reachable-target', () =>
+        this.createFlatRing(REACHABLE_TARGET_COLOR, 0.55, 0.018)
+      );
+      this.applyTint(ring, REACHABLE_TARGET_COLOR);
+      ring.name = `marker-reachable-${unit.id}`;
+      ring.position.set(unit.position.x, 0.018, unit.position.z);
+      group.add(ring);
+    }
+    this.markerGroup.add(group);
+    this.reachableTargets = group;
   }
 
   /** Movement-range ring sized to the unit's remaining movement (yellow). */
@@ -87,13 +110,16 @@ export class MarkerRenderer {
     this.range = marker;
   }
 
-  /** Attack-range ring sized to the weapon/charge max range (red). */
+  /** Thin attack-range ring sized to the weapon/charge max range (red). */
   setAttackRange(spec: AttackRangeMarker | null): void {
     this.removeMarker('attackRange');
     if (!spec || spec.range <= 0) return;
 
+    // Keep world-space rim thickness constant (~0.08 board units) regardless of
+    // how large `spec.range` is so a 24" shoot circle stays a crisp thin line.
+    const normalizedThickness = Math.min(0.25, 0.08 / spec.range);
     const marker = this.modelLoader.createMarkerMesh('attack-range', () =>
-      this.createRangeRing(ATTACK_RANGE_COLOR, 1)
+      this.createRangeRing(ATTACK_RANGE_COLOR, 1, normalizedThickness)
     );
     this.applyTint(marker, ATTACK_RANGE_COLOR);
     marker.name = 'marker-attack-range';
@@ -164,6 +190,7 @@ export class MarkerRenderer {
   clearAll(): void {
     this.removeMarker('selection');
     this.removeMarker('target');
+    this.removeMarker('reachableTargets');
     this.removeMarker('range');
     this.removeMarker('attackRange');
     this.removeMarker('movePath');
@@ -191,7 +218,9 @@ export class MarkerRenderer {
     }
   }
 
-  private removeMarker(kind: 'selection' | 'target' | 'range' | 'attackRange' | 'movePath'): void {
+  private removeMarker(
+    kind: 'selection' | 'target' | 'reachableTargets' | 'range' | 'attackRange' | 'movePath'
+  ): void {
     const current = this[kind];
     if (current) {
       this.markerGroup.remove(current);
@@ -219,9 +248,14 @@ export class MarkerRenderer {
 
   private applyTint(marker: THREE.Object3D, color: number): void {
     marker.userData.tintColor = color;
+    marker.userData.ignoreTextureMap = true;
     marker.traverse((child) => {
       const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
       if (material && material.color) {
+        if (material.map) {
+          material.map = null;
+          material.needsUpdate = true;
+        }
         material.color.setHex(color);
       }
     });
@@ -243,13 +277,21 @@ export class MarkerRenderer {
   }
 
   /** Range-ring fallback: thin annulus scaled to the radius. */
-  private createRangeRing(color: number, radius: number): THREE.Object3D {
-    const geometry = new THREE.RingGeometry(radius - 0.04, radius, 48);
+  private createRangeRing(
+    color: number,
+    radius: number,
+    thickness: number = 0.04
+  ): THREE.Object3D {
+    const geometry = new THREE.RingGeometry(
+      Math.max(0.01, radius - thickness),
+      radius,
+      64
+    );
     const material = new THREE.MeshBasicMaterial({
       color,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.8,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;

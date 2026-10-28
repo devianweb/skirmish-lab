@@ -160,6 +160,10 @@ export class GameView {
     this.markerRenderer.setTarget(unit);
   }
 
+  setReachableTargetsMarker(units: MarkerUnit[]): void {
+    this.markerRenderer.setReachableTargets(units);
+  }
+
   setMovementRangeMarker(unit: MarkerUnit | null): void {
     this.markerRenderer.setMovementRange(unit);
   }
@@ -178,6 +182,14 @@ export class GameView {
 
   clearMarkers(): void {
     this.markerRenderer.clearAll();
+  }
+
+  /** Clear the entire 3D battlefield (board, terrain, units, and markers). */
+  clear(): void {
+    this.boardRenderer.clear();
+    this.unitRenderer.clear();
+    this.markerRenderer.clearAll();
+    this.boardSignature = null;
   }
 
   // --- internals ----------------------------------------------------------

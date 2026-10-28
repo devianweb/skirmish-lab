@@ -99,13 +99,18 @@ describe('MarkerRenderer', () => {
     expect(renderer.getRenderedMarkerNames()).toHaveLength(0);
   });
 
-  it('renders attack-range ring and move-path line, and orients outcome tokens toward the camera', () => {
+  it('renders attack-range ring, reachable-target rings, and move-path line, and orients outcome tokens toward the camera', () => {
     const renderer = makeRenderer();
     renderer.setAttackRange({ position: { x: 1, y: 0, z: 2 }, range: 12 });
+    renderer.setReachableTargets([
+      { id: 'e1', position: { x: 2, y: 0, z: 3 } },
+      { id: 'e2', position: { x: 4, y: 0, z: 5 } },
+    ]);
     renderer.setMovePath({ from: { x: 0, y: 0, z: 0 }, to: { x: 3, y: 0, z: 4 } });
     renderer.showOutcome({ x: 0, y: 0, z: 0 }, 2);
 
     expect(renderer.getRenderedMarkerNames()).toContain('marker-attack-range');
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-reachable-targets');
     expect(renderer.getRenderedMarkerNames()).toContain('marker-move-path');
     const attackMarker = scene.getObjectByName('marker-attack-range')!;
     expect(attackMarker.scale.x).toBe(12);

@@ -432,5 +432,44 @@ describe('GameHUD', () => {
     clickByText(container, 'Shoot');
     const targetingSnap = snapshots[snapshots.length - 1];
     expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24 });
+    // Enemies within 24" appear in reachableTargetIds.
+    expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
+  });
+
+  it('auto-selects the target and jumps to confirmation when clicking Fight with only one enemy in melee range', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
+    )!;
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 1 };
+    attacker.status = ['engaged'];
+    target.status = ['engaged'];
+    activateUnit(state, HOST, attacker.id);
+
+    const { container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Fight');
+    // Should skip manual targeting and go straight to confirmation for the single engaged enemy.
+    expect(container.textContent).toContain(`strikes ${target.name}`);
+    expect(container.textContent).toContain('Confirm');
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].type).toBe('fight');
+    expect(controller.submitAction.mock.calls[0][0].payload.targetId).toBe(target.id);
+  });
+
+  it('renders an RTS-style unit data card above the action bar when a unit is active or selected', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    activateUnit(state, HOST, unit.id);
+    const { container } = setup(HOST, state);
+
+    const card = container.querySelector('.sl-hud-datacard');
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain(unit.name);
+    expect(card?.textContent).toContain(`Q${unit.quality}+`);
+    expect(card?.textContent).toContain(`D${unit.defense}+`);
   });
 });

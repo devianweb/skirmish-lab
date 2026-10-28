@@ -22,6 +22,7 @@ export interface GameHUDOptions {
 export interface MarkerSnapshot {
   selectedUnitId: string | null;
   targetUnitId: string | null;
+  reachableTargetIds?: string[];
   movementRangeUnitId: string | null;
   attackRange?: { unitId: string; range: number } | null;
   movePath?: { from: Vector3; to: Vector3 } | null;
@@ -151,6 +152,7 @@ export class GameHUD {
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
     if (nextHover !== this.hoveredUnitId) {
       this.hoveredUnitId = nextHover;
+      this.updateDataCardSlot();
       this.emitMarkers();
     }
   }
@@ -269,6 +271,17 @@ export class GameHUD {
     if (!active || active.ownerId !== this.localPlayerId) return;
     this.movePreview = null;
     this.flow = { mode: 'targeting', action };
+
+    // If fighting and there is only one enemy in engagement range, automatically
+    // select that target and go straight to confirmation.
+    if (action === 'fight') {
+      const targets = this.reachableEnemies(active, 'fight');
+      if (targets.length === 1) {
+        this.prepareAttack(targets[0].id);
+        return;
+      }
+    }
+
     this.render();
   }
 
@@ -495,7 +508,6 @@ export class GameHUD {
         ? 'Your turn'
         : `${opponentName}'s turn`
     }</span>
-        <span class="sl-hud-round-progress">Unactivated: You ${myUnactivated} · ${opponentName} ${enemyUnactivated}</span>
       </div>`;
 
     const units = `
@@ -699,19 +711,26 @@ export class GameHUD {
 
     const active = this.activeUnit;
     const activeIsMine = active?.ownerId === this.localPlayerId;
+    const dataCardSlot = `<div class="sl-hud-datacard-slot">${this.renderDataCard()}</div>`;
 
     if (this.flow.mode === 'confirming') {
       return `
-        <div class="sl-hud-bottom sl-hud-confirm">
-          <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
-          <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
-          <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-confirm">
+            <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
+            <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
+            <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+          </div>
         </div>`;
     }
 
     if (this.flow.mode === 'waiting') {
       return `
-        <div class="sl-hud-bottom"><span class="sl-hud-hint">Waiting for the host…</span></div>`;
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom"><span class="sl-hud-hint">Waiting for the host…</span></div>
+        </div>`;
     }
 
     if (this.flow.mode === 'targeting') {
@@ -720,9 +739,12 @@ export class GameHUD {
           ? 'Click a destination on the board (auto-clamps to max move)'
           : `Select an enemy target within the red range ring (${this.flow.action})`;
       return `
-        <div class="sl-hud-bottom">
-          <span class="sl-hud-hint">${instruction}</span>
-          <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom">
+            <span class="sl-hud-hint">${instruction}</span>
+            <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+          </div>
         </div>`;
     }
 
@@ -737,13 +759,6 @@ export class GameHUD {
       const canCharge = !engaged && !active.hasMoved && !hasAttacked;
       const canFight = engaged && !hasAttacked && !!meleeWeapon;
 
-      const shootLabel = rangedWeapon
-        ? `Shoot (${rangedWeapon.profile.attacks}d6, ${rangedWeapon.profile.range}")`
-        : 'Shoot';
-      const fightLabel = meleeWeapon
-        ? `Fight (${meleeWeapon.profile.attacks}d6)`
-        : 'Fight';
-
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
       const finishBtn = !hasActed
@@ -751,28 +766,119 @@ export class GameHUD {
         : `<button class="sl-hud-btn primary" data-action="end-activation">End Activation</button>`;
 
       return `
-        <div class="sl-hud-bottom sl-hud-actions">
-          <span class="sl-hud-active-name">${active.name}</span>
-          <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move (${active.remainingMovement.toFixed(1)}")</button>
-          <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>${shootLabel}</button>
-          <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge (${active.speed}")</button>
-          <button class="sl-hud-btn" data-action="fight" ${canFight ? '' : 'disabled'}>${fightLabel}</button>
-          ${finishBtn}
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-actions">
+            <span class="sl-hud-active-name">${active.name}</span>
+            <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move</button>
+            <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
+            <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge</button>
+            <button class="sl-hud-btn" data-action="fight" ${canFight ? '' : 'disabled'}>Fight</button>
+            ${finishBtn}
+          </div>
         </div>`;
     }
 
     if (this.myTurn) {
       const n = this.activatableUnits.length;
       return `
-        <div class="sl-hud-bottom">
-          <span class="sl-hud-hint">Your turn — activate a unit (${
-            n > 0 ? `${n} available` : 'none available'
-          })</span>
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom">
+            <span class="sl-hud-hint">Your turn — activate a unit (${
+              n > 0 ? `${n} available` : 'none available'
+            })</span>
+          </div>
         </div>`;
     }
 
     const opponentActive = active ? `${active.name} is activating` : 'waiting to activate';
-    return `<div class="sl-hud-bottom"><span class="sl-hud-hint">Opponent's turn — ${opponentActive}</span></div>`;
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom"><span class="sl-hud-hint">Opponent's turn — ${opponentActive}</span></div>
+      </div>`;
+  }
+
+  /** Unit shown in the RTS data card above the bottom bar (hovered, active, or selected). */
+  private get inspectedUnit(): Unit | null {
+    if (!this.state) return null;
+    if (this.hoveredUnitId) {
+      const hovered = this.state.units.find((u) => u.id === this.hoveredUnitId && !u.isDestroyed);
+      if (hovered) return hovered;
+    }
+    if (this.activeUnit) return this.activeUnit;
+    if (this.selectedUnitId) {
+      return this.state.units.find((u) => u.id === this.selectedUnitId && !u.isDestroyed) ?? null;
+    }
+    return null;
+  }
+
+  private renderDataCard(): string {
+    const unit = this.inspectedUnit;
+    if (!unit) return '';
+
+    const isMine = unit.ownerId === this.localPlayerId;
+    const statusTags: string[] = [];
+    if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('routed')) statusTags.push('ROUTED');
+    if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
+    if (unit.status.includes('in-cover')) statusTags.push('IN COVER');
+    if (unit.isActivated) statusTags.push('ACTIVATED');
+    else statusTags.push('READY');
+
+    const weaponRows = unit.weapons
+      .filter((w) => w.isEquipped)
+      .map(
+        (w) => `
+          <tr>
+            <td>${w.name}</td>
+            <td>${w.profile.type === 'ranged' ? 'Ranged' : 'Melee'}</td>
+            <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
+            <td>${w.profile.attacks}d6</td>
+          </tr>`
+      )
+      .join('');
+
+    return `
+      <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'}">
+        <div class="sl-hud-datacard-header">
+          <span class="sl-hud-datacard-name">${unit.name}</span>
+          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} · ${unit.unitType}</span>
+          <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
+        </div>
+        <div class="sl-hud-datacard-tables">
+          <table class="sl-hud-table">
+            <thead>
+              <tr><th>Quality</th><th>Defense</th><th>Wounds</th><th>Move</th><th>Charge</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Q${unit.quality}+</td>
+                <td>D${unit.defense}+</td>
+                <td>${unit.wounds}/${unit.maxWounds}</td>
+                <td>${unit.remainingMovement.toFixed(1)}" / ${unit.speed}"</td>
+                <td>${unit.speed}"</td>
+              </tr>
+            </tbody>
+          </table>
+          <table class="sl-hud-table">
+            <thead>
+              <tr><th>Weapon</th><th>Type</th><th>Range</th><th>Dice</th></tr>
+            </thead>
+            <tbody>
+              ${weaponRows}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  private updateDataCardSlot(): void {
+    const slot = this.root.querySelector('.sl-hud-datacard-slot');
+    if (slot) {
+      slot.innerHTML = this.renderDataCard();
+    }
   }
 
   private bindEvents(): void {
@@ -783,11 +889,13 @@ export class GameHUD {
       const unitId = el.dataset.unitId!;
       el.addEventListener('mouseenter', () => {
         this.hoveredUnitId = unitId;
+        this.updateDataCardSlot();
         this.emitMarkers();
       });
       el.addEventListener('mouseleave', () => {
         if (this.hoveredUnitId === unitId) {
           this.hoveredUnitId = null;
+          this.updateDataCardSlot();
           this.emitMarkers();
         }
       });
@@ -872,18 +980,19 @@ export class GameHUD {
     const markers: MarkerSnapshot = {
       selectedUnitId: selectedId,
       targetUnitId: null,
+      reachableTargetIds: [],
       movementRangeUnitId: null,
       attackRange: null,
       movePath: null,
       outcome,
     };
 
-    // If hovering an enemy unit, show the red target ring under that enemy.
+    // If hovering an enemy unit, show the bright red target ring under that enemy.
     if (hoveredUnit && hoveredUnit.ownerId !== this.localPlayerId) {
       markers.targetUnitId = hoveredUnit.id;
     }
 
-    // While confirming an attack/charge, keep the target marker on the chosen target.
+    // While confirming an attack/charge, keep the bright red target marker on the chosen target.
     if (this.flow.mode === 'confirming') {
       const payload = this.flow.action.payload as { targetId?: string; path?: Vector3[] };
       if (payload.targetId) {
@@ -897,8 +1006,8 @@ export class GameHUD {
       }
     }
 
-    // While targeting an attack, show the red max-range circle around the active unit,
-    // and highlight the hovered enemy (or nearest enemy in range if none hovered).
+    // While targeting an attack, show the thin red max-range circle around the active unit,
+    // darker red rings under all reachable enemy targets, and a bright red ring under any hovered target.
     if (this.flow.mode === 'targeting' && this.flow.action !== 'move' && this.state) {
       const active = this.activeUnit;
       if (active) {
@@ -906,10 +1015,10 @@ export class GameHUD {
         if (maxRange > 0) {
           markers.attackRange = { unitId: active.id, range: maxRange };
         }
-        if (!markers.targetUnitId) {
-          const enemy = this.nearestEnemyInRange(active, this.flow.action);
-          markers.targetUnitId = enemy?.id ?? null;
-        }
+        const reachable = this.reachableEnemies(active, this.flow.action);
+        markers.reachableTargetIds = reachable
+          .filter((enemy) => enemy.id !== markers.targetUnitId)
+          .map((enemy) => enemy.id);
       }
     }
 
@@ -947,24 +1056,18 @@ export class GameHUD {
     return 1.5;
   }
 
-  /** Nearest enemy the active unit could target (for the target marker). */
-  private nearestEnemyInRange(unit: Unit, action: 'shoot' | 'charge' | 'fight'): Unit | null {
-    if (!this.state) return null;
+  /** All living enemy units within max range of the given action. */
+  private reachableEnemies(unit: Unit, action: 'shoot' | 'charge' | 'fight'): Unit[] {
+    if (!this.state) return [];
     const limit = this.actionMaxRange(unit, action);
-    let best: Unit | null = null;
-    let bestDistance = Infinity;
-    for (const candidate of this.state.units) {
-      if (candidate.ownerId === this.localPlayerId || candidate.isDestroyed) continue;
+    return this.state.units.filter((candidate) => {
+      if (candidate.ownerId === this.localPlayerId || candidate.isDestroyed) return false;
       const distance = Math.hypot(
         candidate.position.x - unit.position.x,
         candidate.position.z - unit.position.z
       );
-      if (distance <= limit + 0.01 && distance < bestDistance) {
-        best = candidate;
-        bestDistance = distance;
-      }
-    }
-    return best;
+      return distance <= limit + 0.01;
+    });
   }
 
   // --- styles -------------------------------------------------------------
@@ -985,7 +1088,6 @@ export class GameHUD {
   background: rgba(10, 12, 16, 0.82); border-bottom: 1px solid #2a2f3a; }
 .sl-hud-title { font-weight: 700; letter-spacing: 0.5px; }
 .sl-hud-round { color: #ffd54f; font-weight: 600; }
-.sl-hud-round-progress { margin-left: auto; font-size: 12px; color: #90a4ae; }
 .sl-hud-turn.mine { color: #69f0ae; font-weight: 600; }
 .sl-hud-turn.theirs { color: #ff8a65; }
 .sl-hud-panel { position: absolute; pointer-events: auto; background: rgba(10, 12, 16, 0.82);
@@ -1006,10 +1108,25 @@ export class GameHUD {
 .sl-hud-unit-stats { font-size: 11px; color: #b0bec5; }
 .sl-hud-unit-weapons { font-size: 10px; color: #90caf9; width: 100%; }
 .sl-hud-unit-tags { font-size: 10px; color: #ff8a65; }
-.sl-hud-bottom { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-  pointer-events: auto; display: flex; align-items: center; gap: 10px;
+.sl-hud-bottom-dock { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 88vw; }
+.sl-hud-datacard { pointer-events: auto; background: rgba(12, 15, 22, 0.92);
+  border: 1px solid #37474f; border-radius: 10px; padding: 8px 14px; min-width: 440px; }
+.sl-hud-datacard.mine { border-color: #29b6f6; }
+.sl-hud-datacard.enemy { border-color: #ef5350; }
+.sl-hud-datacard-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+  border-bottom: 1px solid #263238; padding-bottom: 4px; }
+.sl-hud-datacard-name { font-weight: 700; font-size: 14px; color: #fff; }
+.sl-hud-datacard-meta { font-size: 11px; color: #90caf9; text-transform: capitalize; }
+.sl-hud-datacard-tags { margin-left: auto; font-size: 10px; color: #ffd54f; font-weight: 600; }
+.sl-hud-datacard-tables { display: flex; gap: 14px; align-items: flex-start; }
+.sl-hud-table { border-collapse: collapse; font-size: 11px; }
+.sl-hud-table th { text-align: left; color: #90a4ae; font-weight: 600; padding: 2px 8px 2px 0;
+  border-bottom: 1px solid #263238; text-transform: uppercase; font-size: 10px; }
+.sl-hud-table td { padding: 3px 10px 2px 0; color: #eceff1; font-weight: 500; }
+.sl-hud-bottom { pointer-events: auto; display: flex; align-items: center; gap: 10px;
   background: rgba(10, 12, 16, 0.88); border: 1px solid #2a2f3a; border-radius: 10px;
-  padding: 10px 16px; max-width: 85vw; }
+  padding: 10px 16px; }
 .sl-hud-btn { pointer-events: auto; background: #263238; color: #eee; border: 1px solid #37474f;
   border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
 .sl-hud-btn:hover:not([disabled]) { background: #37474f; }
@@ -1031,7 +1148,7 @@ export class GameHUD {
 .sl-hud-dice-summary { font-size: 12px; color: #b0bec5; margin-top: 4px; }
 .sl-hud-dice-empty, .sl-hud-log-empty { color: #607d8b; font-size: 12px; }
 .sl-hud-log-entry { font-size: 12px; color: #b0bec5; padding: 2px 0; }
-.sl-hud-toast { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+.sl-hud-toast { position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
   background: #263238; color: #ffd54f; border: 1px solid #4f5b62; border-radius: 8px;
   padding: 8px 16px; font-size: 13px; pointer-events: none; }
 .sl-hud-gameover { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);

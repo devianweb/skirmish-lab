@@ -34,12 +34,12 @@ export const TERRAIN_ASSETS: Record<string, AssetDefinition> = {
 };
 
 export const MARKER_ASSETS: Record<string, AssetDefinition> = {
-  selection: model('indicator-square-a.glb', 1.4),
-  // indicator-round-a/b have diameter 1.0 (radius 0.5), so scale 2.0 makes
-  // their base radius 1.0 board unit before MarkerRenderer scales by range.
+  selection: model('indicator-round-b.glb', 1.4),
+  // indicator-round-a has diameter 1.0 (radius 0.5), so scale 2.0 makes its
+  // base radius 1.0 board unit before MarkerRenderer scales by remainingMovement.
   'movement-range': model('indicator-round-a.glb', 2.0),
-  'attack-range': model('indicator-round-b.glb', 2.0),
   target: model('indicator-round-b.glb', 1.4),
+  'reachable-target': model('indicator-round-b.glb', 1.4),
 };
 
 /** Wound-count outcome tokens: number-N models (1..5). */

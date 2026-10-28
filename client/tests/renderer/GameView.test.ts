@@ -250,5 +250,27 @@ describe('GameView', () => {
       expect(scene.getObjectByName('marker-selection')).toBeUndefined();
       expect(scene.getObjectByName('marker-outcome-2')).toBeUndefined();
     });
+
+    it('clear() removes board, terrain, units, and markers so returning to lobby leaves a clean scene', () => {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = {
+        getScene: () => scene,
+        startAnimationLoop: () => {},
+      };
+      const gameView = new GameView({ sceneManager });
+      const state = makeState({
+        terrain: [makeTerrain()],
+        units: [makeUnit({ id: 'u1', position: { x: 1, y: 0, z: 1 } })],
+      });
+
+      gameView.syncFromState(state);
+      gameView.setSelectionMarker({ id: 'u1', position: { x: 1, y: 0, z: 1 } });
+      expect(scene.getObjectByName('ground')).toBeDefined();
+
+      gameView.clear();
+      expect(scene.getObjectByName('ground')).toBeUndefined();
+      expect(scene.getObjectByName('terrain-terrain-1')).toBeUndefined();
+      expect(scene.getObjectByName('marker-selection')).toBeUndefined();
+    });
   });
 });

@@ -167,9 +167,14 @@ export class ModelLoader {
         if (asset.scale) model.scale.setScalar(asset.scale);
         if (typeof container.userData.tintColor === 'number') {
           const tint = container.userData.tintColor as number;
+          const stripMap = Boolean(container.userData.ignoreTextureMap);
           model.traverse((child) => {
             const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
             if (material && material.color) {
+              if (stripMap && material.map) {
+                material.map = null;
+                material.needsUpdate = true;
+              }
               material.color.setHex(tint);
             }
           });
