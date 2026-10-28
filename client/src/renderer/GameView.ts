@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { GameState, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
-import { MarkerRenderer, MarkerUnit } from './MarkerRenderer';
+import {
+  AttackRangeMarker,
+  MarkerRenderer,
+  MarkerUnit,
+  MovePathMarker,
+} from './MarkerRenderer';
 import { ModelLoader } from './ModelLoader';
 import { SceneManager } from './SceneManager';
 import { UnitRenderer } from './UnitRenderer';
@@ -65,6 +70,7 @@ export class GameView {
   private camera: THREE.Camera | null;
   private inputElement: HTMLElement | null;
   private pickHandlers: Array<(target: PickTarget) => void> = [];
+  private hoverHandlers: Array<(target: PickTarget | null) => void> = [];
   private pointerDownAt: { x: number; y: number } | null = null;
   /** Max pointer travel (px) between down and up to count as a pick click. */
   private static readonly PICK_DRAG_TOLERANCE = 5;
@@ -114,9 +120,12 @@ export class GameView {
     this.unitRenderer.syncFromState(state);
   }
 
-  /** Start the render loop (camera controls are updated each frame). */
+  /** Start the render loop (camera controls and outcome orientation are updated each frame). */
   start(): void {
-    this.sceneManager.startAnimationLoop(() => this.cameraController?.update());
+    this.sceneManager.startAnimationLoop(() => {
+      this.cameraController?.update();
+      this.markerRenderer.orientOutcomeToCamera(this.camera);
+    });
   }
 
   /**
@@ -127,6 +136,17 @@ export class GameView {
     this.pickHandlers.push(handler);
     return () => {
       this.pickHandlers = this.pickHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  /**
+   * Subscribe to pointer hover over the board (unit or ground position).
+   * Returns an unsubscribe function.
+   */
+  onHover(handler: (target: PickTarget | null) => void): () => void {
+    this.hoverHandlers.push(handler);
+    return () => {
+      this.hoverHandlers = this.hoverHandlers.filter((h) => h !== handler);
     };
   }
 
@@ -144,6 +164,14 @@ export class GameView {
     this.markerRenderer.setMovementRange(unit);
   }
 
+  setAttackRangeMarker(spec: AttackRangeMarker | null): void {
+    this.markerRenderer.setAttackRange(spec);
+  }
+
+  setMovePathMarker(path: MovePathMarker | null): void {
+    this.markerRenderer.setMovePath(path);
+  }
+
   showOutcomeToken(position: Vector3, wounds: number): void {
     this.markerRenderer.showOutcome(position, wounds);
   }
@@ -157,6 +185,18 @@ export class GameView {
   private setupPicking(element: HTMLElement): void {
     element.addEventListener('pointerdown', (event) => {
       this.pointerDownAt = { x: event.clientX, y: event.clientY };
+    });
+    element.addEventListener('pointermove', (event) => {
+      if (this.hoverHandlers.length === 0) return;
+      const target = this.computePickTarget(event, element);
+      for (const handler of this.hoverHandlers) {
+        handler(target);
+      }
+    });
+    element.addEventListener('pointerleave', () => {
+      for (const handler of this.hoverHandlers) {
+        handler(null);
+      }
     });
     element.addEventListener('click', (event) => {
       if (!this.pointerDownAt) return;

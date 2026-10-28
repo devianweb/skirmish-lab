@@ -47,6 +47,15 @@ function applyMarkers(markers: MarkerSnapshot): void {
   gameView.setSelectionMarker(unitForMarkers(markers.selectedUnitId));
   gameView.setTargetMarker(unitForMarkers(markers.targetUnitId));
   gameView.setMovementRangeMarker(unitForMarkers(markers.movementRangeUnitId));
+  const attackRangeUnit = markers.attackRange
+    ? unitForMarkers(markers.attackRange.unitId)
+    : null;
+  gameView.setAttackRangeMarker(
+    attackRangeUnit && markers.attackRange
+      ? { position: attackRangeUnit.position, range: markers.attackRange.range }
+      : null
+  );
+  gameView.setMovePathMarker(markers.movePath ?? null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }
@@ -88,7 +97,19 @@ const lobby = new Lobby(lobbyContainer, {
     hud?.dispose();
     hud = new GameHUD(app, {
       localPlayerId,
-      controller: { submitAction: (action) => gameManager?.sendAction(action) },
+      controller: {
+        submitAction: (action) => gameManager?.sendAction(action),
+        onReturnToLobby: () => {
+          stopKeepAlive?.();
+          stopKeepAlive = null;
+          hud?.dispose();
+          hud = null;
+          gameManager = null;
+          latestState = null;
+          gameView.clearMarkers();
+          lobby.reset();
+        },
+      },
     });
     hud.show();
 
@@ -102,6 +123,7 @@ const lobby = new Lobby(lobbyContainer, {
     if (!viewWired) {
       viewWired = true;
       gameView.onPick((target: PickTarget) => hud?.handleBoardPick(target));
+      gameView.onHover((target: PickTarget | null) => hud?.handleBoardHover(target));
     }
     hud.onMarkers(applyMarkers);
 

@@ -61,8 +61,9 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Round 3');
     expect(container.textContent).toContain("Your turn");
     expect(container.textContent).toContain('Alice — Fighters');
-    // Five units of the local player are listed with stats.
-    expect(container.querySelectorAll('.sl-hud-unit').length).toBe(5);
+    // Five units of the local player + five enemy units are listed with stats.
+    expect(container.querySelectorAll('.sl-hud-unit:not(.enemy)').length).toBe(5);
+    expect(container.querySelectorAll('.sl-hud-unit.enemy').length).toBe(5);
     expect(container.textContent).toContain('Q4+');
   });
 
@@ -134,7 +135,7 @@ describe('GameHUD', () => {
     const { container } = setup(HOST, state);
 
     const buttons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];
-    const byLabel = (label: string) => buttons.find((b) => b.textContent === label)!;
+    const byLabel = (label: string) => buttons.find((b) => b.textContent?.startsWith(label))!;
     expect(byLabel('Move').disabled).toBe(true);
     expect(byLabel('Shoot').disabled).toBe(true);
     expect(byLabel('Fight').disabled).toBe(false);
@@ -149,7 +150,7 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
-    expect(container.textContent).toContain('Select a destination');
+    expect(container.textContent).toContain('Click a destination on the board');
 
     const destination = { x: start.x + 3, y: 0, z: start.z + 4 }; // 5" away
     hud.handleBoardPick({ kind: 'position', position: destination });
@@ -164,7 +165,7 @@ describe('GameHUD', () => {
     expect(action.payload.path).toEqual([start, destination]);
   });
 
-  it('move flow: refuses destinations beyond remaining movement without confirming', () => {
+  it('move flow: clamps destinations beyond remaining movement to the max movement radius', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     const start = { ...unit.position };
@@ -174,9 +175,15 @@ describe('GameHUD', () => {
     clickByText(container, 'Move');
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 20, y: 0, z: start.z } });
 
-    expect(container.textContent).toContain('Too far');
-    expect(container.textContent).not.toContain('Confirm');
-    expect(controller.submitAction).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(`${unit.remainingMovement.toFixed(1)}" — all movement spent`);
+    expect(container.textContent).toContain('Confirm');
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].payload.finalPosition).toEqual({
+      x: start.x + unit.remainingMovement,
+      y: 0,
+      z: start.z,
+    });
   });
 
   it('shoot flow: enemy target in range → confirmed action with weapon', () => {
@@ -223,28 +230,48 @@ describe('GameHUD', () => {
     expect(controller.submitAction).not.toHaveBeenCalled();
   });
 
-  it('hold and end-activation require confirmation too', () => {
+  it('hold and end-activation require confirmation too (Hold before acting, End Activation after)', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     activateUnit(state, HOST, unit.id);
     const { hud, container, controller } = setup(HOST, state);
 
+    // Before moving or attacking, Hold is shown instead of End Activation.
+    expect(clickByText(container, 'End Activation')).toBeFalsy();
     clickByText(container, 'Hold');
     expect(container.textContent).toContain('holds position');
     clickByText(container, 'Confirm');
     expect(controller.submitAction.mock.calls[0][0].type).toBe('hold');
 
-    // The hold resolved (state update arrives): simulate the confirmed state
-    // where another unit is now mid-activation.
+    // Once a unit has moved or attacked, End Activation is shown instead of Hold.
     const state2 = scenarioState();
     const other = state2.units.find((u) => u.ownerId === HOST && u.id !== unit.id)!;
     activateUnit(state2, HOST, other.id);
+    other.hasMoved = true;
     hud.syncFromState(state2);
 
+    expect(clickByText(container, 'Hold')).toBeFalsy();
     clickByText(container, 'End Activation');
     expect(container.textContent).toContain('End ');
     clickByText(container, 'Confirm');
     expect(controller.submitAction.mock.calls[1][0].type).toBe('end-activation');
+  });
+
+  it('allows switching to another unit while confirming an activation without clicking Cancel', () => {
+    const state = scenarioState();
+    const [u1, u2] = state.units.filter((u) => u.ownerId === HOST);
+    const { hud, container, controller } = setup(HOST, state);
+
+    hud.handleBoardPick({ kind: 'unit', unitId: u1.id });
+    expect(container.textContent).toContain(`Activate ${u1.name}`);
+
+    // Directly pick u2 without cancelling first:
+    hud.handleBoardPick({ kind: 'unit', unitId: u2.id });
+    expect(container.textContent).toContain(`Activate ${u2.name}`);
+    clickByText(container, 'Confirm');
+
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].payload.unitId).toBe(u2.id);
   });
 
   it('cancel returns to the idle flow without submitting anything', () => {
@@ -376,7 +403,7 @@ describe('GameHUD', () => {
     expect(container.querySelectorAll('.sl-hud-actions').length).toBe(0);
   });
 
-  it('emits marker snapshots as the flow changes', () => {
+  it('emits marker snapshots as the flow changes (including selection, attack range, and hover)', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     const unitId = unit.id;
@@ -384,20 +411,26 @@ describe('GameHUD', () => {
     const snapshots: MarkerSnapshot[] = [];
     hud.onMarkers((markers) => snapshots.push(markers));
 
-    // Selecting a unit for activation should mark it.
+    // Selecting a unit for activation marks that unit immediately.
     hud.handleBoardPick({ kind: 'unit', unitId });
-    clickByText(container, 'Confirm');
+    expect(snapshots[snapshots.length - 1].selectedUnitId).toBe(unitId);
 
+    clickByText(container, 'Confirm');
     const last = snapshots[snapshots.length - 1];
-    expect(last.selectedUnitId).toBeNull(); // no active unit yet in stale state
     expect(last.outcome).toBeNull();
 
-    // With an active unit, the marker snapshot reflects it.
+    // With an active unit, the marker snapshot reflects it, and Shoot targeting emits attackRange.
     const state2 = scenarioState();
-    const active = state2.units.find((u) => u.ownerId === HOST)!;
+    const active = state2.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle')
+    )!;
     activateUnit(state2, HOST, active.id);
     hud.syncFromState(state2);
     const withActive = snapshots[snapshots.length - 1];
     expect(withActive.selectedUnitId).toBe(active.id);
+
+    clickByText(container, 'Shoot');
+    const targetingSnap = snapshots[snapshots.length - 1];
+    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24 });
   });
 });

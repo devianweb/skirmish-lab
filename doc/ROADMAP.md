@@ -184,17 +184,17 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Stunned/routed units cannot activate (automated: engine validation tests — routed rejected; stunned may activate, spending the activation clearing the stun)
 
 ### Manual Test Checklist (browser, `npm run dev` — two windows)
-- [ ] Host creates room, guest joins, both reach the game without errors
-- [ ] Starting armies deploy (figurines, terrain) and HUD shows round 1
-- [ ] Host activates a unit, moves it (distance summary + confirm), turn passes
-- [ ] Guest activates, shoots the host unit in range — both windows show the same dice panel and wound token
-- [ ] Charge + fight across an engagement (both marked ENGAGED, fight-only)
-- [ ] Hold on a stunned unit clears the stun
-- [ ] Exhausting one side's units lets the other activate their remaining units
-- [ ] Round increments and the other player starts round 2
-- [ ] Illegal submissions surface a rejection toast (e.g., out-of-range shot)
-- [ ] Final unit destroyed → game-over banner on both windows
-- [ ] GLB models render at sensible sizes (Kenney figurines/terrain/markers — visual scale check; adjust `assetManifest` scales if needed)
+- [x] Host creates room, guest joins, both reach the game without errors
+- [x] Starting armies deploy (figurines, terrain) and HUD shows round 1
+- [x] Host activates a unit, moves it (distance summary + confirm), turn passes
+- [x] Guest activates, shoots the host unit in range — both windows show the same dice panel and wound token
+- [x] Charge + fight across an engagement (both marked ENGAGED, fight-only)
+- [x] Hold on a stunned unit clears the stun
+- [x] Exhausting one side's units lets the other activate their remaining units
+- [x] Round increments and the other player starts round 2
+- [x] Illegal submissions surface a rejection toast (e.g., out-of-range shot)
+- [x] Final unit destroyed → game-over banner on both windows
+- [x] GLB models render at sensible sizes (Kenney figurines/terrain/markers — visual scale check; adjust `assetManifest` scales if needed)
 
 ## Phase 6: OPR Skirmish Rules Engine
 **Goal:** Implement OPR-style skirmish mechanics from first principles
