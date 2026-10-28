@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages & Azure App Service
 
 # Deploys are intentional: this workflow runs ONLY when a PR targeting the
 # `release` branch is merged. Open a PR (`master` -> `release`) and merge it
@@ -13,16 +13,16 @@ permissions:
   pages: write
   id-token: write
 
-# One Pages deployment at a time; a new merge supersedes the old one.
+# One deployment at a time; a new merge supersedes the old one.
 concurrency:
-  group: 'pages'
+  group: 'deploy-release'
   cancel-in-progress: true
 
 jobs:
   build:
     # PRs closed without merging must not deploy.
     if: github.event.pull_request.merged == true
-    name: Build, test & bundle client
+    name: Build, test & package artifacts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         run: npm test
 
       # Rebuild the client with the deployed signaling server URL baked in.
-      # VITE_SIGNALING_URL is a repo secret (e.g. wss://your-app.up.railway.app).
+      # VITE_SIGNALING_URL is a repo secret (e.g. wss://<app>.azurewebsites.net).
       # Unset locally -> SignalingClient falls back to ws://localhost:8080.
       - name: Build client for Pages
         run: npm run build --workspace=client
@@ -57,8 +57,40 @@ jobs:
         with:
           path: ./client/dist
 
-  deploy:
-    name: Deploy
+      # Package a self-contained signaling server bundle for Azure App Service.
+      # Avoids monorepo workspace symlink issues by embedding shared/dist directly.
+      - name: Stage signaling server deployment bundle
+        run: |
+          mkdir -p deploy-server/dist
+          cp -r server/dist/* deploy-server/dist/
+          cat << 'EOF' > deploy-server/package.json
+          {
+            "name": "skirmish-lab-signaling",
+            "version": "1.0.0",
+            "main": "dist/index.js",
+            "scripts": {
+              "start": "node dist/index.js"
+            },
+            "dependencies": {
+              "ws": "^8.18.0"
+            }
+          }
+          EOF
+          cd deploy-server
+          npm install --omit=dev --no-package-lock
+          mkdir -p node_modules/@skirmish-lab/shared/dist
+          cp ../shared/package.json node_modules/@skirmish-lab/shared/
+          cp -r ../shared/dist/* node_modules/@skirmish-lab/shared/dist/
+          cd ..
+
+      - name: Upload Signaling Server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signaling-server
+          path: ./deploy-server
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -68,3 +100,23 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-server:
+    name: Deploy to Azure App Service
+    needs: build
+    runs-on: ubuntu-latest
+    # Only run when Azure publish profile is configured in repository secrets
+    if: github.event.pull_request.merged == true && secrets.AZURE_WEBAPP_PUBLISH_PROFILE != ''
+    steps:
+      - name: Download Signaling Server artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: signaling-server
+          path: ./deploy-server
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME || 'skirmish-lab-signaling' }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./deploy-server

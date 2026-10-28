@@ -93,8 +93,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 ### Tasks
 - [x] Create GitHub Actions workflow for PR checks (build + test on all workspaces) - no deploy
-- [x] Create GitHub Actions workflow for `release` branch (build + test + deploy)
-- [ ] Deploy signaling server to a free WebSocket host (Railway/Fly.io) tracking the `release` branch — *deferred: Railway is not accepting new accounts (Oct 2026); revisit when signups reopen or use Fly.io*
+- [x] Create GitHub Actions workflow for `release` branch (build + test + deploy client to Pages & server to Azure App Service)
+- [x] Configure signaling server with HTTP health probe (`GET /healthz`) for Azure App Service
+- [x] Package self-contained server bundle in deploy workflow for Azure App Service
+- [ ] Deploy signaling server to Azure App Service (Linux, Node 20 LTS, Free F1 tier) tracking the `release` branch
 - [ ] Configure GitHub Pages for client deployment
 - [x] Add environment variable configuration for client to use deployed server URL (`VITE_SIGNALING_URL`)
 - [ ] Set up WSS endpoint for production
@@ -103,14 +105,14 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Document deployment process in `doc/DEPLOYMENT.md`
 
 ### Acceptance Criteria
-- [ ] PRs to main/master run build and tests without deploying
-- [ ] Merged PRs into `release` trigger build, test, and deploy to GitHub Pages (direct pushes do not deploy)
-- [ ] Signaling server auto-deploys from `release` branch to free WebSocket host with WSS support
+- [x] PRs to main/master run build and tests without deploying
+- [x] Merged PRs into `release` trigger build, test, and deploy to GitHub Pages (direct pushes do not deploy)
+- [ ] Signaling server auto-deploys from `release` branch to Azure App Service with WSS support
 - [ ] Client deploys to GitHub Pages successfully
 - [ ] Deployed client can connect to deployed signaling server over WSS
 - [ ] Can demo lobby/connection flow from deployed GitHub Pages URL
-- [ ] CI workflows pass on a clean checkout
-- [ ] Release flow is intentional (PR `master` → `release`, merged when ready)
+- [x] CI workflows pass on a clean checkout
+- [x] Release flow is intentional (PR `master` → `release`, merged when ready)
 
 ## Phase 4: Three.js Rendering Foundation
 **Goal:** Set up 3D rendering decoupled from game state

@@ -1,41 +1,54 @@
 # Deployment Guide
 
-This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the client) and a free WebSocket host (for the signaling server).
+This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the client) and **Azure App Service** (for the WebSocket signaling server).
 
 ## Overview
 
 - **Client**: Static Vite app hosted on GitHub Pages
-- **Signaling Server**: Node.js WebSocket server hosted on [Railway](https://railway.app/) or [Fly.io](https://fly.io/) (free tier), tracking the `release` branch — *hosting deferred, see §1*
-- **CI/CD**: GitHub Actions - PRs to `master` build and test only; a **merged PR into the `release` branch** builds, tests, and deploys the client to GitHub Pages. Open a PR (`master` → `release`) when ready to demo.
+- **Signaling Server**: Node.js WebSocket server hosted on [Azure App Service](https://portal.azure.com/) (Linux, Node 20 LTS, Free `F1` tier)
+- **CI/CD**: GitHub Actions — PRs to `master` build and test only; a **merged PR into the `release` branch** builds, tests, packages, and deploys both the client to GitHub Pages and the signaling server to Azure App Service. Open a PR (`master` → `release`) when ready to demo.
 
-## 1) Deploy the Signaling Server
+## 1) Deploy the Signaling Server (Azure App Service)
 
-You need a persistent WebSocket server reachable over `wss://`.
+You need a persistent WebSocket server reachable over `wss://`. Azure App Service provides a Free (`F1`) Linux tier that runs Node 20 LTS with automatic TLS termination (`wss://<app-name>.azurewebsites.net`).
 
-> **Status — deferred (Oct 2026):** Railway is not accepting new signups at the moment, so hosting the signaling server is on hold. The repo's `railway.json` stays in place and is ready for when signups reopen; use Fly.io below if a live server is needed sooner. Until a server is hosted, the client still deploys to GitHub Pages fine — it just can't reach a signaling server from the public URL (`VITE_SIGNALING_URL` unset → falls back to `ws://localhost:8080`).
+### Step 1: Create an Azure Account & Subscription
+1. Go to [azure.microsoft.com/free](https://azure.microsoft.com/free/) and click **Try Azure for free** (or **Pay as you go** — the App Service **Free `F1`** tier costs **$0/month** on either subscription type).
+2. Sign in with your Microsoft / GitHub account and complete phone + card verification.
+3. Open the [Azure Portal](https://portal.azure.com/).
 
-### Railway (Deferred — recommended when signups reopen)
+### Step 2: Create the Azure Web App (Portal UI)
+1. In the Azure Portal search bar, search for **App Services** and click **Create** → **Web App**.
+2. On the **Basics** tab:
+   - **Subscription**: Your Azure subscription.
+   - **Resource Group**: Click **Create new** → enter `rg-skirmish-lab`.
+   - **Name**: Enter a unique name, e.g. `skirmish-lab-signaling` *(your WebSocket URL will be `wss://<name>.azurewebsites.net`)*.
+   - **Publish**: `Code`
+   - **Runtime stack**: `Node 20 LTS`
+   - **Operating System**: `Linux`
+   - **Region**: Pick the region closest to you (e.g. `UK South` or `West Europe`).
+   - **Pricing plan**: Click **Change size** (or **Explore pricing plans**) → select **Free F1** ($0/month, 60 CPU mins/day, 1 GB RAM).
+3. Click **Review + create**, then **Create**, and once deployed click **Go to resource**.
 
-> **Monorepo note:** do **not** set the service Root Directory to `server/`. The server depends on `@skirmish-lab/shared`, which is an npm workspace resolved via the root `package-lock.json` — installing from `server/` alone would fail. The repo root contains a `railway.json` that tells Railway how to build and start the server, so most of the configuration is already in the repo.
+### Step 3: Configure Startup Command & SCM Basic Auth
+Inside your new Web App in the Azure Portal:
+1. In the left sidebar, expand **Settings** → click **Configuration** → **General settings** tab:
+   - **Startup Command**: `npm start`
+   - **SCM Basic Auth Publishing Credentials**: **On** *(required so Azure allows downloading the Publish Profile)*
+   - **FTP Basic Auth Publishing Credentials**: **Off** (not needed)
+2. Click **Save** at the top and confirm **Continue**.
 
-1. Sign up at [railway.app](https://railway.app/) and connect your GitHub account.
-2. Create a new project → Deploy from GitHub repo → select `devianweb/skirmish-lab`.
-3. Leave the service root at the repo root (Railway picks up `railway.json`, which provides the build and start commands below). If Railway does not pick it up, set these in the service settings manually:
-   - Custom Build Command: `npm run build --workspace=shared && npm run build --workspace=server`
-   - Custom Start Command: `node server/dist/index.js`
-4. In the service settings → Source, set the **branch to track** to `release` (so it auto-deploys only when you merge to `release`).
-5. In Settings → Networking, generate a public domain. Use `wss://<your-app>.up.railway.app` as `VITE_SIGNALING_URL`.
+*(Note: On Linux App Service, WebSockets are enabled automatically by the front-end load balancer, and HTTP health probes to `/` or `/healthz` receive `200 OK` from the server.)*
 
-The server already listens on `process.env.PORT` (`server/src/index.ts`), which Railway provides.
+### Step 4: Download the Publish Profile
+1. In the left sidebar of your Web App, click **Overview**.
+2. In the top toolbar, click **Download publish profile** (saves a `<app-name>.PublishSettings` XML file to your computer).
 
-### Fly.io (Use this if a live server is needed before Railway reopens)
-
-1. Install [flyctl](https://fly.io/docs/hands-on/install-flyctl/), sign up, and login.
-2. From `server/`, run `fly launch` to create an app.
-3. Set the internal port to match your server (8080) and configure to listen on `0.0.0.0:$PORT`.
-4. Deploy with `fly deploy`. You'll get a `*.fly.dev` domain with HTTPS/WSS.
-
-> Note: Render's free tier spins down on inactivity and can break WebSocket connections; avoid for this demo.
+### Step 5: Add GitHub Repository Secrets
+In your GitHub repo → **Settings** → **Secrets and variables** → **Actions**, add:
+- `AZURE_WEBAPP_NAME`: `skirmish-lab-signaling` *(or the exact name you gave the Web App)*
+- `AZURE_WEBAPP_PUBLISH_PROFILE`: The full XML content of the downloaded `.PublishSettings` file
+- `VITE_SIGNALING_URL`: `wss://<app-name>.azurewebsites.net` *(use `wss://`, no trailing slash)*
 
 ## 2) Configure the Client for the Deployed Server
 
@@ -49,33 +62,26 @@ For local development, leave the env var unset to use `ws://localhost:8080`.
 
 ## 3) Set Up GitHub Pages
 
-1. Go to your repo → Settings → Pages
-2. Source: **GitHub Actions**
+1. Go to your repo → **Settings** → **Pages**
+2. Under **Build and deployment** → **Source**, select **GitHub Actions**
 3. Save
 
 ## 4) GitHub Actions Workflows
 
-Both workflows live in the repo — see `.github/workflows/`:
+Both workflows live in `.github/workflows/`:
 
-- **`.github/workflows/ci.yml`** — PR checks: triggers on PRs to `master` (and pushes to `master`). Runs `npm ci`, builds all workspaces (root build script orders them shared → client → server, since client/server compile against `shared/dist`), and runs all workspace tests. **Never deploys.**
-- **`.github/workflows/deploy.yml`** — release deploys: runs only when a PR targeting `release` is **merged** (closed-unmerged PRs and direct pushes to `release` are ignored). Checks out the merge commit, builds and tests everything, rebuilds the client with `VITE_SIGNALING_URL` from repo secrets, and deploys `client/dist` to GitHub Pages via the official Pages actions.
+- **`.github/workflows/ci.yml`** — PR checks: triggers on PRs to `master` (and pushes to `master`). Runs `npm ci`, builds all workspaces, and runs all workspace tests. **Never deploys.**
+- **`.github/workflows/deploy.yml`** — release deploys: runs only when a PR targeting `release` is **merged** (closed-unmerged PRs and direct pushes to `release` are ignored). Checks out the merge commit, builds and tests everything, packages a self-contained server bundle for Azure App Service (`deploy-server/`), builds the client with `VITE_SIGNALING_URL`, and deploys:
+  1. `deploy-pages`: Deploys `client/dist` to GitHub Pages.
+  2. `deploy-server`: Deploys `deploy-server/` to Azure App Service using `azure/webapps-deploy@v3` (runs when `AZURE_WEBAPP_PUBLISH_PROFILE` is set).
 
-To change CI/deploy behavior, edit those files — this document only describes them.
+## 5) Release Flow
 
-## 5) Add Secrets
-
-In your repo → Settings → Secrets and variables → Actions, add:
-- `VITE_SIGNALING_URL` = `wss://your-server-domain` (from Railway/Fly.io)
-
-> Skip this until a signaling server is hosted (see §1). Without it, deploys still succeed — the deployed client just falls back to `ws://localhost:8080` and can't connect online.
-
-## 6) Deploy
-
-1. Push the workflows and client config changes (done via the Phase 3.5 PR), and create the `release` branch once: `git push origin master:release`.
-2. When ready to demo, open a PR with base `release` and compare `master` (on GitHub: New Pull Request → set base to `release`), then merge it. This triggers the client deploy; Railway picks up the server from the resulting merge push.
-3. GitHub Actions will build, test, and deploy the client to GitHub Pages from the merged PR. Check the Actions tab for progress.
-4. Once deployed, visit `https://devianweb.github.io/skirmish-lab/`
-5. Share with friends - they can create/join rooms and connect over WebRTC via your signaling server. (Until a signaling server is hosted, the Pages URL serves the client but online play won't connect — see §1.)
+1. Create the `release` branch once if not already created: `git push origin master:release`.
+2. When ready to release, open a PR with base `release` and compare `master` (New Pull Request → base: `release`, compare: `master`).
+3. Merge the PR.
+4. GitHub Actions will build, test, and deploy both the client to GitHub Pages and the signaling server to Azure App Service.
+5. Visit `https://devianweb.github.io/skirmish-lab/` to demo live peer-to-peer skirmishes.
 
 ## Troubleshooting
 
