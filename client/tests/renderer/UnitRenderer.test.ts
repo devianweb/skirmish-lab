@@ -136,9 +136,13 @@ describe('UnitRenderer', () => {
     renderer.syncFromState(state);
 
     expect(unitGroup.children.length).toBe(1);
-    const mesh = unitGroup.children[0] as THREE.Group;
-    const geometry = (mesh.children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh)
-      .geometry as THREE.BufferGeometry;
+    // createUnitMesh returns a container group; find the first real mesh in it.
+    const container = unitGroup.children[0] as THREE.Group;
+    let meshChild: THREE.Mesh | null = null;
+    container.traverse((child) => {
+      if (!meshChild && (child as THREE.Mesh).isMesh) meshChild = child as THREE.Mesh;
+    });
+    const geometry = (meshChild as THREE.Mesh).geometry as THREE.BufferGeometry;
     expect(geometry.getAttribute('position')).not.toBeNull();
     expect(geometry.getAttribute('position').count).toBeGreaterThan(0);
   });

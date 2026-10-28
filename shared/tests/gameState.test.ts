@@ -41,7 +41,7 @@ describe('gameState', () => {
     expect(state.turnState.unitsActivatedThisRound).toEqual([]);
     expect(state.units).toEqual([]);
     expect(state.actionLog).toEqual([]);
-    expect(state.version).toBe('2.0.0');
+    expect(state.version).toBe('2.1.0');
   });
 
   it('should create game state with custom player names', () => {

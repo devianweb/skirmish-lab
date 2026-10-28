@@ -66,6 +66,7 @@ interface TurnState {
   phase: TurnPhase;
   unitsActivatedThisRound: string[];   // Unit IDs already activated
   startingPlayerId: string;    // Who started this round (alternates each round)
+  activeUnitId?: string | null; // Unit currently mid-activation (schema 2.1.0)
   roundStartTime?: number;
 }
 
@@ -243,6 +244,30 @@ interface ActionLogEntry {
   reason?: string;           // If rejected
   stateHash?: string;        // Optional hash for validation
   appliedAt: number;
+  dice?: DiceResolution;     // Server-rolled dice + outcome (attacks, schema 2.1.0)
+}
+```
+
+### Dice Resolution (schema 2.1.0)
+Attack actions attach the full dice story so both peers render it from state:
+```typescript
+interface DiceResolution {
+  rollId: string;            // Matches the signaling roll-dice-request
+  specs: DiceSpec[];         // What was requested
+  results: DiceResult[];     // Server-rolled results (both purposes)
+  context: {
+    attackerId: string;
+    targetId: string;
+    weaponId?: string;
+    actionId: string;
+  };
+  outcome: {
+    attackCount: number;
+    hitCount: number;
+    blockedCount: number;
+    wounds: number;
+    targetDestroyed: boolean;
+  };
 }
 ```
 
@@ -278,8 +303,23 @@ interface DiceResult {
 }
 ```
 
-## Serialization Rules
+## Scenario Data Pack (Phase 5)
 
+The v1 game ships a data pack in `shared/src/data/` — pure data, no engine logic:
+
+- **`weapons.ts`** — weapon profiles by ID (`rifle`, `carbine`, `scattergun`,
+  `handcannon`, `cannon`, `blade`, `fists`); originals with first-principles stats.
+- **`armies.ts`** — two original armies (**Frontier Wardens**, **Rust Raiders**),
+  five fighters each (`FighterDefinition` incl. a `modelType` for the renderer),
+  and `createUnitFromFighter` which copies stats/weapons into spawned `Unit`s.
+- **`scenario.ts`** — default deployment: both players' five fighters on
+  opposite edges of the 44×60 board (facing each other) plus a central
+  terrain layout (walls, crates, columns) with cover/LOS flags.
+
+Deterministic player IDs (`player-host` / `player-guest`) let both peers
+identify the local player without negotiation.
+
+## Serialization Rules
 ### Allowed Types
 - `string`, `number`, `boolean`, `null`
 - Plain objects `{}` 
@@ -302,3 +342,8 @@ All game state must pass serialization round-trip: `JSON.parse(JSON.stringify(st
 
 ## Versioning
 The `version` field allows for schema migrations if the data model changes between versions.
+
+- **2.0.0** — alternating-activation schema (OPR pivot refactor).
+- **2.1.0** — Phase 5: `TurnState.activeUnitId`, `ActionLogEntry.dice`
+  (`DiceResolution`), and the scenario data pack. Additive and
+  backward-compatible.

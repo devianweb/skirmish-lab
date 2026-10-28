@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GameState, TerrainPiece } from '@skirmish-lab/shared';
+import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
 
 // Original palette for generic terrain types (no faction/trademark references).
@@ -16,16 +17,22 @@ const DEFAULT_TERRAIN_COLOR = 0x606058;
 /**
  * Renders the battlefield ground, grid, and terrain pieces from game state.
  * Pure view layer: reads from game state, never writes to it.
+ *
+ * Terrain types registered on the ModelLoader render as GLB models
+ * (procedural block fallback); position/rotation/scale always come from
+ * the terrain data.
  */
 export class BoardRenderer {
   private boardGroup: THREE.Group;
   private terrainGroup: THREE.Group;
+  private modelLoader: ModelLoader;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, modelLoader: ModelLoader = new ModelLoader()) {
     this.boardGroup = new THREE.Group();
     this.boardGroup.name = 'board';
     this.terrainGroup = new THREE.Group();
     this.terrainGroup.name = 'terrain';
+    this.modelLoader = modelLoader;
     scene.add(this.boardGroup);
     scene.add(this.terrainGroup);
   }
@@ -72,14 +79,8 @@ export class BoardRenderer {
     this.clearTerrain();
   }
 
-  private createTerrainMesh(piece: TerrainPiece): THREE.Mesh {
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({
-      color: TERRAIN_COLORS[piece.terrainType] ?? DEFAULT_TERRAIN_COLOR,
-      roughness: 0.9,
-      metalness: 0.1,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
+  private createTerrainMesh(piece: TerrainPiece): THREE.Object3D {
+    const mesh = this.modelLoader.createTerrainMesh(piece.terrainType);
     mesh.name = `terrain-${piece.id}`;
     mesh.position.set(piece.position.x, piece.position.y, piece.position.z);
     mesh.rotation.set(piece.rotation.x, piece.rotation.y, piece.rotation.z);
@@ -88,8 +89,17 @@ export class BoardRenderer {
       Math.max(piece.scale.y, 0.01),
       Math.max(piece.scale.z, 0.01)
     );
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.traverse((child) => {
+      const node = child as THREE.Mesh;
+      node.castShadow = true;
+      node.receiveShadow = true;
+      // Palette tint applies to the procedural placeholder; the GLB swap
+      // replaces these children, keeping the model's own look.
+      const material = node.material as THREE.MeshStandardMaterial | undefined;
+      if (material && material.color) {
+        material.color.setHex(TERRAIN_COLORS[piece.terrainType] ?? DEFAULT_TERRAIN_COLOR);
+      }
+    });
     return mesh;
   }
 

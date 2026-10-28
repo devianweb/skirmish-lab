@@ -1,4 +1,4 @@
-import { Vector3 } from './types';
+import { DiceSpec, DiceResult, Vector3 } from './types';
 
 // Alternating-activation round phases
 export type TurnPhase =
@@ -15,6 +15,8 @@ export interface TurnState {
   unitsActivatedThisRound: string[];   // Unit IDs already activated
   startingPlayerId: string;           // Who started this round (alternates each round)
   roundStartTime?: number;
+  /** Unit currently mid-activation (set by activate-unit, cleared by end-activation). */
+  activeUnitId?: string | null;
 }
 
 export type UnitStatus =
@@ -77,6 +79,7 @@ export interface Unit {
 
   // Movement/Action State
   hasMoved: boolean;
+  hasAttacked?: boolean;
   remainingMovement: number;
 }
 
@@ -152,6 +155,32 @@ export interface ActionLogEntry {
   reason?: string;
   stateHash?: string;
   appliedAt: number;
+  /** Server-rolled dice + deterministic outcome for attacks (shoot/fight). */
+  dice?: DiceResolution;
+}
+
+/**
+ * A dice resolution attached to an accepted action: the server-rolled results
+ * plus the deterministic combat outcome the host derived from them. Both
+ * peers render dice displays from this data — never from local rolls.
+ */
+export interface DiceResolution {
+  rollId: string;
+  specs: DiceSpec[];
+  results: DiceResult[];
+  context: {
+    attackerId: string;
+    targetId: string;
+    weaponId?: string;
+    actionId: string;
+  };
+  outcome: {
+    attackCount: number;
+    hitCount: number;
+    blockedCount: number;
+    wounds: number;
+    targetDestroyed: boolean;
+  };
 }
 
 export type GameStatus =

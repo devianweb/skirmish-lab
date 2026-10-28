@@ -71,10 +71,29 @@ export class UnitRenderer {
     }
   }
 
+  /**
+   * Nearest unit mesh hit by the raycaster (used by GameView picking).
+   * Returns the unit ID or null when no unit mesh is hit.
+   */
+  raycastUnit(raycaster: THREE.Raycaster): string | null {
+    let bestUnitId: string | null = null;
+    let bestDistance = Infinity;
+
+    for (const [unitId, mesh] of this.meshes) {
+      const hits = raycaster.intersectObject(mesh, true);
+      if (hits.length > 0 && hits[0].distance < bestDistance) {
+        bestDistance = hits[0].distance;
+        bestUnitId = unitId;
+      }
+    }
+    return bestUnitId;
+  }
+
   /** Color every mesh in a unit by its owning player's index in the state. */
   private applyOwnerColor(mesh: THREE.Object3D, ownerId: string, state: GameState): void {
     const playerIndex = state.players.findIndex((p) => p.id === ownerId);
     const color = playerIndex === -1 ? UNKNOWN_PLAYER_COLOR : PLAYER_COLORS[playerIndex];
+    mesh.userData.tintColor = color;
 
     mesh.traverse((child) => {
       const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;

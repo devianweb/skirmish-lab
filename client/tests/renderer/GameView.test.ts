@@ -144,4 +144,111 @@ describe('GameView', () => {
     gameView.syncFromState(state);
     expect(boardRenderer.renderBoard).toHaveBeenCalledTimes(2);
   });
+
+  // --- Phase 5: picking and gameplay markers --------------------------------
+
+  describe('picking', () => {
+    function makePickableView() {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = {
+        getScene: () => scene,
+        startAnimationLoop: () => {},
+      };
+      const inputElement = document.createElement('div');
+      document.body.appendChild(inputElement);
+      // jsdom rects are all zeros; provide a deterministic 200x200 rect.
+      inputElement.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 200, height: 200, x: 0, y: 0, right: 200, bottom: 200, toJSON: () => ({}) }) as DOMRect;
+
+      const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100);
+      camera.position.set(0, 20, 0);
+      camera.up.set(0, 0, -1);
+      camera.lookAt(0, 0, 0);
+      // Production render loop updates world matrices each frame; do it
+      // explicitly here since there is no animation loop in tests.
+      camera.updateMatrixWorld();
+
+      const gameView = new GameView({ sceneManager, camera, inputElement });
+      return { gameView, inputElement, scene };
+    }
+
+    function click(element: HTMLElement, x: number, y: number) {
+      element.dispatchEvent(new MouseEvent('pointerdown', { clientX: x, clientY: y }));
+      element.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y }));
+    }
+
+    it('picks the unit under the click', () => {
+      const { gameView, inputElement, scene } = makePickableView();
+      gameView.syncFromState(
+        makeState({ units: [makeUnit({ id: 'a', position: { x: 0, y: 0, z: 0 } })] })
+      );
+      // Sanity: the unit mesh exists in the scene.
+      expect(scene.getObjectByName('units')).toBeDefined();
+
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+      click(inputElement, 100, 100); // board center -> unit at origin
+
+      expect(picks).toEqual([{ kind: 'unit', unitId: 'a' }]);
+    });
+
+    it('picks a ground position when no unit is hit', () => {
+      const { gameView, inputElement } = makePickableView();
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+
+      // Right half of the viewport (NDC x = 0.5 -> world x = 5).
+      click(inputElement, 150, 100);
+
+      expect(picks).toHaveLength(1);
+      expect(picks[0].kind).toBe('position');
+      expect(picks[0].position.x).toBeCloseTo(5, 1);
+      expect(picks[0].position.z).toBeCloseTo(0, 1);
+    });
+
+    it('ignores clicks that are camera drags (pointer travel above tolerance)', () => {
+      const { gameView, inputElement } = makePickableView();
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+
+      inputElement.dispatchEvent(new MouseEvent('pointerdown', { clientX: 20, clientY: 20 }));
+      inputElement.dispatchEvent(new MouseEvent('click', { clientX: 90, clientY: 90 }));
+
+      expect(picks).toHaveLength(0);
+    });
+
+    it('stops delivering picks after unsubscribe', () => {
+      const { gameView, inputElement } = makePickableView();
+      const picks: any[] = [];
+      const unsubscribe = gameView.onPick((target) => picks.push(target));
+      unsubscribe();
+      click(inputElement, 100, 100);
+      expect(picks).toHaveLength(0);
+    });
+  });
+
+  describe('gameplay markers', () => {
+    it('delegates selection, target, range, and outcome markers into the scene', () => {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = {
+        getScene: () => scene,
+        startAnimationLoop: () => {},
+      };
+      const gameView = new GameView({ sceneManager });
+
+      gameView.setSelectionMarker({ id: 'u1', position: { x: 1, y: 0, z: 2 } });
+      gameView.setTargetMarker({ id: 'u2', position: { x: 3, y: 0, z: 4 } });
+      gameView.setMovementRangeMarker({ id: 'u1', position: { x: 1, y: 0, z: 2 }, remainingMovement: 3 });
+      gameView.showOutcomeToken({ x: 3, y: 0, z: 4 }, 2);
+
+      expect(scene.getObjectByName('marker-selection')).toBeDefined();
+      expect(scene.getObjectByName('marker-target')).toBeDefined();
+      expect(scene.getObjectByName('marker-movement-range')).toBeDefined();
+      expect(scene.getObjectByName('marker-outcome-2')).toBeDefined();
+
+      gameView.clearMarkers();
+      expect(scene.getObjectByName('marker-selection')).toBeUndefined();
+      expect(scene.getObjectByName('marker-outcome-2')).toBeUndefined();
+    });
+  });
 });
