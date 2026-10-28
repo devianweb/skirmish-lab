@@ -91,6 +91,10 @@ export function validateActionBasic(action: GameAction, state: GameState): { val
   if (state.status === 'game-over') {
     return { valid: false, reason: 'Game is over' };
   }
+
+  if (action.actorId !== state.turnState.currentPlayerId) {
+    return { valid: false, reason: 'Not your turn' };
+  }
   
   return { valid: true };
 }

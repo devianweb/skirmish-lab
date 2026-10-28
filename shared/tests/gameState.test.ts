@@ -75,4 +75,20 @@ describe('gameState', () => {
     expect(result.valid).toBe(false);
     expect(result.reason).toBe('Game is over');
   });
+
+  it('should reject action when it is not the player turn', () => {
+    const state = createInitialGameState('h1', 'g1');
+    const action = createAction('g1', 'end-turn', { type: 'end-turn' });
+    const result = validateActionBasic(action, state);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe('Not your turn');
+  });
+
+  it('should allow action when it is the player turn', () => {
+    const state = createInitialGameState('h1', 'g1');
+    state.turnState.currentPlayerId = 'g1';
+    const action = createAction('g1', 'end-turn', { type: 'end-turn' });
+    const result = validateActionBasic(action, state);
+    expect(result.valid).toBe(true);
+  });
 });

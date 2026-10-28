@@ -1,4 +1,4 @@
-import { GameState, GameAction, createInitialGameState } from '@trench-heresy/shared';
+import { GameState, GameAction, createInitialGameState, validateActionBasic } from '@trench-heresy/shared';
 import { WebRTCClient } from '../network/WebRTCClient';
 
 export class GameManager {
@@ -51,12 +51,12 @@ export class GameManager {
   private processAction(action: GameAction): void {
     if (!this.gameState || !this.isHost) return;
     
-    // Basic validation
-    if (action.actorId !== this.gameState.turnState.currentPlayerId) {
+    const validation = validateActionBasic(action, this.gameState);
+    if (!validation.valid) {
       this.webrtcClient.send({ 
         type: 'action-rejected', 
         actionId: action.id, 
-        reason: 'Not your turn' 
+        reason: validation.reason 
       } as any);
       return;
     }
