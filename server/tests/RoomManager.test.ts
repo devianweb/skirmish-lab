@@ -64,12 +64,29 @@ describe('RoomManager', () => {
     expect(room?.guest).toBeNull();
   });
 
-  it('should remove room when host disconnects', () => {
+  it('should mark host as disconnected but preserve room during grace window', () => {
     const code = roomManager.createRoom(mockHost);
     roomManager.joinRoom(code, mockGuest);
     const removedCode = roomManager.removeClient(mockHost);
     expect(removedCode).toBe(code);
     const room = roomManager.getRoom(code);
-    expect(room).toBeUndefined();
+    expect(room).toBeDefined();
+    expect(room?.host).toBeNull();
+  });
+
+  it('should allow host and guest to reconnect to room during grace window', () => {
+    const code = roomManager.createRoom(mockHost);
+    roomManager.joinRoom(code, mockGuest);
+    roomManager.removeClient(mockHost);
+    roomManager.removeClient(mockGuest);
+
+    const newHost = {} as WebSocket;
+    const newGuest = {} as WebSocket;
+
+    const reconnectedHost = roomManager.reconnectRoom(code, 'host', newHost);
+    expect(reconnectedHost?.host).toBe(newHost);
+
+    const reconnectedGuest = roomManager.reconnectRoom(code, 'guest', newGuest);
+    expect(reconnectedGuest?.guest).toBe(newGuest);
   });
 });

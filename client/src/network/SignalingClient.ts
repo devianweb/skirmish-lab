@@ -6,6 +6,10 @@ export class SignalingClient {
   private ws: WebSocket | null = null;
   private handlers: Map<string, MessageHandler[]> = new Map();
   private url: string;
+  private currentRoomCode: string | null = null;
+  private currentRole: 'host' | 'guest' | null = null;
+  private reconnectTimeout: any = null;
+  private intentionalClose = false;
 
   constructor(url: string = import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8080') {
     this.url = url;
@@ -13,6 +17,7 @@ export class SignalingClient {
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      this.intentionalClose = false;
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
@@ -36,8 +41,43 @@ export class SignalingClient {
 
       this.ws.onclose = () => {
         console.log('Disconnected from signaling server');
+        if (!this.intentionalClose && (this.currentRoomCode || this.handlers.size > 0)) {
+          this.scheduleReconnect();
+        }
       };
     });
+  }
+
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  scheduleReconnect(delayMs = 1500): void {
+    if (this.reconnectTimeout) return;
+    this.reconnectTimeout = setTimeout(async () => {
+      this.reconnectTimeout = null;
+      try {
+        await this.connect();
+        if (this.currentRoomCode && this.currentRole) {
+          this.reconnectRoom(this.currentRoomCode, this.currentRole);
+        }
+      } catch (err) {
+        console.warn('Signaling reconnect attempt failed, retrying...', err);
+        this.scheduleReconnect(3000);
+      }
+    }, delayMs);
+  }
+
+  async ensureConnected(): Promise<void> {
+    if (this.isConnected()) return;
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    await this.connect();
+    if (this.currentRoomCode && this.currentRole) {
+      this.reconnectRoom(this.currentRoomCode, this.currentRole);
+    }
   }
 
   send(message: Partial<SignalingMessage>): void {
@@ -65,6 +105,17 @@ export class SignalingClient {
 
   private handleMessage(message: SignalingMessage): void {
     const type = message.type;
+    if (type === 'room-created') {
+      this.currentRoomCode = (message as any).code;
+      this.currentRole = 'host';
+    } else if (type === 'room-joined') {
+      this.currentRoomCode = (message as any).code;
+      this.currentRole = 'guest';
+    } else if (type === 'room-reconnected') {
+      this.currentRoomCode = (message as any).code;
+      this.currentRole = (message as any).role;
+    }
+
     const handlers = this.handlers.get(type);
     if (handlers) {
       handlers.forEach(handler => handler(message));
@@ -82,6 +133,18 @@ export class SignalingClient {
 
   joinRoom(code: string): void {
     this.send({ type: 'join-room', code });
+  }
+
+  reconnectRoom(code: string, role: 'host' | 'guest'): void {
+    this.currentRoomCode = code;
+    this.currentRole = role;
+    this.send({ type: 'reconnect-room', code, role });
+  }
+
+  leaveRoom(): void {
+    this.send({ type: 'leave-room' });
+    this.currentRoomCode = null;
+    this.currentRole = null;
   }
 
   sendOffer(sdp: RTCSessionDescriptionInit): void {
@@ -118,6 +181,13 @@ export class SignalingClient {
   }
 
   disconnect(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.currentRoomCode = null;
+    this.currentRole = null;
     if (this.ws) {
       this.ws.close();
       this.ws = null;

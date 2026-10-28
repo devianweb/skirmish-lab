@@ -98,4 +98,14 @@ describe('SignalingClient', () => {
       vi.useRealTimers();
     }
   });
+
+  it('reconnectRoom sends reconnect-room message with code and role', () => {
+    const sendSpy = vi.spyOn(client, 'send').mockImplementation(() => {});
+    client.reconnectRoom('ABC-123', 'host');
+    expect(sendSpy).toHaveBeenCalledWith({
+      type: 'reconnect-room',
+      code: 'ABC-123',
+      role: 'host',
+    });
+  });
 });
