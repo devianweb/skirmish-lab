@@ -1,5 +1,5 @@
 // Shared types for SkirmishLab
-export { Vector3, DiceSpec, DiceResult } from './types';
+export type { Vector3, DiceSpec, DiceResult } from './types';
 export * from './gameTypes';
 export * from './gameState';
-export { SignalingMessage } from './signaling';
+export type { SignalingMessage } from './signaling';

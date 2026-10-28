@@ -7,6 +7,7 @@ export class GameManager {
   private isHost: boolean;
   private snapshots: GameState[] = [];
   private maxSnapshots: number = 50;
+  private stateUpdateHandlers: Array<(state: GameState) => void> = [];
 
   constructor(webrtcClient: WebRTCClient, isHost: boolean) {
     this.webrtcClient = webrtcClient;
@@ -14,11 +15,32 @@ export class GameManager {
     this.setupHandlers();
   }
 
+  /**
+   * Subscribe to confirmed game state changes (host: after applying actions;
+   * guest: on state updates). Handlers receive a deep copy. Returns an
+   * unsubscribe function. This is the hook the renderer (GameView) attaches to.
+   */
+  onStateUpdate(handler: (state: GameState) => void): () => void {
+    this.stateUpdateHandlers.push(handler);
+    return () => {
+      this.stateUpdateHandlers = this.stateUpdateHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  private emitStateUpdate(): void {
+    if (!this.gameState) return;
+    const copy = JSON.parse(JSON.stringify(this.gameState)) as GameState;
+    for (const handler of this.stateUpdateHandlers) {
+      handler(copy);
+    }
+  }
+
   private setupHandlers(): void {
     this.webrtcClient.on('state-update', (msg: any) => {
       if (!this.isHost) {
         this.gameState = msg.state;
         this.saveSnapshot(msg.state);
+        this.emitStateUpdate();
         console.log('Received state update from host');
       }
     });
@@ -35,6 +57,7 @@ export class GameManager {
       this.gameState = createInitialGameState(hostId, guestId);
       this.saveSnapshot(this.gameState);
       this.broadcastState('init');
+      this.emitStateUpdate();
     }
   }
 
@@ -72,6 +95,7 @@ export class GameManager {
 
     this.saveSnapshot(this.gameState);
     this.broadcastState(action.id);
+    this.emitStateUpdate();
   }
 
   private broadcastState(actionId: string): void {
