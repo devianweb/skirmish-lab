@@ -23,11 +23,13 @@ function defaultLoadFn(url: string): Promise<THREE.Object3D> {
 }
 
 /**
- * A registered 3D asset: GLB URL plus optional uniform scale.
+ * A registered 3D asset: GLB URL plus optional uniform or per-axis scale and Y rotation.
  */
 export interface AssetDefinition {
   url: string;
   scale?: number;
+  scaleVector?: { x: number; y: number; z: number };
+  rotationY?: number;
 }
 
 /**
@@ -164,7 +166,14 @@ export class ModelLoader {
     container.add(fallbackFactory());
     this.load(asset.url).then(
       (model) => {
-        if (asset.scale) model.scale.setScalar(asset.scale);
+        if (asset.scaleVector) {
+          model.scale.set(asset.scaleVector.x, asset.scaleVector.y, asset.scaleVector.z);
+        } else if (asset.scale) {
+          model.scale.setScalar(asset.scale);
+        }
+        if (typeof asset.rotationY === 'number') {
+          model.rotation.y = asset.rotationY;
+        }
         if (typeof container.userData.tintColor === 'number') {
           const tint = container.userData.tintColor as number;
           const stripMap = Boolean(container.userData.ignoreTextureMap);

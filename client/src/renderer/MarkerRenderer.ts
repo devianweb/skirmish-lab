@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Vector3 } from '@skirmish-lab/shared';
+import { TerrainPiece, terrainHalfExtents, Vector3 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
 
@@ -51,6 +51,7 @@ export class MarkerRenderer {
   private range: THREE.Object3D | null = null;
   private attackRange: THREE.Object3D | null = null;
   private movePath: THREE.Object3D | null = null;
+  private terrainDebug: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -164,6 +165,48 @@ export class MarkerRenderer {
   }
 
   /**
+   * Wireframe debug box showing the exact 2D Line-of-Sight / obstacle footprint
+   * (`terrainHalfExtents`) of a hovered terrain piece.
+   */
+  setTerrainDebug(piece: TerrainPiece | null): void {
+    this.removeMarker('terrainDebug');
+    if (!piece) return;
+
+    const { hx, hz } = terrainHalfExtents(piece);
+    const height = Math.max(0.5, piece.scale.y);
+    const group = new THREE.Group();
+    group.name = 'marker-terrain-debug';
+    group.position.set(piece.position.x, 0, piece.position.z);
+    group.rotation.y = piece.rotation.y || 0;
+
+    // Ground-level footprint outline (bright yellow)
+    const floorPts = [
+      new THREE.Vector3(-hx, 0.05, -hz),
+      new THREE.Vector3(hx, 0.05, -hz),
+      new THREE.Vector3(hx, 0.05, hz),
+      new THREE.Vector3(-hx, 0.05, hz),
+      new THREE.Vector3(-hx, 0.05, -hz),
+    ];
+    const floorGeo = new THREE.BufferGeometry().setFromPoints(floorPts);
+    const floorMat = new THREE.LineBasicMaterial({ color: 0xffeb3b });
+    group.add(new THREE.Line(floorGeo, floorMat));
+
+    // 3D bounding wireframe box
+    const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
+    const edges = new THREE.EdgesGeometry(boxGeo);
+    const boxLine = new THREE.LineSegments(
+      edges,
+      new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.75 })
+    );
+    boxLine.position.y = height / 2;
+    group.add(boxLine);
+    boxGeo.dispose();
+
+    this.markerGroup.add(group);
+    this.terrainDebug = group;
+  }
+
+  /**
    * Floating wound-count token above a position, auto-cleared after a
    * short delay so results stay visible without cluttering the board.
    */
@@ -204,6 +247,7 @@ export class MarkerRenderer {
     this.removeMarker('range');
     this.removeMarker('attackRange');
     this.removeMarker('movePath');
+    this.removeMarker('terrainDebug');
     this.clearOutcome();
   }
 
@@ -229,7 +273,14 @@ export class MarkerRenderer {
   }
 
   private removeMarker(
-    kind: 'selection' | 'target' | 'reachableTargets' | 'range' | 'attackRange' | 'movePath'
+    kind:
+      | 'selection'
+      | 'target'
+      | 'reachableTargets'
+      | 'range'
+      | 'attackRange'
+      | 'movePath'
+      | 'terrainDebug'
   ): void {
     const current = this[kind];
     if (current) {

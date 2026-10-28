@@ -500,4 +500,25 @@ describe('GameHUD', () => {
 
     expect(container.querySelector('.sl-hud-room')?.textContent).toBe('Room: ABC-123');
   });
+
+  it('renders a terrain debug card and emits hoveredTerrainId when hovering over a terrain piece', () => {
+    const state = scenarioState();
+    const { hud, container } = setup(HOST, state);
+    const emitted: MarkerSnapshot[] = [];
+    hud.onMarkers((m) => emitted.push(m));
+
+    // Hover over terrain-wall-north at (0, 0, 5)
+    hud.handleBoardHover({
+      kind: 'position',
+      position: { x: 0, y: 0, z: 5 },
+      terrainId: 'terrain-wall-north',
+    });
+
+    const debugCard = container.querySelector('.sl-hud-terrain-debug');
+    expect(debugCard).toBeTruthy();
+    expect(debugCard?.textContent).toContain('terrain-wall-north');
+    expect(debugCard?.textContent).toContain('models/wall.glb');
+    expect(debugCard?.textContent).toContain('3.00" × 0.50"');
+    expect(emitted.at(-1)?.hoveredTerrainId).toBe('terrain-wall-north');
+  });
 });

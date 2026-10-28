@@ -1,7 +1,9 @@
 import {
   clampMoveDestinationWithObstacles,
   createAction,
+  describeTerrainPiece,
   findMoveBlocker,
+  findTerrainAtPosition,
   GameState,
   GameAction,
   hasLineOfSight,
@@ -31,12 +33,13 @@ export interface MarkerSnapshot {
   movementRangeUnitId: string | null;
   attackRange?: { unitId: string; range: number } | null;
   movePath?: { from: Vector3; to: Vector3 } | null;
+  hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
 }
 
 export type PickTarget =
   | { kind: 'unit'; unitId: string }
-  | { kind: 'position'; position: Vector3 };
+  | { kind: 'position'; position: Vector3; terrainId?: string };
 
 type TargetingMode =
   | { mode: 'idle' }
@@ -62,6 +65,8 @@ export class GameHUD {
   private selectedUnitId: string | null = null;
   /** Unit hovered in the fighter list or on the board. */
   private hoveredUnitId: string | null = null;
+  /** Terrain piece hovered on the board (for terrain debug inspection). */
+  private hoveredTerrainId: string | null = null;
   /** Action button currently hovered in the action bar (e.g. 'move'). */
   private hoveredAction: string | null = null;
   /** Clamped move destination previewed under the cursor during move targeting. */
@@ -143,9 +148,16 @@ export class GameHUD {
     }
   }
 
-  /** Board hover events from GameView (for live movement path preview & target hover). */
+  /** Board hover events from GameView (for live movement path preview, target hover & terrain debug). */
   handleBoardHover(target: PickTarget | null): void {
     if (!this.state || this.state.status === 'game-over') return;
+
+    const nextTerrainId =
+      target?.kind === 'position'
+        ? target.terrainId ?? findTerrainAtPosition(this.state, target.position)?.id ?? null
+        : null;
+    const terrainChanged = nextTerrainId !== this.hoveredTerrainId;
+    this.hoveredTerrainId = nextTerrainId;
 
     if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
       const active = this.activeUnit;
@@ -154,12 +166,15 @@ export class GameHUD {
       } else {
         this.movePreview = null;
       }
+      if (terrainChanged) {
+        this.updateDataCardSlot();
+      }
       this.emitMarkers();
       return;
     }
 
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
-    if (nextHover !== this.hoveredUnitId) {
+    if (nextHover !== this.hoveredUnitId || terrainChanged) {
       this.hoveredUnitId = nextHover;
       this.updateDataCardSlot();
       this.emitMarkers();
@@ -826,8 +841,9 @@ export class GameHUD {
   }
 
   private renderDataCard(): string {
+    const terrainHtml = this.renderTerrainDebugCard();
     const unit = this.inspectedUnit;
-    if (!unit) return '';
+    if (!unit) return terrainHtml;
 
     const isMine = unit.ownerId === this.localPlayerId;
     const statusTags: string[] = [];
@@ -851,7 +867,7 @@ export class GameHUD {
       )
       .join('');
 
-    return `
+    return `${terrainHtml}
       <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'}">
         <div class="sl-hud-datacard-header">
           <span class="sl-hud-datacard-name">${unit.name}</span>
@@ -879,6 +895,44 @@ export class GameHUD {
             </thead>
             <tbody>
               ${weaponRows}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  private renderTerrainDebugCard(): string {
+    if (!this.state || !this.hoveredTerrainId) return '';
+    const piece = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
+    if (!piece) return '';
+    const info = describeTerrainPiece(piece);
+    const flags = [
+      info.blocksLineOfSight ? 'Blocks LoS' : 'No LoS Block',
+      info.isObstacle ? 'Obstacle' : 'Passable',
+      info.providesCover ? 'Cover' : 'No Cover',
+    ].join(' · ');
+
+    return `
+      <div class="sl-hud-datacard sl-hud-terrain-debug">
+        <div class="sl-hud-datacard-header">
+          <span class="sl-hud-datacard-name">${info.id}</span>
+          <span class="sl-hud-datacard-meta">Terrain · ${info.terrainType} · <code>${info.modelFile}</code></span>
+          <span class="sl-hud-datacard-tags">${flags}</span>
+        </div>
+        <div class="sl-hud-datacard-tables">
+          <table class="sl-hud-table">
+            <thead>
+              <tr><th>Position</th><th>Scale</th><th>Rot Y</th><th>Footprint (X×Z)</th><th>Half-Extents</th><th>Raw GLB Size</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>(${info.position.x.toFixed(1)}, ${info.position.y.toFixed(1)}, ${info.position.z.toFixed(1)})</td>
+                <td>(${info.scale.x}, ${info.scale.y}, ${info.scale.z})</td>
+                <td>${info.rotationDeg}°</td>
+                <td>${info.worldFootprint.width.toFixed(2)}" × ${info.worldFootprint.depth.toFixed(2)}"</td>
+                <td>hx=${info.halfExtents.hx.toFixed(2)}", hz=${info.halfExtents.hz.toFixed(2)}"</td>
+                <td>${info.rawGlbSize}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -1014,6 +1068,7 @@ export class GameHUD {
       movementRangeUnitId: null,
       attackRange: null,
       movePath: null,
+      hoveredTerrainId: this.hoveredTerrainId,
       outcome,
     };
 
@@ -1165,6 +1220,8 @@ export class GameHUD {
   border: 1px solid #37474f; border-radius: 10px; padding: 8px 14px; min-width: 440px; }
 .sl-hud-datacard.mine { border-color: #29b6f6; }
 .sl-hud-datacard.enemy { border-color: #ef5350; }
+.sl-hud-datacard.sl-hud-terrain-debug { border-color: #00e5ff; margin-bottom: 6px; }
+.sl-hud-datacard.sl-hud-terrain-debug code { color: #ffd54f; font-size: 11px; }
 .sl-hud-datacard-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
   border-bottom: 1px solid #263238; padding-bottom: 4px; }
 .sl-hud-datacard-name { font-weight: 700; font-size: 14px; color: #fff; }

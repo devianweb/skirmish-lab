@@ -79,9 +79,29 @@ export class BoardRenderer {
     this.clearTerrain();
   }
 
+  /**
+   * Raycast against rendered terrain meshes and return the hit piece's `id`,
+   * or `null` when no terrain mesh is hit.
+   */
+  raycastTerrain(raycaster: THREE.Raycaster): string | null {
+    this.terrainGroup.updateMatrixWorld(true);
+    const hits = raycaster.intersectObjects(this.terrainGroup.children, true);
+    for (const hit of hits) {
+      let current: THREE.Object3D | null = hit.object;
+      while (current && current !== this.terrainGroup) {
+        if (typeof current.userData?.terrainId === 'string') {
+          return current.userData.terrainId;
+        }
+        current = current.parent;
+      }
+    }
+    return null;
+  }
+
   private createTerrainMesh(piece: TerrainPiece): THREE.Object3D {
     const mesh = this.modelLoader.createTerrainMesh(piece.terrainType);
     mesh.name = `terrain-${piece.id}`;
+    mesh.userData.terrainId = piece.id;
     mesh.position.set(piece.position.x, piece.position.y, piece.position.z);
     mesh.rotation.set(piece.rotation.x, piece.rotation.y, piece.rotation.z);
     mesh.scale.set(

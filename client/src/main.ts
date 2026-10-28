@@ -70,6 +70,11 @@ function applyMarkers(markers: MarkerSnapshot): void {
       : null
   );
   gameView.setMovePathMarker(markers.movePath ?? null);
+  const hoveredTerrain =
+    latestState && markers.hoveredTerrainId
+      ? latestState.terrain.find((t) => t.id === markers.hoveredTerrainId) ?? null
+      : null;
+  gameView.setTerrainDebugMarker(hoveredTerrain);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }

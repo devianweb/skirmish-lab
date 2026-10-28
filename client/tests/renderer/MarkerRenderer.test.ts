@@ -130,5 +130,17 @@ describe('MarkerRenderer', () => {
     renderer.orientOutcomeToCamera(camera);
     const outcome = scene.getObjectByName('marker-outcome-2')!;
     expect(outcome.rotation.y).toBeCloseTo(Math.PI, 2);
+
+    renderer.setTerrainDebug({
+      id: 'terrain-wall-north',
+      terrainType: 'wall',
+      position: { x: 0, y: 0, z: 5 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 1.5, z: 0.5 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    });
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-terrain-debug');
   });
 });

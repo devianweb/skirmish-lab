@@ -24,7 +24,7 @@ export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: numbe
     piece.terrainType === 'wall-window' ||
     piece.terrainType === 'wall-doorway'
   ) {
-    return { hx: 0.5 * sx, hz: 0.3 * sz };
+    return { hx: 0.5 * sx, hz: 0.5 * sz };
   }
   if (piece.terrainType === 'column') {
     return { hx: 0.25 * sx, hz: 0.25 * sz };
@@ -33,6 +33,84 @@ export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: numbe
     return { hx: 0.35 * sx, hz: 0.35 * sz };
   }
   return { hx: 0.5 * sx, hz: 0.5 * sz };
+}
+
+export interface TerrainDebugInfo {
+  id: string;
+  terrainType: string;
+  modelFile: string;
+  rawGlbSize: string;
+  position: Vector3;
+  scale: Vector3;
+  rotationDeg: number;
+  halfExtents: { hx: number; hz: number };
+  worldFootprint: { width: number; depth: number };
+  blocksLineOfSight: boolean;
+  isObstacle: boolean;
+  providesCover: boolean;
+}
+
+const TERRAIN_MODEL_META: Record<string, { modelFile: string; rawGlbSize: string }> = {
+  wall: { modelFile: 'models/wall.glb', rawGlbSize: '0.2 × 1.0 × 1.0 (normalized to 1×1×1)' },
+  'wall-window': {
+    modelFile: 'models/wall-window-medium.glb',
+    rawGlbSize: '0.3 × 1.0 × 1.0 (normalized to 1×1×1)',
+  },
+  'wall-doorway': {
+    modelFile: 'models/wall-doorway.glb',
+    rawGlbSize: '0.3 × 1.0 × 1.0 (normalized to 1×1×1)',
+  },
+  crate: { modelFile: 'models/crate.glb', rawGlbSize: '0.5 × 0.5 × 0.5 (×1.4 = 0.7×0.7×0.7)' },
+  column: { modelFile: 'models/column.glb', rawGlbSize: '0.2 × 1.0 × 0.2 (×2.5 XZ = 0.5×1.0×0.5)' },
+};
+
+/** Build human-readable debug metadata for a terrain piece (model, bounds, flags). */
+export function describeTerrainPiece(piece: TerrainPiece): TerrainDebugInfo {
+  const { hx, hz } = terrainHalfExtents(piece);
+  const meta = TERRAIN_MODEL_META[piece.terrainType] ?? {
+    modelFile: '(procedural 1×1×1 block)',
+    rawGlbSize: '1.0 × 1.0 × 1.0',
+  };
+  const rotationDeg = Math.round(((piece.rotation.y || 0) * 180) / Math.PI);
+  return {
+    id: piece.id,
+    terrainType: piece.terrainType,
+    modelFile: meta.modelFile,
+    rawGlbSize: meta.rawGlbSize,
+    position: piece.position,
+    scale: piece.scale,
+    rotationDeg,
+    halfExtents: { hx, hz },
+    worldFootprint: { width: hx * 2, depth: hz * 2 },
+    blocksLineOfSight: piece.blocksLineOfSight,
+    isObstacle: piece.isObstacle,
+    providesCover: piece.providesCover,
+  };
+}
+
+/**
+ * Find the terrain piece whose 2D oriented bounding box (plus a small hover
+ * margin) contains `point` on the XZ board plane.
+ */
+export function findTerrainAtPosition(
+  state: GameState,
+  point: Vector3,
+  margin: number = 0.15
+): TerrainPiece | null {
+  for (const piece of state.terrain) {
+    const { hx, hz } = terrainHalfExtents(piece);
+    const yaw = piece.rotation.y || 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const dx = point.x - piece.position.x;
+    const dz = point.z - piece.position.z;
+    const localX = dx * cos - dz * sin;
+    const localZ = dx * sin + dz * cos;
+    if (Math.abs(localX) <= hx + margin && Math.abs(localZ) <= hz + margin) {
+      return piece;
+    }
+  }
+  return null;
 }
 
 /**

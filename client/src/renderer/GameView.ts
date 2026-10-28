@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, Vector3 } from '@skirmish-lab/shared';
+import { GameState, TerrainPiece, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
@@ -25,7 +25,7 @@ export interface SceneManagerLike {
 
 export type PickTarget =
   | { kind: 'unit'; unitId: string }
-  | { kind: 'position'; position: Vector3 };
+  | { kind: 'position'; position: Vector3; terrainId?: string };
 
 export interface GameViewOptions {
   /** Mount point for the real Three.js canvas (used when sceneManager is not injected). */
@@ -176,6 +176,10 @@ export class GameView {
     this.markerRenderer.setMovePath(path);
   }
 
+  setTerrainDebugMarker(piece: TerrainPiece | null): void {
+    this.markerRenderer.setTerrainDebug(piece);
+  }
+
   showOutcomeToken(position: Vector3, wounds: number): void {
     this.markerRenderer.showOutcome(position, wounds);
   }
@@ -245,11 +249,17 @@ export class GameView {
       return { kind: 'unit', unitId };
     }
 
+    const terrainId = this.boardRenderer.raycastTerrain?.(raycaster) ?? null;
+
     // No unit hit — resolve the ground plane (y = 0).
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const point = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(groundPlane, point)) {
-      return { kind: 'position', position: { x: point.x, y: 0, z: point.z } };
+      return {
+        kind: 'position',
+        position: { x: point.x, y: 0, z: point.z },
+        ...(terrainId ? { terrainId } : {}),
+      };
     }
     return null;
   }
