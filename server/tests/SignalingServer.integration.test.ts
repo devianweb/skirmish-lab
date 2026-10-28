@@ -237,4 +237,19 @@ describe('SignalingServer Integration', () => {
 
     host.close();
   });
+
+  it('should respond with 200 OK to HTTP GET / and /healthz for Azure health probes', async () => {
+    const rootRes = await fetch(`http://localhost:${port}/`);
+    expect(rootRes.status).toBe(200);
+    const rootBody = await rootRes.json();
+    expect(rootBody).toEqual({ status: 'ok', service: 'skirmish-lab-signaling' });
+
+    const healthRes = await fetch(`http://localhost:${port}/healthz`);
+    expect(healthRes.status).toBe(200);
+    const healthBody = await healthRes.json();
+    expect(healthBody).toEqual({ status: 'ok', service: 'skirmish-lab-signaling' });
+
+    const notFoundRes = await fetch(`http://localhost:${port}/other`);
+    expect(notFoundRes.status).toBe(404);
+  });
 });
