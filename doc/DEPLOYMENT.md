@@ -6,7 +6,7 @@ This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the
 
 - **Client**: Static Vite app hosted on GitHub Pages
 - **Signaling Server**: Node.js WebSocket server hosted on [Railway](https://railway.app/) or [Fly.io](https://fly.io/) (free tier), tracking the `release` branch
-- **CI/CD**: GitHub Actions - PRs build and test only; merges/pushes to the `release` branch build, test, and deploy the client to GitHub Pages. Merge `main` → `release` when ready to demo.
+- **CI/CD**: GitHub Actions - PRs to `master` build and test only; a **merged PR into the `release` branch** builds, tests, and deploys the client to GitHub Pages. Open a PR (`master` → `release`) when ready to demo.
 
 ## 1) Deploy the Signaling Server
 
@@ -56,7 +56,7 @@ For local development, leave the env var unset to use `ws://localhost:8080`.
 Both workflows live in the repo — see `.github/workflows/`:
 
 - **`.github/workflows/ci.yml`** — PR checks: triggers on PRs to `master` (and pushes to `master`). Runs `npm ci`, builds all workspaces (root build script orders them shared → client → server, since client/server compile against `shared/dist`), and runs all workspace tests. **Never deploys.**
-- **`.github/workflows/deploy.yml`** — release deploys: triggers only on pushes to `release`. Builds and tests everything, rebuilds the client with `VITE_SIGNALING_URL` from repo secrets, and deploys `client/dist` to GitHub Pages via the official Pages actions.
+- **`.github/workflows/deploy.yml`** — release deploys: runs only when a PR targeting `release` is **merged** (closed-unmerged PRs and direct pushes to `release` are ignored). Checks out the merge commit, builds and tests everything, rebuilds the client with `VITE_SIGNALING_URL` from repo secrets, and deploys `client/dist` to GitHub Pages via the official Pages actions.
 
 To change CI/deploy behavior, edit those files — this document only describes them.
 
@@ -68,8 +68,8 @@ In your repo → Settings → Secrets and variables → Actions, add:
 ## 6) Deploy
 
 1. Push the workflows and client config changes (done via the Phase 3.5 PR), and create the `release` branch once: `git push origin master:release`.
-2. When ready to demo, merge `master` into `release` and push: `git checkout release && git merge master && git push`
-3. Railway will auto-deploy the server from `release`. GitHub Actions will build, test, and deploy the client to GitHub Pages from `release`. Check the Actions tab for progress.
+2. When ready to demo, open a PR with base `release` and compare `master` (on GitHub: New Pull Request → set base to `release`), then merge it. This triggers the client deploy; Railway picks up the server from the resulting merge push.
+3. GitHub Actions will build, test, and deploy the client to GitHub Pages from the merged PR. Check the Actions tab for progress.
 4. Once deployed, visit `https://devianweb.github.io/skirmish-lab/`
 5. Share with friends - they can create/join rooms and connect over WebRTC via your signaling server.
 
@@ -81,7 +81,7 @@ In your repo → Settings → Secrets and variables → Actions, add:
 | Assets fail to load on Pages | Verify `base` in `client/vite.config.ts` matches your repo name. |
 | Server cold start delays | Free hosts may sleep; first connection can take a few seconds. Retry if needed. |
 | Mixed content errors | GitHub Pages is HTTPS, so the server must be reachable over WSS. |
-| PRs triggering deploys | Ensure the deploy workflow only triggers on the `release` branch as shown above. |
+| Deploys from direct pushes | By design: only merged PRs into `release` deploy. If a push to `release` deployed the server (Railway) but not the client (Pages), re-sync via a PR. |
 
 ## Notes
 

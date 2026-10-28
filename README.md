@@ -74,8 +74,8 @@ skirmish-lab/
 ## CI/CD & Deployment
 
 - **PR Checks**: Pull requests run build and tests across all workspaces (no deployment).
-- **Demos**: Merges/pushes to the `release` branch trigger deployments. The client deploys to [GitHub Pages](https://pages.github.com/), and the signaling server (deployed to Railway/Fly.io) auto-deploys from the `release` branch over WSS.
-- **Release Flow**: Merge `master` → `release` when ready to demo/show off.
+- **Demos**: Only a **merged PR into the `release` branch** triggers deployment. The client deploys to [GitHub Pages](https://pages.github.com/), and the signaling server (deployed to Railway/Fly.io) auto-deploys from the `release` branch over WSS.
+- **Release Flow**: Open a PR (`master` → `release`) and merge it when ready to demo/show off. Direct pushes to `release` never deploy the client.
 
 See [doc/DEPLOYMENT.md](doc/DEPLOYMENT.md) for setup instructions.
 

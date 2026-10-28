@@ -104,13 +104,13 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 ### Acceptance Criteria
 - [ ] PRs to main/master run build and tests without deploying
-- [ ] Pushes/merges to `release` branch trigger build, test, and deploy to GitHub Pages
+- [ ] Merged PRs into `release` trigger build, test, and deploy to GitHub Pages (direct pushes do not deploy)
 - [ ] Signaling server auto-deploys from `release` branch to free WebSocket host with WSS support
 - [ ] Client deploys to GitHub Pages successfully
 - [ ] Deployed client can connect to deployed signaling server over WSS
 - [ ] Can demo lobby/connection flow from deployed GitHub Pages URL
 - [ ] CI workflows pass on a clean checkout
-- [ ] Release flow is intentional (merge `main` → `release` when ready)
+- [ ] Release flow is intentional (PR `master` → `release`, merged when ready)
 
 ## Phase 4: Three.js Rendering Foundation
 **Goal:** Set up 3D rendering decoupled from game state
