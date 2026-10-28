@@ -64,6 +64,14 @@ trench-heresy/
 └── doc/        # Design documents (GDD, Architecture, etc.)
 ```
 
+## CI/CD & Deployment
+
+- **PR Checks**: Pull requests run build and tests across all workspaces (no deployment).
+- **Demos**: Pushes to `release/*` branches build, test, and deploy the client to [GitHub Pages](https://pages.github.com/).
+- **Signaling Server**: Deployed to a free WebSocket host (Railway/Fly.io) over WSS.
+
+See [doc/DEPLOYMENT.md](doc/DEPLOYMENT.md) for setup instructions.
+
 ## Documentation
 
 See the `doc/` folder for detailed documentation:
@@ -73,6 +81,7 @@ See the `doc/` folder for detailed documentation:
 - [DATA_MODEL.md](doc/DATA_MODEL.md) - Game state schema
 - [SYSTEMS.md](doc/SYSTEMS.md) - Game rules and systems
 - [ROADMAP.md](doc/ROADMAP.md) - Development roadmap
+- [DEPLOYMENT.md](doc/DEPLOYMENT.md) - Deployment and CI/CD guide
 
 ## License
 
