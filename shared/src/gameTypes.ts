@@ -1,33 +1,28 @@
 import { Vector3 } from './types';
 
-export type TurnPhase = 
+// Alternating-activation round phases
+export type TurnPhase =
   | 'setup'
   | 'deployment'
-  | 'initiative'
-  | 'command'
-  | 'movement'
-  | 'shooting'
-  | 'fight'
-  | 'morale'
-  | 'end-turn'
+  | 'activation'      // Players alternate activating units
+  | 'round-cleanup'   // Morale, end-of-round effects
   | 'game-over';
 
 export interface TurnState {
-  currentPlayerId: string;
-  turnNumber: number;
+  currentPlayerId: string;             // Who activates next
+  roundNumber: number;
   phase: TurnPhase;
-  phaseStep?: string;
-  activationIndex?: number;
-  turnStartTime?: number;
+  unitsActivatedThisRound: string[];   // Unit IDs already activated
+  startingPlayerId: string;           // Who started this round (alternates each round)
+  roundStartTime?: number;
 }
 
-export type UnitStatus = 
-  | 'pinned'
-  | 'suppressed'
-  | 'broken'
-  | 'engaged'
-  | 'in-cover'
-  | 'hidden'
+export type UnitStatus =
+  | 'stunned'         // Cannot act on next activation; clears at activation start
+  | 'shaken'          // Morale failure state (restrictions per ruleset data)
+  | 'routed'          // Fleeing / forced move state
+  | 'engaged'         // In melee engagement range
+  | 'in-cover'        // Benefit from cover (defense modifier)
   | { type: 'custom', name: string, data?: any };
 
 export interface Model {
@@ -38,13 +33,10 @@ export interface Model {
 }
 
 export interface WeaponProfile {
-  range: number;
-  attacks: number | string;
-  toHit: number;
-  toWound: number;
-  armorPierce: number;
-  damage: number | string;
-  special: string[];
+  type: 'ranged' | 'melee';
+  range: number;             // Inches; melee is engagement range (1)
+  attacks: number | string;  // Flat number or dice expression ('D3')
+  specialRules: string[];    // Special rule IDs (AP, blast, etc.)
 }
 
 export interface Weapon {
@@ -57,23 +49,34 @@ export interface Weapon {
 
 export interface Unit {
   id: string;
-  ownerId: string;
+  ownerId: string;           // Player ID
   armyId: string;
-  unitType: string;
+  unitType: string;          // Reference to fighter definition
   name: string;
-  position: Vector3;
-  rotation: Vector3;
+
+  // OPR-style stats (copied from fighter definition at spawn; lower is better)
+  quality: number;           // To-hit target: d6 roll >= quality scores a hit
+  defense: number;           // Block target: d6 roll >= defense blocks a hit
+  speed: number;             // Movement allowance in inches
+
+  // Position & Orientation
+  position: Vector3;         // {x, y, z}
+  rotation: Vector3;         // {x, y, z} in radians
+
+  // Status
   status: UnitStatus[];
   wounds: number;
   maxWounds: number;
-  isActivated: boolean;
+  isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
+
+  // Game State
   models: Model[];
   weapons: Weapon[];
-  abilities: string[];
+  specialRules: string[];
+
+  // Movement/Action State
   hasMoved: boolean;
-  hasShot: boolean;
-  hasFought: boolean;
   remainingMovement: number;
 }
 
@@ -113,30 +116,26 @@ export interface Player {
 }
 
 export type ActionType =
+  | 'activate-unit'
   | 'move-unit'
-  | 'advance-unit'
   | 'shoot'
   | 'charge'
   | 'fight'
   | 'use-ability'
-  | 'activate-unit'
-  | 'end-phase'
-  | 'end-turn'
-  | 'pass'
-  | 'declare-action'
-  | 'resolve-action';
+  | 'hold'
+  | 'end-activation'   // Finish current unit's activation
+  | 'end-round';       // Finish the round (cleanup/morale)
 
 export type ActionPayload =
+  | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'advance-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
   | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
-  | { type: 'activate-unit', unitId: string }
-  | { type: 'end-phase' }
-  | { type: 'end-turn' }
-  | { type: 'pass' };
+  | { type: 'hold', unitId: string }
+  | { type: 'end-activation' }
+  | { type: 'end-round' };
 
 export interface GameAction {
   id: string;
@@ -155,7 +154,7 @@ export interface ActionLogEntry {
   appliedAt: number;
 }
 
-export type GameStatus = 
+export type GameStatus =
   | 'lobby'
   | 'setting-up'
   | 'in-progress'

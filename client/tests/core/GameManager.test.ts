@@ -43,7 +43,7 @@ describe('GameManager', () => {
   });
 
   it('should send action request as guest', () => {
-    const action = createAction('guest1', 'end-turn', { type: 'end-turn' });
+    const action = createAction('guest1', 'end-round', { type: 'end-round' });
     gameManagerGuest.sendAction(action);
     expect(mockWebRTC.send).toHaveBeenCalledWith({
       type: 'action-request',
@@ -53,7 +53,7 @@ describe('GameManager', () => {
 
   it('should process action directly as host when it is actor turn', () => {
     gameManagerHost.initializeGame('host1', 'guest1');
-    const action = createAction('host1', 'end-turn', { type: 'end-turn' });
+    const action = createAction('host1', 'end-round', { type: 'end-round' });
     gameManagerHost.sendAction(action);
     
     const state = gameManagerHost.getGameState();
@@ -67,7 +67,7 @@ describe('GameManager', () => {
 
   it('should reject action from wrong player as host', () => {
     gameManagerHost.initializeGame('host1', 'guest1');
-    const action = createAction('guest1', 'end-turn', { type: 'end-turn' });
+    const action = createAction('guest1', 'end-round', { type: 'end-round' });
     gameManagerHost.sendAction(action);
     
     const state = gameManagerHost.getGameState();
@@ -106,7 +106,7 @@ describe('GameManager', () => {
   it('should limit snapshots to maxSnapshots', () => {
     gameManagerHost.initializeGame('host1', 'guest1');
     for (let i = 0; i < 60; i++) {
-      const action = createAction('host1', 'end-turn', { type: 'end-turn' });
+      const action = createAction('host1', 'end-round', { type: 'end-round' });
       // Change turn to allow same player? No - better to just test via getSnapshots
       // We'll manually trigger by reinitializing logic isn't needed; snapshots accumulate
     }
@@ -124,7 +124,7 @@ describe('GameManager', () => {
   });
 
   it('should not apply actions as host if no game state initialized', () => {
-    const action = createAction('host1', 'end-turn', { type: 'end-turn' });
+    const action = createAction('host1', 'end-round', { type: 'end-round' });
     gameManagerHost.sendAction(action);
     expect(mockWebRTC.send).not.toHaveBeenCalled();
   });
