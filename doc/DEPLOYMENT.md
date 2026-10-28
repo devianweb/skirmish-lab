@@ -71,7 +71,7 @@ For local development, leave the env var unset to use `ws://localhost:8080`.
 Both workflows live in `.github/workflows/`:
 
 - **`.github/workflows/ci.yml`** — PR checks: triggers on PRs to `master` (and pushes to `master`). Runs `npm ci`, builds all workspaces, and runs all workspace tests. **Never deploys.**
-- **`.github/workflows/deploy.yml`** — release deploys: runs only when a PR targeting `release` is **merged** (closed-unmerged PRs and direct pushes to `release` are ignored). Checks out the merge commit, builds and tests everything, packages a self-contained server bundle for Azure App Service (`deploy-server/`), builds the client with `VITE_SIGNALING_URL`, and deploys:
+- **`.github/workflows/deploy.yml`** — release deploys: triggers on pushes to the `release` branch (e.g. when a PR targeting `release` is merged). Checks out the release commit, builds and tests everything, packages a self-contained server bundle for Azure App Service (`deploy-server/`), builds the client with `VITE_SIGNALING_URL`, and deploys:
   1. `deploy-pages`: Deploys `client/dist` to GitHub Pages.
   2. `deploy-server`: Deploys `deploy-server/` to Azure App Service using `azure/webapps-deploy@v3` (runs when `AZURE_WEBAPP_PUBLISH_PROFILE` is set).
 

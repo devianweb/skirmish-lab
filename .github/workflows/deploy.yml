@@ -1,34 +1,26 @@
 name: Deploy to GitHub Pages & Azure App Service
 
-# Deploys are intentional: this workflow runs ONLY when a PR targeting the
-# `release` branch is merged. Open a PR (`master` -> `release`) and merge it
-# when ready to demo. Direct pushes to `release` do NOT deploy the client.
+# Deploys are intentional: runs on pushes to `release` (triggered by merging a PR into `release`).
 on:
-  pull_request:
+  push:
     branches: [release]
-    types: [closed]
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# One deployment at a time; a new merge supersedes the old one.
+# One deployment at a time; a new push supersedes the old one.
 concurrency:
   group: 'deploy-release'
   cancel-in-progress: true
 
 jobs:
   build:
-    # PRs closed without merging must not deploy.
-    if: github.event.pull_request.merged == true
     name: Build, test & package artifacts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The actual merge commit on `release`, not the PR's temporary merge ref.
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -105,7 +97,6 @@ jobs:
     name: Deploy to Azure App Service
     needs: build
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged == true
     steps:
       - name: Download Signaling Server artifact
         uses: actions/download-artifact@v4
