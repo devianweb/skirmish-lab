@@ -161,4 +161,19 @@ describe('spatial: line of sight & visibility polygon', () => {
       expect(Math.abs(p.z)).toBeCloseTo(12, 0);
     }
   });
+
+  it('clips the visibility polygon to the board boundaries so the shooting fan never overhangs the board edge', () => {
+    const attacker = makeUnit('h1', HOST, { x: -12, y: 0, z: -12 });
+    const state = makeState([attacker]);
+    const halfW = (state.board.width * state.board.gridSize) / 2;
+    const halfH = (state.board.height * state.board.gridSize) / 2;
+
+    const poly = computeLosVisibilityPolygon(state, attacker.position, 30, attacker.id);
+    for (const pt of poly) {
+      expect(pt.x).toBeGreaterThanOrEqual(-halfW - 1e-6);
+      expect(pt.x).toBeLessThanOrEqual(halfW + 1e-6);
+      expect(pt.z).toBeGreaterThanOrEqual(-halfH - 1e-6);
+      expect(pt.z).toBeLessThanOrEqual(halfH + 1e-6);
+    }
+  });
 });

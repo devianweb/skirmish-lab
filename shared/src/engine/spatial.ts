@@ -397,6 +397,8 @@ export function computeLosVisibilityPolygon(
 
   const attacker = state.units.find((u) => u.id === attackerId);
   const attackerOwnerId = attacker?.ownerId ?? '';
+  const halfW = (state.board.width * state.board.gridSize) / 2;
+  const halfH = (state.board.height * state.board.gridSize) / 2;
 
   const angles: number[] = [];
   const baseSteps = 180;
@@ -410,6 +412,16 @@ export function computeLosVisibilityPolygon(
     angles.push(((norm - 0.002 + Math.PI * 2) % (Math.PI * 2)));
     angles.push(((norm + 0.002) % (Math.PI * 2)));
   };
+
+  // Add board corner angles so the visibility fan clips sharply along board edges.
+  for (const [bx, bz] of [
+    [-halfW, -halfH],
+    [halfW, -halfH],
+    [halfW, halfH],
+    [-halfW, halfH],
+  ]) {
+    addAngleWithJitter(Math.atan2(bz - origin.z, bx - origin.x));
+  }
 
   // Add corner angles of LoS-blocking terrain for crisp shadow edges.
   for (const piece of state.terrain) {
@@ -454,6 +466,18 @@ export function computeLosVisibilityPolygon(
     const dirX = Math.cos(angle);
     const dirZ = Math.sin(angle);
     let bestDist = maxRange;
+
+    // Clip rays to the board boundaries [-halfW, halfW] x [-halfH, halfH].
+    if (dirX > 1e-8) {
+      bestDist = Math.min(bestDist, Math.max(0, (halfW - origin.x) / dirX));
+    } else if (dirX < -1e-8) {
+      bestDist = Math.min(bestDist, Math.max(0, (-halfW - origin.x) / dirX));
+    }
+    if (dirZ > 1e-8) {
+      bestDist = Math.min(bestDist, Math.max(0, (halfH - origin.z) / dirZ));
+    } else if (dirZ < -1e-8) {
+      bestDist = Math.min(bestDist, Math.max(0, (-halfH - origin.z) / dirZ));
+    }
 
     for (const piece of state.terrain) {
       if (!piece.blocksLineOfSight) continue;
