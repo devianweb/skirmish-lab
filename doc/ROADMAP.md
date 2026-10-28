@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Overview
-Phased development plan for Trench Crusade browser game with verifiable acceptance criteria. Focus on incremental, testable milestones.
+Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop skirmish engine, with verifiable acceptance criteria. Focus on incremental, testable milestones.
 
 ## Phase 0: Project Setup & Documentation
 **Goal:** Establish project structure and tooling
@@ -134,51 +134,60 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 - [ ] Low-poly models load correctly
 - [ ] Performance acceptable for desktop
 
-## Phase 5: Basic Gameplay & UI
-**Goal:** Implement turn-based gameplay flow
+## Phase 5: Basic Gameplay & UI (Alternating Activations)
+**Goal:** Implement alternating-activation gameplay flow
 
 ### Tasks
 - [ ] Lobby UI
-- [ ] Game HUD (turn, phase, player info)
+- [ ] Game HUD (round, current activator, unit info)
 - [ ] Action selection UI
 - [ ] Unit selection
 - [ ] Action confirmation (no real-time dragging)
-- [ ] Turn/phase management
+- [ ] Alternating activation management (activate one unit, pass initiative)
+- [ ] Round management (all units activated → cleanup → new round)
 - [ ] Dice result display
-- [ ] Basic action types (move, end turn, end phase)
+- [ ] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
 
 ### Acceptance Criteria
 - [ ] Players can connect and start game
-- [ ] Turn-based flow works
+- [ ] Players alternate activating units
+- [ ] When one player runs out of units, other activates remaining
+- [ ] Round ends when all units activated; new round starts with alternating first player
 - [ ] Actions require confirmation
 - [ ] Only confirmed actions sent to host
 - [ ] Dice results displayed to both players
 - [ ] UI reflects current game state
-- [ ] Phase transitions work
+- [ ] Stunned/routed units cannot activate
 
-## Phase 6: Trench Crusade Rules Implementation
-**Goal:** Implement core rules as faithfully as possible
+## Phase 6: OPR Skirmish Rules Engine
+**Goal:** Implement OPR-style skirmish mechanics from first principles
 
 ### Tasks
-- [ ] Movement rules and validation
-- [ ] Shooting rules (to-hit, to-wound, save, damage)
-- [ ] Fight/melee rules
-- [ ] Phase-specific rules
-- [ ] Unit activation
+- [ ] Refactor stat schema to OPR standard (Quality Q, Defense D, speed, wounds)
+- [ ] Alternating activation turn state (replaces TC phase structure)
+- [ ] To-hit rolls vs Quality (d6 target number)
+- [ ] Defense rolls to block hits (cover modifiers)
+- [ ] Wound/stun application and tracking
+- [ ] Morale checks at round end
+- [ ] Movement rules and validation (speed allowance, terrain)
 - [ ] Line of sight and targeting
-- [ ] Special rules framework
-- [ ] Weapon profiles
-- [ ] Army/unit data structures
+- [ ] Weapon profiles (Range/Attacks/Special Rules)
+- [ ] Special rules framework (modifiers + hooks, data-driven)
+- [ ] Army data schema + two hardcoded armies (original faction names)
+- [ ] Simple elimination mission (v1 win condition)
 
 ### Acceptance Criteria
 - [ ] Movement validated correctly by host
-- [ ] Shooting combat resolved correctly
-- [ ] Melee combat resolved correctly
+- [ ] To-hit resolved as d6 vs Quality
+- [ ] Defense rolls block hits (cover applies)
+- [ ] Wounds/stun tracked and applied correctly
+- [ ] Morale checks work at round end
+- [ ] Alternating activation enforced by host validation
 - [ ] Dice rolls go through server
 - [ ] All rolls visible to both players
 - [ ] Rules enforced by host validation
-- [ ] Combat follows Trench Crusade mechanics
-- [ ] Game follows proper phase order
+- [ ] Two armies playable as data packs
+- [ ] Ruleset data is swappable (engine reads stats from data, not code)
 
 ## Phase 7: Reconnection & Resilience
 **Goal:** Handle disconnections and reconnection
@@ -233,7 +242,7 @@ Phased development plan for Trench Crusade browser game with verifiable acceptan
 - Additional unit types
 
 ## Success Metrics
-- **Faithfulness:** Rules implemented as accurately as possible
+- **Compatibility:** OPR-style skirmish mechanics implemented faithfully from first principles
 - **Stability:** No desyncs in normal play
 - **Usability:** Easy to connect via invite code
 - **Performance:** Runs well on desktop browsers

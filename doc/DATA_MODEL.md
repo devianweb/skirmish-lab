@@ -58,27 +58,22 @@ interface Player {
 }
 ```
 
-## Turn State
+## Turn State (Alternating Activations)
 ```typescript
 interface TurnState {
-  currentPlayerId: string;   // Whose turn it is
-  turnNumber: number;
+  currentPlayerId: string;      // Who activates next
+  roundNumber: number;
   phase: TurnPhase;
-  phaseStep?: string;
-  activationIndex?: number;   // For activation-based phases
-  turnStartTime?: number;
+  unitsActivatedThisRound: string[];   // Unit IDs already activated
+  startingPlayerId: string;    // Who started this round (alternates each round)
+  roundStartTime?: number;
 }
 
 type TurnPhase = 
   | 'setup'
   | 'deployment'
-  | 'initiative'
-  | 'command'
-  | 'movement'
-  | 'shooting'
-  | 'fight'
-  | 'morale'
-  | 'end-turn'
+  | 'activation'      // Players alternate activating units
+  | 'round-cleanup'   // Morale, end-of-round effects
   | 'game-over';
 ```
 
@@ -99,7 +94,7 @@ interface Unit {
   id: string;
   ownerId: string;           // Player ID
   armyId: string;
-  unitType: string;          // Reference to unit definition
+  unitType: string;          // Reference to fighter definition
   name: string;
   
   // Position & Orientation
@@ -110,18 +105,16 @@ interface Unit {
   status: UnitStatus[];
   wounds: number;
   maxWounds: number;
-  isActivated: boolean;
+  isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
   
   // Game State
   models: Model[];
   weapons: Weapon[];
-  abilities: string[];
+  specialRules: string[];
   
-  // Movement/Shooting State
+  // Movement/Action State
   hasMoved: boolean;
-  hasShot: boolean;
-  hasFought: boolean;
   remainingMovement: number;
 }
 
@@ -142,12 +135,11 @@ interface Vector3 {
 ## Unit Status
 ```typescript
 type UnitStatus = 
-  | 'pinned'
-  | 'suppressed'
-  | 'broken'
-  | 'engaged'
-  | 'in-cover'
-  | 'hidden'
+  | 'stunned'         // Cannot act on next activation; clears at activation start
+  | 'shaken'          // Morale failure state (restrictions per ruleset data)
+  | 'routed'          // Fleeing / forced move state
+  | 'engaged'         // In melee engagement range
+  | 'in-cover'        // Benefit from cover (defense modifier)
   | { type: 'custom', name: string, data?: any };
 ```
 
@@ -162,15 +154,14 @@ interface Weapon {
 }
 
 interface WeaponProfile {
-  range: number;
-  attacks: number | string;   // Could be dice expression
-  toHit: number;
-  toWound: number;
-  armorPierce: number;
-  damage: number | string;
-  special: string[];
+  type: 'ranged' | 'melee';
+  range: number;             // Inches; melee is engagement range (1)
+  attacks: number | string;  // Flat number or dice expression ('D3')
+  specialRules: string[];    // Special rule IDs (AP, blast, etc.)
 }
 ```
+
+Note: to-hit capability comes from the fighter's Quality stat and survival from the target's Defense stat — weapons vary by range, attacks, and special rules.
 
 ## Terrain
 ```typescript
@@ -214,33 +205,29 @@ interface GameAction {
 ### Action Types
 ```typescript
 type ActionType =
+  | 'activate-unit'
   | 'move-unit'
-  | 'advance-unit'
   | 'shoot'
   | 'charge'
   | 'fight'
   | 'use-ability'
-  | 'activate-unit'
-  | 'end-phase'
-  | 'end-turn'
-  | 'pass'
-  | 'declare-action'
-  | 'resolve-action';
+  | 'hold'
+  | 'end-activation'   // Finish current unit's activation
+  | 'end-round';      // Finish the round (cleanup/morale)
 ```
 
 ### Action Payloads
 ```typescript
 type ActionPayload =
+  | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'advance-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
   | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
-  | { type: 'activate-unit', unitId: string }
-  | { type: 'end-phase' }
-  | { type: 'end-turn' }
-  | { type: 'pass' };
+  | { type: 'hold', unitId: string }
+  | { type: 'end-activation' }
+  | { type: 'end-round' };
 ```
 
 ## Action Log
@@ -271,7 +258,7 @@ type GameStatus =
 interface DiceSpec {
   count: number;
   sides: number;
-  purpose?: string;          // e.g., 'to-hit', 'to-wound', 'save'
+  purpose?: string;          // e.g., 'to-hit', 'defense', 'morale'
   modifier?: number;
 }
 

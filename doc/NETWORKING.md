@@ -1,7 +1,7 @@
 # Networking Document
 
 ## Overview
-This document details the networking architecture for Trench Crusade browser game: WebRTC P2P for gameplay, custom Node.js + ws signaling server, invite codes, host authority, and reconnection.
+This document details the networking architecture for the SkirmishLab browser game: WebRTC P2P for gameplay, custom Node.js + ws signaling server, invite codes, host authority, and reconnection.
 
 ## Signaling Server
 
@@ -93,7 +93,7 @@ type GameMessage =
 
 ### Authority Rules
 - **Source of Truth:** Host's game state is authoritative
-- **Validation:** All actions must be validated by host against Trench Crusade rules
+- **Validation:** All actions must be validated by host against the rules engine
 - **Guest Actions:** Guest sends intent as `action-request`, never applies actions directly
 - **Confirmation:** Only host can produce `state-update` messages with confirmed state
 - **Rejection:** Host can reject invalid actions with reason
@@ -133,7 +133,7 @@ Guest wants to move unit:
 ```
 
 ### Dice Types
-Support standard dice: d6, d3, etc. as needed by Trench Crusade rules.
+Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resolution).
 
 ## Snapshots & Reconnection
 

@@ -1,7 +1,14 @@
 # AGENTS.md
 
 ## Project Overview
-This is a browser-based 3D version of Trench Crusade, built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play.
+SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Page Rules games (Grimdark Future: Firefight first), built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play. The engine is ruleset-agnostic — rulesets are data packs, not code.
+
+## IP & Legal Constraints
+- **Unofficial project:** Not affiliated with, endorsed by, or sponsored by One Page Rules. Never imply official status.
+- **Neutral branding:** No third-party trademarks in product/repo/package names. Reference OPR only as compatibility ("for One Page Rules games").
+- **First principles only:** All rules mechanics implemented from first principles. Never copy or closely paraphrase rulebook text, lore prose, or artwork from any publisher.
+- **Original data:** Ship original/generic faction names and fighter data. No proprietary army catalogs.
+- **Monetisation:** Out of scope until after MVP and any endorsement discussion with OPR.
 
 ## Tech Stack Constraints
 - **Language:** TypeScript (frontend and backend)
@@ -10,7 +17,7 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 - **Target:** Desktop browsers only
 - **Art Style:** Low poly (will need to convert .STL models to low poly in future)
 - **Players:** Human vs Human only (no AI opponent)
-- **Rules:** Follow Trench Crusade rules exactly as much as possible
+- **Rules:** Implement OPR-style skirmish mechanics (Quality/Defense d6 rolls, alternating activations, wound/stun tracking, range brackets) from first principles
 
 ## Core Architecture Rules
 
@@ -30,6 +37,7 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 ### Development Do's
 - Keep game state pure and serializable
 - Validate all actions on the host
+- Keep armies, weapons, and special rules as data files (ruleset-agnostic engine)
 - Use action logs + snapshots for resilience
 - Cache game state snapshots on guest for potential rehosting
 - Use heartbeats/pings over data channel for connection monitoring
@@ -46,6 +54,8 @@ This is a browser-based 3D version of Trench Crusade, built with TypeScript and 
 - Don't optimize for mobile
 - Don't use third-party WebRTC signaling services
 - Don't allow real-time drag synchronization
+- Don't hardcode ruleset-specific logic into the engine (rulesets are data packs)
+- Don't bundle third-party rulebook text, lore, artwork, or proprietary army data
 
 ## Git Workflow
 - Always work on feature branches, never commit directly to master/main
