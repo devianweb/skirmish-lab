@@ -42,4 +42,28 @@ describe('CameraController', () => {
     expect(controls.minDistance).toBeGreaterThan(0);
     expect(controls.maxDistance).toBeGreaterThan(controls.minDistance);
   });
+
+  it('setupForRole("host") positions camera at south corner looking toward board center', () => {
+    const { controller, camera } = setup();
+    controller.setupForRole('host');
+    expect(camera.position.z).toBeCloseTo(-20);
+    expect(camera.position.x).toBeCloseTo(20);
+    expect(camera.position.y).toBeCloseTo(20);
+    const controls = (controller as any).controls;
+    expect(controls.target.x).toBeCloseTo(0);
+    expect(controls.target.y).toBeCloseTo(0);
+    expect(controls.target.z).toBeCloseTo(0);
+  });
+
+  it('setupForRole("guest") positions camera at north corner looking toward board center', () => {
+    const { controller, camera } = setup();
+    controller.setupForRole('guest');
+    expect(camera.position.z).toBeCloseTo(20);
+    expect(camera.position.x).toBeCloseTo(-20);
+    expect(camera.position.y).toBeCloseTo(20);
+    const controls = (controller as any).controls;
+    expect(controls.target.x).toBeCloseTo(0);
+    expect(controls.target.y).toBeCloseTo(0);
+    expect(controls.target.z).toBeCloseTo(0);
+  });
 });

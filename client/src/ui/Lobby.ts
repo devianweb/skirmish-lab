@@ -12,6 +12,7 @@ export interface PeerReadyContext {
 
 export interface LobbyOptions {
   onPeerReady?: (context: PeerReadyContext) => void;
+  onRoleAssigned?: (role: 'host' | 'guest') => void;
 }
 
 /**
@@ -66,6 +67,7 @@ export class Lobby {
     this.signalingClient.on('room-created', (msg: any) => {
       this.roomCode = msg.code;
       this.role = 'host';
+      this.options.onRoleAssigned?.('host');
       this.webrtcClient = new WebRTCClient();
       this.setupWebRTCAsHost();
       this.render();
@@ -74,6 +76,7 @@ export class Lobby {
     this.signalingClient.on('room-joined', async (msg: any) => {
       this.roomCode = msg.code;
       this.role = 'guest';
+      this.options.onRoleAssigned?.('guest');
       this.webrtcClient = new WebRTCClient();
       await this.setupWebRTCAsGuest();
       this.render();

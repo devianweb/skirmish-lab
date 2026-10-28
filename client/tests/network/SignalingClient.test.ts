@@ -77,4 +77,25 @@ describe('SignalingClient', () => {
       dice: [{ count: 2, sides: 6 }] 
     });
   });
+
+  it('startKeepAlive sends periodic pings and can be stopped', () => {
+    vi.useFakeTimers();
+    try {
+      const pingSpy = vi.spyOn(client, 'ping').mockImplementation(() => {});
+      const stop = client.startKeepAlive(25000);
+      expect(pingSpy).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(25000);
+      expect(pingSpy).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(25000);
+      expect(pingSpy).toHaveBeenCalledTimes(2);
+
+      stop();
+      vi.advanceTimersByTime(25000);
+      expect(pingSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

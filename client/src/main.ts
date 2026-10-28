@@ -93,8 +93,11 @@ let viewWired = false;
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
 const lobby = new Lobby(lobbyContainer, {
+  onRoleAssigned: (role) => {
+    gameView.setupCameraForRole(role);
+  },
   onPeerReady: ({ webrtcClient, signalingClient, role, roomCode, initialState }) => {
-    void role;
+    gameView.setupCameraForRole(role);
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
 

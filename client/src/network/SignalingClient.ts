@@ -108,9 +108,11 @@ export class SignalingClient {
    * Periodic signaling pings. These keep the room alive on the server while
    * a game runs over WebRTC: without signaling traffic the room would hit
    * the inactivity timeout and mid-game dice requests would fail.
+   * Default 25s comfortably beats Azure App Service's 230-second idle proxy
+   * timeout even when browsers throttle background tab timers.
    * Returns a stop function.
    */
-  startKeepAlive(intervalMs = 60000): () => void {
+  startKeepAlive(intervalMs = 25000): () => void {
     const interval = setInterval(() => this.ping(), intervalMs);
     return () => clearInterval(interval);
   }

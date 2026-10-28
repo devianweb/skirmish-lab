@@ -33,7 +33,7 @@ export interface GameViewOptions {
   /** Injected scene manager (tests). Mutually exclusive with container. */
   sceneManager?: SceneManagerLike;
   /** Injected camera controller (optional with an injected scene manager). */
-  cameraController?: { update(): void };
+  cameraController?: { update(): void; setupForRole?(role: 'host' | 'guest'): void };
   /** Injected board renderer (defaults to the real one on the scene). */
   boardRenderer?: BoardRenderer;
   /** Injected unit renderer (defaults to the real one on the scene). */
@@ -126,6 +126,16 @@ export class GameView {
       this.cameraController?.update();
       this.markerRenderer.orientOutcomeToCamera(this.camera);
     });
+  }
+
+  /**
+   * Position the camera for the given player role so they view the battlefield
+   * from behind their deployment zone.
+   */
+  setupCameraForRole(role: 'host' | 'guest'): void {
+    if (this.cameraController && 'setupForRole' in this.cameraController) {
+      (this.cameraController as any).setupForRole(role);
+    }
   }
 
   /**
