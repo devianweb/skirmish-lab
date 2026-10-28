@@ -62,7 +62,7 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
     {
       id: 'terrain-wall-south',
       terrainType: 'wall-window',
-      position: { x: -4, y: 0, z: -5 },
+      position: { x: -6, y: 0, z: -5 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 3, y: 1.5, z: 0.5 },
       blocksLineOfSight: true,

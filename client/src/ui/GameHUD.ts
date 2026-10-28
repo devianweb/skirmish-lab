@@ -1,7 +1,10 @@
 import {
+  clampMoveDestinationWithObstacles,
   createAction,
+  findMoveBlocker,
   GameState,
   GameAction,
+  hasLineOfSight,
   Unit,
   Vector3,
 } from '@skirmish-lab/shared';
@@ -15,6 +18,8 @@ export interface HUDController {
 export interface GameHUDOptions {
   /** Player ID of the local player (host or guest perspective). */
   localPlayerId: string;
+  /** Optional invite code for the room (displayed in the top-right header). */
+  roomCode?: string;
   controller: HUDController;
 }
 
@@ -49,6 +54,7 @@ type TargetingMode =
 export class GameHUD {
   private container: HTMLElement;
   private localPlayerId: string;
+  private roomCode: string | null;
   private controller: HUDController;
   private state: GameState | null = null;
   private flow: TargetingMode = { mode: 'idle' };
@@ -56,6 +62,8 @@ export class GameHUD {
   private selectedUnitId: string | null = null;
   /** Unit hovered in the fighter list or on the board. */
   private hoveredUnitId: string | null = null;
+  /** Action button currently hovered in the action bar (e.g. 'move'). */
+  private hoveredAction: string | null = null;
   /** Clamped move destination previewed under the cursor during move targeting. */
   private movePreview: Vector3 | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
@@ -70,6 +78,7 @@ export class GameHUD {
   constructor(container: HTMLElement, options: GameHUDOptions) {
     this.container = container;
     this.localPlayerId = options.localPlayerId;
+    this.roomCode = options.roomCode ?? null;
     this.controller = options.controller;
     GameHUD.ensureStyles();
 
@@ -286,33 +295,14 @@ export class GameHUD {
   }
 
   /**
-   * Clamp a ground point to the unit's remaining movement allowance (and board
-   * bounds) so clicking beyond the movement ring moves as far as possible
-   * toward the cursor instead of failing.
+   * Clamp a ground point to the unit's remaining movement allowance, board
+   * bounds, and obstacle terrain / other fighters along the move path.
    */
   private clampMoveDestination(unit: Unit, raw: Vector3): Vector3 {
-    const dx = raw.x - unit.position.x;
-    const dz = raw.z - unit.position.z;
-    const rawDist = Math.hypot(dx, dz);
-    const maxMove = Math.max(0, unit.remainingMovement);
-    let x = raw.x;
-    let z = raw.z;
-    if (rawDist > maxMove && rawDist > 0) {
-      const ratio = maxMove / rawDist;
-      x = unit.position.x + dx * ratio;
-      z = unit.position.z + dz * ratio;
+    if (!this.state) {
+      return { x: Math.round(raw.x * 100) / 100, y: 0, z: Math.round(raw.z * 100) / 100 };
     }
-    if (this.state) {
-      const halfW = (this.state.board.width * this.state.board.gridSize) / 2;
-      const halfH = (this.state.board.height * this.state.board.gridSize) / 2;
-      x = Math.max(-halfW, Math.min(halfW, x));
-      z = Math.max(-halfH, Math.min(halfH, z));
-    }
-    return {
-      x: Math.round(x * 100) / 100,
-      y: 0,
-      z: Math.round(z * 100) / 100,
-    };
+    return clampMoveDestinationWithObstacles(this.state, unit, raw, unit.remainingMovement);
   }
 
   private prepareMove(rawDestination: Vector3): void {
@@ -369,6 +359,10 @@ export class GameHUD {
         this.showToast(`Out of range: ${distance.toFixed(1)}" vs ${weapon.profile.range}"`);
         return;
       }
+      if (this.state && !hasLineOfSight(this.state, active, target)) {
+        this.showToast('No line of sight to target');
+        return;
+      }
       const attacks = weapon.profile.attacks;
       const diceText = `${attacks}d6 (Hit Q${effectiveQ}+${target.status.includes('in-cover') ? ' cover' : ''}, Def D${target.defense}+)`;
       this.beginConfirmation(
@@ -401,6 +395,22 @@ export class GameHUD {
       if (chargeDistance > active.speed + 0.01) {
         this.showToast(`Too far to charge: ${chargeDistance.toFixed(1)}" vs speed ${active.speed}"`);
         return;
+      }
+      if (this.state && !hasLineOfSight(this.state, active, target)) {
+        this.showToast('No line of sight to target');
+        return;
+      }
+      if (this.state) {
+        const blocker = findMoveBlocker(
+          this.state,
+          active,
+          [{ ...active.position }, end],
+          { ignoreUnitId: target.id }
+        );
+        if (blocker.blocked) {
+          this.showToast(blocker.reason);
+          return;
+        }
       }
       this.beginConfirmation(
         createAction(this.localPlayerId, 'charge', {
@@ -508,6 +518,7 @@ export class GameHUD {
         ? 'Your turn'
         : `${opponentName}'s turn`
     }</span>
+        ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : ''}
       </div>`;
 
     const units = `
@@ -911,7 +922,26 @@ export class GameHUD {
     for (const button of Array.from(this.root.querySelectorAll('.sl-hud-btn'))) {
       const el = button as HTMLButtonElement;
       if (el.disabled) continue;
+      const actionKey = el.dataset.action ?? '';
+      if (
+        actionKey === 'move' ||
+        actionKey === 'shoot' ||
+        actionKey === 'charge' ||
+        actionKey === 'fight'
+      ) {
+        el.addEventListener('mouseenter', () => {
+          this.hoveredAction = actionKey;
+          this.emitMarkers();
+        });
+        el.addEventListener('mouseleave', () => {
+          if (this.hoveredAction === actionKey) {
+            this.hoveredAction = null;
+            this.emitMarkers();
+          }
+        });
+      }
       el.addEventListener('click', () => {
+        this.hoveredAction = null;
         switch (el.dataset.action) {
           case 'confirm':
             this.confirmPending();
@@ -1006,23 +1036,39 @@ export class GameHUD {
       }
     }
 
-    // While targeting an attack, show the thin red max-range circle around the active unit,
-    // darker red rings under all reachable enemy targets, and a bright red ring under any hovered target.
-    if (this.flow.mode === 'targeting' && this.flow.action !== 'move' && this.state) {
+    // While targeting or hovering an attack action, show the thin red max-range circle
+    // (with LoS shadow fill), darker red rings under all reachable enemy targets, and
+    // a bright red ring under any hovered target.
+    const attackAction =
+      this.flow.mode === 'targeting' && this.flow.action !== 'move'
+        ? this.flow.action
+        : this.flow.mode === 'idle' &&
+          (this.hoveredAction === 'shoot' ||
+            this.hoveredAction === 'charge' ||
+            this.hoveredAction === 'fight')
+        ? this.hoveredAction
+        : null;
+
+    if (attackAction && this.state) {
       const active = this.activeUnit;
       if (active) {
-        const maxRange = this.actionMaxRange(active, this.flow.action);
+        const maxRange = this.actionMaxRange(active, attackAction);
         if (maxRange > 0) {
           markers.attackRange = { unitId: active.id, range: maxRange };
         }
-        const reachable = this.reachableEnemies(active, this.flow.action);
+        const reachable = this.reachableEnemies(active, attackAction);
         markers.reachableTargetIds = reachable
           .filter((enemy) => enemy.id !== markers.targetUnitId)
           .map((enemy) => enemy.id);
       }
     }
 
-    if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
+    // Only show the movement-range ring when Move is hovered, clicked (targeting), or confirming.
+    if (
+      (this.flow.mode === 'targeting' && this.flow.action === 'move') ||
+      (this.flow.mode === 'confirming' && this.flow.action.type === 'move-unit') ||
+      (this.flow.mode === 'idle' && this.hoveredAction === 'move')
+    ) {
       markers.movementRangeUnitId = this.activeUnit?.id ?? null;
       if (this.activeUnit && this.movePreview) {
         markers.movePath = {
@@ -1030,9 +1076,6 @@ export class GameHUD {
           to: { ...this.movePreview },
         };
       }
-    }
-    if (this.activeUnit?.ownerId === this.localPlayerId) {
-      markers.movementRangeUnitId = markers.movementRangeUnitId ?? this.activeUnit?.id ?? null;
     }
 
     for (const handler of this.markerHandlers) {
@@ -1056,7 +1099,7 @@ export class GameHUD {
     return 1.5;
   }
 
-  /** All living enemy units within max range of the given action. */
+  /** All living enemy units within max range and Line of Sight of the given action. */
   private reachableEnemies(unit: Unit, action: 'shoot' | 'charge' | 'fight'): Unit[] {
     if (!this.state) return [];
     const limit = this.actionMaxRange(unit, action);
@@ -1066,7 +1109,11 @@ export class GameHUD {
         candidate.position.x - unit.position.x,
         candidate.position.z - unit.position.z
       );
-      return distance <= limit + 0.01;
+      if (distance > limit + 0.01) return false;
+      if (action === 'shoot' || action === 'charge') {
+        return hasLineOfSight(this.state!, unit, candidate);
+      }
+      return true;
     });
   }
 
@@ -1090,6 +1137,10 @@ export class GameHUD {
 .sl-hud-round { color: #ffd54f; font-weight: 600; }
 .sl-hud-turn.mine { color: #69f0ae; font-weight: 600; }
 .sl-hud-turn.theirs { color: #ff8a65; }
+.sl-hud-room { margin-left: auto; font-family: monospace; font-size: 13px;
+  font-weight: 700; color: #90caf9; background: #1a2330; border: 1px solid #2e3f52;
+  padding: 3px 10px; border-radius: 5px; letter-spacing: 1px; pointer-events: auto;
+  user-select: all; }
 .sl-hud-panel { position: absolute; pointer-events: auto; background: rgba(10, 12, 16, 0.82);
   border: 1px solid #2a2f3a; border-radius: 8px; padding: 10px; min-width: 220px; }
 .sl-hud-panel h3 { margin: 2px 0 8px; font-size: 12px; text-transform: uppercase;

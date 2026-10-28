@@ -165,7 +165,7 @@ describe('GameHUD', () => {
     expect(action.payload.path).toEqual([start, destination]);
   });
 
-  it('move flow: clamps destinations beyond remaining movement to the max movement radius', () => {
+  it('move flow: clamps destinations beyond remaining movement to the max movement radius (and stops before friendly fighters)', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
     const start = { ...unit.position };
@@ -173,16 +173,23 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
+    // Moving sideways (+x) toward Warden Trooper 2 at (-4, 0, -12) stops in front of the fighter (~3.3")
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 20, y: 0, z: start.z } });
+    expect(container.textContent).toContain('3.3" — 2.7" left');
+    clickByText(container, 'Cancel');
+
+    // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
+    clickByText(container, 'Move');
+    hud.handleBoardPick({ kind: 'position', position: { x: start.x, y: 0, z: start.z + 20 } });
 
     expect(container.textContent).toContain(`${unit.remainingMovement.toFixed(1)}" — all movement spent`);
     expect(container.textContent).toContain('Confirm');
     clickByText(container, 'Confirm');
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
     expect(controller.submitAction.mock.calls[0][0].payload.finalPosition).toEqual({
-      x: start.x + unit.remainingMovement,
+      x: start.x,
       y: 0,
-      z: start.z,
+      z: start.z + unit.remainingMovement,
     });
   });
 
@@ -419,7 +426,7 @@ describe('GameHUD', () => {
     const last = snapshots[snapshots.length - 1];
     expect(last.outcome).toBeNull();
 
-    // With an active unit, the marker snapshot reflects it, and Shoot targeting emits attackRange.
+    // With an active unit, selection is shown, but movement-range ring is ONLY shown when Move is hovered/clicked.
     const state2 = scenarioState();
     const active = state2.units.find(
       (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle')
@@ -428,11 +435,17 @@ describe('GameHUD', () => {
     hud.syncFromState(state2);
     const withActive = snapshots[snapshots.length - 1];
     expect(withActive.selectedUnitId).toBe(active.id);
+    expect(withActive.movementRangeUnitId).toBeNull();
+
+    clickByText(container, 'Move');
+    expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBe(active.id);
+    clickByText(container, 'Cancel');
+    expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBeNull();
 
     clickByText(container, 'Shoot');
     const targetingSnap = snapshots[snapshots.length - 1];
     expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24 });
-    // Enemies within 24" appear in reachableTargetIds.
+    // Enemies within 24" and Line of Sight appear in reachableTargetIds.
     expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
   });
 
@@ -471,5 +484,20 @@ describe('GameHUD', () => {
     expect(card?.textContent).toContain(unit.name);
     expect(card?.textContent).toContain(`Q${unit.quality}+`);
     expect(card?.textContent).toContain(`D${unit.defense}+`);
+  });
+
+  it('displays the room code in the top-right header when provided', () => {
+    const controller = { submitAction: vi.fn() };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hud = new GameHUD(container, {
+      localPlayerId: HOST,
+      roomCode: 'ABC-123',
+      controller,
+    });
+    hud.show();
+    hud.syncFromState(scenarioState());
+
+    expect(container.querySelector('.sl-hud-room')?.textContent).toBe('Room: ABC-123');
   });
 });

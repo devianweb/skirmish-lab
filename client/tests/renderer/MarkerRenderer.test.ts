@@ -99,9 +99,18 @@ describe('MarkerRenderer', () => {
     expect(renderer.getRenderedMarkerNames()).toHaveLength(0);
   });
 
-  it('renders attack-range ring, reachable-target rings, and move-path line, and orients outcome tokens toward the camera', () => {
+  it('renders attack-range ring, LoS shadow fan, reachable-target rings, and move-path line, and orients outcome tokens toward the camera', () => {
     const renderer = makeRenderer();
-    renderer.setAttackRange({ position: { x: 1, y: 0, z: 2 }, range: 12 });
+    renderer.setAttackRange({
+      position: { x: 1, y: 0, z: 2 },
+      range: 12,
+      losPolygon: [
+        { x: 13, z: 2 },
+        { x: 1, z: 14 },
+        { x: -11, z: 2 },
+        { x: 1, z: -10 },
+      ],
+    });
     renderer.setReachableTargets([
       { id: 'e1', position: { x: 2, y: 0, z: 3 } },
       { id: 'e2', position: { x: 4, y: 0, z: 5 } },
@@ -114,6 +123,7 @@ describe('MarkerRenderer', () => {
     expect(renderer.getRenderedMarkerNames()).toContain('marker-move-path');
     const attackMarker = scene.getObjectByName('marker-attack-range')!;
     expect(attackMarker.scale.x).toBe(12);
+    expect(attackMarker.getObjectByName('los-shadow-fan')).toBeDefined();
 
     const camera = new THREE.PerspectiveCamera();
     camera.position.set(10, 10, 0);

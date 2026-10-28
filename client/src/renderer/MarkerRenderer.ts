@@ -13,6 +13,8 @@ export interface MarkerUnit {
 export interface AttackRangeMarker {
   position: Vector3;
   range: number;
+  /** Optional 2D visibility polygon in world XZ coordinates for LoS shadow fill. */
+  losPolygon?: Array<{ x: number; z: number }>;
 }
 
 export interface MovePathMarker {
@@ -93,15 +95,16 @@ export class MarkerRenderer {
     this.reachableTargets = group;
   }
 
-  /** Movement-range ring sized to the unit's remaining movement (yellow). */
+  /** Thin movement-range ring sized to the unit's remaining movement. */
   setMovementRange(unit: MarkerUnit | null): void {
     this.removeMarker('range');
     if (!unit) return;
     const radius = Math.max(unit.remainingMovement ?? 0, 0);
     if (radius <= 0) return;
 
+    const normalizedThickness = Math.min(0.25, 0.08 / radius);
     const marker = this.modelLoader.createMarkerMesh('movement-range', () =>
-      this.createRangeRing(RANGE_COLOR, 1)
+      this.createRangeRing(RANGE_COLOR, 1, normalizedThickness)
     );
     marker.name = 'marker-movement-range';
     marker.position.set(unit.position.x, 0.03, unit.position.z);
@@ -110,7 +113,11 @@ export class MarkerRenderer {
     this.range = marker;
   }
 
-  /** Thin attack-range ring sized to the weapon/charge max range (red). */
+  /**
+   * Thin attack-range ring sized to the weapon/charge max range (red), plus a
+   * dark transparent red Line-of-Sight fill inside the ring that is blank
+   * wherever LoS is blocked by terrain or fighters.
+   */
   setAttackRange(spec: AttackRangeMarker | null): void {
     this.removeMarker('attackRange');
     if (!spec || spec.range <= 0) return;
@@ -122,6 +129,9 @@ export class MarkerRenderer {
       this.createRangeRing(ATTACK_RANGE_COLOR, 1, normalizedThickness)
     );
     this.applyTint(marker, ATTACK_RANGE_COLOR);
+    if (spec.losPolygon && spec.losPolygon.length >= 3) {
+      marker.add(this.createLosFanMesh(spec.position, spec.range, spec.losPolygon));
+    }
     marker.name = 'marker-attack-range';
     marker.position.set(spec.position.x, 0.035, spec.position.z);
     marker.scale.set(spec.range, 1, spec.range);
@@ -303,5 +313,50 @@ export class MarkerRenderer {
     const geometry = new THREE.OctahedronGeometry(0.22 + 0.05 * wounds);
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
     return new THREE.Mesh(geometry, material);
+  }
+
+  /**
+   * Build a 2D triangle-fan mesh (normalized to unit radius so the parent
+   * container's `scale.set(range, 1, range)` sizes it to world space) that
+   * fills visible Line of Sight with a dark transparent red shadow and leaves
+   * blocked shadow wedges blank.
+   */
+  private createLosFanMesh(
+    origin: Vector3,
+    range: number,
+    polygon: Array<{ x: number; z: number }>
+  ): THREE.Mesh {
+    const n = polygon.length;
+    const vertices = new Float32Array(n * 3 * 3);
+    for (let i = 0; i < n; i++) {
+      const p1 = polygon[i];
+      const p2 = polygon[(i + 1) % n];
+      const base = i * 9;
+      // Center vertex
+      vertices[base + 0] = 0;
+      vertices[base + 1] = -0.01;
+      vertices[base + 2] = 0;
+      // Perimeter vertex i
+      vertices[base + 3] = (p1.x - origin.x) / range;
+      vertices[base + 4] = -0.01;
+      vertices[base + 5] = (p1.z - origin.z) / range;
+      // Perimeter vertex i + 1
+      vertices[base + 6] = (p2.x - origin.x) / range;
+      vertices[base + 7] = -0.01;
+      vertices[base + 8] = (p2.z - origin.z) / range;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xb71c1c,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'los-shadow-fan';
+    return mesh;
   }
 }

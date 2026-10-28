@@ -4,6 +4,7 @@ export * from './gameTypes';
 export * from './gameState';
 export * from './engine/activation';
 export * from './engine/combat';
+export * from './engine/spatial';
 export * from './engine/actions';
 export * from './data/weapons';
 export * from './data/armies';

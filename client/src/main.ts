@@ -1,4 +1,5 @@
 import {
+  computeLosVisibilityPolygon,
   GameState,
   GUEST_PLAYER_ID,
   HOST_PLAYER_ID,
@@ -55,8 +56,17 @@ function applyMarkers(markers: MarkerSnapshot): void {
     ? unitForMarkers(markers.attackRange.unitId)
     : null;
   gameView.setAttackRangeMarker(
-    attackRangeUnit && markers.attackRange
-      ? { position: attackRangeUnit.position, range: markers.attackRange.range }
+    attackRangeUnit && markers.attackRange && latestState
+      ? {
+          position: attackRangeUnit.position,
+          range: markers.attackRange.range,
+          losPolygon: computeLosVisibilityPolygon(
+            latestState,
+            attackRangeUnit.position,
+            markers.attackRange.range,
+            markers.attackRange.unitId
+          ),
+        }
       : null
   );
   gameView.setMovePathMarker(markers.movePath ?? null);
@@ -78,7 +88,7 @@ let viewWired = false;
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
 const lobby = new Lobby(lobbyContainer, {
-  onPeerReady: ({ webrtcClient, signalingClient, role, initialState }) => {
+  onPeerReady: ({ webrtcClient, signalingClient, role, roomCode, initialState }) => {
     void role;
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
@@ -101,6 +111,7 @@ const lobby = new Lobby(lobbyContainer, {
     hud?.dispose();
     hud = new GameHUD(app, {
       localPlayerId,
+      roomCode,
       controller: {
         submitAction: (action) => gameManager?.sendAction(action),
         onReturnToLobby: () => {
