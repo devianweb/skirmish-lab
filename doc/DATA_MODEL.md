@@ -97,6 +97,11 @@ interface Unit {
   unitType: string;          // Reference to fighter definition
   name: string;
   
+  // OPR-style stats (copied from fighter definition at spawn)
+  quality: number;          // To-hit target: d6 roll >= quality hits
+  defense: number;          // Block target: d6 roll >= defense blocks
+  speed: number;            // Movement allowance in inches
+  
   // Position & Orientation
   position: Vector3;         // {x, y, z}
   rotation: Vector3;         // {x, y, z} in radians
