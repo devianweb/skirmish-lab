@@ -1,6 +1,10 @@
-# Trench Heresy
+# SkirmishLab
 
-A browser-based 3D version of Trench Crusade built with TypeScript and Three.js. Two players can connect via peer-to-peer WebRTC using invite codes for direct play.
+An unofficial, unendorsed tabletop skirmish simulator for [One Page Rules](https://onepagerules.com/) games, built with TypeScript and Three.js. Two players connect via peer-to-peer WebRTC using invite codes for direct play.
+
+**Currently targeting:** Grimdark Future: Firefight. Age of Fantasy: Skirmish support is planned (the engine is ruleset-agnostic — rulesets are data packs).
+
+> SkirmishLab is a fan-made community project. It is not affiliated with, endorsed by, or sponsored by One Page Rules. All game mechanics are implemented from first principles; no third-party rulebook text or artwork is bundled.
 
 ## Tech Stack
 
@@ -12,11 +16,12 @@ A browser-based 3D version of Trench Crusade built with TypeScript and Three.js.
 ## Features
 
 - Host-authoritative turn-based gameplay
+- Alternating activation skirmish flow (in development)
 - Direct play via XXX-XXX invite codes (no matchmaking)
 - Server-rolled dice for fair play
 - 3D battlefield rendering with controllable cameras
-- Follows Trench Crusade rules as closely as possible
-- Low-poly art style
+- Ruleset-agnostic engine — armies and rules are data, not code
+- Low-poly art style with original assets
 
 ## Getting Started
 
@@ -50,17 +55,16 @@ npm run dev:client
 ### Testing
 
 ```bash
-cd server
 npm test
 ```
 
 ## Project Structure
 
 ```
-trench-heresy/
+skirmish-lab/
 ├── client/     # Three.js frontend (Vite)
 ├── server/     # WebSocket signaling server
-├── shared/     # Shared TypeScript types
+├── shared/     # Shared types, game state, and rules
 └── doc/        # Design documents (GDD, Architecture, etc.)
 ```
 

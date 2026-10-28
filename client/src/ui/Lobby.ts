@@ -103,7 +103,7 @@ export class Lobby {
     if (this.roomCode && this.role) {
       this.container.innerHTML = `
         <div style="font-family: Arial; padding: 40px; text-align: center;">
-          <h1>Trench Heresy</h1>
+          <h1>SkirmishLab</h1>
           <h2>Room: ${this.roomCode}</h2>
           <p>Role: ${this.role}</p>
           <p id="status">Waiting for peer...</p>
@@ -119,7 +119,7 @@ export class Lobby {
     } else {
       this.container.innerHTML = `
         <div style="font-family: Arial; padding: 40px; text-align: center;">
-          <h1>Trench Heresy</h1>
+          <h1>SkirmishLab</h1>
           <button id="createBtn" style="padding: 10px 20px; margin: 10px;">Create Room</button>
           <div style="margin: 20px;">
             <input id="codeInput" placeholder="XXX-XXX" style="padding: 10px;" />

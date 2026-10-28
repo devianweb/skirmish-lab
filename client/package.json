@@ -1,5 +1,5 @@
 {
-  "name": "@trench-heresy/client",
+  "name": "@skirmish-lab/client",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@trench-heresy/shared": "1.0.0",
+    "@skirmish-lab/shared": "1.0.0",
     "three": "^0.170.0"
   },
   "devDependencies": {

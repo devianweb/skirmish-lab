@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GameManager } from '../../src/core/GameManager';
 import { WebRTCClient } from '../../src/network/WebRTCClient';
-import { createAction } from '@trench-heresy/shared';
+import { createAction } from '@skirmish-lab/shared';
 
 describe('GameManager', () => {
   let mockWebRTC: WebRTCClient;
