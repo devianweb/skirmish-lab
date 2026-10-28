@@ -140,7 +140,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Renderer reads from game state only
 - [x] Game state never modified by renderer (covered by renderer tests)
 - [x] Low-poly models load correctly (procedural low-poly path; GLTF assets land with the .STL pipeline)
-- [ ] Performance acceptable for desktop (verify in browser at `npm run dev` — basic scene, expected fine)
+- [x] Performance acceptable for desktop (verified manually in browser at `npm run dev` — steady 60fps, no memory growth)
 
 ## Phase 5: Basic Gameplay & UI (Alternating Activations)
 **Goal:** Implement alternating-activation gameplay flow
@@ -155,6 +155,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Round management (all units activated → cleanup → new round)
 - [ ] Dice result display
 - [ ] Basic action types (activate, move, shoot, charge, fight, hold, end activation)
+- [ ] Replace procedural placeholders with curated Kenney prototype-kit GLBs (CC0, staged in `assets-src/`): figurines for unit roles, walls/crates/columns for terrain, `indicator-*`/`target-*`/`number-*` models for movement/attack/dice UI markers
 
 ### Acceptance Criteria
 - [ ] Players can connect and start game
