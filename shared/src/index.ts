@@ -1,4 +1,4 @@
-// Shared types for Trench Heresy
+// Shared types for SkirmishLab
 export { Vector3, DiceSpec, DiceResult } from './types';
 export * from './gameTypes';
 export * from './gameState';

@@ -1,4 +1,4 @@
-import { SignalingMessage } from '@trench-heresy/shared';
+import { SignalingMessage } from '@skirmish-lab/shared';
 
 type MessageHandler = (message: SignalingMessage) => void;
 

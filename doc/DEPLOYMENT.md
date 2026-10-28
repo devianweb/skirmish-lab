@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying the Trench Heresy demo using **GitHub Pages** (for the client) and a free WebSocket host (for the signaling server).
+This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the client) and a free WebSocket host (for the signaling server).
 
 ## Overview
 
@@ -53,7 +53,7 @@ In `client/vite.config.ts`, set the base path to your repo name:
 
 ```ts
 export default defineConfig({
-  base: '/trench-heresy/', // replace with your repo name
+  base: '/skirmish-lab/', // replace with your repo name
   // ...
 })
 ```

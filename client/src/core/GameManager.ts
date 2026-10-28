@@ -1,4 +1,4 @@
-import { GameState, GameAction, createInitialGameState, validateActionBasic } from '@trench-heresy/shared';
+import { GameState, GameAction, createInitialGameState, validateActionBasic } from '@skirmish-lab/shared';
 import { WebRTCClient } from '../network/WebRTCClient';
 
 export class GameManager {

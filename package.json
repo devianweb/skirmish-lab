@@ -1,8 +1,8 @@
 {
-  "name": "trench-crusade-web",
+  "name": "skirmish-lab",
   "version": "1.0.0",
   "private": true,
-  "description": "Browser-based 3D Trench Crusade with P2P WebRTC",
+  "description": "Unofficial tabletop skirmish simulator for One Page Rules games, built with TypeScript and Three.js",
   "workspaces": [
     "client",
     "server",
