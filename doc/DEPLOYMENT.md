@@ -5,14 +5,16 @@ This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the
 ## Overview
 
 - **Client**: Static Vite app hosted on GitHub Pages
-- **Signaling Server**: Node.js WebSocket server hosted on [Railway](https://railway.app/) or [Fly.io](https://fly.io/) (free tier), tracking the `release` branch
+- **Signaling Server**: Node.js WebSocket server hosted on [Railway](https://railway.app/) or [Fly.io](https://fly.io/) (free tier), tracking the `release` branch — *hosting deferred, see §1*
 - **CI/CD**: GitHub Actions - PRs to `master` build and test only; a **merged PR into the `release` branch** builds, tests, and deploys the client to GitHub Pages. Open a PR (`master` → `release`) when ready to demo.
 
 ## 1) Deploy the Signaling Server
 
-You need a persistent WebSocket server reachable over `wss://`. Recommended host: Railway.
+You need a persistent WebSocket server reachable over `wss://`.
 
-### Railway (Recommended)
+> **Status — deferred (Oct 2026):** Railway is not accepting new signups at the moment, so hosting the signaling server is on hold. The repo's `railway.json` stays in place and is ready for when signups reopen; use Fly.io below if a live server is needed sooner. Until a server is hosted, the client still deploys to GitHub Pages fine — it just can't reach a signaling server from the public URL (`VITE_SIGNALING_URL` unset → falls back to `ws://localhost:8080`).
+
+### Railway (Deferred — recommended when signups reopen)
 
 > **Monorepo note:** do **not** set the service Root Directory to `server/`. The server depends on `@skirmish-lab/shared`, which is an npm workspace resolved via the root `package-lock.json` — installing from `server/` alone would fail. The repo root contains a `railway.json` that tells Railway how to build and start the server, so most of the configuration is already in the repo.
 
@@ -26,7 +28,7 @@ You need a persistent WebSocket server reachable over `wss://`. Recommended host
 
 The server already listens on `process.env.PORT` (`server/src/index.ts`), which Railway provides.
 
-### Fly.io (Alternative)
+### Fly.io (Use this if a live server is needed before Railway reopens)
 
 1. Install [flyctl](https://fly.io/docs/hands-on/install-flyctl/), sign up, and login.
 2. From `server/`, run `fly launch` to create an app.
@@ -65,13 +67,15 @@ To change CI/deploy behavior, edit those files — this document only describes 
 In your repo → Settings → Secrets and variables → Actions, add:
 - `VITE_SIGNALING_URL` = `wss://your-server-domain` (from Railway/Fly.io)
 
+> Skip this until a signaling server is hosted (see §1). Without it, deploys still succeed — the deployed client just falls back to `ws://localhost:8080` and can't connect online.
+
 ## 6) Deploy
 
 1. Push the workflows and client config changes (done via the Phase 3.5 PR), and create the `release` branch once: `git push origin master:release`.
 2. When ready to demo, open a PR with base `release` and compare `master` (on GitHub: New Pull Request → set base to `release`), then merge it. This triggers the client deploy; Railway picks up the server from the resulting merge push.
 3. GitHub Actions will build, test, and deploy the client to GitHub Pages from the merged PR. Check the Actions tab for progress.
 4. Once deployed, visit `https://devianweb.github.io/skirmish-lab/`
-5. Share with friends - they can create/join rooms and connect over WebRTC via your signaling server.
+5. Share with friends - they can create/join rooms and connect over WebRTC via your signaling server. (Until a signaling server is hosted, the Pages URL serves the client but online play won't connect — see §1.)
 
 ## Troubleshooting
 
