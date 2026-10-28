@@ -129,20 +129,26 @@ export function validateAction(state: GameState, action: GameAction): Validation
 
     case 'hold': {
       const { unitId } = action.payload as PayloadWithUnitId;
-      if (state.turnState.activeUnitId) {
-        return { valid: false, reason: 'Another unit is already activating' };
-      }
       const unit = getUnit(state, unitId);
       if (!unit) return { valid: false, reason: 'Unknown unit' };
       if (unit.ownerId !== action.actorId) {
         return { valid: false, reason: 'Unit does not belong to acting player' };
       }
       if (unit.isDestroyed) return { valid: false, reason: 'Unit is destroyed' };
-      if (unit.isActivated) {
-        return { valid: false, reason: 'Unit already activated this round' };
-      }
       if (unit.status.includes('routed')) {
         return { valid: false, reason: 'Unit is routed and cannot activate' };
+      }
+      if (state.turnState.activeUnitId) {
+        if (state.turnState.activeUnitId !== unitId) {
+          return { valid: false, reason: 'Another unit is already activating' };
+        }
+        if (unit.hasMoved || unit.hasAttacked) {
+          return { valid: false, reason: 'Unit has already acted and cannot hold' };
+        }
+        return { valid: true };
+      }
+      if (unit.isActivated || state.turnState.unitsActivatedThisRound.includes(unitId)) {
+        return { valid: false, reason: 'Unit already activated this round' };
       }
       return { valid: true };
     }
@@ -160,6 +166,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       if (!path || path.length === 0) {
         return { valid: false, reason: 'Move path is empty' };
+      }
+      if (boardDistance(path[0], unit.result.position) > 0.01) {
+        return { valid: false, reason: 'Move path must start at unit position' };
       }
       const end = path[path.length - 1];
       if (boardDistance(end, finalPosition) > 0.01) {
@@ -181,6 +190,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
+      if (attacker.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already attacked this activation' };
+      }
       const target = requireTarget(state, action.actorId, targetId);
       if ('reason' in target) return target;
       const weapon = getWeapon(attacker.result, weaponId ?? '');
@@ -205,6 +217,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
+      if (attacker.result.hasMoved || attacker.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
       const target = requireTarget(state, action.actorId, targetId);
       if ('reason' in target) return target;
       if (isEngaged(attacker.result)) {
@@ -229,6 +244,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
+      if (attacker.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already attacked this activation' };
+      }
       const target = requireTarget(state, action.actorId, targetId);
       if ('reason' in target) return target;
       if (!isEngaged(attacker.result)) {
@@ -303,7 +321,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'activate-unit': {
       const { unitId } = action.payload as PayloadWithUnitId;
       const unit = getUnit(newState, unitId)!;
+      const wasStunned = unit.status.includes('stunned');
       beginActivation(newState, unit);
+      // A stunned unit spends its activation clearing the stun and passes
+      // initiative immediately (cannot move or attack on this activation).
+      if (wasStunned) {
+        finishActivation(newState);
+      }
       logEntry = acceptedEntry(action);
       break;
     }
@@ -311,9 +335,10 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'hold': {
       const { unitId } = action.payload as PayloadWithUnitId;
       const unit = getUnit(newState, unitId)!;
-      beginActivation(newState, unit);
-      // A hold is a one-step activation: the unit does nothing and the
-      // activation ends immediately.
+      if (!newState.turnState.activeUnitId) {
+        beginActivation(newState, unit);
+      }
+      // A hold ends the unit's activation immediately without moving or acting.
       finishActivation(newState);
       logEntry = acceptedEntry(action);
       break;
@@ -355,7 +380,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         return { ok: false, reason: (error as Error).message };
       }
 
+      attacker.hasAttacked = true;
       applyWounds(target, outcome.wounds);
+      refreshEngagements(newState);
 
       diceResolution = {
         rollId: action.id,
@@ -490,6 +517,25 @@ function applyWounds(unit: Unit, wounds: number): void {
     unit.wounds = 0;
     unit.isDestroyed = true;
     unit.status = unit.status.filter((s) => s !== 'engaged');
+  }
+}
+
+/**
+ * Clear 'engaged' from any surviving unit that no longer has a living
+ * enemy within engagement range (e.g. after its melee opponent is destroyed).
+ */
+function refreshEngagements(state: GameState): void {
+  for (const unit of state.units) {
+    if (unit.isDestroyed || !unit.status.includes('engaged')) continue;
+    const hasEnemyInRange = state.units.some(
+      (other) =>
+        !other.isDestroyed &&
+        other.ownerId !== unit.ownerId &&
+        boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01
+    );
+    if (!hasEnemyInRange) {
+      unit.status = unit.status.filter((s) => s !== 'engaged');
+    }
   }
 }
 

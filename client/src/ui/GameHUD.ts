@@ -173,13 +173,7 @@ export class GameHUD {
     if (!unit || unit.ownerId !== this.localPlayerId) return;
     if (!this.canActivateUnit(unit)) return;
 
-    this.beginConfirmation(
-      createAction(this.localPlayerId, 'activate-unit', {
-        type: 'activate-unit',
-        unitId,
-      }),
-      `Activate ${unit.name}`
-    );
+    this.promptUnitActivation(unit);
   }
 
   private tryActivateFromList(unitId: string): void {
@@ -187,10 +181,24 @@ export class GameHUD {
     const unit = this.state?.units.find((u) => u.id === unitId);
     if (!unit || !this.canActivateUnit(unit)) return;
 
+    this.promptUnitActivation(unit);
+  }
+
+  private promptUnitActivation(unit: Unit): void {
+    if (unit.status.includes('stunned')) {
+      this.beginConfirmation(
+        createAction(this.localPlayerId, 'hold', {
+          type: 'hold',
+          unitId: unit.id,
+        }),
+        `Hold with ${unit.name} (clears stun)`
+      );
+      return;
+    }
     this.beginConfirmation(
       createAction(this.localPlayerId, 'activate-unit', {
         type: 'activate-unit',
-        unitId,
+        unitId: unit.id,
       }),
       `Activate ${unit.name}`
     );
@@ -545,10 +553,18 @@ export class GameHUD {
 
     if (this.myTurn && activeIsMine && active) {
       const engaged = active.status.includes('engaged');
+      const hasAttacked = !!active.hasAttacked;
       const canMove = !engaged && active.remainingMovement > 0.01;
-      const canShoot = !engaged && active.weapons.some((w) => w.isEquipped && w.profile.type === 'ranged');
-      const canCharge = !engaged;
-      const canFight = engaged && active.weapons.some((w) => w.isEquipped && w.profile.type === 'melee');
+      const canShoot =
+        !engaged &&
+        !hasAttacked &&
+        active.weapons.some((w) => w.isEquipped && w.profile.type === 'ranged');
+      const canCharge = !engaged && !active.hasMoved && !hasAttacked;
+      const canFight =
+        engaged &&
+        !hasAttacked &&
+        active.weapons.some((w) => w.isEquipped && w.profile.type === 'melee');
+      const canHold = !active.hasMoved && !hasAttacked;
 
       return `
         <div class="sl-hud-bottom sl-hud-actions">
@@ -557,7 +573,7 @@ export class GameHUD {
           <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
           <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge</button>
           <button class="sl-hud-btn" data-action="fight" ${canFight ? '' : 'disabled'}>Fight</button>
-          <button class="sl-hud-btn" data-action="hold">Hold</button>
+          <button class="sl-hud-btn" data-action="hold" ${canHold ? '' : 'disabled'}>Hold</button>
           <button class="sl-hud-btn" data-action="end-activation">End Activation</button>
         </div>`;
     }

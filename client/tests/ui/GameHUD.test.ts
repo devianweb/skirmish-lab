@@ -259,6 +259,20 @@ describe('GameHUD', () => {
     expect(container.textContent).not.toContain('Confirm');
   });
 
+  it('prompts a stunned unit with a one-step Hold (clears stun) instead of normal activation', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    unit.status = ['stunned'];
+    const { hud, container, controller } = setup(HOST, state);
+
+    hud.handleBoardPick({ kind: 'unit', unitId: unit.id });
+    expect(container.textContent).toContain('clears stun');
+    clickByText(container, 'Confirm');
+
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    expect(controller.submitAction.mock.calls[0][0].type).toBe('hold');
+  });
+
   it('renders the latest dice resolution for both players (state-driven)', () => {
     const state = scenarioState();
     const attacker = state.units[0];

@@ -100,6 +100,7 @@ export class Lobby {
     this.webrtcClient.onIceCandidate((candidate) => {
       this.signalingClient.sendIceCandidate(candidate.toJSON());
     });
+    this.registerPeerReadyListeners(this.webrtcClient);
   }
 
   private async setupWebRTCAsGuest(): Promise<void> {
@@ -112,6 +113,16 @@ export class Lobby {
     client.onIceCandidate((candidate) => {
       this.signalingClient.sendIceCandidate(candidate.toJSON());
     });
+    this.registerPeerReadyListeners(client);
+  }
+
+  private registerPeerReadyListeners(client: WebRTCClient): void {
+    client.on('heartbeat-ping', () => {
+      const status = document.getElementById('status');
+      if (status) status.textContent = 'Connected!';
+      this.maybeFirePeerReady();
+    });
+    client.on('state-update', () => this.maybeFirePeerReady());
   }
 
   private async createAndSendOffer(): Promise<void> {
@@ -153,15 +164,6 @@ export class Lobby {
           <p id="status">Waiting for peer...</p>
         </div>
       `;
-
-      if (this.webrtcClient) {
-        this.webrtcClient.on('heartbeat-ping', () => {
-          const status = document.getElementById('status');
-          if (status) status.textContent = 'Connected!';
-          this.maybeFirePeerReady();
-        });
-        this.webrtcClient.on('state-update', () => this.maybeFirePeerReady());
-      }
     } else {
       this.container.innerHTML = `
         <div style="font-family: Arial; padding: 40px; text-align: center;">

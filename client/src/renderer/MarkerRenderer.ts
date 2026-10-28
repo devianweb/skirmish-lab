@@ -62,10 +62,11 @@ export class MarkerRenderer {
     if (radius <= 0) return;
 
     const marker = this.modelLoader.createMarkerMesh('movement-range', () =>
-      this.createRangeRing(RANGE_COLOR, radius)
+      this.createRangeRing(RANGE_COLOR, 1)
     );
     marker.name = 'marker-movement-range';
     marker.position.set(unit.position.x, 0.03, unit.position.z);
+    marker.scale.set(radius, 1, radius);
     this.markerGroup.add(marker);
     this.range = marker;
   }

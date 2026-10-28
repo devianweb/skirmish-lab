@@ -75,6 +75,7 @@ export function endRound(state: GameState): void {
     if (unit.isDestroyed) continue;
     unit.isActivated = false;
     unit.hasMoved = false;
+    unit.hasAttacked = false;
     unit.remainingMovement = unit.speed;
   }
 }

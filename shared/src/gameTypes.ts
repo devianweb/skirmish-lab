@@ -79,6 +79,7 @@ export interface Unit {
 
   // Movement/Action State
   hasMoved: boolean;
+  hasAttacked?: boolean;
   remainingMovement: number;
 }
 

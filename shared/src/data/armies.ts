@@ -219,6 +219,7 @@ export function createUnitFromFighter(
     weapons: resolveWeapons(definition.weapons),
     specialRules: [...definition.specialRules],
     hasMoved: false,
+    hasAttacked: false,
     remainingMovement: definition.speed,
   };
 }

@@ -93,6 +93,7 @@ export class UnitRenderer {
   private applyOwnerColor(mesh: THREE.Object3D, ownerId: string, state: GameState): void {
     const playerIndex = state.players.findIndex((p) => p.id === ownerId);
     const color = playerIndex === -1 ? UNKNOWN_PLAYER_COLOR : PLAYER_COLORS[playerIndex];
+    mesh.userData.tintColor = color;
 
     mesh.traverse((child) => {
       const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;

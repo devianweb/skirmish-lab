@@ -40,10 +40,13 @@ describe('MarkerRenderer', () => {
 
     const marker = scene.getObjectByName('marker-movement-range')!;
     expect(marker).toBeDefined();
-    // Fallback ring geometry spans the movement radius around its center.
+    // Marker container is scaled on X/Z by the movement radius so both
+    // procedural fallback and swapped GLBs match the remaining movement.
+    expect(marker.scale.x).toBeCloseTo(5, 1);
+    expect(marker.scale.z).toBeCloseTo(5, 1);
     const ring = marker.children[0] as THREE.Mesh;
     const geometry = ring.geometry as THREE.RingGeometry;
-    const outer = geometry.parameters.outerRadius;
+    const outer = geometry.parameters.outerRadius * marker.scale.x;
     expect(outer).toBeCloseTo(5, 1);
   });
 

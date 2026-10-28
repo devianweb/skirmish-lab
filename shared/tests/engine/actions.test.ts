@@ -69,7 +69,25 @@ function act(state: GameState, action: GameAction, results?: DiceResult[]) {
 }
 
 describe('validateAction + applyAction: activate-unit', () => {
-  it('activates a unit, clears stun, and records it for the round', () => {
+  it('activates a unit and records it for the round', () => {
+    const state = makeState([
+      makeUnit('h1', HOST),
+      makeUnit('g1', GUEST),
+    ]);
+    const action = createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' });
+    const outcome = act(state, action);
+
+    expect(outcome.ok).toBe(true);
+    const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(unit.isActivated).toBe(true);
+    expect(outcome.state!.turnState.activeUnitId).toBe('h1');
+    expect(outcome.state!.turnState.unitsActivatedThisRound).toContain('h1');
+    expect(outcome.state!.turnState.phase).toBe('activation');
+    expect(outcome.state!.actionLog).toHaveLength(1);
+    expect(outcome.state!.actionLog[0].action).toBe(action);
+  });
+
+  it('spends a stunned unit\'s activation clearing the stun and passes initiative', () => {
     const state = makeState([
       makeUnit('h1', HOST, { status: ['stunned'] as any }),
       makeUnit('g1', GUEST),
@@ -81,11 +99,8 @@ describe('validateAction + applyAction: activate-unit', () => {
     const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
     expect(unit.isActivated).toBe(true);
     expect(unit.status).not.toContain('stunned');
-    expect(outcome.state!.turnState.activeUnitId).toBe('h1');
-    expect(outcome.state!.turnState.unitsActivatedThisRound).toContain('h1');
-    expect(outcome.state!.turnState.phase).toBe('activation');
-    expect(outcome.state!.actionLog).toHaveLength(1);
-    expect(outcome.state!.actionLog[0].action).toBe(action);
+    expect(outcome.state!.turnState.activeUnitId).toBeNull();
+    expect(outcome.state!.turnState.currentPlayerId).toBe(GUEST);
   });
 
   it('rejects activation of a routed unit', () => {
@@ -136,6 +151,26 @@ describe('applyAction: hold', () => {
     const state = makeState([makeUnit('h1', HOST, { isActivated: true })]);
     const action = createAction(HOST, 'hold', { type: 'hold', unitId: 'h1' });
     expect(act(state, action).reason).toBe('Unit already activated this round');
+  });
+
+  it('allows holding from the action bar before the active unit moves or attacks', () => {
+    const state = makeState([makeUnit('h1', HOST, { isActivated: true }), makeUnit('g1', GUEST)]);
+    state.turnState.activeUnitId = 'h1';
+    const action = createAction(HOST, 'hold', { type: 'hold', unitId: 'h1' });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.state!.turnState.activeUnitId).toBeNull();
+    expect(outcome.state!.turnState.currentPlayerId).toBe(GUEST);
+  });
+
+  it('rejects holding after the active unit has moved', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { isActivated: true, hasMoved: true }),
+      makeUnit('g1', GUEST),
+    ]);
+    state.turnState.activeUnitId = 'h1';
+    const action = createAction(HOST, 'hold', { type: 'hold', unitId: 'h1' });
+    expect(act(state, action).reason).toBe('Unit has already acted and cannot hold');
   });
 });
 
@@ -213,6 +248,17 @@ describe('applyAction: move-unit', () => {
       finalPosition: { x: 1, y: 0, z: 0 },
     });
     expect(act(state, action).reason).toBe('Engaged units cannot move away');
+  });
+
+  it('rejects a move path that does not start at the unit position', () => {
+    const state = moveState();
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 10, y: 0, z: 10 }, { x: 10, y: 0, z: 11 }],
+      finalPosition: { x: 10, y: 0, z: 11 },
+    });
+    expect(act(state, action).reason).toBe('Move path must start at unit position');
   });
 });
 
@@ -468,6 +514,52 @@ describe('applyAction: fight', () => {
       weaponId: 'rifle',
     });
     expect(act(state, action, dice(1, [6], [6])).reason).toBe('Unit has no such melee weapon');
+  });
+
+  it('clears engaged status on surviving units when their melee opponent is destroyed', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, {
+        weapons: [weapon('blade')],
+        status: ['engaged'] as any,
+        position: { x: 0, y: 0, z: 4 } as Vector3,
+      }),
+      makeUnit('g1', GUEST, {
+        position: { x: 0, y: 0, z: 5 } as Vector3,
+        status: ['engaged'] as any,
+      }),
+      makeUnit('g2', GUEST, {
+        position: { x: 0, y: 0, z: 25 } as Vector3,
+      }),
+    ]);
+    state.turnState.activeUnitId = 'h1';
+    state.units[0].isActivated = true;
+
+    const action = createAction(HOST, 'fight', {
+      type: 'fight',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'blade',
+    });
+    const outcome = act(state, action, dice(2, [6, 6], [1, 1]));
+    expect(outcome.ok).toBe(true);
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(attacker.status).not.toContain('engaged');
+  });
+
+  it('rejects a second attack in the same activation', () => {
+    const state = fightState();
+    state.units[1].wounds = 3;
+    state.units[1].maxWounds = 3;
+    const action = createAction(HOST, 'fight', {
+      type: 'fight',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'blade',
+    });
+    const first = act(state, action, dice(2, [6, 6], [1, 6]));
+    expect(first.ok).toBe(true);
+    const second = act(first.state!, action, dice(2, [6, 6], [1, 1]));
+    expect(second.reason).toBe('Unit has already attacked this activation');
   });
 });
 

@@ -153,6 +153,8 @@ export class ModelLoader {
   /**
    * Fill a container with `fallback`, then swap to the GLB clone when it
    * loads. Failure keeps the fallback (the scene stays functional).
+   * If `container.userData.tintColor` was set before the GLB finishes
+   * loading, that tint is re-applied to the loaded GLB materials.
    */
   private addSwappingAsset(
     container: THREE.Object3D,
@@ -163,6 +165,15 @@ export class ModelLoader {
     this.load(asset.url).then(
       (model) => {
         if (asset.scale) model.scale.setScalar(asset.scale);
+        if (typeof container.userData.tintColor === 'number') {
+          const tint = container.userData.tintColor as number;
+          model.traverse((child) => {
+            const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+            if (material && material.color) {
+              material.color.setHex(tint);
+            }
+          });
+        }
         // Replace the placeholder children entirely.
         for (const child of [...container.children]) {
           container.remove(child);

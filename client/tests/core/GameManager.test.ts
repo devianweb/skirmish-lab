@@ -470,6 +470,102 @@ describe('GameManager', () => {
       // The guest's state was never updated — no activation happened.
       expect(guest.getGameState()!.turnState.activeUnitId).toBeFalsy();
     });
+
+    it('integrates host and guest GameHUDs + GameManagers + dice across a round', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6, 6], total: 12, finalTotal: 12, purpose: 'to-hit' },
+          { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'defense' },
+        ]),
+      };
+      const host = new GameManager(hostWebRTC, true, { diceProvider });
+      const guest = new GameManager(guestWebRTC, false);
+
+      host.startGame('Host', 'Guest');
+
+      // 1. Host charges a guest fighter and fights it to destruction; surviving
+      //    charger must have 'engaged' cleared once the melee target dies.
+      const hostCharger = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.wounds === 1)!;
+
+      // Place target within charge range (5" away).
+      const patched = host.getGameState()!;
+      patched.units.find((u) => u.id === guestTarget.id)!.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+        })
+      );
+      expect(
+        host.getGameState()!.units.find((u) => u.id === hostCharger.id)!.status
+      ).toContain('engaged');
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'fight', {
+          type: 'fight',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          weaponId: 'blade',
+        })
+      );
+      await Promise.resolve();
+
+      // Target destroyed → charger is no longer engaged; guest sees the same state + dice.
+      const afterFight = guest.getGameState()!;
+      expect(afterFight.units.find((u) => u.id === guestTarget.id)!.isDestroyed).toBe(true);
+      expect(afterFight.units.find((u) => u.id === hostCharger.id)!.status).not.toContain(
+        'engaged'
+      );
+      expect(afterFight.actionLog[afterFight.actionLog.length - 1].dice!.outcome.wounds).toBe(2);
+
+      // Host ends activation → Guest's turn.
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
+      );
+      expect(guest.getGameState()!.turnState.currentPlayerId).toBe(GUEST_PLAYER_ID);
+
+      // Guest activates a unit and chooses Hold from the action bar → passes back to Host.
+      const guestUnit = guest
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && !u.isDestroyed)!;
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestUnit.id,
+        })
+      );
+      await Promise.resolve();
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'hold', {
+          type: 'hold',
+          unitId: guestUnit.id,
+        })
+      );
+      await Promise.resolve();
+
+      expect(host.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+      expect(guest.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+    });
   });
 
   describe('onActionRejected subscription', () => {

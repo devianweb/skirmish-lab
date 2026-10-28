@@ -161,6 +161,21 @@ describe('ModelLoader', () => {
       expect(mesh.children).toHaveLength(1);
     });
 
+    it('preserves userData.tintColor across the async GLB swap', async () => {
+      const glb = makeProto('glb-fighter');
+      const loadFn = vi.fn().mockResolvedValue(glb);
+      const loader = new ModelLoader(loadFn);
+      loader.registerUnitAsset('leader', { url: 'leader.glb' });
+
+      const mesh = loader.createUnitMesh('leader');
+      mesh.userData.tintColor = 0x3a7bd5;
+
+      await vi.waitFor(() => {
+        expect(hasDescendantName(mesh, 'glb-fighter')).toBe(true);
+      });
+      expect(collectHexColors(mesh)).toContain('3a7bd5');
+    });
+
     it('keeps the placeholder when the GLB fails to load', async () => {
       const loadFn = vi.fn().mockRejectedValue(new Error('404'));
       const loader = new ModelLoader(loadFn);
