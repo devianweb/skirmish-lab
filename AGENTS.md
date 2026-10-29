@@ -95,6 +95,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Always read relevant docs first.** Before implementing features, read GDD.md, ARCHITECTURE.md, NETWORKING.md, DATA_MODEL.md, SYSTEMS.md, and RULES_SPECIFICATION.md as they apply.
 - **Keep docs updated.** When making architectural changes, update the relevant docs in doc/.
 - **Keep `assets-src/OPR_TERM_MAPPING.md` updated.** Whenever adding or renaming traits, special rules, factions, units, or weapons, update the local `assets-src/OPR_TERM_MAPPING.md` lookup table.
+- **Keep `client/public/models/README.md` updated.** Whenever adding or changing 3D models, fighter roles, terrain pieces, or UI markers, update the asset mapping table in [`client/public/models/README.md`](client/public/models/README.md).
 - **Follow the patterns.** All implementations must follow the architecture and patterns documented.
 - **Update ROADMAP.** Mark tasks complete when finished.
 - **Update AGENTS.md** if new constraints or patterns emerge.
