@@ -99,7 +99,9 @@ sequenceDiagram
    - Attacker rolls 1d6 per weapon attack count. Each roll $\ge Q$ scores 1 hit.
 3. **Protection Test:**
    - Defender rolls 1d6 per hit scored. A roll $\ge D$ blocks the hit.
-   - **Cover:** Grants $+1$ to Defense rolls if target is in cover terrain or obscured behind sight-blocking terrain.
+   - **Cover:** Grants $+1$ to Defense rolls if target is in cover terrain or partially obscured behind terrain:
+     - *Low cover (crates, barricades):* Attack ray must pass through intervening cover between shooter and target. Terrain adjacent to the shooter (within 1.0") is ignored — shooting out of cover does not grant cover to open targets downrange.
+     - *Sight-blocking cover (walls, columns):* Target must be within 1.0" of the piece and partially obscured from the shooter's vantage point (at least one ray to the model's flanks is blocked while center LoS remains open). Terrain situated behind or beside the target without obscuring it grants no cover.
    - **Armor Piercing (AP):** Subtracts $X$ from defender's roll.
 4. **Wound Infliction:**
    - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Trauma Table)**.
@@ -141,7 +143,7 @@ $$\text{Trauma Score} = \text{1d6 Roll} + \text{Total Accumulated Tokens}$$
 
 | Trauma Score | Status Effect | Gameplay Consequences |
 | :---: | :--- | :--- |
-| **1 – 5** | **Suppressed (Shaken)** | • Model remains in play.<br>• Gains $+1$ to all future Trauma Table rolls.<br>• Must spend its entire next activation idle/recovering to clear suppression.<br>• May strike back in melee, but always counts as **Fatigued** (hits only on 6s).<br>• Automatically fails all morale checks.<br>• Cannot contest or seize objective markers. |
+| **1 – 5** | **Shaken** | • Model remains in play.<br>• Gains $+1$ to all future Trauma Table rolls.<br>• Must spend its entire next activation idle/recovering to clear suppression.<br>• May strike back in melee, but always counts as **Fatigued** (hits only on 6s).<br>• Automatically fails all morale checks.<br>• Cannot contest or seize objective markers. |
 | **6+** | **Knocked Out (Destroyed)** | • Model is eliminated and removed from play. |
 
 ---
@@ -156,8 +158,8 @@ At the **end of each round**, evaluate total army strength:
    - Every surviving unit in the broken army must take a Morale Test: roll 1d6 $\ge$ Quality.
 3. **Outcomes:**
    - **Pass ($\ge Q$):** Unit maintains composure and continues fighting.
-   - **Fail ($< Q$):** Unit becomes **Suppressed (Shaken)**.
-   - **Critical Fail (Already Shaken):** If a unit is *already* Suppressed/Shaken when it fails a Morale Test, it immediately **Panics / Routs** and is removed from play as destroyed.
+   - **Fail ($< Q$):** Unit becomes **Shaken**.
+   - **Critical Fail (Already Shaken):** If a unit is *already* Shaken when it fails a Morale Test, it immediately **Panics / Routs** and is removed from play as destroyed.
 
 ---
 

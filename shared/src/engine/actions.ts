@@ -416,6 +416,15 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       };
       const unit = getUnit(newState, unitId)!;
       const distance = pathLength(path);
+      if (path.length >= 2) {
+        const lastStep = path[path.length - 1];
+        const prevStep = path[path.length - 2];
+        const dx = lastStep.x - prevStep.x;
+        const dz = lastStep.z - prevStep.z;
+        if (Math.hypot(dx, dz) > 1e-4) {
+          unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
+        }
+      }
       unit.position = { ...finalPosition };
       unit.hasMoved = true;
       unit.remainingMovement = round2(unit.remainingMovement - distance);
@@ -439,6 +448,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
       const isFatigued =
         isMelee && (attacker.status.includes('fatigued') || attacker.status.includes('shaken'));
+
+      // Turn attacker to face the target
+      const adx = target.position.x - attacker.position.x;
+      const adz = target.position.z - attacker.position.z;
+      if (Math.hypot(adx, adz) > 1e-4) {
+        attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
+      }
 
       let outcome: CombatOutcome;
       let traumaRolls: number[] | undefined;
@@ -509,17 +525,19 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           wounds: outcome.wounds,
           targetDestroyed: target.isDestroyed,
           ...(trauma?.outcome === 'shaken' ? { targetShaken: true } : {}),
-          ...(outcome.effectiveQuality !== attacker.quality
-            ? { effectiveQuality: outcome.effectiveQuality }
-            : {}),
-          ...(outcome.effectiveDefense !== target.defense
-            ? { effectiveDefense: outcome.effectiveDefense }
-            : {}),
+          effectiveQuality: outcome.effectiveQuality,
+          effectiveDefense: outcome.effectiveDefense,
+          baseQuality: outcome.baseQuality,
+          hitModifiers: outcome.hitModifiers,
+          baseDefense: outcome.baseDefense,
+          defenseModifiers: outcome.defenseModifiers,
           ...(outcome.coverApplied ? { coverApplied: true } : {}),
           ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
           ...(trauma
             ? {
                 traumaRoll: trauma.roll,
+                traumaTokens: trauma.tokens,
+                traumaDreadBonus: trauma.dreadBonus,
                 traumaTotal: trauma.total,
                 traumaOutcome: trauma.outcome,
               }
@@ -541,6 +559,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       attacker.position = { ...path[path.length - 1] };
       attacker.hasMoved = true;
       attacker.remainingMovement = 0;
+      const cdx = target.position.x - attacker.position.x;
+      const cdz = target.position.z - attacker.position.z;
+      if (Math.hypot(cdx, cdz) > 1e-4) {
+        attacker.rotation = { ...attacker.rotation, y: Math.atan2(cdx, cdz) };
+        target.rotation = { ...target.rotation, y: Math.atan2(-cdx, -cdz) };
+      }
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
       logEntry = acceptedEntry(action);

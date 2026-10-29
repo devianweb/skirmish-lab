@@ -6,6 +6,7 @@ import {
   clampMoveDestinationWithObstacles,
   computeLosVisibilityPolygon,
   findMoveBlocker,
+  hasCoverAgainstAttack,
   hasLineOfSight,
 } from '../../src/engine/spatial';
 import { WEAPONS } from '../../src/data/weapons';
@@ -175,5 +176,66 @@ describe('spatial: line of sight & visibility polygon', () => {
       expect(pt.z).toBeGreaterThanOrEqual(-halfH - 1e-6);
       expect(pt.z).toBeLessThanOrEqual(halfH + 1e-6);
     }
+  });
+});
+
+describe('spatial: hasCoverAgainstAttack', () => {
+  function makeCrate(id: string, position: Vector3): TerrainPiece {
+    return {
+      id,
+      terrainType: 'crate',
+      position,
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: true,
+    };
+  }
+
+  it('grants cover when target is behind a crate along the line of fire', () => {
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 5 });
+    const state = makeState([attacker, target], [crate]);
+
+    expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
+  });
+
+  it('does NOT grant cover to an open target when the attacker is shooting out of adjacent cover', () => {
+    // Attacker is next to a crate (z = 0.5), shooting at a target in the open (z = 10)
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 0.5 });
+    const state = makeState([attacker, target], [crate]);
+
+    expect(hasCoverAgainstAttack(state, attacker, target)).toBe(false);
+  });
+
+  it('does NOT grant cover when a wall is behind the target even if target touches the wall', () => {
+    // Attacker at (0, 0, 0), target at (0, 0, 10).
+    // Wall is at (0, 0, 10.8) (behind target). Target center and flanks have completely clear LoS.
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const wall = makeWall('w1', { x: 0, y: 0, z: 10.8 }, true);
+    const state = makeState([attacker, target], [wall]);
+
+    expect(hasLineOfSight(state, attacker, target)).toBe(true);
+    expect(hasCoverAgainstAttack(state, attacker, target)).toBe(false);
+  });
+
+  it('grants cover when target is corner-peeking behind a wall that partially obscures the unit', () => {
+    // Attacker at (0, 0, 0), target at (0, 0, 10).
+    // Wall spans x: 0.25 to 4.25, z: 9.75 to 10.25.
+    // Center-to-center line along x=0 is completely clear (hasLineOfSight: true).
+    // Right flank of target (x = -0.3) is clear, but left flank (x = +0.3) is obscured by the wall corner at x=0.25.
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    // Wall center at x = 2.25, scale x = 4 -> half-extent hx = 2.0 -> x from 0.25 to 4.25
+    const wall = makeWall('w1', { x: 2.25, y: 0, z: 10 }, true);
+    const state = makeState([attacker, target], [wall]);
+
+    expect(hasLineOfSight(state, attacker, target)).toBe(true);
+    expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
   });
 });

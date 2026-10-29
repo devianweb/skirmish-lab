@@ -218,32 +218,48 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Defense rolls to block hits (cover modifiers)
 - [x] Wound/stun application and tracking
 - [x] Morale checks at round end
-- [ ] Movement rules and validation (speed allowance, terrain)
 - [x] Line of sight and targeting
 - [x] Weapon profiles (Range/Attacks/Special Rules)
 - [x] Special rules framework (modifiers + hooks, data-driven)
-- [ ] Army data schema + two hardcoded armies (original faction names)
+- [x] Army data schema + two hardcoded armies (original faction names)
 - [x] Simple elimination mission (v1 win condition)
+- [x] **PR 6A.1: Playtest Fixes & Combat Clarity** (completed):
+  - [x] Refined cover calculation: ignores adjacent shooter cover (shooting out of cover never grants cover to open targets), partial LoS flank rays for sight-blocking terrain, eliminates touching-wall false positives.
+  - [x] Explicit combat modifier breakdowns in confirmation bar and dice panel (Base Q/D, Marksman, Camouflaged, Pierce, Cover, etc.).
+  - [x] Explicit Trauma Table math display (`roll X + Y tokens = Z — need 6+ to KO`) and unsaved wounds vs trauma tokens summary line.
+  - [x] Unit facing rotation on move, shoot, and charge.
+  - [x] Floating 3D "0" wound outcome marker for zero-damage attack feedback.
+  - [x] Trait tooltips on hover (`describeTrait`) across unit lists, weapons, and data cards.
+  - [x] Terminology cleanup: "Shaken" replaces "SUPPRESSED (SHAKEN)".
+  - [x] Real team colors in UI: Host is Blue, Guest is Red for both players.
+  - [x] Disconnect / reconnect top warning banners for WebRTC and Signaling status.
+  - [x] Adjusted asset scales (crates lower to waist height, figurines larger to avoid teeny runners).
+  - [x] F9 debugger unit wireframes showing LoS blocking cylinder bounds (`LOS_UNIT_RADIUS = 0.4`).
+- [ ] **PR 6B: Navigation & Full Maneuvers**:
+  - [ ] Shortest-path auto-pathfinding around obstacles (visibility-graph A* around terrain and fighter bounds for move and charge).
+  - [ ] Full Tabletop Maneuver Actions: Hold (clear stun or hold), Advance (move up to speed + shoot), Rush (move up to 2× speed, no shoot), Charge (move up to 2× speed into melee contact and resolve melee strike).
+  - [ ] Melee consolidation: fold Fight directly into Charge (charge resolves melee strike automatically).
+  - [ ] Melee engagement visual contact highlights (highlight opposing model in bright contact ring/indicator when in 1" engagement range).
 
 ### Acceptance Criteria
-- [ ] Movement validated correctly by host
-- [ ] To-hit resolved as d6 vs Quality
-- [ ] Defense rolls block hits (cover applies)
-- [ ] Wounds/stun tracked and applied correctly
-- [ ] Morale checks work at round end
-- [ ] Alternating activation enforced by host validation
-- [ ] Dice rolls go through server
-- [ ] All rolls visible to both players
-- [ ] Rules enforced by host validation
-- [ ] Two armies playable as data packs
-- [ ] Ruleset data is swappable (engine reads stats from data, not code)
+- [x] Movement validated correctly by host
+- [x] To-hit resolved as d6 vs Quality
+- [x] Defense rolls block hits (cover applies accurately)
+- [x] Wounds/stun tracked and applied correctly
+- [x] Morale checks work at round end
+- [x] Alternating activation enforced by host validation
+- [x] Dice rolls go through server
+- [x] All rolls visible to both players
+- [x] Rules enforced by host validation
+- [x] Two armies playable as data packs
+- [x] Ruleset data is swappable (engine reads stats from data, not code)
 
 ## Phase 7: Reconnection & Resilience
 **Goal:** Handle disconnections and reconnection
 
 ### Tasks
 - [ ] Heartbeat timeout detection
-- [ ] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling room connection drops)
+- [x] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling room connection drops)
 - [ ] Snapshot storage and retrieval
 - [ ] Reconnection flow
 - [ ] State re-sync on reconnection

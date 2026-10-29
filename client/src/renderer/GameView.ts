@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, TerrainPiece, Vector3 } from '@skirmish-lab/shared';
+import { GameState, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
@@ -188,6 +188,10 @@ export class GameView {
 
   setTerrainDebugMarker(piece: TerrainPiece | null): void {
     this.markerRenderer.setTerrainDebug(piece);
+  }
+
+  setUnitsDebugMarker(units: Unit[] | null): void {
+    this.markerRenderer.setUnitsDebug(units);
   }
 
   showOutcomeToken(position: Vector3, wounds: number): void {

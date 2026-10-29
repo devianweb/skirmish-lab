@@ -12,8 +12,8 @@ Used by `UnitRenderer` (via `unit.unitType`). Tinted per owning player (Host = B
 | Fighter Role (`unitType`) | GLB File | Manifest Scale | Fighters Using This Model |
 | :--- | :--- | :---: | :--- |
 | `leader` | `figurine-large.glb` | `1.0` | Warden Captain, Raid Boss |
-| `trooper` | `figurine.glb` | `0.9` | Warden Trooper, Rust Runner |
-| `specialist` | `figurine-cube.glb` | `0.9` | Warden Marksman, Warden Breacher, Rust Skirmisher, Rust Sapper |
+| `trooper` | `figurine.glb` | `1.15` | Warden Trooper, Rust Runner |
+| `specialist` | `figurine-cube.glb` | `0.95` | Warden Marksman, Warden Breacher, Rust Skirmisher, Rust Sapper |
 | `heavy` | `figurine-cube-detailed.glb` | `1.0` | Warden Gun Crew, Rust Bruiser |
 
 ### 2. Battlefield Terrain (`TERRAIN_ASSETS`)
@@ -24,7 +24,7 @@ Used by `BoardRenderer` (via `piece.terrainType`), scaled by each piece's `scale
 | `wall` | `wall.glb` | `0.2 × 1.0 × 1.0` | `3 × 1.5 × 0.5` |
 | `wall-window` | `wall-window-medium.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` |
 | `wall-doorway` | `wall-doorway.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` |
-| `crate` | `crate.glb` | `0.5 × 0.5 × 0.5` | `1 × 1 × 1` |
+| `crate` | `crate.glb` | `0.5 × 0.5 × 0.5` | `1 × 1 × 1` (scaled to waist height `1.0` in manifest) |
 | `column` | `column.glb` | `0.2 × 1.0 × 0.2` | `1 × 2.5 × 1` |
 
 ### 3. Gameplay UI Markers (`MARKER_ASSETS` & `OUTCOME_ASSETS`)
@@ -37,6 +37,7 @@ Used by `MarkerRenderer` for selection, targeting, range rings, and floating wou
 | `reachable-target` | `indicator-round-b.glb` | `1.4` | Darker red (`0x8e2424`) floor ring under all reachable enemy targets within the attack range circle |
 | `movement-range` | *(Procedural `RingGeometry`)* | `1.0` *(× `remainingMovement`)* | Crisp, constant-thickness (`0.08"` rim) blue (`0x29b6f6`) circle around the active unit showing remaining movement radius when `Move` is hovered or active |
 | `attack-range` | *(Procedural `los-shadow-fan`)* | `1.0` *(× weapon/charge range)* | Dark transparent red (`0xb71c1c`) Line-of-Sight visibility fan sized to weapon/charge range, cut out where blocked by terrain or fighters |
+| `outcome-0` | *(Procedural `TorusGeometry`)* | `1.0` | Floating neutral (`0xb0bec5`) 3D "0" digit above a target that received 0 wounds, giving clear attack feedback |
 | `outcome-1` .. `outcome-5` | `number-1.glb` .. `number-5.glb` | `1.2` | Floating red (`0xef5350`) wound-count digit above a wounded target; oriented toward the camera each frame so digits never appear mirrored |
 
 ### Shared Texture

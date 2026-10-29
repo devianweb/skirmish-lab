@@ -260,6 +260,21 @@ describe('applyAction: move-unit', () => {
     });
     expect(act(state, action).reason).toBe('Move path must start at unit position');
   });
+
+  it('updates unit rotation.y toward the direction of movement', () => {
+    const state = moveState();
+    // Move from (0,0,0) to (3,0,0) -> +X direction -> yaw = Math.atan2(3, 0) = PI/2
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }],
+      finalPosition: { x: 3, y: 0, z: 0 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(moved.rotation.y).toBeCloseTo(Math.PI / 2);
+  });
 });
 
 describe('applyAction: shoot', () => {
@@ -299,7 +314,7 @@ describe('applyAction: shoot', () => {
 
     const logEntry = outcome.state!.actionLog[0];
     expect(logEntry.dice).toBeDefined();
-    expect(logEntry.dice!.outcome).toEqual({
+    expect(logEntry.dice!.outcome).toMatchObject({
       attackCount: 1,
       hitCount: 1,
       blockedCount: 0,
@@ -309,6 +324,8 @@ describe('applyAction: shoot', () => {
     expect(logEntry.dice!.context.attackerId).toBe('h1');
     expect(logEntry.dice!.context.targetId).toBe('g1');
     expect(logEntry.dice!.rollId).toBe(action.id);
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(attacker.rotation.y).toBeCloseTo(0);
   });
 
   it('applies a +1 Defense bonus when the target is in cover', () => {

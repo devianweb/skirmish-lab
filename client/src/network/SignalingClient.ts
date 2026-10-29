@@ -10,6 +10,8 @@ export class SignalingClient {
   private currentRole: 'host' | 'guest' | null = null;
   private reconnectTimeout: any = null;
   private intentionalClose = false;
+  private stateChangeHandlers: Array<(state: 'connected' | 'disconnected' | 'reconnecting') => void> = [];
+  private currentConnectionState: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
   constructor(url: string = import.meta.env.VITE_SIGNALING_URL ?? 'ws://localhost:8080') {
     this.url = url;
@@ -22,6 +24,7 @@ export class SignalingClient {
 
       this.ws.onopen = () => {
         console.log('Connected to signaling server');
+        this.setConnectionState('connected');
         resolve();
       };
 
@@ -36,11 +39,13 @@ export class SignalingClient {
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        this.setConnectionState('disconnected');
         reject(error);
       };
 
       this.ws.onclose = () => {
         console.log('Disconnected from signaling server');
+        this.setConnectionState(this.intentionalClose ? 'disconnected' : 'reconnecting');
         if (!this.intentionalClose && (this.currentRoomCode || this.handlers.size > 0)) {
           this.scheduleReconnect();
         }
@@ -54,6 +59,7 @@ export class SignalingClient {
 
   scheduleReconnect(delayMs = 1500): void {
     if (this.reconnectTimeout) return;
+    this.setConnectionState('reconnecting');
     this.reconnectTimeout = setTimeout(async () => {
       this.reconnectTimeout = null;
       try {
@@ -66,6 +72,19 @@ export class SignalingClient {
         this.scheduleReconnect(3000);
       }
     }, delayMs);
+  }
+
+  onConnectionState(callback: (state: 'connected' | 'disconnected' | 'reconnecting') => void): void {
+    this.stateChangeHandlers.push(callback);
+    callback(this.currentConnectionState);
+  }
+
+  private setConnectionState(newState: 'connected' | 'disconnected' | 'reconnecting'): void {
+    if (this.currentConnectionState === newState) return;
+    this.currentConnectionState = newState;
+    for (const h of this.stateChangeHandlers) {
+      h(newState);
+    }
   }
 
   async ensureConnected(): Promise<void> {
@@ -182,6 +201,7 @@ export class SignalingClient {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.setConnectionState('disconnected');
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;

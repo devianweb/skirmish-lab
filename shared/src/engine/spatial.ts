@@ -384,10 +384,15 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
  *
  * Cover applies when:
  *   1. `target.status` explicitly includes `'in-cover'`, OR
- *   2. The shot ray passes across a non-LoS-blocking `providesCover` terrain
- *      piece (e.g. crates, barricades), OR
- *   3. `target` is positioned within 0.85" of a `providesCover` terrain piece
- *      that lies between `attacker` and `target`.
+ *   2. The attack ray passes across a non-LoS-blocking `providesCover` terrain
+ *      piece (e.g. crates, barricades) situated between attacker and target,
+ *      excluding cover adjacent to the attacker (shooting out of cover does
+ *      not grant cover to the open target), OR
+ *   3. For LoS-blocking cover (walls, columns): `target` is within 1.0" of the
+ *      piece AND the piece partially obscures the target (at least one edge
+ *      ray to the target's flank is blocked while center LoS remains open).
+ *      Terrain behind or beside the target that does not obscure the model
+ *      does not grant cover.
  */
 export function hasCoverAgainstAttack(
   state: GameState,
@@ -403,29 +408,70 @@ export function hasCoverAgainstAttack(
 
   const dirX = dx / dist;
   const dirZ = dz / dist;
+  const perpX = -dirZ;
+  const perpZ = dirX;
 
   for (const piece of state.terrain) {
     if (!piece.providesCover) continue;
 
+    const { hx, hz } = terrainHalfExtents(piece);
+    const pieceRadius = Math.hypot(hx, hz);
+
+    // Distance of the piece projected along the shooter -> target vector.
+    const toPieceX = piece.position.x - attacker.position.x;
+    const toPieceZ = piece.position.z - attacker.position.z;
+    const projDist = toPieceX * dirX + toPieceZ * dirZ;
+
+    // Terrain adjacent to the shooter (within 1.0") is shot over/around by the attacker
+    // and does not protect an open target downrange.
+    if (projDist <= 1.0) continue;
+
+    // Terrain situated entirely behind the target does not grant cover.
+    if (projDist > dist + pieceRadius) continue;
+
     if (!piece.blocksLineOfSight) {
-      const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.35);
-      if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+      // Low cover (crates, barricades): line of fire must pass across the piece.
+      const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.15);
+      if (hit && hit.tEntry >= 0.8 && hit.tExit <= dist + 0.1 && hit.tEntry < dist - 0.05) {
         return true;
       }
     } else {
-      // Sight-blocking cover (walls, columns): target must be hugging the piece
-      // and the attack ray must pass within 0.85" of the piece.
-      const nearTarget = intersectRayTerrain(
-        target.position,
-        1,
-        0,
-        0.01,
-        piece,
-        0.85
+      // Sight-blocking cover (walls, columns): target must be adjacent to the piece (within 1.0")
+      // and partially obscured by it from the shooter's vantage point.
+      const distToTarget = Math.hypot(
+        target.position.x - piece.position.x,
+        target.position.z - piece.position.z
       );
-      if (!nearTarget) continue;
-      const graze = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.85);
-      if (graze && graze.tEntry < dist - 0.05) {
+      if (distToTarget > pieceRadius + 1.0) continue;
+
+      // Cast rays to target's left and right flanks (±0.3" perpendicular to the line of fire).
+      const flankOffset = 0.3;
+      const leftX = target.position.x + perpX * flankOffset;
+      const leftZ = target.position.z + perpZ * flankOffset;
+      const rightX = target.position.x - perpX * flankOffset;
+      const rightZ = target.position.z - perpZ * flankOffset;
+
+      const leftDx = leftX - attacker.position.x;
+      const leftDz = leftZ - attacker.position.z;
+      const leftDist = Math.hypot(leftDx, leftDz);
+
+      const rightDx = rightX - attacker.position.x;
+      const rightDz = rightZ - attacker.position.z;
+      const rightDist = Math.hypot(rightDx, rightDz);
+
+      const hitLeft =
+        leftDist > 1e-4
+          ? intersectRayTerrain(attacker.position, leftDx / leftDist, leftDz / leftDist, leftDist, piece, 0)
+          : null;
+      const hitRight =
+        rightDist > 1e-4
+          ? intersectRayTerrain(attacker.position, rightDx / rightDist, rightDz / rightDist, rightDist, piece, 0)
+          : null;
+
+      const leftObscured = !!(hitLeft && hitLeft.tEntry >= 0.8 && hitLeft.tEntry < leftDist - 0.05);
+      const rightObscured = !!(hitRight && hitRight.tEntry >= 0.8 && hitRight.tEntry < rightDist - 0.05);
+
+      if (leftObscured || rightObscured) {
         return true;
       }
     }

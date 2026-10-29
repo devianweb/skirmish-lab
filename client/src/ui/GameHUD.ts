@@ -1,7 +1,9 @@
 import {
   clampMoveDestinationWithObstacles,
+  computeCombatModifiers,
   createAction,
   describeTerrainPiece,
+  describeTrait,
   findMoveBlocker,
   findTerrainAtPosition,
   formatTraitLabel,
@@ -38,6 +40,7 @@ export interface MarkerSnapshot {
   movePath?: { from: Vector3; to: Vector3 } | null;
   hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
+  debugActive?: boolean;
 }
 
 export type PickTarget =
@@ -105,6 +108,18 @@ export class GameHUD {
       }
     };
     window.addEventListener('keydown', this.keydownHandler);
+  }
+
+  private peerState: 'connected' | 'disconnected' = 'connected';
+  private signalingState: 'connected' | 'disconnected' | 'reconnecting' = 'connected';
+
+  setNetworkStatus(status: {
+    peer?: 'connected' | 'disconnected';
+    signaling?: 'connected' | 'disconnected' | 'reconnecting';
+  }): void {
+    if (status.peer !== undefined) this.peerState = status.peer;
+    if (status.signaling !== undefined) this.signalingState = status.signaling;
+    if (this.visible) this.render();
   }
 
   /** Toggle the F9 terrain hover debugger (HUD inspector card + 3D wireframe bounds). */
@@ -410,7 +425,25 @@ export class GameHUD {
         (target.status.includes('in-cover') ||
           (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
       const attacks = weapon.profile.attacks;
-      const diceText = `${attacks}d6 (Hit Q${active.quality}+, Def D${target.defense}+${inCover ? ' cover +1' : ''})`;
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: false,
+          distance,
+          hasMoved: active.hasMoved,
+        },
+        {
+          defense: target.defense,
+          inCover: !!inCover,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'shoot', {
           type: 'shoot',
@@ -484,8 +517,29 @@ export class GameHUD {
         this.showToast('Target not in engagement range');
         return;
       }
+      const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: true,
+          isCharging: active.hasMoved,
+          hasMoved: active.hasMoved,
+          isFatigued,
+          distance,
+        },
+        {
+          defense: target.defense,
+          inCover: false,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
       const attacks = weapon.profile.attacks;
-      const diceText = `${attacks}d6 (Hit Q${active.quality}+, Def D${target.defense}+)`;
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'fight', {
           type: 'fight',
@@ -545,13 +599,29 @@ export class GameHUD {
 
   private renderHTML(): string {
     const state = this.state!;
-    const myName =
-      state.players.find((p) => p.id === this.localPlayerId)?.name ?? 'You';
+    const myPlayer = state.players.find((p) => p.id === this.localPlayerId);
+    const myName = myPlayer?.name ?? 'You';
     const opponent = state.players.find((p) => p.id !== this.localPlayerId);
     const opponentName = opponent?.name ?? 'Opponent';
 
+    const isHost = myPlayer?.role === 'host';
+    const myTeamClass = isHost ? 'team-blue' : 'team-red';
+    const enemyTeamClass = isHost ? 'team-red' : 'team-blue';
+    const myTeamHex = isHost ? '#29b6f6' : '#ef5350';
+    const enemyTeamHex = isHost ? '#ef5350' : '#29b6f6';
+
     const myUnactivated = this.myUnits.filter((u) => !u.isDestroyed && !u.isActivated).length;
     const enemyUnactivated = this.enemyUnits.filter((u) => !u.isDestroyed && !u.isActivated).length;
+
+    const alerts: string[] = [];
+    if (this.peerState === 'disconnected') {
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-error">⚠️ Opponent disconnected — waiting for peer to reconnect...</div>');
+    } else if (this.signalingState === 'reconnecting') {
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling disconnected — reconnecting to room...</div>');
+    } else if (this.signalingState === 'disconnected') {
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling offline</div>');
+    }
+    const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}</div>` : '';
 
     const header = `
       <div class="sl-hud-header">
@@ -569,10 +639,10 @@ export class GameHUD {
 
     const units = `
       <div class="sl-hud-panel sl-hud-units">
-        <h3>${myName} — Fighters (${myUnactivated} ready)</h3>
-        ${this.myUnits.map((unit) => this.renderUnitRow(unit)).join('')}
-        <h3 style="margin-top: 10px; color: #ef9a9a;">${opponentName} — Enemy (${enemyUnactivated} ready)</h3>
-        ${this.enemyUnits.map((unit) => this.renderEnemyRow(unit)).join('')}
+        <h3 style="color: ${myTeamHex};">${myName} — Fighters (${myUnactivated} ready)</h3>
+        ${this.myUnits.map((unit) => this.renderUnitRow(unit, myTeamClass)).join('')}
+        <h3 style="margin-top: 10px; color: ${enemyTeamHex};">${opponentName} — Enemy (${enemyUnactivated} ready)</h3>
+        ${this.enemyUnits.map((unit) => this.renderEnemyRow(unit, enemyTeamClass)).join('')}
       </div>`;
 
     const right = `
@@ -593,7 +663,7 @@ export class GameHUD {
       </div>`
         : '';
 
-    return `${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${
+    return `${alertsHtml}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${
       this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : ''
     }`;
   }
@@ -605,7 +675,7 @@ export class GameHUD {
     return `Game over — ${state.endReason ?? 'draw'} vs ${opponentName}`;
   }
 
-  private renderUnitRow(unit: Unit): string {
+  private renderUnitRow(unit: Unit, teamClass: string = 'team-blue'): string {
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
     else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
@@ -621,7 +691,9 @@ export class GameHUD {
     const weaponSummary = unit.weapons
       .filter((w) => w.isEquipped)
       .map((w) => {
-        const traits = w.profile.specialRules.map(formatTraitLabel).join(', ');
+        const traits = w.profile.specialRules
+          .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+          .join(', ');
         const suffix = traits ? `, ${traits}` : '';
         return w.profile.type === 'ranged'
           ? `${w.name} (${w.profile.range}", A${w.profile.attacks}${suffix})`
@@ -631,6 +703,7 @@ export class GameHUD {
 
     const classes = [
       'sl-hud-unit',
+      teamClass,
       unit.isDestroyed ? 'destroyed' : '',
       canActivate ? 'activatable' : '',
       isActive ? 'active' : '',
@@ -649,7 +722,7 @@ export class GameHUD {
       </div>`;
   }
 
-  private renderEnemyRow(unit: Unit): string {
+  private renderEnemyRow(unit: Unit, teamClass: string = 'team-red'): string {
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
     else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
@@ -659,7 +732,7 @@ export class GameHUD {
     if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}T`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
-    const classes = ['sl-hud-unit', 'enemy', unit.isDestroyed ? 'destroyed' : '']
+    const classes = ['sl-hud-unit', 'enemy', teamClass, unit.isDestroyed ? 'destroyed' : '']
       .filter(Boolean)
       .join(' ');
 
@@ -711,32 +784,48 @@ export class GameHUD {
               .join('')
           : '<span class="sl-hud-dice-empty">no hits to defend</span>';
 
+      const toHitMods = outcome.hitModifiers && outcome.hitModifiers.length
+        ? ` · Base Q${outcome.baseQuality ?? attacker?.quality ?? 4} ${outcome.hitModifiers.join(' ')}`
+        : '';
+      const defMods = outcome.defenseModifiers && outcome.defenseModifiers.length
+        ? ` · Base D${outcome.baseDefense ?? target?.defense ?? 5} ${outcome.defenseModifiers.join(' ')}`
+        : outcome.coverApplied ? ' w/ cover' : '';
+
+      const traumaTokensCount = outcome.traumaTokens ?? 0;
+      const traumaDreadText = outcome.traumaDreadBonus ? ` + ${outcome.traumaDreadBonus} dread` : '';
       const traumaHtml =
         outcome.traumaRoll !== undefined
-          ? `<div class="sl-hud-dice-label">Trauma (1d6 + tokens = ${outcome.traumaTotal}):</div>
+          ? `<div class="sl-hud-dice-label">Trauma (roll ${outcome.traumaRoll} + ${traumaTokensCount} token${
+              traumaTokensCount === 1 ? '' : 's'
+            }${traumaDreadText} = ${outcome.traumaTotal} — need 6+ to KO):</div>
              <div class="sl-hud-dice-row">
                <span class="sl-die ${outcome.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${outcome.traumaRoll}</span>
                <span class="sl-hud-dice-summary">${
-                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SUPPRESSED (SHAKEN)'
+                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
                }</span>
              </div>`
           : '';
+
+      const woundsGainedTokens = traumaTokensCount > 0 ? ` +${traumaTokensCount} trauma` : '';
+      const outcomeStatus = outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : '';
+      const summaryWounds = outcome.wounds > 0
+        ? `<strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'} (${outcome.wounds} unsaved${woundsGainedTokens})</strong>${outcomeStatus}`
+        : '<strong>0 wounds</strong>';
 
       return `
         <div class="sl-hud-dice">
           <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} → ${
         target?.name ?? 'target'
       }</div>
-          <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+):</div>
+          <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
-          <div class="sl-hud-dice-label">Defense (need D${targetD}+${outcome.coverApplied ? ' w/ cover' : ''}):</div>
+          <div class="sl-hud-dice-label">Defense (need D${targetD}+${defMods}):</div>
           <div class="sl-hud-dice-row">${defDiceHtml}</div>
           ${traumaHtml}
           <div class="sl-hud-dice-summary">
             ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
             ${outcome.blockedCount} blocked ·
-            <strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'}</strong>
-            ${outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : ''}
+            ${summaryWounds}
           </div>
         </div>`;
     }
@@ -907,7 +996,13 @@ export class GameHUD {
     if (unit.isActivated) statusTags.push('ACTIVATED');
     else statusTags.push('READY');
 
-    const unitTraits = unit.specialRules.map(formatTraitLabel).join(', ');
+    const owner = this.state?.players.find((p) => p.id === unit.ownerId);
+    const isHostUnit = owner?.role === 'host';
+    const cardTeamClass = isHostUnit ? 'team-blue' : 'team-red';
+
+    const unitTraits = unit.specialRules
+      .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+      .join(' · ');
     const weaponRows = unit.weapons
       .filter((w) => w.isEquipped)
       .map(
@@ -917,16 +1012,20 @@ export class GameHUD {
             <td>${w.profile.type === 'ranged' ? 'Ranged' : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
-            <td>${w.profile.specialRules.map(formatTraitLabel).join(', ') || '—'}</td>
+            <td>${
+              w.profile.specialRules
+                .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+                .join(', ') || '—'
+            }</td>
           </tr>`
       )
       .join('');
 
     return `${terrainHtml}
-      <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'}">
+      <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'} ${cardTeamClass}">
         <div class="sl-hud-datacard-header">
           <span class="sl-hud-datacard-name">${unit.name}</span>
-          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} · ${unit.unitType}${unitTraits ? ` · ${unitTraits}` : ''}</span>
+          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
         </div>
         <div class="sl-hud-datacard-tables">
@@ -1095,7 +1194,7 @@ export class GameHUD {
     if (this.state) {
       for (let i = this.state.actionLog.length - 1; i >= this.lastSeenLogIndex; i--) {
         const entry = this.state.actionLog[i];
-        if (entry.dice && entry.dice.outcome.wounds > 0) {
+        if (entry.dice && entry.dice.outcome.wounds !== undefined) {
           const target = this.state.units.find((u) => u.id === entry.dice!.context.targetId);
           if (target) {
             outcome = { position: { ...target.position }, wounds: entry.dice.outcome.wounds };
@@ -1125,6 +1224,7 @@ export class GameHUD {
       movePath: null,
       hoveredTerrainId: this.terrainDebugEnabled ? this.hoveredTerrainId : null,
       outcome,
+      debugActive: this.terrainDebugEnabled,
     };
 
     // If hovering an enemy unit, show the bright red target ring under that enemy.
@@ -1262,14 +1362,22 @@ export class GameHUD {
   border: 1px solid #2a2f3a; border-radius: 8px; padding: 10px; min-width: 220px; }
 .sl-hud-panel h3 { margin: 2px 0 8px; font-size: 12px; text-transform: uppercase;
   letter-spacing: 1px; color: #90caf9; }
+.sl-hud-alerts { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; z-index: 100; }
+.sl-hud-alert { padding: 8px 24px; font-weight: 600; font-size: 13px; text-align: center; width: 100%; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.sl-hud-alert-error { background: #b71c1c; color: #fff; }
+.sl-hud-alert-warn { background: #e65100; color: #fff; }
+.sl-trait-badge { cursor: help; border-bottom: 1px dotted #90a4ae; }
 .sl-hud-units { top: 60px; left: 12px; max-width: 290px; max-height: 75vh; overflow-y: auto; }
 .sl-hud-side { top: 60px; right: 12px; width: 270px; max-height: 60vh; overflow-y: auto; }
 .sl-hud-unit { padding: 6px 8px; margin-bottom: 4px; border-radius: 6px; background: #1a1f29;
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sl-hud-unit.team-blue { background: #162436; border-left: 3px solid #29b6f6; }
+.sl-hud-unit.team-red { background: #26161b; border-left: 3px solid #ef5350; }
+.sl-hud-unit.team-blue:hover { background: #1c3048; }
+.sl-hud-unit.team-red:hover { background: #351e24; }
 .sl-hud-unit.activatable { cursor: pointer; outline: 1px solid #69f0ae; }
 .sl-hud-unit.activatable:hover { background: #213028; }
-.sl-hud-unit.enemy { background: #241a1d; cursor: pointer; }
-.sl-hud-unit.enemy:hover { background: #332024; }
+.sl-hud-unit.enemy { cursor: pointer; }
 .sl-hud-unit.active { outline: 2px solid #69f0ae; }
 .sl-hud-unit.destroyed { opacity: 0.35; text-decoration: line-through; }
 .sl-hud-unit-name { font-weight: 600; }
@@ -1282,6 +1390,10 @@ export class GameHUD {
   border: 1px solid #37474f; border-radius: 10px; padding: 8px 14px; min-width: 440px; }
 .sl-hud-datacard.mine { border-color: #29b6f6; }
 .sl-hud-datacard.enemy { border-color: #ef5350; }
+.sl-hud-datacard.team-blue { border-color: #29b6f6; }
+.sl-hud-datacard.team-blue .sl-hud-datacard-meta { color: #90caf9; }
+.sl-hud-datacard.team-red { border-color: #ef5350; }
+.sl-hud-datacard.team-red .sl-hud-datacard-meta { color: #ef9a9a; }
 .sl-hud-datacard.sl-hud-terrain-debug { border-color: #00e5ff; margin-bottom: 6px; }
 .sl-hud-datacard.sl-hud-terrain-debug code { color: #ffd54f; font-size: 11px; }
 .sl-hud-datacard-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
