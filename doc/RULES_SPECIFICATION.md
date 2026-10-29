@@ -175,37 +175,43 @@ At the **end of each round**, evaluate total army strength:
 
 Every special rule is modeled as a declarative modifier or state machine interceptor:
 
-| Trait | Mechanical Specification |
-| :--- | :--- |
-| **Ambush** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
-| **AP(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
-| **Bane** | Ignores target's `Regeneration`. Target must re-roll unmodified saving throw results of 6. |
-| **Blast(X)** | Ignores cover. Multiplies hits by $X$ (up to maximum number of enemy models within $3"$ of target). Defender splits hits evenly among units within $3"$. |
-| **Caster(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to spell cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy casters within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
-| **Counter** | Strikes first in melee when charged. Attacking charger suffers $-1$ Impact hit per model with Counter. |
-| **Deadly(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
-| **Fast** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
-| **Fear(X)** | Model counts as having dealt $+X$ additional wounds when calculating Trauma Table roll in melee (requires at least 1 actual wound dealt). |
-| **Fearless** | When failing a morale test, roll 1d6. On a 4+, the test is treated as passed. |
-| **Flying** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. |
-| **Furious** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
-| **Hero** | Friendly units within 12" may test Morale using the Hero's Quality score (provided Hero is not Suppressed). |
-| **Immobile** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
-| **Impact(X)** | On charging, rolls $X$ dice before normal attacks (unless fatigued). Each roll of 2+ inflicts 1 immediate hit. |
-| **Indirect** | Fires without requiring line of sight and ignores cover from sight blockers. Suffers $-1$ to hit if firing after moving. |
-| **Limited** | Weapon profile or ability may only be used **once per match**. |
-| **Regeneration** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
-| **Relentless** | When shooting at targets $>9"$ away, unmodified hit rolls of 6 generate 1 additional hit. |
-| **Reliable** | Attacks made with this weapon always hit on a Quality test of **2+**, regardless of unit's base Quality. |
-| **Rending** | Ignores `Regeneration`. Unmodified hit rolls of 6 gain **AP(4)**. |
-| **Scout** | Infiltrates during deployment. Deployed after all standard units, placed anywhere fully within 12" of friendly deployment zone. |
-| **Slow** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
-| **Stealth** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
-| **Strider** | Ignores Difficult Terrain speed cap. Automatically passes jump checks on 2+. |
-| **Surge** | Unmodified hit rolls of 6 deal 1 additional hit. |
-| **Thrust** | When charging, attacks gain **$+1$ to hit** and **AP(+1)** in melee. |
-| **Tough(X)** | Accumulates wounds without rolling trauma until reaching $X$ wounds. Only knocked out on trauma rolls $\ge 5 + X$. |
-| **Unstoppable** | Ignores target's `Regeneration`, and ignores all negative modifiers applied to this weapon. |
+| Trait ID | Display Name | Mechanical Specification |
+| :--- | :--- | :--- |
+| **`drop-reserve`** | **Drop Reserve** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
+| **`pierce(X)`** | **Pierce(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
+| **`hexed`** | **Hexed** | Ignores target's `ward`. Target must re-roll unmodified saving throw results of 6. |
+| **`blast(X)`** | **Blast(X)** | Ignores cover. Multiplies hits by $X$ (up to maximum number of models in target / enemy models within $3"$). |
+| **`channeler(X)`** | **Channeler(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to power cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy channelers within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
+| **`brace`** | **Brace** | Strikes first in melee when charged. Attacking charger suffers $-1$ Shock hit per model with Brace. |
+| **`lethal(X)`** | **Lethal(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
+| **`swift`** | **Swift** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
+| **`dread(X)`** | **Dread(X)** | Model counts as having dealt $+X$ additional wounds when calculating Trauma Table roll in melee (requires at least 1 actual wound dealt). |
+| **`stoic`** | **Stoic** | When failing a morale test, roll 1d6. On a 4+, the test is treated as passed. |
+| **`airborne`** | **Airborne** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. |
+| **`frenzy`** | **Frenzy** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
+| **`commander`** | **Commander** | Friendly units within 12" may test Morale using the Commander's Quality score (provided Commander is not Suppressed). |
+| **`stationary`** | **Stationary** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
+| **`shock(X)`** | **Shock(X)** | On charging, rolls $X$ dice before normal attacks (unless fatigued). Each roll of 2+ inflicts 1 immediate hit. |
+| **`lobbed`** | **Lobbed** | Fires without requiring line of sight and ignores cover from sight blockers. Suffers $-1$ to hit if firing after moving. |
+| **`expendable`** | **Expendable** | Weapon profile or ability may only be used **once per match**. |
+| **`ward`** | **Ward** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
+| **`sustained`** | **Sustained** | When shooting at targets $>9"$ away, unmodified hit rolls of 6 generate 1 additional hit. |
+| **`calibrated`** | **Calibrated** | Attacks made with this weapon always hit on a Quality test of **2+**, regardless of unit's base Quality. |
+| **`shred`** | **Shred** | Ignores `ward`. Unmodified hit rolls of 6 gain **`pierce(4)`**. |
+| **`vanguard`** | **Vanguard** | Infiltrates during deployment. Deployed after all standard units, placed anywhere fully within 12" of friendly deployment zone. |
+| **`ponderous`** | **Ponderous** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
+| **`camouflaged`** | **Camouflaged** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
+| **`pathfinder`** | **Pathfinder** | Ignores Difficult Terrain speed cap. Automatically passes jump checks on 2+. |
+| **`overload`** | **Overload** | Unmodified hit rolls of 6 deal 1 additional hit. |
+| **`impale`** | **Impale** | When charging, attacks gain **$+1$ to hit** and **`pierce(+1)`** in melee. |
+| **`resilient(X)`** | **Resilient(X)** | Accumulates wounds without rolling trauma until reaching $X$ wounds. Only knocked out on trauma rolls $\ge 5 + X$. |
+| **`unerring`** | **Unerring** | Ignores target's `ward`, and ignores all negative modifiers applied to this weapon. |
+| **`steadfast`** | **Steadfast** | Units where all models have this rule gain **$+1$ to morale test rolls** ($+2$ with `steadfast-boost`). |
+| **`marksman`** | **Marksman** | Grants **$+1$ to hit rolls** when shooting. |
+| **`rupture`** | **Rupture** | Unmodified hit rolls of 6 gain **`pierce(+2)`**. |
+| **`riot-shield`** | **Riot Shield** | Grants **$+1$ to Defense rolls** against hits that are not from powers. |
+| **`iron-will`** | **Iron Will** | Failed morale tests count as passed; roll dice equal to Tough/wounds needed for trauma (min 1) and take 1 unignorable wound per roll of 1–3. |
+| **`double-time`** | **Double Time** | Moves **$+4"$** when using Advance actions. |
 
 ---
 

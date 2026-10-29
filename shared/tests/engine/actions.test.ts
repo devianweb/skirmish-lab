@@ -286,6 +286,7 @@ describe('applyAction: shoot', () => {
     expect(specs).toEqual([
       { count: 1, sides: 6, purpose: 'to-hit' },
       { count: 1, sides: 6, purpose: 'defense' },
+      { count: 1, sides: 6, purpose: 'trauma' },
     ]);
 
     // Q4: a 5 hits. D5: a 3 fails to block. One wound on a 1-wound fighter.
@@ -310,7 +311,7 @@ describe('applyAction: shoot', () => {
     expect(logEntry.dice!.rollId).toBe(action.id);
   });
 
-  it('applies a cover penalty to hit rolls', () => {
+  it('applies a +1 Defense bonus when the target is in cover', () => {
     const state = shootState();
     state.units[1].status = ['in-cover'];
     const action = createAction(HOST, 'shoot', {
@@ -319,9 +320,10 @@ describe('applyAction: shoot', () => {
       targetId: 'g1',
       weaponId: 'rifle',
     });
-    // Q4 in cover means 5+ is needed — a 4 misses.
-    const outcome = act(state, action, dice(1, [4], [6]));
-    expect(outcome.state!.actionLog[0].dice!.outcome.hitCount).toBe(0);
+    // D5+ in cover blocks on 4+ (4 + 1 >= 5).
+    const outcome = act(state, action, dice(1, [4], [4]));
+    expect(outcome.state!.actionLog[0].dice!.outcome.hitCount).toBe(1);
+    expect(outcome.state!.actionLog[0].dice!.outcome.blockedCount).toBe(1);
     expect(outcome.state!.units.find((u) => u.id === 'g1')!.wounds).toBe(1);
   });
 
@@ -484,6 +486,7 @@ describe('applyAction: fight', () => {
     expect(specs).toEqual([
       { count: 2, sides: 6, purpose: 'to-hit' },
       { count: 2, sides: 6, purpose: 'defense' },
+      { count: 1, sides: 6, purpose: 'trauma' },
     ]);
 
     // Blade: 2 attacks. Rolls 6, 6 hit (Q4). Defense 5 blocks, 4 fails.
@@ -670,6 +673,115 @@ describe('applyAction invariants', () => {
     expect(getDiceSpecs(state, action)).toEqual([
       { count: 1, sides: 6, purpose: 'to-hit' },
       { count: 1, sides: 6, purpose: 'defense' },
+      { count: 1, sides: 6, purpose: 'trauma' },
     ]);
+  });
+
+  it('resolves Trauma Table (1-5 Suppressed/Shaken, 6+ Knocked Out) and multi-model squad casualties', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { weapons: [weapon('rifle')] }),
+      makeUnit('g1', GUEST, {
+        position: { x: 0, y: 0, z: 10 } as Vector3,
+        wounds: 2,
+        maxWounds: 2,
+        models: [
+          { id: 'g1-m1', wounds: 1, maxWounds: 1, isDestroyed: false },
+          { id: 'g1-m2', wounds: 1, maxWounds: 1, isDestroyed: false },
+        ],
+      }),
+    ]);
+    state.turnState.activeUnitId = 'h1';
+    state.units[0].isActivated = true;
+
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'rifle',
+    });
+
+    // 1st wound eliminates the first squad member without rolling trauma on the survivor.
+    const firstShot = act(state, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const g1After1 = firstShot.state!.units.find((u) => u.id === 'g1')!;
+    expect(g1After1.models.filter((m) => !m.isDestroyed)).toHaveLength(1);
+    expect(g1After1.isDestroyed).toBe(false);
+
+    // 2nd wound hits the last survivor; trauma roll of 3 (+1 token = 4 <= 5) -> Shaken (survives!).
+    firstShot.state!.units[0].hasAttacked = false;
+    const secondShot = act(firstShot.state!, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [3], total: 3, finalTotal: 3, purpose: 'trauma' },
+    ]);
+    const g1After2 = secondShot.state!.units.find((u) => u.id === 'g1')!;
+    expect(g1After2.isDestroyed).toBe(false);
+    expect(g1After2.status).toContain('shaken');
+    expect(g1After2.status).toContain('stunned');
+    expect(g1After2.traumaTokens).toBe(1);
+
+    // 3rd wound hits the last survivor; trauma roll of 4 (+2 tokens = 6 >= 6) -> Knocked Out!
+    secondShot.state!.units[0].hasAttacked = false;
+    const thirdShot = act(secondShot.state!, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [4], total: 4, finalTotal: 4, purpose: 'trauma' },
+    ]);
+    const g1After3 = thirdShot.state!.units.find((u) => u.id === 'g1')!;
+    expect(g1After3.isDestroyed).toBe(true);
+  });
+
+  it('allows Lobbed (Indirect) weapons to fire without Line of Sight', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { weapons: [weapon('trench-mortar')] }),
+      makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10 } as Vector3 }),
+    ]);
+    state.terrain = [
+      {
+        id: 'wall-blocker',
+        terrainType: 'wall',
+        position: { x: 0, y: 0, z: 5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2, z: 0.5 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
+    state.turnState.activeUnitId = 'h1';
+    state.units[0].isActivated = true;
+
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'trench-mortar',
+    });
+    expect(validateAction(state, shootAction).valid).toBe(true);
+  });
+
+  it('triggers Round-End Army Morale when an army is Broken (<= 50% starting units)', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { isActivated: true }),
+      makeUnit('h2', HOST, { isActivated: true }),
+      makeUnit('g1', GUEST, { isActivated: true, isDestroyed: true }),
+      makeUnit('g2', GUEST, { isActivated: true, quality: 5, status: ['shaken', 'stunned'] as any }),
+    ]);
+    const endRoundAction = createAction(HOST, 'end-round', { type: 'end-round' });
+    const specs = getDiceSpecs(state, endRoundAction);
+    expect(specs).toEqual([{ count: 1, sides: 6, purpose: 'morale' }]);
+
+    // g2 is already shaken when its army is broken -> auto-fails morale and routs!
+    const outcome = act(state, endRoundAction, [
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'morale' },
+    ]);
+    const g2After = outcome.state!.units.find((u) => u.id === 'g2')!;
+    expect(g2After.status).toContain('routed');
+    expect(g2After.isDestroyed).toBe(true);
+    expect(outcome.state!.status).toBe('game-over');
+    expect(outcome.state!.winner).toBe(HOST);
   });
 });

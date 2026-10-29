@@ -1,8 +1,8 @@
-# Curated 3D Models (`client/public/models/`)
+# 3D Asset & Model Map (`client/public/models/`)
 
-All `.glb` files and `Textures/colormap.png` in this directory are from the **Kenney Prototype Kit** (https://kenney.nl, created 2024-08-28), distributed under the [Creative Commons Zero (CC0)](https://creativecommons.org/publicdomain/zero/1.0/) license — public domain, no attribution required.
+All `.glb` files and `Textures/colormap.png` in `client/public/models/` are from the **Kenney Prototype Kit** (https://kenney.nl, created 2024-08-28), distributed under the [Creative Commons Zero (CC0)](https://creativecommons.org/publicdomain/zero/1.0/) license — public domain, no attribution required.
 
-They were curated from the raw pack staged in `assets-src/` (gitignored). Asset registration and scaling live in [`client/src/renderer/assetManifest.ts`](../../src/renderer/assetManifest.ts).
+They were curated from the raw pack staged in `assets-src/` (gitignored). Asset registration and scaling live in [`client/src/renderer/assetManifest.ts`](../client/src/renderer/assetManifest.ts).
 
 ## Complete Asset Mapping
 
