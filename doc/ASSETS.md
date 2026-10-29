@@ -19,13 +19,13 @@ Used by `UnitRenderer` (via `unit.unitType`). Tinted per owning player (Host = B
 ### 2. Battlefield Terrain (`TERRAIN_ASSETS`)
 Used by `BoardRenderer` (via `piece.terrainType`), scaled by each piece's `scale` vector in the scenario data:
 
-| Terrain Type (`terrainType`) | GLB File | Raw GLB Footprint (`X × Y × Z`) | Default Scenario Piece Scale |
-| :--- | :--- | :---: | :---: |
-| `wall` | `wall.glb` | `0.2 × 1.0 × 1.0` | `3 × 1.5 × 0.5` |
-| `wall-window` | `wall-window-medium.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` |
-| `wall-doorway` | `wall-doorway.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` |
-| `crate` | `crate.glb` | `0.5 × 0.5 × 0.5` | `1 × 1 × 1` (scaled to waist height `1.0` in manifest) |
-| `column` | `column.glb` | `0.2 × 1.0 × 0.2` | `1 × 2.5 × 1` |
+| Terrain Type (`terrainType`) | GLB File | Raw GLB Footprint (`X × Y × Z`) | Default Scenario Piece Scale | Mechanical Function & Apertures |
+| :--- | :--- | :---: | :---: | :--- |
+| `wall` | `wall.glb` | `0.2 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Solid obstacle: blocks movement and 100% of Line of Sight. |
+| `wall-window` | `wall-window-medium.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Firing port: blocks movement, but allows LoS through central 1.0" aperture when manned within 1.0" (granting +1 Defense against incoming fire). |
+| `wall-doorway` | `wall-doorway.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Door passage: central 1.0" doorway is open to both model movement and unobstructed Line of Sight. |
+| `crate` | `crate.glb` | `0.5 × 0.5 × 0.5` | `1 × 1 × 1` (scaled to waist height `1.0` in manifest) | Low cover: blocks movement; grants +1 Defense to defenders positioned within 1.0" along the line of fire. |
+| `column` | `column.glb` | `0.2 × 1.0 × 0.2` | `1 × 2.5 × 1` | Solid column: blocks movement and Line of Sight. |
 
 ### 3. Gameplay UI Markers (`MARKER_ASSETS` & `OUTCOME_ASSETS`)
 Used by `MarkerRenderer` for selection, targeting, range rings, and floating wound outcome numbers:

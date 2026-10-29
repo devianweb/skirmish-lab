@@ -240,6 +240,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
   - [ ] Full Tabletop Maneuver Actions: Hold (clear stun or hold), Advance (move up to speed + shoot), Rush (move up to 2× speed, no shoot), Charge (move up to 2× speed into melee contact and resolve melee strike).
   - [ ] Melee consolidation: fold Fight directly into Charge (charge resolves melee strike automatically).
   - [ ] Melee engagement visual contact highlights (highlight opposing model in bright contact ring/indicator when in 1" engagement range).
+  - [ ] **Low Cover Proximity Check (The 1" Intervening Rule):** Defending targets must be within 1.0" of low cover (crates, barricades) along the line of fire to receive the +1 Defense bonus, aligning with physical tabletop True-Line-of-Sight and preventing distant mid-field crates from granting cover to open targets downrange.
+  - [ ] **Terrain Apertures (Windows & Doorways):**
+    - **Doorways (`wall-doorway`):** Central 1.0" aperture is open to both model movement (passable) and unobstructed Line of Sight.
+    - **Windows (`wall-window`):** Central 1.0" aperture allows Line of Sight when at least one model (shooter or target) is within 1.0" of the window ("manning the firing port"); models within 1.0" receiving fire through the window gain +1 Defense (Cover), while movement through the window remains blocked.
 
 ### Acceptance Criteria
 - [x] Movement validated correctly by host

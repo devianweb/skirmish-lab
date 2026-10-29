@@ -253,16 +253,23 @@ Track all modifiers to rolls:
   (`ensureConnected()`). The signaling server caches recent roll results by
   `rollId` (`room.rollCache`), ensuring retries are strictly idempotent.
 
-## Line of Sight & Targeting
+## Line of Sight, Cover & Apertures
 
 ### LOS Rules
-- Check if target is visible from attacker
-- Terrain can block LOS
-- Specific rules for terrain types come from terrain data
+- **Standard Checks:** Line of sight is drawn directly between attacker and target on the board plane.
+- **Sight-Blockers:** Blocked by solid terrain with `blocksLineOfSight: true` (e.g. solid walls, columns) and by other living fighters (`LOS_UNIT_RADIUS = 0.4`).
+- **Apertures (Windows & Doorways):**
+  - **Doorways (`wall-doorway`):** The central 1.0" opening allows unobstructed Line of Sight and model movement. Models within 1.0" of the door frame claim Cover (+1 Defense) against shots passing through the door.
+  - **Windows / Firing Ports (`wall-window`):** Windows block model movement. Line of Sight can be drawn through the central 1.0" window aperture if at least one model (shooter or target) is within 1.0" of the opening ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains +1 Defense (Cover). If both models are >1.0" from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
+
+### Cover Determination
+- **In-Cover Status:** Targets with `in-cover` status always receive +1 Defense.
+- **Low Cover Proximity Rule:** Intervening low cover (crates, low barricades) only grants +1 Defense if the defending target is within **1.0"** of the terrain piece along the line of fire (and the terrain is not adjacent to the shooter, i.e. `projDist > 1.0"`). Distant low crates in the middle of no-man's-land do not grant cover to targets standing in the open downrange, matching tabletop True-Line-of-Sight conventions.
+- **Sight-Blocking Partial Cover:** For walls and columns, the target must be within 1.0" of the piece and partially obscured (at least one ray to the model's flanks blocked while center LoS remains open).
 
 ### Targeting Restrictions
 - Must be in range
-- Must have LOS (for shooting)
+- Must have LOS (for shooting; ignored by weapons with `lobbed`)
 - Engagement restrictions apply (engaged fighters typically fight rather than shoot)
 
 ## Game State Transitions

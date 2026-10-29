@@ -100,8 +100,11 @@ sequenceDiagram
 3. **Protection Test:**
    - Defender rolls 1d6 per hit scored. A roll $\ge D$ blocks the hit.
    - **Cover:** Grants $+1$ to Defense rolls if target is in cover terrain or partially obscured behind terrain:
-     - *Low cover (crates, barricades):* Attack ray must pass through intervening cover between shooter and target. Terrain adjacent to the shooter (within 1.0") is ignored — shooting out of cover does not grant cover to open targets downrange.
-     - *Sight-blocking cover (walls, columns):* Target must be within 1.0" of the piece and partially obscured from the shooter's vantage point (at least one ray to the model's flanks is blocked while center LoS remains open). Terrain situated behind or beside the target without obscuring it grants no cover.
+     - *Low cover (crates, barricades):* Attack ray must pass through intervening cover between shooter and target. Terrain adjacent to the shooter (within 1.0") is ignored — shooting out of cover does not grant cover to open targets downrange. Defending targets must be within **1.0"** of the low cover piece along the line of fire (or inside area terrain) to receive the $+1$ Defense bonus, matching tabletop True-Line-of-Sight where low waist-high crates do not obscure open fighters downrange.
+     - *Sight-blocking cover (solid walls, columns):* Target must be within 1.0" of the piece and partially obscured from the shooter's vantage point (at least one ray to the model's flanks is blocked while center LoS remains open). Terrain situated behind or beside the target without obscuring it grants no cover.
+     - *Apertures (Windows & Doorways):*
+       - *Doorways (`wall-doorway`):* The central 1.0" opening allows unobstructed Line of Sight and model movement. Models adjacent to the frame (within 1.0") receiving fire through the doorway gain $+1$ Defense (Cover).
+       - *Windows / Firing Ports (`wall-window`):* Windows block model movement. Line of Sight can only be drawn through a window if at least one fighter (shooter or target) is within **1.0"** of the window aperture ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains $+1$ Defense (Cover). If both models are $>1.0"$ from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
    - **Armor Piercing (AP):** Subtracts $X$ from defender's roll.
 4. **Wound Infliction:**
    - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Trauma Table)**.
@@ -167,7 +170,8 @@ At the **end of each round**, evaluate total army strength:
 
 | Terrain Type | Environmental Rule | Mechanical Implementation |
 | :--- | :--- | :--- |
-| **Cover Terrain** | Light foliage, low barricades, rubble, visual obscuration. | Defenders receive **$+1$ to Defense rolls** against shooting attacks when majority of unit is positioned within or behind cover. |
+| **Cover Terrain** | Light foliage, low barricades, crates, visual obscuration, window sills. | Defenders receive **$+1$ to Defense rolls** against shooting attacks when positioned within cover, within 1.0" of intervening low cover along the line of fire, or within 1.0" of a window aperture being fired through. |
+| **Aperture Walls** | Doorway passages and window firing ports. | Doorways allow both movement and Line of Sight through the central 1.0" gap. Windows allow Line of Sight when a model is within 1.0" (providing +1 Defense against incoming fire), but block movement. |
 | **Difficult Terrain** | Mud, dense trenches, steep inclines, deep water. | Maximum movement distance across the entire activation is **capped at 6"** (negates speed bonuses for Rush and Charge). |
 | **Dangerous Terrain** | Minefields, acid pools, barbed wire, electrified wire. | When moving through or activating inside dangerous terrain, roll 1d6 per model (or Tough value dice). Every **roll of 1 inflicts 1 wound**. |
 
