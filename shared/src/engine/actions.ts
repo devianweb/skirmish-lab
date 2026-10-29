@@ -8,14 +8,23 @@ import {
   Weapon,
 } from '../gameTypes';
 import { DiceSpec, DiceResult, Vector3 } from '../types';
-import { advanceActivation, endRound, isRoundComplete } from './activation';
+import {
+  advanceActivation,
+  applyRoundEndMorale,
+  endRound,
+  getUnitsRequiringRoundMorale,
+  isRoundComplete,
+} from './activation';
 import {
   CombatOutcome,
   extractAttackRolls,
   getAttackDiceSpecs,
   resolveAttack,
+  resolveTraumaRoll,
+  TraumaOutcome,
 } from './combat';
-import { findMoveBlocker, hasLineOfSight } from './spatial';
+import { findMoveBlocker, hasCoverAgainstAttack, hasLineOfSight } from './spatial';
+import { getTraitValue, hasTrait } from '../rules/traits';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -162,6 +171,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
+      if (hasTrait(unit.result.specialRules, 'stationary')) {
+        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      }
       if (isEngaged(unit.result)) {
         return { valid: false, reason: 'Engaged units cannot move away' };
       }
@@ -211,7 +223,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (distance > weapon.profile.range + 0.01) {
         return { valid: false, reason: 'Target out of range' };
       }
-      if (!hasLineOfSight(state, attacker.result, target.result)) {
+      if (
+        !hasTrait(weapon.profile.specialRules, 'lobbed') &&
+        !hasLineOfSight(state, attacker.result, target.result)
+      ) {
         return { valid: false, reason: 'No line of sight to target' };
       }
       return { valid: true };
@@ -225,6 +240,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
+      if (hasTrait(attacker.result.specialRules, 'stationary')) {
+        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      }
       if (attacker.result.hasMoved || attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
       }
@@ -305,19 +323,46 @@ export function validateAction(state: GameState, action: GameAction): Validation
  * that need no dice. Call after validateAction passes.
  */
 export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
+  if (action.type === 'end-round') {
+    const moraleUnits = getUnitsRequiringRoundMorale(state);
+    if (moraleUnits.length === 0) return null;
+    const specs: DiceSpec[] = [{ count: moraleUnits.length, sides: 6, purpose: 'morale' }];
+    const stoicCount = moraleUnits.filter((u) => hasTrait(u.specialRules, 'stoic')).length;
+    if (stoicCount > 0) {
+      specs.push({ count: stoicCount, sides: 6, purpose: 'stoic' });
+    }
+    return specs;
+  }
+
   if (action.type !== 'shoot' && action.type !== 'fight') return null;
 
   const payload = action.payload as PayloadWithAttacker;
   const attacker = getUnit(state, payload.attackerId);
+  const target = getUnit(state, payload.targetId);
   const weapon = attacker ? getWeapon(attacker, payload.weaponId ?? '') : undefined;
-  if (!attacker || !weapon) return null;
+  if (!attacker || ! weapon) return null;
 
   const attacks = weapon.profile.attacks;
   if (typeof attacks !== 'number' || !Number.isInteger(attacks) || attacks < 1) {
-    // Dice-expression attacks ('D3' etc.) are rules-engine territory (Phase 6).
     return null;
   }
-  return getAttackDiceSpecs(attacks);
+
+  const isMelee = action.type === 'fight';
+  const distance = target ? boardDistance(attacker.position, target.position) : 12;
+  const aliveModels = target
+    ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
+    : 1;
+
+  return getAttackDiceSpecs(attacks, {
+    attackerRules: attacker.specialRules,
+    weaponRules: weapon.profile.specialRules,
+    defenderRules: target?.specialRules ?? [],
+    defenderModelCount: aliveModels,
+    isMelee,
+    isCharging: isMelee && attacker.hasMoved,
+    distance,
+    includeTrauma: true,
+  });
 }
 
 /**
@@ -339,12 +384,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'activate-unit': {
       const { unitId } = action.payload as PayloadWithUnitId;
       const unit = getUnit(newState, unitId)!;
-      const wasStunned = unit.status.includes('stunned');
+      const wasSuppressed =
+        unit.status.includes('stunned') || unit.status.includes('shaken');
       beginActivation(newState, unit);
-      // A stunned unit spends its activation clearing the stun and passes
-      // initiative immediately (cannot move or attack on this activation).
-      if (wasStunned) {
-        finishActivation(newState);
+      // A stunned/shaken unit spends its activation clearing suppression and
+      // passes initiative immediately (cannot move or attack on this activation).
+      if (wasSuppressed) {
+        finishActivation(newState, dice);
       }
       logEntry = acceptedEntry(action);
       break;
@@ -357,7 +403,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         beginActivation(newState, unit);
       }
       // A hold ends the unit's activation immediately without moving or acting.
-      finishActivation(newState);
+      finishActivation(newState, dice);
       logEntry = acceptedEntry(action);
       break;
     }
@@ -383,14 +429,41 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
       const weapon = getWeapon(attacker, weaponId ?? '')!;
+      const isMelee = action.type === 'fight';
+      const distance = boardDistance(attacker.position, target.position);
+      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+      const inCover =
+        !isMelee &&
+        (target.status.includes('in-cover') ||
+          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target)));
+      const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
+      const isFatigued =
+        isMelee && (attacker.status.includes('fatigued') || attacker.status.includes('shaken'));
 
       let outcome: CombatOutcome;
+      let traumaRolls: number[] | undefined;
       try {
         if (!dice) throw new Error('Dice results required');
         const rolls = extractAttackRolls(dice);
+        traumaRolls = rolls.trauma;
         outcome = resolveAttack(
-          { quality: attacker.quality },
-          { defense: target.defense, inCover: target.status.includes('in-cover') },
+          {
+            quality: attacker.quality,
+            specialRules: attacker.specialRules,
+            weaponRules: weapon.profile.specialRules,
+            isMelee,
+            isCharging: isMelee && attacker.hasMoved,
+            hasMoved: attacker.hasMoved,
+            isFatigued,
+            distance,
+          },
+          {
+            defense: target.defense,
+            inCover,
+            specialRules: target.specialRules,
+            modelCount: aliveModels,
+            hasMoved: target.hasMoved,
+          },
           weapon.profile.attacks as number,
           rolls
         );
@@ -399,12 +472,27 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       attacker.hasAttacked = true;
-      applyWounds(target, outcome.wounds);
+      if (hasTrait(weapon.profile.specialRules, 'expendable')) {
+        weapon.isEquipped = false;
+      }
+      if (isMelee && !attacker.status.includes('fatigued')) {
+        attacker.status.push('fatigued');
+      }
+
+      const dreadBonus = isMelee ? (getTraitValue(attacker.specialRules, 'dread') ?? 0) : 0;
+      const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+      const trauma = applyWounds(
+        target,
+        outcome.wounds,
+        traumaRolls,
+        dreadBonus,
+        lethalValue
+      );
       refreshEngagements(newState);
 
       diceResolution = {
         rollId: action.id,
-        specs: getAttackDiceSpecs(weapon.profile.attacks as number),
+        specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(weapon.profile.attacks as number),
         results: dice,
         context: {
           attackerId,
@@ -415,9 +503,27 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         outcome: {
           attackCount: outcome.attackCount,
           hitCount: outcome.hitCount,
+          ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
           blockedCount: outcome.blockedCount,
+          ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
           wounds: outcome.wounds,
           targetDestroyed: target.isDestroyed,
+          ...(trauma?.outcome === 'shaken' ? { targetShaken: true } : {}),
+          ...(outcome.effectiveQuality !== attacker.quality
+            ? { effectiveQuality: outcome.effectiveQuality }
+            : {}),
+          ...(outcome.effectiveDefense !== target.defense
+            ? { effectiveDefense: outcome.effectiveDefense }
+            : {}),
+          ...(outcome.coverApplied ? { coverApplied: true } : {}),
+          ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
+          ...(trauma
+            ? {
+                traumaRoll: trauma.roll,
+                traumaTotal: trauma.total,
+                traumaOutcome: trauma.outcome,
+              }
+            : {}),
         },
       };
       logEntry = acceptedEntry(action, diceResolution);
@@ -442,12 +548,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'end-activation': {
-      finishActivation(newState);
+      finishActivation(newState, dice);
       logEntry = acceptedEntry(action);
       break;
     }
 
     case 'end-round': {
+      runMoraleIfProvided(newState, dice);
       endRound(newState);
       logEntry = acceptedEntry(action);
       break;
@@ -511,31 +618,106 @@ function engagementPosition(target: Unit, fromPosition: Vector3): Vector3 {
 
 function beginActivation(state: GameState, unit: Unit): void {
   unit.isActivated = true;
-  unit.status = unit.status.filter((s) => s !== 'stunned');
+  unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
   state.turnState.phase = 'activation';
 }
 
-function finishActivation(state: GameState): void {
+function runMoraleIfProvided(state: GameState, dice?: DiceResult[]): void {
+  if (!dice) return;
+  const moraleRes = dice.find((d) => d.purpose === 'morale');
+  if (!moraleRes || moraleRes.rolls.length === 0) return;
+  const stoicRes = dice.find((d) => d.purpose === 'stoic');
+  applyRoundEndMorale(state, moraleRes.rolls, stoicRes?.rolls ?? []);
+}
+
+function finishActivation(state: GameState, dice?: DiceResult[]): void {
   state.turnState.activeUnitId = null;
+  if (isRoundComplete(state)) {
+    runMoraleIfProvided(state, dice);
+  }
   advanceActivation(state);
 }
 
-function applyWounds(unit: Unit, wounds: number): void {
-  unit.wounds -= wounds;
-  if (unit.models.length > 0) {
-    const model = unit.models.find((m) => !m.isDestroyed);
-    if (model) {
-      model.wounds -= wounds;
-      if (model.wounds <= 0) model.isDestroyed = true;
+function applyWounds(
+  unit: Unit,
+  wounds: number,
+  traumaRolls?: number[],
+  dreadBonus: number = 0,
+  lethalValue: number = 1
+): TraumaOutcome | undefined {
+  if (wounds <= 0) return undefined;
+
+  let remainingWounds = wounds;
+
+  // 1. Multi-model squad allocation: eliminate non-final models first.
+  // Lethal(X) excess wounds from a single hit do not spill over across models.
+  if (unit.models.length > 1) {
+    const step = Math.max(1, lethalValue);
+    while (remainingWounds > 0) {
+      const alive = unit.models.filter((m) => !m.isDestroyed);
+      if (alive.length <= 1) break;
+      const victim = alive[0];
+      const applied = Math.min(remainingWounds, Math.max(victim.wounds, step));
+      victim.wounds = 0;
+      victim.isDestroyed = true;
+      unit.wounds = Math.max(1, unit.wounds - 1);
+      remainingWounds -= applied;
     }
   }
-  if (unit.wounds <= 0) {
-    unit.wounds = 0;
-    unit.isDestroyed = true;
-    unit.status = unit.status.filter((s) => s !== 'engaged');
+
+  if (remainingWounds <= 0) return undefined;
+
+  // 2. Final surviving model (or single-model unit): reduce HP toward Tough threshold.
+  unit.wounds -= remainingWounds;
+  const finalModel = unit.models.find((m) => !m.isDestroyed);
+  if (finalModel) {
+    finalModel.wounds -= remainingWounds;
   }
+
+  // Still above 0 HP (e.g. Resilient(3) / Tough(3) with wounds remaining): no trauma roll yet.
+  if (unit.wounds > 0) {
+    return undefined;
+  }
+
+  // 3. Reached 0 HP threshold: resolve Trauma Table if server trauma roll is present.
+  if (traumaRolls && traumaRolls.length > 0) {
+    const overkill = Math.abs(unit.wounds);
+    const totalTokens = (unit.traumaTokens ?? 0) + 1 + overkill;
+    const trauma = resolveTraumaRoll(traumaRolls[0], totalTokens, dreadBonus);
+
+    if (trauma.outcome === 'knocked-out') {
+      unit.wounds = 0;
+      unit.isDestroyed = true;
+      unit.status = unit.status.filter((s) => s !== 'engaged');
+      if (finalModel) {
+        finalModel.wounds = 0;
+        finalModel.isDestroyed = true;
+      }
+    } else {
+      // Suppressed (Shaken): remains in play on final HP with accumulated trauma tokens.
+      unit.wounds = 1;
+      unit.traumaTokens = totalTokens;
+      if (!unit.status.includes('shaken')) unit.status.push('shaken');
+      if (!unit.status.includes('stunned')) unit.status.push('stunned');
+      if (finalModel) {
+        finalModel.wounds = 1;
+        finalModel.isDestroyed = false;
+      }
+    }
+    return trauma;
+  }
+
+  // Fallback when no trauma roll was supplied (e.g. legacy 2-spec test helpers).
+  unit.wounds = 0;
+  unit.isDestroyed = true;
+  unit.status = unit.status.filter((s) => s !== 'engaged');
+  if (finalModel) {
+    finalModel.wounds = 0;
+    finalModel.isDestroyed = true;
+  }
+  return undefined;
 }
 
 /**

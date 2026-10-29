@@ -4,9 +4,12 @@ import {
   describeTerrainPiece,
   findMoveBlocker,
   findTerrainAtPosition,
+  formatTraitLabel,
   GameState,
   GameAction,
+  hasCoverAgainstAttack,
   hasLineOfSight,
+  hasTrait,
   Unit,
   Vector3,
 } from '@skirmish-lab/shared';
@@ -385,7 +388,6 @@ export class GameHUD {
       target.position.x - active.position.x,
       target.position.z - active.position.z
     );
-    const effectiveQ = active.quality + (target.status.includes('in-cover') ? 1 : 0);
 
     if (this.flow.action === 'shoot') {
       const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
@@ -397,12 +399,18 @@ export class GameHUD {
         this.showToast(`Out of range: ${distance.toFixed(1)}" vs ${weapon.profile.range}"`);
         return;
       }
-      if (this.state && !hasLineOfSight(this.state, active, target)) {
+      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+      if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
         this.showToast('No line of sight to target');
         return;
       }
+      const inCover =
+        this.state &&
+        !hasTrait(weapon.profile.specialRules, 'blast') &&
+        (target.status.includes('in-cover') ||
+          (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
       const attacks = weapon.profile.attacks;
-      const diceText = `${attacks}d6 (Hit Q${effectiveQ}+${target.status.includes('in-cover') ? ' cover' : ''}, Def D${target.defense}+)`;
+      const diceText = `${attacks}d6 (Hit Q${active.quality}+, Def D${target.defense}+${inCover ? ' cover +1' : ''})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'shoot', {
           type: 'shoot',
@@ -599,21 +607,26 @@ export class GameHUD {
 
   private renderUnitRow(unit: Unit): string {
     const statusTags: string[] = [];
-    if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
+    else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('routed')) statusTags.push('ROUTED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('COVER');
+    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}T`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
     const canActivate = this.canActivateUnit(unit);
     const isActive = this.activeUnit?.id === unit.id;
     const weaponSummary = unit.weapons
       .filter((w) => w.isEquipped)
-      .map((w) =>
-        w.profile.type === 'ranged'
-          ? `${w.name} (${w.profile.range}", A${w.profile.attacks})`
-          : `${w.name} (A${w.profile.attacks})`
-      )
+      .map((w) => {
+        const traits = w.profile.specialRules.map(formatTraitLabel).join(', ');
+        const suffix = traits ? `, ${traits}` : '';
+        return w.profile.type === 'ranged'
+          ? `${w.name} (${w.profile.range}", A${w.profile.attacks}${suffix})`
+          : `${w.name} (A${w.profile.attacks}${suffix})`;
+      })
       .join(', ');
 
     const classes = [
@@ -638,9 +651,12 @@ export class GameHUD {
 
   private renderEnemyRow(unit: Unit): string {
     const statusTags: string[] = [];
-    if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
+    else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('COVER');
+    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}T`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
     const classes = ['sl-hud-unit', 'enemy', unit.isDestroyed ? 'destroyed' : '']
@@ -667,14 +683,13 @@ export class GameHUD {
       const defense = entry.dice.results.find((r) => r.purpose === 'defense');
       const { outcome } = entry.dice;
 
-      const effectiveQ =
-        (attacker?.quality ?? 4) + (target?.status.includes('in-cover') ? 1 : 0);
-      const targetD = target?.defense ?? 5;
+      const effectiveQ = outcome.effectiveQuality ?? attacker?.quality ?? 4;
+      const targetD = outcome.effectiveDefense ?? target?.defense ?? 5;
 
       const hitDiceHtml = toHit
         ? toHit.rolls
             .map((r) => {
-              const isHit = r >= effectiveQ;
+              const isHit = r > 1 && (r >= 6 || r >= effectiveQ);
               return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}" title="${
                 isHit ? `Hit (${r} >= ${effectiveQ})` : `Miss (${r} < ${effectiveQ})`
               }">${r}</span>`;
@@ -688,13 +703,24 @@ export class GameHUD {
         usedDefRolls.length > 0
           ? usedDefRolls
               .map((r) => {
-                const isBlocked = r >= targetD;
+                const isBlocked = r > 1 && (r >= 6 || r >= targetD);
                 return `<span class="sl-die ${isBlocked ? 'def-pass' : 'def-fail'}" title="${
                   isBlocked ? `Blocked (${r} >= ${targetD})` : `Failed (${r} < ${targetD}) → Wound`
                 }">${r}</span>`;
               })
               .join('')
           : '<span class="sl-hud-dice-empty">no hits to defend</span>';
+
+      const traumaHtml =
+        outcome.traumaRoll !== undefined
+          ? `<div class="sl-hud-dice-label">Trauma (1d6 + tokens = ${outcome.traumaTotal}):</div>
+             <div class="sl-hud-dice-row">
+               <span class="sl-die ${outcome.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${outcome.traumaRoll}</span>
+               <span class="sl-hud-dice-summary">${
+                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SUPPRESSED (SHAKEN)'
+               }</span>
+             </div>`
+          : '';
 
       return `
         <div class="sl-hud-dice">
@@ -703,13 +729,14 @@ export class GameHUD {
       }</div>
           <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
-          <div class="sl-hud-dice-label">Defense (need D${targetD}+):</div>
+          <div class="sl-hud-dice-label">Defense (need D${targetD}+${outcome.coverApplied ? ' w/ cover' : ''}):</div>
           <div class="sl-hud-dice-row">${defDiceHtml}</div>
+          ${traumaHtml}
           <div class="sl-hud-dice-summary">
             ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
             ${outcome.blockedCount} blocked ·
             <strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'}</strong>
-            ${outcome.targetDestroyed ? ' · target down' : ''}
+            ${outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : ''}
           </div>
         </div>`;
     }
@@ -870,13 +897,17 @@ export class GameHUD {
 
     const isMine = unit.ownerId === this.localPlayerId;
     const statusTags: string[] = [];
-    if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
+    else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
+    if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('routed')) statusTags.push('ROUTED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('IN COVER');
+    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens} TRAUMA`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
     else statusTags.push('READY');
 
+    const unitTraits = unit.specialRules.map(formatTraitLabel).join(', ');
     const weaponRows = unit.weapons
       .filter((w) => w.isEquipped)
       .map(
@@ -886,6 +917,7 @@ export class GameHUD {
             <td>${w.profile.type === 'ranged' ? 'Ranged' : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
+            <td>${w.profile.specialRules.map(formatTraitLabel).join(', ') || '—'}</td>
           </tr>`
       )
       .join('');
@@ -894,7 +926,7 @@ export class GameHUD {
       <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'}">
         <div class="sl-hud-datacard-header">
           <span class="sl-hud-datacard-name">${unit.name}</span>
-          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} · ${unit.unitType}</span>
+          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} · ${unit.unitType}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
         </div>
         <div class="sl-hud-datacard-tables">
@@ -914,7 +946,7 @@ export class GameHUD {
           </table>
           <table class="sl-hud-table">
             <thead>
-              <tr><th>Weapon</th><th>Type</th><th>Range</th><th>Dice</th></tr>
+              <tr><th>Weapon</th><th>Type</th><th>Range</th><th>Dice</th><th>Traits</th></tr>
             </thead>
             <tbody>
               ${weaponRows}
@@ -1188,7 +1220,14 @@ export class GameHUD {
         candidate.position.z - unit.position.z
       );
       if (distance > limit + 0.01) return false;
-      if (action === 'shoot' || action === 'charge') {
+      if (action === 'shoot') {
+        const ranged = unit.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
+        if (ranged && hasTrait(ranged.profile.specialRules, 'lobbed')) {
+          return true;
+        }
+        return hasLineOfSight(this.state!, unit, candidate);
+      }
+      if (action === 'charge') {
         return hasLineOfSight(this.state!, unit, candidate);
       }
       return true;
