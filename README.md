@@ -74,8 +74,8 @@ skirmish-lab/
 ## CI/CD & Deployment
 
 - **PR Checks**: Pull requests run build and tests across all workspaces (no deployment).
-- **Demos**: Only a **merged PR into the `release` branch** triggers deployment. The client deploys to [GitHub Pages](https://pages.github.com/); signaling-server hosting is deferred (Railway paused new signups — see [DEPLOYMENT.md](doc/DEPLOYMENT.md)).
-- **Release Flow**: Open a PR (`master` → `release`) and merge it when ready to demo/show off. Direct pushes to `release` never deploy the client.
+- **Demos**: Only a **merged PR into the `release` branch** triggers deployment. The client deploys to [GitHub Pages](https://pages.github.com/) and the signaling server deploys to Azure App Service (see [DEPLOYMENT.md](doc/DEPLOYMENT.md)).
+- **Release Flow**: Open a PR (`master` → `release`) and merge it when ready to demo/show off. Direct pushes to `release` never deploy.
 
 See [doc/DEPLOYMENT.md](doc/DEPLOYMENT.md) for setup instructions.
 
@@ -87,8 +87,10 @@ See the `doc/` folder for detailed documentation:
 - [NETWORKING.md](doc/NETWORKING.md) - WebRTC and signaling protocol
 - [DATA_MODEL.md](doc/DATA_MODEL.md) - Game state schema
 - [SYSTEMS.md](doc/SYSTEMS.md) - Game rules and systems
+- [RULES_SPECIFICATION.md](doc/RULES_SPECIFICATION.md) - First-principles rules & special traits specification
 - [ROADMAP.md](doc/ROADMAP.md) - Development roadmap
 - [DEPLOYMENT.md](doc/DEPLOYMENT.md) - Deployment and CI/CD guide
+- [3D Asset & Model Map](client/public/models/README.md) - Complete mapping of `.glb` models to fighter roles, terrain pieces, and UI markers
 
 ## License
 
