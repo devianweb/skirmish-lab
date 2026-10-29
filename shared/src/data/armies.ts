@@ -46,7 +46,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'leader',
       weapons: ['handcannon', 'blade'],
-      specialRules: [],
+      specialRules: ['commander', 'steadfast', 'resilient(3)'],
     },
     {
       id: 'warden-trooper',
@@ -59,7 +59,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'trooper',
       weapons: ['rifle'],
-      specialRules: [],
+      specialRules: ['steadfast'],
     },
     {
       id: 'warden-marksman',
@@ -72,7 +72,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'specialist',
       weapons: ['carbine'],
-      specialRules: [],
+      specialRules: ['steadfast', 'marksman', 'camouflaged'],
     },
     {
       id: 'warden-breacher',
@@ -85,7 +85,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'specialist',
       weapons: ['scattergun', 'fists'],
-      specialRules: [],
+      specialRules: ['steadfast', 'sustained'],
     },
     {
       id: 'warden-gun-crew',
@@ -98,7 +98,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 4,
       modelType: 'heavy',
       weapons: ['cannon'],
-      specialRules: [],
+      specialRules: ['steadfast', 'resilient(2)'],
     },
   ],
 };
@@ -119,7 +119,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 7,
       modelType: 'leader',
       weapons: ['handcannon', 'blade'],
-      specialRules: [],
+      specialRules: ['commander', 'frenzy', 'resilient(3)'],
     },
     {
       id: 'raider-trooper',
@@ -132,7 +132,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 7,
       modelType: 'trooper',
       weapons: ['rifle'],
-      specialRules: [],
+      specialRules: ['frenzy'],
     },
     {
       id: 'raider-skirmisher',
@@ -145,7 +145,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 7,
       modelType: 'specialist',
       weapons: ['carbine'],
-      specialRules: [],
+      specialRules: ['marksman', 'camouflaged'],
     },
     {
       id: 'raider-sapper',
@@ -158,7 +158,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 7,
       modelType: 'specialist',
       weapons: ['scattergun', 'fists'],
-      specialRules: [],
+      specialRules: ['sustained'],
     },
     {
       id: 'raider-bruiser',
@@ -171,7 +171,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 5,
       modelType: 'heavy',
       weapons: ['cannon'],
-      specialRules: [],
+      specialRules: ['stoic', 'frenzy', 'resilient(2)'],
     },
   ],
 };

@@ -21,10 +21,11 @@ export interface TurnState {
 
 export type UnitStatus =
   | 'stunned'         // Cannot act on next activation; clears at activation start
-  | 'shaken'          // Morale failure state (restrictions per ruleset data)
-  | 'routed'          // Fleeing / forced move state
+  | 'shaken'          // Suppressed / morale failure state (auto-fails morale, hits on 6s in melee)
+  | 'fatigued'        // Exhausted in melee for the rest of the round (hits only on unmodified 6s)
+  | 'routed'          // Fleeing / eliminated by morale failure while already shaken
   | 'engaged'         // In melee engagement range
-  | 'in-cover'        // Benefit from cover (defense modifier)
+  | 'in-cover'        // Benefit from cover (+1 Defense roll against shooting)
   | { type: 'custom', name: string, data?: any };
 
 export interface Model {
@@ -69,6 +70,8 @@ export interface Unit {
   status: UnitStatus[];
   wounds: number;
   maxWounds: number;
+  /** Accumulated trauma tokens on the final surviving model (adds to 1d6 trauma rolls). */
+  traumaTokens?: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
 
@@ -177,9 +180,22 @@ export interface DiceResolution {
   outcome: {
     attackCount: number;
     hitCount: number;
+    bonusHits?: number;
     blockedCount: number;
+    wardSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
+    targetShaken?: boolean;
+    effectiveQuality?: number;
+    effectiveDefense?: number;
+    coverApplied?: boolean;
+    apApplied?: number;
+    traumaRoll?: number;
+    traumaTotal?: number;
+    traumaOutcome?: 'shaken' | 'knocked-out';
+    moraleRoll?: number;
+    moralePassed?: boolean;
+    moraleOutcome?: 'passed' | 'shaken' | 'routed';
   };
 }
 

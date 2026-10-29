@@ -379,6 +379,62 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
 }
 
 /**
+ * Determine whether `target` receives a Cover bonus (+1 Defense) against a
+ * ranged attack from `attacker`.
+ *
+ * Cover applies when:
+ *   1. `target.status` explicitly includes `'in-cover'`, OR
+ *   2. The shot ray passes across a non-LoS-blocking `providesCover` terrain
+ *      piece (e.g. crates, barricades), OR
+ *   3. `target` is positioned within 0.85" of a `providesCover` terrain piece
+ *      that lies between `attacker` and `target`.
+ */
+export function hasCoverAgainstAttack(
+  state: GameState,
+  attacker: Unit,
+  target: Unit
+): boolean {
+  if (target.status.includes('in-cover')) return true;
+
+  const dx = target.position.x - attacker.position.x;
+  const dz = target.position.z - attacker.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-4) return false;
+
+  const dirX = dx / dist;
+  const dirZ = dz / dist;
+
+  for (const piece of state.terrain) {
+    if (!piece.providesCover) continue;
+
+    if (!piece.blocksLineOfSight) {
+      const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.35);
+      if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+        return true;
+      }
+    } else {
+      // Sight-blocking cover (walls, columns): target must be hugging the piece
+      // and the attack ray must pass within 0.85" of the piece.
+      const nearTarget = intersectRayTerrain(
+        target.position,
+        1,
+        0,
+        0.01,
+        piece,
+        0.85
+      );
+      if (!nearTarget) continue;
+      const graze = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.85);
+      if (graze && graze.tEntry < dist - 0.05) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Compute a 2D visibility polygon (star-shaped fan around `origin` up to
  * `maxRange`) showing where Line of Sight is clear vs blocked by
  * `blocksLineOfSight` terrain, friendly fighters, and enemy fighters.

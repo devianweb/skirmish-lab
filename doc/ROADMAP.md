@@ -214,16 +214,16 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ### Tasks
 - [x] Refactor stat schema to OPR standard (Quality Q, Defense D, speed, wounds)
 - [x] Alternating activation turn state (replaces TC phase structure)
-- [ ] To-hit rolls vs Quality (d6 target number)
-- [ ] Defense rolls to block hits (cover modifiers)
-- [ ] Wound/stun application and tracking
-- [ ] Morale checks at round end
+- [x] To-hit rolls vs Quality (d6 target number)
+- [x] Defense rolls to block hits (cover modifiers)
+- [x] Wound/stun application and tracking
+- [x] Morale checks at round end
 - [ ] Movement rules and validation (speed allowance, terrain)
-- [ ] Line of sight and targeting
-- [ ] Weapon profiles (Range/Attacks/Special Rules)
-- [ ] Special rules framework (modifiers + hooks, data-driven)
+- [x] Line of sight and targeting
+- [x] Weapon profiles (Range/Attacks/Special Rules)
+- [x] Special rules framework (modifiers + hooks, data-driven)
 - [ ] Army data schema + two hardcoded armies (original faction names)
-- [ ] Simple elimination mission (v1 win condition)
+- [x] Simple elimination mission (v1 win condition)
 
 ### Acceptance Criteria
 - [ ] Movement validated correctly by host

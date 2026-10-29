@@ -2,6 +2,7 @@
 export type { Vector3, DiceSpec, DiceResult } from './types';
 export * from './gameTypes';
 export * from './gameState';
+export * from './rules/traits';
 export * from './engine/activation';
 export * from './engine/combat';
 export * from './engine/spatial';

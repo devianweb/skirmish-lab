@@ -8,6 +8,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Neutral branding:** No third-party trademarks in product/repo/package names. Reference OPR only as compatibility ("for One Page Rules games").
 - **First principles only:** All rules mechanics implemented from first principles. Never copy or closely paraphrase rulebook text, lore prose, or artwork from any publisher.
 - **Original data:** Ship original/generic faction names and fighter data. No proprietary army catalogs.
+- **Terminology mapping:** Maintain `assets-src/OPR_TERM_MAPPING.md` (local, gitignored) with a complete 1:1 mapping between OPR rules/units/weapons and SkirmishLab's clean-room IDs and display names so the codebase can be easily refactored if official licensing/endorsement is obtained.
 - **Monetisation:** Out of scope until after MVP and any endorsement discussion with OPR.
 
 ## Tech Stack Constraints
@@ -91,8 +92,9 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Test edge cases.** Focus on failures, disconnects, timeouts, and boundary conditions.
 
 ## Documentation Requirements
-- **Always read relevant docs first.** Before implementing features, read GDD.md, ARCHITECTURE.md, NETWORKING.md, DATA_MODEL.md, and SYSTEMS.md as they apply.
+- **Always read relevant docs first.** Before implementing features, read GDD.md, ARCHITECTURE.md, NETWORKING.md, DATA_MODEL.md, SYSTEMS.md, and RULES_SPECIFICATION.md as they apply.
 - **Keep docs updated.** When making architectural changes, update the relevant docs in doc/.
+- **Keep `assets-src/OPR_TERM_MAPPING.md` updated.** Whenever adding or renaming traits, special rules, factions, units, or weapons, update the local `assets-src/OPR_TERM_MAPPING.md` lookup table.
 - **Follow the patterns.** All implementations must follow the architecture and patterns documented.
 - **Update ROADMAP.** Mark tasks complete when finished.
 - **Update AGENTS.md** if new constraints or patterns emerge.

@@ -274,6 +274,7 @@ describe('GameManager', () => {
       expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
         { count: 1, sides: 6, purpose: 'to-hit' },
         { count: 1, sides: 6, purpose: 'defense' },
+        { count: 1, sides: 6, purpose: 'trauma' },
       ]);
 
       const after = manager.getGameState()!;

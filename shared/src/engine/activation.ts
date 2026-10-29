@@ -1,4 +1,6 @@
 import { GameState, Unit } from '../gameTypes';
+import { hasTrait } from '../rules/traits';
+import { MoraleTestOutcome, resolveMoraleTest } from './combat';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -85,5 +87,111 @@ export function endRound(state: GameState): void {
     unit.hasMoved = false;
     unit.hasAttacked = false;
     unit.remainingMovement = unit.speed;
+    unit.status = unit.status.filter((s) => s !== 'fatigued');
   }
+}
+
+/**
+ * True when `playerId`'s surviving non-routed units are at or below 50% of
+ * their starting unit count (triggers Round-End Army Morale tests).
+ */
+export function isArmyBroken(state: GameState, playerId: string): boolean {
+  const allUnits = state.units.filter((u) => u.ownerId === playerId);
+  if (allUnits.length === 0) return false;
+  const surviving = allUnits.filter(
+    (u) => !u.isDestroyed && !u.status.includes('routed')
+  );
+  return surviving.length > 0 && surviving.length * 2 <= allUnits.length;
+}
+
+/**
+ * Return all surviving units across both players that must take a Round-End
+ * Morale test because their army is Broken (<= 50% starting units).
+ */
+export function getUnitsRequiringRoundMorale(state: GameState): Unit[] {
+  const result: Unit[] = [];
+  for (const playerId of [state.hostId, state.guestId]) {
+    if (!isArmyBroken(state, playerId)) continue;
+    for (const unit of state.units) {
+      if (
+        unit.ownerId === playerId &&
+        !unit.isDestroyed &&
+        !unit.status.includes('routed')
+      ) {
+        result.push(unit);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Apply Round-End Morale tests to all units in broken armies using pre-rolled
+ * server morale dice (`purpose: 'morale'`, plus optional `purpose: 'stoic'`).
+ */
+export function applyRoundEndMorale(
+  state: GameState,
+  moraleRolls: number[],
+  stoicRolls: number[] = []
+): Array<{ unitId: string; outcome: MoraleTestOutcome }> {
+  const unitsToTest = getUnitsRequiringRoundMorale(state);
+  const outcomes: Array<{ unitId: string; outcome: MoraleTestOutcome }> = [];
+  let rollIdx = 0;
+  let stoicIdx = 0;
+
+  for (const unit of unitsToTest) {
+    if (rollIdx >= moraleRolls.length) break;
+    const roll = moraleRolls[rollIdx++];
+    const alreadyShaken =
+      unit.status.includes('shaken') || unit.status.includes('stunned');
+
+    // Check for friendly Commander (Hero) within 12" who is not shaken/routed.
+    const commanders = state.units.filter(
+      (c) =>
+        c.ownerId === unit.ownerId &&
+        !c.isDestroyed &&
+        !c.status.includes('shaken') &&
+        !c.status.includes('stunned') &&
+        !c.status.includes('routed') &&
+        hasTrait(c.specialRules, 'commander') &&
+        Math.hypot(c.position.x - unit.position.x, c.position.z - unit.position.z) <= 12.01
+    );
+    const commanderQuality =
+      commanders.length > 0
+        ? Math.min(...commanders.map((c) => c.quality))
+        : undefined;
+
+    const stoicRoll =
+      hasTrait(unit.specialRules, 'stoic') && stoicIdx < stoicRolls.length
+        ? stoicRolls[stoicIdx++]
+        : undefined;
+
+    const testOutcome = resolveMoraleTest({
+      quality: unit.quality,
+      roll,
+      specialRules: unit.specialRules,
+      alreadyShaken,
+      commanderQuality,
+      stoicRoll,
+    });
+
+    // Consume one-shot morale-debuff if present.
+    if (hasTrait(unit.specialRules, 'morale-debuff')) {
+      unit.specialRules = unit.specialRules.filter((r) => r !== 'morale-debuff');
+    }
+
+    if (testOutcome.outcome === 'shaken') {
+      if (!unit.status.includes('shaken')) unit.status.push('shaken');
+      if (!unit.status.includes('stunned')) unit.status.push('stunned');
+    } else if (testOutcome.outcome === 'routed') {
+      if (!unit.status.includes('routed')) unit.status.push('routed');
+      unit.isDestroyed = true;
+      unit.wounds = 0;
+      unit.status = unit.status.filter((s) => s !== 'engaged');
+    }
+
+    outcomes.push({ unitId: unit.id, outcome: testOutcome });
+  }
+
+  return outcomes;
 }
