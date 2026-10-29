@@ -90,7 +90,7 @@ See the `doc/` folder for detailed documentation:
 - [RULES_SPECIFICATION.md](doc/RULES_SPECIFICATION.md) - First-principles rules & special traits specification
 - [ROADMAP.md](doc/ROADMAP.md) - Development roadmap
 - [DEPLOYMENT.md](doc/DEPLOYMENT.md) - Deployment and CI/CD guide
-- [3D Asset & Model Map](client/public/models/README.md) - Complete mapping of `.glb` models to fighter roles, terrain pieces, and UI markers
+- [ASSETS.md](doc/ASSETS.md) - Complete mapping of 3D `.glb` models to fighter roles, terrain pieces, and UI markers
 
 ## License
 
