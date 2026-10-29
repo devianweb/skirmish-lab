@@ -81,10 +81,43 @@ describe('MarkerRenderer', () => {
     }
   });
 
-  it('ignores zero-wound outcomes (nothing to show)', () => {
+  it('shows a 0-wound outcome token when damage is 0, and ignores negative', () => {
     const renderer = makeRenderer();
     renderer.showOutcome({ x: 2, y: 0, z: 2 }, 0);
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-outcome-0');
+
+    renderer.clearAll();
+    renderer.showOutcome({ x: 2, y: 0, z: 2 }, -1);
     expect(renderer.getRenderedMarkerNames()).toHaveLength(0);
+  });
+
+  it('renders unit debug wireframes when units are provided', () => {
+    const renderer = makeRenderer();
+    renderer.setUnitsDebug([
+      {
+        id: 'u1',
+        ownerId: 'h1',
+        armyId: 'a1',
+        unitType: 'trooper',
+        name: 'Trooper 1',
+        quality: 4,
+        defense: 5,
+        speed: 6,
+        position: { x: 1, y: 0, z: 1 },
+        rotation: { x: 0, y: 0, z: 0 },
+        status: [],
+        wounds: 1,
+        maxWounds: 1,
+        isActivated: false,
+        isDestroyed: false,
+        models: [],
+        weapons: [],
+        specialRules: [],
+        hasMoved: false,
+        remainingMovement: 6,
+      },
+    ]);
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-units-debug');
   });
 
   it('clears everything on clearAll', () => {

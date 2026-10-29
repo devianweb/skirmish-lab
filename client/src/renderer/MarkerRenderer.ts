@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { TerrainPiece, terrainHalfExtents, Vector3 } from '@skirmish-lab/shared';
+import { TerrainPiece, terrainHalfExtents, Vector3, Unit, LOS_UNIT_RADIUS } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
+import { outcomeMarkerKey } from './assetManifest';
 
 /** Minimal unit shape the markers need (decoupled from game state schema). */
 export interface MarkerUnit {
@@ -51,6 +52,7 @@ export class MarkerRenderer {
   private attackRange: THREE.Object3D | null = null;
   private movePath: THREE.Object3D | null = null;
   private terrainDebug: THREE.Object3D | null = null;
+  private unitsDebug: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -203,22 +205,48 @@ export class MarkerRenderer {
   }
 
   /**
-   * Floating wound-count token above a position, auto-cleared after a
-   * short delay so results stay visible without cluttering the board.
+   * Wireframe cylinders showing the OPR Line of Sight blocking boundary
+   * (`LOS_UNIT_RADIUS = 0.4`) for all living fighters when debug is active.
+   */
+  setUnitsDebug(units: Unit[] | null): void {
+    this.removeMarker('unitsDebug');
+    if (!units || units.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-units-debug';
+
+    for (const unit of units) {
+      if (unit.isDestroyed) continue;
+      const cylGeo = new THREE.CylinderGeometry(LOS_UNIT_RADIUS, LOS_UNIT_RADIUS, 1.4, 16, 1, true);
+      const edges = new THREE.EdgesGeometry(cylGeo);
+      const line = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.65 })
+      );
+      line.position.set(unit.position.x, 0.7, unit.position.z);
+      group.add(line);
+      cylGeo.dispose();
+    }
+
+    this.markerGroup.add(group);
+    this.unitsDebug = group;
+  }
+
+  /**
+   * Floating wound-count token above a position (supports 0 wounds for clean
+   * attack feedback), auto-cleared after a short delay.
    */
   showOutcome(position: Vector3, wounds: number): void {
-    if (wounds < 1) return;
+    if (wounds < 0) return;
     this.clearOutcome();
 
-    const key = `outcome-${Math.max(1, Math.min(5, Math.round(wounds)))}`;
+    const key = outcomeMarkerKey(wounds);
     const marker = this.modelLoader.createMarkerMesh(key, () =>
       this.createOutcomeToken(OUTCOME_COLOR, wounds)
     );
-    this.applyTint(marker, OUTCOME_COLOR);
+    this.applyTint(marker, wounds === 0 ? 0xb0bec5 : OUTCOME_COLOR);
     marker.name = `marker-${key}`;
     marker.position.set(position.x, 1.6, position.z);
-    // Orient the number's front face (-X in Kenney's number GLBs) toward the
-    // default camera quadrant (+X, +Z) so digits like '2' never appear mirrored as '5'.
     marker.rotation.y = (-3 * Math.PI) / 4;
     this.markerGroup.add(marker);
     this.outcome = marker;
@@ -244,6 +272,7 @@ export class MarkerRenderer {
     this.removeMarker('attackRange');
     this.removeMarker('movePath');
     this.removeMarker('terrainDebug');
+    this.removeMarker('unitsDebug');
     this.clearOutcome();
   }
 
@@ -277,6 +306,7 @@ export class MarkerRenderer {
       | 'attackRange'
       | 'movePath'
       | 'terrainDebug'
+      | 'unitsDebug'
   ): void {
     const current = this[kind];
     if (current) {
@@ -355,8 +385,20 @@ export class MarkerRenderer {
     return mesh;
   }
 
-  /** Outcome-token fallback: floating octahedron (GLB number tokens in prod). */
+  /** Outcome-token fallback: floating 3D numeral / torus / octahedron. */
   private createOutcomeToken(color: number, wounds: number): THREE.Object3D {
+    if (wounds === 0) {
+      const group = new THREE.Group();
+      // Three.js Torus lies in the XY plane; rotating 90° around Y makes its front face point along -X,
+      // matching the Kenney number GLBs oriented by orientOutcomeToCamera.
+      const geometry = new THREE.TorusGeometry(0.24, 0.065, 16, 32);
+      const material = new THREE.MeshStandardMaterial({ color: 0xb0bec5, roughness: 0.4 });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.y = Math.PI / 2;
+      mesh.scale.set(0.8, 1.2, 0.8);
+      group.add(mesh);
+      return group;
+    }
     const geometry = new THREE.OctahedronGeometry(0.22 + 0.05 * wounds);
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
     return new THREE.Mesh(geometry, material);

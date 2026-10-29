@@ -75,6 +75,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
       ? latestState.terrain.find((t) => t.id === markers.hoveredTerrainId) ?? null
       : null;
   gameView.setTerrainDebugMarker(hoveredTerrain);
+  gameView.setUnitsDebugMarker(markers.debugActive && latestState ? latestState.units : null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }
@@ -135,6 +136,13 @@ const lobby = new Lobby(lobbyContainer, {
       },
     });
     hud.show();
+
+    webrtcClient.onConnectionState((state) => {
+      hud?.setNetworkStatus({ peer: state });
+    });
+    signalingClient.onConnectionState((state) => {
+      hud?.setNetworkStatus({ signaling: state });
+    });
 
     gameManager.onStateUpdate((state) => {
       latestState = state;

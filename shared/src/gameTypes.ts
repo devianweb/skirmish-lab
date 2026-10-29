@@ -190,7 +190,13 @@ export interface DiceResolution {
     effectiveDefense?: number;
     coverApplied?: boolean;
     apApplied?: number;
+    baseQuality?: number;
+    hitModifiers?: string[];
+    baseDefense?: number;
+    defenseModifiers?: string[];
     traumaRoll?: number;
+    traumaTokens?: number;
+    traumaDreadBonus?: number;
     traumaTotal?: number;
     traumaOutcome?: 'shaken' | 'knocked-out';
     moraleRoll?: number;

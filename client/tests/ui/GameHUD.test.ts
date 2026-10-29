@@ -530,4 +530,44 @@ describe('GameHUD', () => {
     expect(container.querySelector('.sl-hud-terrain-debug')).toBeNull();
     expect(emitted.at(-1)?.hoveredTerrainId).toBeNull();
   });
+
+  it('renders top alert banners when opponent or signaling disconnects', () => {
+    const state = scenarioState();
+    const { hud, container } = setup(HOST, state);
+    expect(container.querySelector('.sl-hud-alert')).toBeNull();
+
+    hud.setNetworkStatus({ peer: 'disconnected' });
+    expect(container.querySelector('.sl-hud-alert-error')?.textContent).toContain('Opponent disconnected');
+
+    hud.setNetworkStatus({ peer: 'connected', signaling: 'reconnecting' });
+    expect(container.querySelector('.sl-hud-alert-warn')?.textContent).toContain('Signaling disconnected');
+
+    hud.setNetworkStatus({ signaling: 'connected' });
+    expect(container.querySelector('.sl-hud-alert')).toBeNull();
+  });
+
+  it('applies red team styling to Guest units and blue team styling to Host units', () => {
+    const state = scenarioState();
+    // From Host perspective: Host units are team-blue, Guest units are team-red
+    const hostView = setup(HOST, state);
+    expect(hostView.container.querySelectorAll('.sl-hud-unit.team-blue').length).toBe(5);
+    expect(hostView.container.querySelectorAll('.sl-hud-unit.enemy.team-red').length).toBe(5);
+
+    // From Guest perspective: Guest units are still team-red, Host enemy units are team-blue
+    const guestView = setup(GUEST, state);
+    expect(guestView.container.querySelectorAll('.sl-hud-unit.team-red:not(.enemy)').length).toBe(5);
+    expect(guestView.container.querySelectorAll('.sl-hud-unit.enemy.team-blue').length).toBe(5);
+  });
+
+  it('renders trait tooltips with describeTrait explanations', () => {
+    const state = scenarioState();
+    const { container } = setup(HOST, state);
+    const badges = Array.from(container.querySelectorAll('.sl-trait-badge'));
+    expect(badges.length).toBeGreaterThan(0);
+    // Every trait badge must have an explanatory title attribute
+    for (const badge of badges) {
+      expect(badge.getAttribute('title')).toBeTruthy();
+      expect(badge.getAttribute('title')!.length).toBeGreaterThan(5);
+    }
+  });
 });
