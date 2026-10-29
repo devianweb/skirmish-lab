@@ -243,7 +243,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 ### Tasks
 - [ ] Heartbeat timeout detection
-- [ ] Disconnect UI/handling
+- [ ] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling room connection drops)
 - [ ] Snapshot storage and retrieval
 - [ ] Reconnection flow
 - [ ] State re-sync on reconnection
@@ -268,7 +268,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Test dice rolling fairness
 - [ ] Test action validation
 - [ ] Performance testing
-- [ ] UI/UX polish
+- [ ] UI/UX polish (connection status indicators & top-banner alerts for peer/room disconnects)
 - [ ] "Play Again" / rematch option on the game-over screen (reset game state over the existing peer connection without returning to the lobby)
 - [ ] Bug fixes
 - [ ] Documentation updates
