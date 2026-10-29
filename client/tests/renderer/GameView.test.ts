@@ -292,5 +292,32 @@ describe('GameView', () => {
       gameView.setupCameraForRole('guest');
       expect(setupForRoleSpy).toHaveBeenCalledWith('guest');
     });
+
+    it('delegates terrain debug and shooting debug rays to MarkerRenderer', () => {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = {
+        getScene: () => scene,
+        startAnimationLoop: () => {},
+      };
+      const gameView = new GameView({ sceneManager });
+
+      gameView.setTerrainDebugMarker([makeTerrain()], { hoveredPieceId: 'terrain-1' });
+      expect(scene.getObjectByName('marker-terrain-debug')).toBeDefined();
+
+      gameView.setShootingDebugRayMarker({
+        attackerId: 'u1',
+        from: { x: 0, y: 0.45, z: 0 },
+        to: { x: 0, y: 0.45, z: 5 },
+        distance: 5,
+        hasLineOfSight: true,
+        providesCover: false,
+        intersections: [],
+      });
+      expect(scene.getObjectByName('marker-shooting-debug')).toBeDefined();
+
+      gameView.clearMarkers();
+      expect(scene.getObjectByName('marker-terrain-debug')).toBeUndefined();
+      expect(scene.getObjectByName('marker-shooting-debug')).toBeUndefined();
+    });
   });
 });

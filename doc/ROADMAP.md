@@ -235,6 +235,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
   - [x] Disconnect / reconnect top warning banners for WebRTC and Signaling status.
   - [x] Adjusted asset scales (crates lower to waist height, figurines larger to avoid teeny runners).
   - [x] F9 debugger unit wireframes showing LoS blocking cylinder bounds (`LOS_UNIT_RADIUS = 0.4`).
+  - [x] F9 shooting targeting debug visualization: 3D ray from attacker to target/mouse cursor, terrain intersection entry/exit boundary rings, flank rays (±0.3") for partial cover, full-board terrain wireframes (cyan solid LoS blocker, amber low cover, gold active cover), and HUD shooting ray analysis card.
 - [ ] **PR 6B: Navigation & Full Maneuvers**:
   - [ ] Shortest-path auto-pathfinding around obstacles (visibility-graph A* around terrain and fighter bounds for move and charge).
   - [ ] Full Tabletop Maneuver Actions: Hold (clear stun or hold), Advance (move up to speed + shoot), Rush (move up to 2× speed, no shoot), Charge (move up to 2× speed into melee contact and resolve melee strike).

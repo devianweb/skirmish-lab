@@ -5,6 +5,7 @@ import { applyAction } from '../../src/engine/actions';
 import {
   clampMoveDestinationWithObstacles,
   computeLosVisibilityPolygon,
+  computeShootingRayDebug,
   findMoveBlocker,
   hasCoverAgainstAttack,
   hasLineOfSight,
@@ -237,5 +238,72 @@ describe('spatial: hasCoverAgainstAttack', () => {
 
     expect(hasLineOfSight(state, attacker, target)).toBe(true);
     expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
+  });
+});
+
+describe('spatial: shooting ray debug calculations', () => {
+  it('computes ray intersections with a crate along the line of fire', () => {
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    // Crate at (0, 0, 5) with scale (1, 1, 1), half-extents (0.35, 0.35) + 0.15 margin = 0.5
+    const crate = {
+      id: 'c1',
+      terrainType: 'crate',
+      position: { x: 0, y: 0, z: 5 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: true,
+    };
+    const state = makeState([attacker, target], [crate]);
+
+    const debug = computeShootingRayDebug(state, attacker, target);
+    expect(debug.attackerId).toBe('h1');
+    expect(debug.targetId).toBe('g1');
+    expect(debug.distance).toBe(10);
+    expect(debug.hasLineOfSight).toBe(true);
+    expect(debug.providesCover).toBe(true);
+    expect(debug.coverPieceId).toBe('c1');
+    expect(debug.intersections.length).toBe(1);
+
+    const hit = debug.intersections[0];
+    expect(hit.pieceId).toBe('c1');
+    expect(hit.isCoverProvider).toBe(true);
+    expect(hit.isLoSBlocker).toBe(false);
+    expect(hit.tEntry).toBeCloseTo(4.5, 1);
+    expect(hit.tExit).toBeCloseTo(5.5, 1);
+    expect(hit.entryPoint.z).toBeCloseTo(4.5, 1);
+    expect(hit.exitPoint.z).toBeCloseTo(5.5, 1);
+  });
+
+  it('detects Line of Sight blocking by a solid wall', () => {
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const wall = makeWall('w1', { x: 0, y: 0, z: 5 }, true);
+    const state = makeState([attacker, target], [wall]);
+
+    const debug = computeShootingRayDebug(state, attacker, target);
+    expect(debug.hasLineOfSight).toBe(false);
+    expect(debug.blockedByPieceId).toBe('w1');
+    expect(debug.intersections.some((i) => i.isLoSBlocker)).toBe(true);
+  });
+
+  it('evaluates flank rays for wall corner peeking', () => {
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const wall = makeWall('w1', { x: 2.25, y: 0, z: 10 }, true);
+    const state = makeState([attacker, target], [wall]);
+
+    const debug = computeShootingRayDebug(state, attacker, target);
+    expect(debug.hasLineOfSight).toBe(true);
+    expect(debug.providesCover).toBe(true);
+    expect(debug.flankRays).toBeDefined();
+    expect(debug.flankRays!.length).toBe(2);
+
+    const leftFlank = debug.flankRays!.find((f) => f.side === 'left');
+    const rightFlank = debug.flankRays!.find((f) => f.side === 'right');
+    expect(rightFlank?.blocked).toBe(true);
+    expect(leftFlank?.blocked).toBe(false);
   });
 });

@@ -176,4 +176,91 @@ describe('MarkerRenderer', () => {
     });
     expect(renderer.getRenderedMarkerNames()).toContain('marker-terrain-debug');
   });
+
+  it('renders wireframe debug boxes for all terrain pieces with hovered and active cover highlights', () => {
+    const renderer = makeRenderer();
+    const terrain = [
+      {
+        id: 'wall-1',
+        terrainType: 'wall',
+        position: { x: 0, y: 0, z: 5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2, z: 1 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+      {
+        id: 'crate-1',
+        terrainType: 'crate',
+        position: { x: 3, y: 0, z: 2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
+
+    renderer.setTerrainDebug(terrain, {
+      hoveredPieceId: 'wall-1',
+      activeCoverPieceId: 'crate-1',
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-terrain-debug');
+    const debugGroup = scene.getObjectByName('marker-terrain-debug')!;
+    expect(debugGroup.getObjectByName('marker-terrain-wall-1')).toBeDefined();
+    expect(debugGroup.getObjectByName('marker-terrain-crate-1')).toBeDefined();
+  });
+
+  it('renders 3D shooting line, intersection rings, and flank rays for shooting debug', () => {
+    const renderer = makeRenderer();
+    renderer.setShootingDebugRay({
+      attackerId: 'u1',
+      targetId: 'u2',
+      from: { x: 0, y: 0.45, z: 0 },
+      to: { x: 0, y: 0.45, z: 10 },
+      distance: 10,
+      hasLineOfSight: true,
+      providesCover: true,
+      coverPieceId: 'crate-1',
+      intersections: [
+        {
+          pieceId: 'crate-1',
+          terrainType: 'crate',
+          entryPoint: { x: 0, y: 0.45, z: 4.5 },
+          exitPoint: { x: 0, y: 0.45, z: 5.5 },
+          tEntry: 0.45,
+          tExit: 0.55,
+          providesCover: true,
+          blocksLineOfSight: false,
+          isCoverProvider: true,
+          isLoSBlocker: false,
+          ignoredAsAdjacentShooterCover: false,
+        },
+      ],
+      flankRays: [
+        {
+          from: { x: 0, y: 0.45, z: 0 },
+          to: { x: -0.3, y: 0.45, z: 10 },
+          side: 'left',
+          blocked: false,
+        },
+        {
+          from: { x: 0, y: 0.45, z: 0 },
+          to: { x: 0.3, y: 0.45, z: 10 },
+          side: 'right',
+          blocked: true,
+          blockedByPieceId: 'crate-1',
+        },
+      ],
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-shooting-debug');
+    const rayGroup = scene.getObjectByName('marker-shooting-debug')!;
+    expect(rayGroup.children.length).toBeGreaterThanOrEqual(4);
+
+    renderer.clearAll();
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-shooting-debug');
+  });
 });

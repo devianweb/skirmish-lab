@@ -74,7 +74,15 @@ function applyMarkers(markers: MarkerSnapshot): void {
     latestState && markers.hoveredTerrainId
       ? latestState.terrain.find((t) => t.id === markers.hoveredTerrainId) ?? null
       : null;
-  gameView.setTerrainDebugMarker(hoveredTerrain);
+  if (markers.debugActive && latestState) {
+    gameView.setTerrainDebugMarker(latestState.terrain, {
+      hoveredPieceId: markers.hoveredTerrainId ?? undefined,
+      activeCoverPieceId: markers.shootingDebugRay?.coverPieceId,
+    });
+  } else {
+    gameView.setTerrainDebugMarker(hoveredTerrain);
+  }
+  gameView.setShootingDebugRayMarker(markers.shootingDebugRay ?? null);
   gameView.setUnitsDebugMarker(markers.debugActive && latestState ? latestState.units : null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
