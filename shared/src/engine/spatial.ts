@@ -480,6 +480,267 @@ export function hasCoverAgainstAttack(
   return false;
 }
 
+export interface TerrainIntersectionDebug {
+  pieceId: string;
+  terrainType: string;
+  entryPoint: Vector3;
+  exitPoint: Vector3;
+  tEntry: number;
+  tExit: number;
+  providesCover: boolean;
+  blocksLineOfSight: boolean;
+  isCoverProvider: boolean;
+  isLoSBlocker: boolean;
+  ignoredAsAdjacentShooterCover: boolean;
+}
+
+export interface FlankRayDebug {
+  from: Vector3;
+  to: Vector3;
+  side: 'left' | 'right';
+  blocked: boolean;
+  blockedByPieceId?: string;
+}
+
+export interface ShootingRayDebugInfo {
+  attackerId: string;
+  targetId?: string;
+  from: Vector3;
+  to: Vector3;
+  distance: number;
+  hasLineOfSight: boolean;
+  blockedByUnitId?: string;
+  blockedByPieceId?: string;
+  providesCover: boolean;
+  coverReason?: string;
+  coverPieceId?: string;
+  intersections: TerrainIntersectionDebug[];
+  flankRays?: FlankRayDebug[];
+}
+
+/**
+ * Compute exhaustive shooting ray debug information for the F9 debugger:
+ * center line from attacker to target/aim position, entry and exit coordinates
+ * on all intersected terrain bounding boxes, LoS obstruction, cover provider,
+ * and left/right flank rays showing partial corner obscuration.
+ */
+export function computeShootingRayDebug(
+  state: GameState,
+  attacker: Unit,
+  targetOrPoint: Unit | Vector3
+): ShootingRayDebugInfo {
+  const isTargetUnit = 'id' in targetOrPoint && 'position' in targetOrPoint;
+  const targetUnit = isTargetUnit ? (targetOrPoint as Unit) : null;
+  const targetPos = isTargetUnit ? targetUnit!.position : (targetOrPoint as Vector3);
+
+  const from: Vector3 = { x: attacker.position.x, y: 0.45, z: attacker.position.z };
+  const to: Vector3 = { x: targetPos.x, y: 0.45, z: targetPos.z };
+
+  const dx = targetPos.x - attacker.position.x;
+  const dz = targetPos.z - attacker.position.z;
+  const distance = Math.hypot(dx, dz);
+
+  if (distance < 1e-4) {
+    return {
+      attackerId: attacker.id,
+      targetId: targetUnit?.id,
+      from,
+      to,
+      distance: 0,
+      hasLineOfSight: true,
+      providesCover: false,
+      intersections: [],
+    };
+  }
+
+  const dirX = dx / distance;
+  const dirZ = dz / distance;
+  const perpX = -dirZ;
+  const perpZ = dirX;
+
+  const intersections: TerrainIntersectionDebug[] = [];
+  let blockedByPieceId: string | undefined;
+  let blockedByUnitId: string | undefined;
+  let coverPieceId: string | undefined;
+  let coverReason: string | undefined;
+  let earliestLoSBlockDist = Infinity;
+
+  // 1. Raycast against all terrain pieces
+  for (const piece of state.terrain) {
+    const { hx, hz } = terrainHalfExtents(piece);
+    const pieceRadius = Math.hypot(hx, hz);
+    const toPieceX = piece.position.x - attacker.position.x;
+    const toPieceZ = piece.position.z - attacker.position.z;
+    const projDist = toPieceX * dirX + toPieceZ * dirZ;
+
+    const margin = piece.blocksLineOfSight ? 0 : 0.15;
+    const hit = intersectRayTerrain(attacker.position, dirX, dirZ, distance, piece, margin);
+    if (!hit) continue;
+
+    const isAdjacentShooterCover = projDist <= 1.0;
+    const isBehindTarget = projDist > distance + pieceRadius;
+
+    let isLoSBlocker = false;
+    if (piece.blocksLineOfSight && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
+      isLoSBlocker = true;
+      if (hit.tEntry < earliestLoSBlockDist) {
+        earliestLoSBlockDist = hit.tEntry;
+        blockedByPieceId = piece.id;
+      }
+    }
+
+    let isCoverProvider = false;
+    if (piece.providesCover && !isAdjacentShooterCover && !isBehindTarget) {
+      if (!piece.blocksLineOfSight) {
+        if (hit.tEntry >= 0.8 && hit.tExit <= distance + 0.1 && hit.tEntry < distance - 0.05) {
+          isCoverProvider = true;
+          coverPieceId = piece.id;
+          coverReason = `Intervening low cover (${piece.terrainType})`;
+        }
+      }
+    }
+
+    intersections.push({
+      pieceId: piece.id,
+      terrainType: piece.terrainType,
+      entryPoint: {
+        x: Math.round((attacker.position.x + dirX * hit.tEntry) * 100) / 100,
+        y: 0.45,
+        z: Math.round((attacker.position.z + dirZ * hit.tEntry) * 100) / 100,
+      },
+      exitPoint: {
+        x: Math.round((attacker.position.x + dirX * hit.tExit) * 100) / 100,
+        y: 0.45,
+        z: Math.round((attacker.position.z + dirZ * hit.tExit) * 100) / 100,
+      },
+      tEntry: Math.round(hit.tEntry * 100) / 100,
+      tExit: Math.round(hit.tExit * 100) / 100,
+      providesCover: piece.providesCover,
+      blocksLineOfSight: piece.blocksLineOfSight,
+      isCoverProvider,
+      isLoSBlocker,
+      ignoredAsAdjacentShooterCover: isAdjacentShooterCover,
+    });
+  }
+
+  // Sort intersections along the ray from shooter to target
+  intersections.sort((a, b) => a.tEntry - b.tEntry);
+
+  // 2. Check intervening units for LoS blocking
+  for (const other of state.units) {
+    if (
+      other.isDestroyed ||
+      other.id === attacker.id ||
+      (targetUnit && other.id === targetUnit.id)
+    ) {
+      continue;
+    }
+    const hit = intersectRayCircle(
+      attacker.position,
+      dirX,
+      dirZ,
+      distance,
+      other.position,
+      LOS_UNIT_RADIUS
+    );
+    if (hit && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
+      if (hit.tEntry < earliestLoSBlockDist) {
+        earliestLoSBlockDist = hit.tEntry;
+        blockedByUnitId = other.id;
+        blockedByPieceId = undefined;
+      }
+    }
+  }
+
+  const hasLineOfSight = !blockedByPieceId && !blockedByUnitId;
+
+  // 3. Flank rays for target units (partial wall obscuration)
+  let flankRays: FlankRayDebug[] | undefined;
+  if (targetUnit) {
+    flankRays = [];
+    const flankOffset = 0.3;
+    for (const [side, sgn] of [
+      ['left', 1],
+      ['right', -1],
+    ] as const) {
+      const fX = targetPos.x + perpX * flankOffset * sgn;
+      const fZ = targetPos.z + perpZ * flankOffset * sgn;
+      const fDx = fX - attacker.position.x;
+      const fDz = fZ - attacker.position.z;
+      const fDist = Math.hypot(fDx, fDz);
+      let blocked = false;
+      let pieceBlocked: string | undefined;
+
+      if (fDist > 1e-4) {
+        const fDirX = fDx / fDist;
+        const fDirZ = fDz / fDist;
+        for (const piece of state.terrain) {
+          if (!piece.blocksLineOfSight) continue;
+          const hit = intersectRayTerrain(attacker.position, fDirX, fDirZ, fDist, piece, 0);
+          if (hit && hit.tEntry >= 0.8 && hit.tEntry < fDist - 0.05) {
+            blocked = true;
+            pieceBlocked = piece.id;
+            break;
+          }
+        }
+      }
+
+      flankRays.push({
+        from,
+        to: { x: fX, y: 0.45, z: fZ },
+        side,
+        blocked,
+        blockedByPieceId: pieceBlocked,
+      });
+    }
+
+    if (!coverPieceId) {
+      const blockedFlank = flankRays.find((f) => f.blocked);
+      if (blockedFlank) {
+        // Target must be adjacent to the wall (within 1.0") to claim partial cover
+        const piece = state.terrain.find((p) => p.id === blockedFlank.blockedByPieceId);
+        if (piece) {
+          const { hx, hz } = terrainHalfExtents(piece);
+          const pieceRadius = Math.hypot(hx, hz);
+          const distToTarget = Math.hypot(
+            targetUnit.position.x - piece.position.x,
+            targetUnit.position.z - piece.position.z
+          );
+          if (distToTarget <= pieceRadius + 1.0) {
+            coverPieceId = piece.id;
+            coverReason = `Sight-blocking partial cover (${piece.terrainType} obscures ${blockedFlank.side} flank)`;
+          }
+        }
+      }
+    }
+
+    if (targetUnit.status.includes('in-cover') && !coverPieceId) {
+      coverReason = 'Unit has in-cover status';
+    }
+  }
+
+  const providesCover =
+    targetUnit
+      ? hasCoverAgainstAttack(state, attacker, targetUnit)
+      : !!coverPieceId;
+
+  return {
+    attackerId: attacker.id,
+    targetId: targetUnit?.id,
+    from,
+    to,
+    distance: Math.round(distance * 100) / 100,
+    hasLineOfSight,
+    blockedByUnitId,
+    blockedByPieceId,
+    providesCover,
+    coverReason,
+    coverPieceId,
+    intersections,
+    flankRays,
+  };
+}
+
 /**
  * Compute a 2D visibility polygon (star-shaped fan around `origin` up to
  * `maxRange`) showing where Line of Sight is clear vs blocked by

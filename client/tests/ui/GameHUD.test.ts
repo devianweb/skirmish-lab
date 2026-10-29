@@ -570,4 +570,49 @@ describe('GameHUD', () => {
       expect(badge.getAttribute('title')!.length).toBeGreaterThan(5);
     }
   });
+
+  it('emits shootingDebugRay and renders shooting debug card when F9 is active during shoot targeting', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged')
+    )!;
+    const enemy = state.units.find((u) => u.ownerId === GUEST)!;
+    activateUnit(state, HOST, attacker.id);
+
+    const { hud, container } = setup(HOST, state);
+    const emitted: MarkerSnapshot[] = [];
+    hud.onMarkers((m) => emitted.push(m));
+
+    // Turn F9 ON
+    hud.toggleTerrainDebug(true);
+    expect(emitted.at(-1)?.debugActive).toBe(true);
+
+    // Click Shoot
+    clickByText(container, 'Shoot');
+    expect(container.textContent).toContain('Select an enemy target');
+
+    // Hover an enemy unit
+    hud.handleBoardHover({ kind: 'unit', unitId: enemy.id });
+    const lastMarker = emitted.at(-1);
+    expect(lastMarker?.shootingDebugRay).toBeDefined();
+    expect(lastMarker?.shootingDebugRay?.attackerId).toBe(attacker.id);
+    expect(lastMarker?.shootingDebugRay?.targetId).toBe(enemy.id);
+
+    // Inspector card shows shooting debug
+    const debugCards = container.querySelectorAll('.sl-hud-terrain-debug');
+    expect(debugCards.length).toBeGreaterThan(0);
+    const shootingCard = Array.from(debugCards).find((c) =>
+      c.textContent?.includes('Shooting Ray Debug (F9)')
+    );
+    expect(shootingCard).toBeTruthy();
+    expect(shootingCard?.textContent).toContain('LoS:');
+    expect(shootingCard?.textContent).toContain('Cover:');
+
+    // Hover ground position instead
+    hud.handleBoardHover({ kind: 'position', position: { x: 5, y: 0, z: 5 } });
+    const groundMarker = emitted.at(-1);
+    expect(groundMarker?.shootingDebugRay).toBeDefined();
+    expect(groundMarker?.shootingDebugRay?.targetId).toBeUndefined();
+    expect(groundMarker?.shootingDebugRay?.to.x).toBe(5);
+  });
 });

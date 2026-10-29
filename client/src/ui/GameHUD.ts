@@ -1,6 +1,7 @@
 import {
   clampMoveDestinationWithObstacles,
   computeCombatModifiers,
+  computeShootingRayDebug,
   createAction,
   describeTerrainPiece,
   describeTrait,
@@ -12,6 +13,7 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
+  ShootingRayDebugInfo,
   Unit,
   Vector3,
 } from '@skirmish-lab/shared';
@@ -41,6 +43,7 @@ export interface MarkerSnapshot {
   hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
   debugActive?: boolean;
+  shootingDebugRay?: ShootingRayDebugInfo | null;
 }
 
 export type PickTarget =
@@ -73,6 +76,8 @@ export class GameHUD {
   private hoveredUnitId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
+  /** Ground position hovered on the board (for debug raycast aiming). */
+  private hoveredGroundPosition: Vector3 | null = null;
   /** Whether the F9 terrain hover debugger is enabled. */
   private terrainDebugEnabled = false;
   private keydownHandler: (event: KeyboardEvent) => void;
@@ -130,6 +135,8 @@ export class GameHUD {
         ? 'Terrain debugger: ON (hover terrain to inspect, F9 to hide)'
         : 'Terrain debugger: OFF'
     );
+    this.updateDataCardSlot();
+    this.emitMarkers();
     return this.terrainDebugEnabled;
   }
 
@@ -199,6 +206,16 @@ export class GameHUD {
     const terrainChanged = nextTerrainId !== this.hoveredTerrainId;
     this.hoveredTerrainId = nextTerrainId;
 
+    const nextGroundPos = target?.kind === 'position' ? target.position : null;
+    const groundPosChanged =
+      (nextGroundPos === null && this.hoveredGroundPosition !== null) ||
+      (nextGroundPos !== null && this.hoveredGroundPosition === null) ||
+      (nextGroundPos !== null &&
+        this.hoveredGroundPosition !== null &&
+        (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
+          Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
+    this.hoveredGroundPosition = nextGroundPos;
+
     if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
@@ -214,7 +231,7 @@ export class GameHUD {
     }
 
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
-    if (nextHover !== this.hoveredUnitId || terrainChanged) {
+    if (nextHover !== this.hoveredUnitId || terrainChanged || (this.terrainDebugEnabled && groundPosChanged)) {
       this.hoveredUnitId = nextHover;
       this.updateDataCardSlot();
       this.emitMarkers();
@@ -1055,42 +1072,171 @@ export class GameHUD {
       </div>`;
   }
 
-  private renderTerrainDebugCard(): string {
-    if (!this.terrainDebugEnabled || !this.state || !this.hoveredTerrainId) return '';
-    const piece = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
-    if (!piece) return '';
-    const info = describeTerrainPiece(piece);
-    const flags = [
-      info.blocksLineOfSight ? 'Blocks LoS' : 'No LoS Block',
-      info.isObstacle ? 'Obstacle' : 'Passable',
-      info.providesCover ? 'Cover' : 'No Cover',
-    ].join(' · ');
+  private getActiveShootingDebug(): ShootingRayDebugInfo | null {
+    if (!this.terrainDebugEnabled || !this.state) return null;
 
-    return `
-      <div class="sl-hud-datacard sl-hud-terrain-debug">
-        <div class="sl-hud-datacard-header">
-          <span class="sl-hud-datacard-name">${info.id}</span>
-          <span class="sl-hud-datacard-meta">Terrain · ${info.terrainType} · <code>${info.modelFile}</code></span>
-          <span class="sl-hud-datacard-tags">${flags}</span>
-        </div>
-        <div class="sl-hud-datacard-tables">
-          <table class="sl-hud-table">
-            <thead>
-              <tr><th>Position</th><th>Scale</th><th>Rot Y</th><th>Footprint (X×Z)</th><th>Half-Extents</th><th>Raw GLB Size</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>(${info.position.x.toFixed(1)}, ${info.position.y.toFixed(1)}, ${info.position.z.toFixed(1)})</td>
-                <td>(${info.scale.x}, ${info.scale.y}, ${info.scale.z})</td>
-                <td>${info.rotationDeg}°</td>
-                <td>${info.worldFootprint.width.toFixed(2)}" × ${info.worldFootprint.depth.toFixed(2)}"</td>
-                <td>hx=${info.halfExtents.hx.toFixed(2)}", hz=${info.halfExtents.hz.toFixed(2)}"</td>
-                <td>${info.rawGlbSize}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>`;
+    let shooter: Unit | null = null;
+    let targetOrPoint: Unit | Vector3 | null = null;
+
+    if (this.flow.mode === 'confirming' && this.flow.action.type === 'shoot') {
+      const payload = this.flow.action.payload as { attackerId?: string; targetId?: string };
+      shooter = this.state.units.find((u) => u.id === payload.attackerId) ?? this.activeUnit;
+      if (payload.targetId) {
+        targetOrPoint = this.state.units.find((u) => u.id === payload.targetId) ?? null;
+      }
+    } else if (this.flow.mode === 'targeting' && this.flow.action === 'shoot') {
+      shooter = this.activeUnit;
+      if (this.hoveredUnitId) {
+        targetOrPoint = this.state.units.find((u) => u.id === this.hoveredUnitId && !u.isDestroyed) ?? null;
+      }
+      if (!targetOrPoint && this.hoveredGroundPosition) {
+        targetOrPoint = this.hoveredGroundPosition;
+      }
+    } else if (
+      (this.flow.mode === 'idle' || this.hoveredAction === 'shoot') &&
+      this.activeUnit
+    ) {
+      shooter = this.activeUnit;
+      if (this.hoveredUnitId && this.hoveredUnitId !== shooter.id) {
+        targetOrPoint = this.state.units.find((u) => u.id === this.hoveredUnitId && !u.isDestroyed) ?? null;
+      }
+    }
+
+    if (!shooter || !targetOrPoint) return null;
+    return computeShootingRayDebug(this.state, shooter, targetOrPoint);
+  }
+
+  private renderTerrainDebugCard(): string {
+    if (!this.terrainDebugEnabled || !this.state) return '';
+    const cards: string[] = [];
+
+    const ray = this.getActiveShootingDebug();
+    if (ray) {
+      const shooter = this.state.units.find((u) => u.id === ray.attackerId);
+      const targetUnit = ray.targetId ? this.state.units.find((u) => u.id === ray.targetId) : null;
+      const targetName = targetUnit
+        ? targetUnit.name
+        : `Ground (${ray.to.x.toFixed(1)}, ${ray.to.z.toFixed(1)})`;
+      const shooterName = shooter ? shooter.name : ray.attackerId;
+
+      const losTag = ray.hasLineOfSight
+        ? '<span style="color:#00e5ff;">LoS: CLEAR</span>'
+        : `<span style="color:#ef5350;">LoS: BLOCKED (${
+            ray.blockedByPieceId
+              ? `Piece: ${ray.blockedByPieceId}`
+              : ray.blockedByUnitId
+              ? `Unit: ${ray.blockedByUnitId}`
+              : 'Obstacle'
+          })</span>`;
+
+      const coverTag = ray.providesCover
+        ? `<span style="color:#ffd600;">Cover: IN COVER (+1 Def${
+            ray.coverPieceId ? ` via ${ray.coverPieceId}` : ''
+          })</span>`
+        : '<span style="color:#90a4ae;">Cover: OPEN (No Cover)</span>';
+
+      const flankText =
+        ray.flankRays && ray.flankRays.length > 0
+          ? ray.flankRays
+              .map(
+                (f) =>
+                  `${f.side.toUpperCase()}: ${
+                    f.blocked
+                      ? '<span style="color:#ef5350;">Blocked</span>'
+                      : '<span style="color:#26a69a;">Clear</span>'
+                  }`
+              )
+              .join(' · ')
+          : null;
+
+      const interRows =
+        ray.intersections.length === 0
+          ? '<tr><td colspan="5" style="color:#78909c; font-style:italic;">No terrain intersected along shooting line</td></tr>'
+          : ray.intersections
+              .map((i) => {
+                const tag = i.isLoSBlocker
+                  ? '<span style="color:#ef5350;">Blocks LoS</span>'
+                  : i.isCoverProvider
+                  ? '<span style="color:#ffd600;">Provides Cover</span>'
+                  : i.ignoredAsAdjacentShooterCover
+                  ? '<span style="color:#78909c;">Shooter Touch (Ignored)</span>'
+                  : '<span style="color:#90caf9;">Passable</span>';
+                return `<tr>
+                  <td><code>${i.pieceId}</code></td>
+                  <td>${i.terrainType}</td>
+                  <td>(${i.entryPoint.x.toFixed(1)}, ${i.entryPoint.z.toFixed(1)})</td>
+                  <td>(${i.exitPoint.x.toFixed(1)}, ${i.exitPoint.z.toFixed(1)})</td>
+                  <td>${tag}</td>
+                </tr>`;
+              })
+              .join('');
+
+      cards.push(`
+        <div class="sl-hud-datacard sl-hud-terrain-debug">
+          <div class="sl-hud-datacard-header">
+            <span class="sl-hud-datacard-name">Shooting Ray Debug (F9)</span>
+            <span class="sl-hud-datacard-meta">${shooterName} ➔ ${targetName} (${ray.distance.toFixed(1)}")</span>
+            <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}</span>
+          </div>
+          <div class="sl-hud-datacard-tables">
+            <table class="sl-hud-table">
+              <thead>
+                <tr><th>Terrain Piece</th><th>Type</th><th>Entry (X, Z)</th><th>Exit (X, Z)</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                ${interRows}
+              </tbody>
+            </table>
+            ${
+              flankText
+                ? `<div style="font-size:11px; margin-top:4px; color:#b0bec5;">Flank rays: ${flankText}${
+                    ray.coverReason ? ` · <em>${ray.coverReason}</em>` : ''
+                  }</div>`
+                : ''
+            }
+          </div>
+        </div>`);
+    }
+
+    if (this.hoveredTerrainId) {
+      const piece = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
+      if (piece) {
+        const info = describeTerrainPiece(piece);
+        const flags = [
+          info.blocksLineOfSight ? 'Blocks LoS' : 'No LoS Block',
+          info.isObstacle ? 'Obstacle' : 'Passable',
+          info.providesCover ? 'Cover' : 'No Cover',
+        ].join(' · ');
+
+        cards.push(`
+          <div class="sl-hud-datacard sl-hud-terrain-debug">
+            <div class="sl-hud-datacard-header">
+              <span class="sl-hud-datacard-name">${info.id}</span>
+              <span class="sl-hud-datacard-meta">Terrain · ${info.terrainType} · <code>${info.modelFile}</code></span>
+              <span class="sl-hud-datacard-tags">${flags}</span>
+            </div>
+            <div class="sl-hud-datacard-tables">
+              <table class="sl-hud-table">
+                <thead>
+                  <tr><th>Position</th><th>Scale</th><th>Rot Y</th><th>Footprint (X×Z)</th><th>Half-Extents</th><th>Raw GLB Size</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>(${info.position.x.toFixed(1)}, ${info.position.y.toFixed(1)}, ${info.position.z.toFixed(1)})</td>
+                    <td>(${info.scale.x}, ${info.scale.y}, ${info.scale.z})</td>
+                    <td>${info.rotationDeg}°</td>
+                    <td>${info.worldFootprint.width.toFixed(2)}" × ${info.worldFootprint.depth.toFixed(2)}"</td>
+                    <td>hx=${info.halfExtents.hx.toFixed(2)}", hz=${info.halfExtents.hz.toFixed(2)}"</td>
+                    <td>${info.rawGlbSize}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>`);
+      }
+    }
+
+    return cards.join('');
   }
 
   private updateDataCardSlot(): void {
@@ -1215,6 +1361,8 @@ export class GameHUD {
         ? hoveredUnit.id
         : this.selectedUnitId;
 
+    const shootingDebugRay = this.getActiveShootingDebug();
+
     const markers: MarkerSnapshot = {
       selectedUnitId: selectedId,
       targetUnitId: null,
@@ -1225,6 +1373,7 @@ export class GameHUD {
       hoveredTerrainId: this.terrainDebugEnabled ? this.hoveredTerrainId : null,
       outcome,
       debugActive: this.terrainDebugEnabled,
+      shootingDebugRay,
     };
 
     // If hovering an enemy unit, show the bright red target ring under that enemy.

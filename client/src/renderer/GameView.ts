@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
+import { GameState, ShootingRayDebugInfo, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
@@ -186,8 +186,15 @@ export class GameView {
     this.markerRenderer.setMovePath(path);
   }
 
-  setTerrainDebugMarker(piece: TerrainPiece | null): void {
-    this.markerRenderer.setTerrainDebug(piece);
+  setTerrainDebugMarker(
+    piece: TerrainPiece | TerrainPiece[] | null,
+    options?: { hoveredPieceId?: string; activeCoverPieceId?: string }
+  ): void {
+    this.markerRenderer.setTerrainDebug(piece, options);
+  }
+
+  setShootingDebugRayMarker(debug: ShootingRayDebugInfo | null): void {
+    this.markerRenderer.setShootingDebugRay(debug);
   }
 
   setUnitsDebugMarker(units: Unit[] | null): void {

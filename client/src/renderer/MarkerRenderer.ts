@@ -1,5 +1,12 @@
 import * as THREE from 'three';
-import { TerrainPiece, terrainHalfExtents, Vector3, Unit, LOS_UNIT_RADIUS } from '@skirmish-lab/shared';
+import {
+  TerrainPiece,
+  terrainHalfExtents,
+  Vector3,
+  Unit,
+  LOS_UNIT_RADIUS,
+  ShootingRayDebugInfo,
+} from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
 import { outcomeMarkerKey } from './assetManifest';
@@ -53,6 +60,7 @@ export class MarkerRenderer {
   private movePath: THREE.Object3D | null = null;
   private terrainDebug: THREE.Object3D | null = null;
   private unitsDebug: THREE.Object3D | null = null;
+  private shootingDebug: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -163,45 +171,185 @@ export class MarkerRenderer {
   }
 
   /**
-   * Wireframe debug box showing the exact 2D Line-of-Sight / obstacle footprint
-   * (`terrainHalfExtents`) of a hovered terrain piece.
+   * Wireframe debug boxes showing Line-of-Sight / obstacle footprints and
+   * boundaries for all terrain pieces when F9 is active, with highlights
+   * for hovered or active cover pieces.
    */
-  setTerrainDebug(piece: TerrainPiece | null): void {
+  setTerrainDebug(
+    terrain: TerrainPiece[] | TerrainPiece | null,
+    options?: { hoveredPieceId?: string; activeCoverPieceId?: string }
+  ): void {
     this.removeMarker('terrainDebug');
-    if (!piece) return;
+    if (!terrain) return;
 
-    const { hx, hz } = terrainHalfExtents(piece);
-    const height = Math.max(0.5, piece.scale.y);
+    const pieces = Array.isArray(terrain) ? terrain : [terrain];
+    if (pieces.length === 0) return;
+
     const group = new THREE.Group();
     group.name = 'marker-terrain-debug';
-    group.position.set(piece.position.x, 0, piece.position.z);
-    group.rotation.y = piece.rotation.y || 0;
 
-    // Ground-level footprint outline (bright yellow)
-    const floorPts = [
-      new THREE.Vector3(-hx, 0.05, -hz),
-      new THREE.Vector3(hx, 0.05, -hz),
-      new THREE.Vector3(hx, 0.05, hz),
-      new THREE.Vector3(-hx, 0.05, hz),
-      new THREE.Vector3(-hx, 0.05, -hz),
-    ];
-    const floorGeo = new THREE.BufferGeometry().setFromPoints(floorPts);
-    const floorMat = new THREE.LineBasicMaterial({ color: 0xffeb3b });
-    group.add(new THREE.Line(floorGeo, floorMat));
+    for (const piece of pieces) {
+      const { hx, hz } = terrainHalfExtents(piece);
+      const height = Math.max(0.5, piece.scale.y);
+      const isHovered = piece.id === options?.hoveredPieceId;
+      const isActiveCover = piece.id === options?.activeCoverPieceId;
 
-    // 3D bounding wireframe box
-    const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
-    const edges = new THREE.EdgesGeometry(boxGeo);
-    const boxLine = new THREE.LineSegments(
-      edges,
-      new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.75 })
-    );
-    boxLine.position.y = height / 2;
-    group.add(boxLine);
-    boxGeo.dispose();
+      const pieceGroup = new THREE.Group();
+      pieceGroup.name = `marker-terrain-${piece.id}`;
+      pieceGroup.position.set(piece.position.x, 0, piece.position.z);
+      pieceGroup.rotation.y = piece.rotation.y || 0;
+
+      let wireColor = piece.blocksLineOfSight ? 0x00e5ff : 0xffb300;
+      if (isActiveCover) {
+        wireColor = 0xffd600;
+      }
+
+      if (isHovered || isActiveCover) {
+        const floorPts = [
+          new THREE.Vector3(-hx, 0.05, -hz),
+          new THREE.Vector3(hx, 0.05, -hz),
+          new THREE.Vector3(hx, 0.05, hz),
+          new THREE.Vector3(-hx, 0.05, hz),
+          new THREE.Vector3(-hx, 0.05, -hz),
+        ];
+        const floorGeo = new THREE.BufferGeometry().setFromPoints(floorPts);
+        const floorMat = new THREE.LineBasicMaterial({
+          color: isActiveCover ? 0xffd600 : 0xffeb3b,
+        });
+        pieceGroup.add(new THREE.Line(floorGeo, floorMat));
+      }
+
+      const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
+      const edges = new THREE.EdgesGeometry(boxGeo);
+      const boxLine = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({
+          color: wireColor,
+          transparent: true,
+          opacity: isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45,
+        })
+      );
+      boxLine.position.y = height / 2;
+      pieceGroup.add(boxLine);
+      boxGeo.dispose();
+
+      group.add(pieceGroup);
+    }
 
     this.markerGroup.add(group);
     this.terrainDebug = group;
+  }
+
+  /**
+   * 3D shooting line, terrain entry/exit intersection rings, and target flank
+   * rays showing Line-of-Sight and cover reasons when F9 is active.
+   */
+  setShootingDebugRay(debug: ShootingRayDebugInfo | null): void {
+    this.removeMarker('shootingDebug');
+    if (!debug) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-shooting-debug';
+
+    // 1. Target flank rays (showing corner obscuration)
+    if (debug.flankRays && debug.flankRays.length > 0) {
+      for (const flank of debug.flankRays) {
+        const pts = [
+          new THREE.Vector3(flank.from.x, 0.45, flank.from.z),
+          new THREE.Vector3(flank.to.x, 0.45, flank.to.z),
+        ];
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({
+          color: flank.blocked ? 0xef5350 : 0x26a69a,
+          transparent: true,
+          opacity: flank.blocked ? 0.75 : 0.35,
+        });
+        group.add(new THREE.Line(geo, mat));
+      }
+    }
+
+    // 2. Segmented shooting line & intersection discs
+    const startPt = new THREE.Vector3(debug.from.x, 0.45, debug.from.z);
+    const endPt = new THREE.Vector3(debug.to.x, 0.45, debug.to.z);
+
+    if (debug.intersections.length === 0) {
+      const geo = new THREE.BufferGeometry().setFromPoints([startPt, endPt]);
+      const mat = new THREE.LineBasicMaterial({
+        color: debug.hasLineOfSight ? 0x00e5ff : 0xef5350,
+      });
+      group.add(new THREE.Line(geo, mat));
+    } else {
+      let currentPt = startPt;
+      let blockedEncountered = false;
+
+      for (const inter of debug.intersections) {
+        const entry = new THREE.Vector3(inter.entryPoint.x, 0.45, inter.entryPoint.z);
+        const exit = new THREE.Vector3(inter.exitPoint.x, 0.45, inter.exitPoint.z);
+
+        // Segment before this terrain piece
+        if (currentPt.distanceTo(entry) > 0.05) {
+          const segGeo = new THREE.BufferGeometry().setFromPoints([currentPt, entry]);
+          const segMat = new THREE.LineBasicMaterial({
+            color: blockedEncountered ? 0xef5350 : 0x00e5ff,
+            transparent: blockedEncountered,
+            opacity: blockedEncountered ? 0.35 : 0.9,
+          });
+          group.add(new THREE.Line(segGeo, segMat));
+        }
+
+        // Segment passing inside this terrain piece
+        const pieceGeo = new THREE.BufferGeometry().setFromPoints([entry, exit]);
+        const pieceColor = inter.isLoSBlocker
+          ? 0xef5350
+          : inter.isCoverProvider || inter.providesCover
+          ? 0xffb300
+          : 0x90caf9;
+        const pieceMat = new THREE.LineBasicMaterial({
+          color: pieceColor,
+          transparent: true,
+          opacity: 0.95,
+        });
+        group.add(new THREE.Line(pieceGeo, pieceMat));
+
+        // Entry disc on terrain boundary
+        const ringGeo = new THREE.RingGeometry(0.08, 0.16, 16);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: pieceColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const entryMesh = new THREE.Mesh(ringGeo, ringMat);
+        entryMesh.position.copy(entry);
+        entryMesh.rotation.x = -Math.PI / 2;
+        group.add(entryMesh);
+
+        // Exit disc on terrain boundary
+        const exitMesh = new THREE.Mesh(ringGeo.clone(), ringMat.clone());
+        exitMesh.position.copy(exit);
+        exitMesh.rotation.x = -Math.PI / 2;
+        group.add(exitMesh);
+
+        if (inter.isLoSBlocker) {
+          blockedEncountered = true;
+        }
+        currentPt = exit;
+      }
+
+      // Final segment from last exit to target
+      if (currentPt.distanceTo(endPt) > 0.05) {
+        const segGeo = new THREE.BufferGeometry().setFromPoints([currentPt, endPt]);
+        const segMat = new THREE.LineBasicMaterial({
+          color: blockedEncountered ? 0xef5350 : 0x00e5ff,
+          transparent: blockedEncountered,
+          opacity: blockedEncountered ? 0.35 : 0.9,
+        });
+        group.add(new THREE.Line(segGeo, segMat));
+      }
+    }
+
+    this.markerGroup.add(group);
+    this.shootingDebug = group;
   }
 
   /**
@@ -273,6 +421,7 @@ export class MarkerRenderer {
     this.removeMarker('movePath');
     this.removeMarker('terrainDebug');
     this.removeMarker('unitsDebug');
+    this.removeMarker('shootingDebug');
     this.clearOutcome();
   }
 
@@ -307,6 +456,7 @@ export class MarkerRenderer {
       | 'movePath'
       | 'terrainDebug'
       | 'unitsDebug'
+      | 'shootingDebug'
   ): void {
     const current = this[kind];
     if (current) {
