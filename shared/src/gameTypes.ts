@@ -124,6 +124,7 @@ export interface Player {
 export type ActionType =
   | 'activate-unit'
   | 'move-unit'
+  | 'rush'
   | 'shoot'
   | 'charge'
   | 'fight'
@@ -135,8 +136,9 @@ export type ActionType =
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
+  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3 }
   | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }

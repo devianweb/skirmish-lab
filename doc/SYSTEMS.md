@@ -24,37 +24,27 @@ interface ActivationState {
 }
 ```
 
-### Activation Options
-An activated unit may typically:
-- **Move and/or act** (shoot or fight), in either order or only one
-- **Hold** (stay put, no action)
-Movement allowances and action restrictions come from unit data and special rules (e.g., some units may not shoot after moving).
+### Tabletop Maneuver Actions (Phase 6 Engine)
+Each activated unit executes one of the tabletop maneuvers:
 
-### Phase 5 Implementation (as shipped)
-The basic action set is live in the shared engine (`shared/src/engine/`):
+- **`hold`**: The unit holds its position (or clears a `stunned` token) without moving or attacking.
+- **`move-unit` (Advance)**: Spends up to base `speed` (1×), automatically pathfinding around obstacles and other fighters (`findNavPath`). Eligible to shoot a ranged weapon after moving.
+- **`rush`**: Rapid double-distance sprint (moves up to 2× `speed` via auto-pathfinding). Ineligible to shoot or fight this activation. Cannot end in melee contact (use Charge instead).
+- **`charge`**: Moves up to double `speed` (2×) via auto-pathfinding into melee engagement contact (≤ 1.0" of an enemy model) and **automatically resolves the melee strike** against the target fighter using server-rolled dice! Inflicts wounds, checks trauma/knockout, and marks surviving fighters as `engaged`.
+- **`fight`**: Dedicated melee attack for fighters already engaged at the start of their activation (or who did not charge).
+- **`shoot`**: Fires an equipped ranged weapon at an enemy target within range and line of sight. Not available while engaged.
+- **`end-activation`**: Deliberately concludes the activation, passing initiative to the opponent (or activating remaining fighters if the opponent has none left).
 
-- **`activate-unit`** marks the unit activated, clears `stunned`, and sets
-  `turnState.activeUnitId`. A `hold` is a one-step activation: the unit
-  activates, does nothing, and the activation ends immediately.
-- **`move-unit`** spends `remainingMovement` by straight-line path length;
-  every path point must stay inside the board. Engaged units cannot move
-  away. (Pathfinding around obstacles is Phase 6.)
-- **`shoot`** requires a ranged weapon, an enemy target in range, and the
-  attacker not engaged. Resolution needs server-rolled dice (below).
-- **`charge`** moves the charger to engagement distance 1 of the target
-  (path end must match), consumes all remaining movement, and marks both
-  units `engaged`. Already-engaged units must fight instead.
-- **`fight`** requires the attacker `engaged`, the target within 1.5 board
-  units, and a melee weapon.
-- **`end-activation`** passes initiative: the opponent activates next if
-  they still have units; otherwise the current player keeps activating
-  their remaining units; when all units have activated, the round ends and
-  a new one begins with the other player starting.
-- **`end-round`** is only legal when the round is complete (normally
-  rounds end automatically via `end-activation`).
-- Engagements persist across rounds; stun clears only via the unit's own
-  activation. Win condition (v1): elimination — the game ends when a player
-  has no living units.
+### 2D Visibility-Graph Auto-Pathfinding (`findNavPath`)
+Units automatically navigate around terrain obstacles and other fighters rather than halting prematurely:
+- Generates clearance waypoints around all impassable obstacle bounding boxes (with unit base clearance `UNIT_COLLISION_RADIUS + 0.12"`).
+- Accounts for doorway jambs (allowing passage through the 1.0" center opening of `wall-doorway`).
+- Finds the shortest navigable path via visibility graph A* search.
+- Applies string-pulling shortcutting and cumulative distance clamping to the unit's remaining movement or double speed allowance.
+
+### Melee Engagement Contact Visualization
+- When moving or charging into melee engagement (≤ 1.0"), the path line reflects contact in bright orange/crimson and renders a pulsing contact disc.
+- A distinctive glowing double-ring melee marker (`0xff5252` and `0xffab40`) highlights the opposing enemy fighter under threat.
 
 ## Combat Resolution (Quality / Defense)
 

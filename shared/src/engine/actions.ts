@@ -233,10 +233,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'charge': {
-      const { attackerId, targetId, path } = action.payload as {
+      const { attackerId, targetId, path, weaponId } = action.payload as {
         attackerId: string;
         targetId: string;
         path: Vector3[];
+        weaponId?: string;
       };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
@@ -254,9 +255,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!path || path.length === 0) {
         return { valid: false, reason: 'Charge path is empty' };
       }
-      const fullPath = [{ ...attacker.result.position }, ...path];
+      const fullPath =
+        boardDistance(path[0], attacker.result.position) < 0.01
+          ? path
+          : [{ ...attacker.result.position }, ...path];
       const distance = pathLength(fullPath);
-      if (distance > attacker.result.speed + 0.01) {
+      if (distance > attacker.result.speed * 2 + 0.01) {
         return { valid: false, reason: 'Target out of charge range' };
       }
       if (!hasLineOfSight(state, attacker.result, target.result)) {
@@ -268,10 +272,71 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (chargeBlocker.blocked) {
         return { valid: false, reason: chargeBlocker.reason };
       }
-      const engagementPos = engagementPosition(target.result, attacker.result.position);
       const end = path[path.length - 1];
-      if (boardDistance(end, engagementPos) > 0.25) {
+      const distToEnd = boardDistance(end, target.result.position);
+      if (distToEnd > 1.25) {
         return { valid: false, reason: 'Charge must end in engagement range' };
+      }
+      const weapon = weaponId
+        ? attacker.result.weapons.find((w) => w.id === weaponId)
+        : attacker.result.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+      if (!weapon || weapon.profile.type !== 'melee') {
+        return { valid: false, reason: 'No equipped melee weapon for charge strike' };
+      }
+      return { valid: true };
+    }
+
+    case 'rush': {
+      const { unitId, path, finalPosition } = action.payload as {
+        unitId: string;
+        path: Vector3[];
+        finalPosition?: Vector3;
+      };
+      const actor = requireActiveUnit(state, action.actorId, unitId);
+      if ('reason' in actor) return actor;
+      const unit = actor.result;
+      if (hasTrait(unit.specialRules, 'stationary')) {
+        return { valid: false, reason: 'Stationary units cannot move or rush' };
+      }
+      if (unit.hasMoved || unit.hasAttacked) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
+      if (isEngaged(unit)) {
+        return { valid: false, reason: 'Engaged units cannot rush' };
+      }
+      if (!path || path.length === 0) {
+        return { valid: false, reason: 'Rush path is empty' };
+      }
+      const fullPath =
+        boardDistance(path[0], unit.position) < 0.01
+          ? path
+          : [{ ...unit.position }, ...path];
+      const dist = pathLength(fullPath);
+      if (dist > unit.speed * 2 + 0.01) {
+        return {
+          valid: false,
+          reason: `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`,
+        };
+      }
+      const blocker = findMoveBlocker(state, unit, fullPath);
+      if (blocker.blocked) {
+        return { valid: false, reason: blocker.reason };
+      }
+      const end = path[path.length - 1];
+      if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
+        return { valid: false, reason: 'Final position does not match path end' };
+      }
+      const wouldEngage = state.units.some(
+        (u) =>
+          !u.isDestroyed &&
+          u.ownerId !== action.actorId &&
+          boardDistance(end, u.position) <= ENGAGEMENT_RANGE
+      );
+      if (wouldEngage) {
+        return {
+          valid: false,
+          reason: 'Rush cannot end in melee contact (use Charge instead)',
+        };
       }
       return { valid: true };
     }
@@ -334,20 +399,26 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     return specs;
   }
 
-  if (action.type !== 'shoot' && action.type !== 'fight') return null;
+  if (action.type !== 'shoot' && action.type !== 'fight' && action.type !== 'charge') return null;
 
-  const payload = action.payload as PayloadWithAttacker;
+  const payload = action.payload as { attackerId: string; targetId: string; weaponId?: string };
   const attacker = getUnit(state, payload.attackerId);
   const target = getUnit(state, payload.targetId);
-  const weapon = attacker ? getWeapon(attacker, payload.weaponId ?? '') : undefined;
-  if (!attacker || ! weapon) return null;
+  const weapon = attacker
+    ? payload.weaponId
+      ? getWeapon(attacker, payload.weaponId)
+      : attacker.weapons.find((w) =>
+          w.isEquipped && (action.type === 'shoot' ? w.profile.type === 'ranged' : w.profile.type === 'melee')
+        )
+    : undefined;
+  if (!attacker || !weapon) return null;
 
   const attacks = weapon.profile.attacks;
   if (typeof attacks !== 'number' || !Number.isInteger(attacks) || attacks < 1) {
     return null;
   }
 
-  const isMelee = action.type === 'fight';
+  const isMelee = action.type === 'fight' || action.type === 'charge';
   const distance = target ? boardDistance(attacker.position, target.position) : 12;
   const aliveModels = target
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
@@ -359,7 +430,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     defenderRules: target?.specialRules ?? [],
     defenderModelCount: aliveModels,
     isMelee,
-    isCharging: isMelee && attacker.hasMoved,
+    isCharging: action.type === 'charge' || (isMelee && attacker.hasMoved),
     distance,
     includeTrauma: true,
   });
@@ -548,16 +619,36 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'rush': {
+      const { unitId, path } = action.payload as { unitId: string; path: Vector3[] };
+      const unit = getUnit(newState, unitId)!;
+      const end = path[path.length - 1];
+      const dx = end.x - unit.position.x;
+      const dz = end.z - unit.position.z;
+      if (Math.hypot(dx, dz) > 1e-4) {
+        unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
+      }
+      unit.position = { ...end };
+      unit.hasMoved = true;
+      unit.hasAttacked = true;
+      unit.remainingMovement = 0;
+      refreshEngagements(newState);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
     case 'charge': {
-      const { attackerId, targetId, path } = action.payload as {
+      const { attackerId, targetId, path, weaponId } = action.payload as {
         attackerId: string;
         targetId: string;
         path: Vector3[];
+        weaponId?: string;
       };
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
       attacker.position = { ...path[path.length - 1] };
       attacker.hasMoved = true;
+      attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
       const cdx = target.position.x - attacker.position.x;
       const cdz = target.position.z - attacker.position.z;
@@ -567,7 +658,89 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
-      logEntry = acceptedEntry(action);
+
+      const weapon = weaponId
+        ? getWeapon(attacker, weaponId)
+        : attacker.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+
+      if (weapon && dice) {
+        const rolls = extractAttackRolls(dice);
+        const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
+        const outcome = resolveAttack(
+          {
+            quality: attacker.quality,
+            specialRules: attacker.specialRules,
+            weaponRules: weapon.profile.specialRules,
+            isMelee: true,
+            isCharging: true,
+            hasMoved: true,
+            isFatigued: attacker.status.includes('fatigued') || attacker.status.includes('shaken'),
+            distance: Math.hypot(cdx, cdz),
+          },
+          {
+            defense: target.defense,
+            inCover: false,
+            specialRules: target.specialRules,
+            hasMoved: target.hasMoved,
+            modelCount: aliveModels,
+          },
+          weapon.profile.attacks as number,
+          rolls
+        );
+
+        const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
+        const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+        const trauma = applyWounds(
+          target,
+          outcome.wounds,
+          rolls.trauma,
+          dreadBonus,
+          lethalValue
+        );
+        refreshEngagements(newState);
+
+        diceResolution = {
+          rollId: action.id,
+          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(weapon.profile.attacks as number),
+          results: dice,
+          context: {
+            attackerId,
+            targetId,
+            weaponId: weapon.id,
+            actionId: action.id,
+          },
+          outcome: {
+            attackCount: outcome.attackCount,
+            hitCount: outcome.hitCount,
+            ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
+            blockedCount: outcome.blockedCount,
+            ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
+            wounds: outcome.wounds,
+            targetDestroyed: target.isDestroyed,
+            targetShaken: target.status.includes('shaken'),
+            baseQuality: attacker.quality,
+            effectiveQuality: outcome.effectiveQuality,
+            hitModifiers: outcome.hitModifiers,
+            baseDefense: target.defense,
+            effectiveDefense: outcome.effectiveDefense,
+            defenseModifiers: outcome.defenseModifiers,
+            coverApplied: false,
+            ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
+            ...(trauma
+              ? {
+                  traumaRoll: trauma.roll,
+                  traumaTokens: trauma.tokens,
+                  traumaDreadBonus: trauma.dreadBonus,
+                  traumaTotal: trauma.total,
+                  traumaOutcome: trauma.outcome,
+                }
+              : {}),
+          },
+        };
+        logEntry = acceptedEntry(action, diceResolution);
+      } else {
+        logEntry = acceptedEntry(action);
+      }
       break;
     }
 

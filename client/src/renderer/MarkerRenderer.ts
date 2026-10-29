@@ -28,6 +28,9 @@ export interface AttackRangeMarker {
 export interface MovePathMarker {
   from: Vector3;
   to: Vector3;
+  waypoints?: Vector3[];
+  color?: number;
+  isMeleeContact?: boolean;
 }
 
 const SELECTION_COLOR = 0x29b6f6;
@@ -58,6 +61,7 @@ export class MarkerRenderer {
   private range: THREE.Object3D | null = null;
   private attackRange: THREE.Object3D | null = null;
   private movePath: THREE.Object3D | null = null;
+  private meleeContact: THREE.Object3D | null = null;
   private terrainDebug: THREE.Object3D | null = null;
   private unitsDebug: THREE.Object3D | null = null;
   private shootingDebug: THREE.Object3D | null = null;
@@ -105,11 +109,11 @@ export class MarkerRenderer {
     this.reachableTargets = group;
   }
 
-  /** Thin movement-range ring sized to the unit's remaining movement. */
-  setMovementRange(unit: MarkerUnit | null): void {
+  /** Thin movement-range ring sized to the unit's remaining movement (or override radius, e.g. for Rush). */
+  setMovementRange(unit: MarkerUnit | null, overrideRadius?: number): void {
     this.removeMarker('range');
     if (!unit) return;
-    const radius = Math.max(unit.remainingMovement ?? 0, 0);
+    const radius = Math.max(overrideRadius ?? unit.remainingMovement ?? 0, 0);
     if (radius <= 0) return;
 
     const normalizedThickness = Math.min(0.25, 0.08 / radius);
@@ -154,20 +158,55 @@ export class MarkerRenderer {
     const group = new THREE.Group();
     group.name = 'marker-move-path';
 
-    const points = [
-      new THREE.Vector3(path.from.x, 0.06, path.from.z),
-      new THREE.Vector3(path.to.x, 0.06, path.to.z),
-    ];
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-    const lineMat = new THREE.LineBasicMaterial({ color: PATH_COLOR });
+    const pathColor = path.color ?? (path.isMeleeContact ? 0xff7043 : PATH_COLOR);
+    const allPts: THREE.Vector3[] = [new THREE.Vector3(path.from.x, 0.06, path.from.z)];
+    if (path.waypoints && path.waypoints.length > 0) {
+      for (const wp of path.waypoints) {
+        allPts.push(new THREE.Vector3(wp.x, 0.06, wp.z));
+      }
+    }
+    allPts.push(new THREE.Vector3(path.to.x, 0.06, path.to.z));
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
+    const lineMat = new THREE.LineBasicMaterial({ color: pathColor });
     group.add(new THREE.Line(lineGeo, lineMat));
 
-    const endDisc = this.createFlatRing(PATH_COLOR, 0.4, 0.06);
+    // Intermediate waypoint node dots
+    if (path.waypoints && path.waypoints.length > 0) {
+      for (const wp of path.waypoints) {
+        const dot = this.createFlatRing(pathColor, 0.18, 0.05);
+        dot.position.set(wp.x, 0.06, wp.z);
+        group.add(dot);
+      }
+    }
+
+    const endDisc = this.createFlatRing(pathColor, path.isMeleeContact ? 0.55 : 0.4, 0.06);
     endDisc.position.set(path.to.x, 0.06, path.to.z);
     group.add(endDisc);
 
     this.markerGroup.add(group);
     this.movePath = group;
+  }
+
+  /**
+   * Melee engagement visual contact highlight: bright pulsing double ring
+   * under an opposing unit in 1.0" base contact.
+   */
+  setMeleeContact(unit: MarkerUnit | null): void {
+    this.removeMarker('meleeContact');
+    if (!unit) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-melee-contact';
+
+    const outerRing = this.createFlatRing(0xff5252, 0.75, 0.08);
+    const innerRing = this.createFlatRing(0xffab40, 0.55, 0.06);
+    group.add(outerRing);
+    group.add(innerRing);
+    group.position.set(unit.position.x, 0.02, unit.position.z);
+
+    this.markerGroup.add(group);
+    this.meleeContact = group;
   }
 
   /**
@@ -419,6 +458,7 @@ export class MarkerRenderer {
     this.removeMarker('range');
     this.removeMarker('attackRange');
     this.removeMarker('movePath');
+    this.removeMarker('meleeContact');
     this.removeMarker('terrainDebug');
     this.removeMarker('unitsDebug');
     this.removeMarker('shootingDebug');
@@ -454,6 +494,7 @@ export class MarkerRenderer {
       | 'range'
       | 'attackRange'
       | 'movePath'
+      | 'meleeContact'
       | 'terrainDebug'
       | 'unitsDebug'
       | 'shootingDebug'

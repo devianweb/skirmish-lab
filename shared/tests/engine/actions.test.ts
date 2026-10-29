@@ -412,16 +412,17 @@ describe('applyAction: shoot', () => {
   });
 });
 
+function chargeState(): GameState {
+  const state = makeState([
+    makeUnit('h1', HOST, { weapons: [weapon('blade')] }),
+    makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } as Vector3 }),
+  ]);
+  state.turnState.activeUnitId = 'h1';
+  state.units[0].isActivated = true;
+  return state;
+}
+
 describe('applyAction: charge', () => {
-  function chargeState(): GameState {
-    const state = makeState([
-      makeUnit('h1', HOST, { weapons: [weapon('blade')] }),
-      makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } as Vector3 }),
-    ]);
-    state.turnState.activeUnitId = 'h1';
-    state.units[0].isActivated = true;
-    return state;
-  }
 
   it('moves the charger into engagement and engages both units', () => {
     const state = chargeState();
@@ -444,14 +445,14 @@ describe('applyAction: charge', () => {
     expect(attacker.hasMoved).toBe(true);
   });
 
-  it('rejects charging beyond the charger\'s speed', () => {
+  it('rejects charging beyond the charger\'s double speed', () => {
     const state = chargeState();
-    state.units[1].position = { x: 0, y: 0, z: 12 }; // speed 6
+    state.units[1].position = { x: 0, y: 0, z: 15 }; // speed 6, double speed 12
     const action = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
       targetId: 'g1',
-      path: [{ x: 0, y: 0, z: 11 }],
+      path: [{ x: 0, y: 0, z: 14 }],
     });
     expect(act(state, action).reason).toBe('Target out of charge range');
   });
@@ -477,6 +478,60 @@ describe('applyAction: charge', () => {
       path: [{ x: 0, y: 0, z: 4 }],
     });
     expect(act(state, action).reason).toBe('Already engaged — fight instead');
+  });
+
+  it('charge with dice rolls automatically resolves melee attack against target', () => {
+    const state = chargeState();
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+    const dice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 5] } as any,
+      { purpose: 'defense', rolls: [1, 2] } as any,
+      { purpose: 'trauma', rolls: [1] } as any,
+    ];
+    const outcome = applyAction(state, action, dice);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.logEntry.dice).toBeDefined();
+    expect(outcome.logEntry.dice?.outcome.hitCount).toBe(2);
+    expect(outcome.logEntry.dice?.outcome.wounds).toBe(2);
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+    expect(target.status).toContain('shaken');
+  });
+});
+
+describe('applyAction: rush', () => {
+  it('allows moving up to double speed and finishes activation without attacks', () => {
+    const state = chargeState();
+    const action = createAction(HOST, 'rush', {
+      type: 'rush',
+      unitId: 'h1',
+      path: [{ x: 10, y: 0, z: 0 }],
+      finalPosition: { x: 10, y: 0, z: 0 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(unit.position.x).toBe(10);
+    expect(unit.hasMoved).toBe(true);
+    expect(unit.hasAttacked).toBe(true);
+    expect(unit.remainingMovement).toBe(0);
+  });
+
+  it('rejects rush exceeding double speed', () => {
+    const state = chargeState();
+    const action = createAction(HOST, 'rush', {
+      type: 'rush',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 14 }],
+      finalPosition: { x: 0, y: 0, z: 14 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('Rush distance exceeds double speed');
   });
 });
 

@@ -173,8 +173,8 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
-    // Moving sideways (+x) toward Warden Trooper 2 at (-4, 0, -12) stops in front of the fighter (~3.3")
-    hud.handleBoardPick({ kind: 'position', position: { x: start.x + 20, y: 0, z: start.z } });
+    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) shows remaining movement
+    hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
     expect(container.textContent).toContain('3.3" — 2.7" left');
     clickByText(container, 'Cancel');
 
@@ -186,11 +186,9 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Confirm');
     clickByText(container, 'Confirm');
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
-    expect(controller.submitAction.mock.calls[0][0].payload.finalPosition).toEqual({
-      x: start.x,
-      y: 0,
-      z: start.z + unit.remainingMovement,
-    });
+    const submitted = controller.submitAction.mock.calls[0][0].payload;
+    expect(submitted.path.length).toBeGreaterThanOrEqual(2);
+    expect(submitted.finalPosition).toEqual(submitted.path[submitted.path.length - 1]);
   });
 
   it('shoot flow: enemy target in range → confirmed action with weapon', () => {
@@ -235,6 +233,64 @@ describe('GameHUD', () => {
 
     expect(container.textContent).toContain('Out of range');
     expect(controller.submitAction).not.toHaveBeenCalled();
+  });
+
+  it('rush flow: destination pick up to double speed → distance summary → confirmed action', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    const start = { ...unit.position };
+    activateUnit(state, HOST, unit.id);
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Rush');
+    expect(container.textContent).toContain('Click a destination to Rush');
+
+    // Rush forward 10" (speed is 6", double speed is 12")
+    const destination = { x: start.x, y: 0, z: start.z + 10 };
+    hud.handleBoardPick({ kind: 'position', position: destination });
+
+    expect(container.textContent).toContain('Rush');
+    expect(container.textContent).toContain('double move');
+    expect(controller.submitAction).not.toHaveBeenCalled();
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('rush');
+    expect(action.payload.unitId).toBe(unit.id);
+    expect(action.payload.path.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('charge flow: picks reachable enemy, shows auto-melee strike confirmation with dice preview', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
+    )!;
+    activateUnit(state, HOST, attacker.id);
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    // Position target 5" away (well within double speed of 12")
+    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 5 };
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Charge');
+    expect(container.textContent).toContain('Click an enemy unit within charge range');
+
+    hud.handleBoardPick({ kind: 'unit', unitId: target.id });
+
+    expect(container.textContent).toContain('charges');
+    expect(container.textContent).toContain('strikes with');
+    expect(container.textContent).toContain('Hit Q');
+    expect(container.textContent).toContain('Def D');
+    expect(controller.submitAction).not.toHaveBeenCalled();
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('charge');
+    expect(action.payload.attackerId).toBe(attacker.id);
+    expect(action.payload.targetId).toBe(target.id);
+    expect(action.payload.weaponId).toBeDefined();
+    expect(action.payload.path.length).toBeGreaterThanOrEqual(2);
   });
 
   it('hold and end-activation require confirmation too (Hold before acting, End Activation after)', () => {
