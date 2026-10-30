@@ -268,6 +268,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 6.5: Interactive Reactions & Interruption Framework
 **Goal:** Enable out-of-turn player prompts, reactions, and decision-making during action resolution without locking up multiplayer flow or opening griefing vectors.
 
+> **Recommended AI Model:** **4.0** *(Asynchronous P2P state machine, timing synchronization, and host validation)*
+>
 > **Architecture:** Transitions the game engine from a purely sequential "single-actor" turn loop to an extensible reaction state machine. `turnState.pendingReaction` serializes cleanly into `GameState`, synchronizing across WebRTC data channels with host-authoritative validation, timeout countdown safety, and reactive HUD prompts.
 
 ### Tasks
@@ -301,6 +303,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 7: Objectives & 4-Round Mission Engine
 **Goal:** Implement the standard tabletop skirmish win condition, match clock, and objective control mechanics (replacing pure elimination deathmatch).
 
+> **Recommended AI Model:** **3.8** *(Additive game rules, 2D distance checks, and 3D visual beacon)*
+>
 > **Specification:** See **[RULES_SPECIFICATION.md Section 2.2](./RULES_SPECIFICATION.md#22-objective-placement--control)**.
 
 ### Tasks
@@ -332,6 +336,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 8: Combat Enhancements: All-Weapon Firing & Split Fire
 **Goal:** Fire all equipped ranged weapons during a shoot action matching physical tabletop skirmish rules.
 
+> **Recommended AI Model:** **3.8** *(Straightforward multi-weapon loop refactor and HUD targeting chips)*
+>
 > **Specification:** See **[RULES_SPECIFICATION.md Section 4](./RULES_SPECIFICATION.md#4-ranged-combat-resolution)**.
 
 ### Tasks
@@ -353,6 +359,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 9: Multi-Model Squads & Coherency Engine
 **Goal:** Support 3-model squads alongside single-model specialists and leaders.
 
+> **Recommended AI Model:** **4.0** *(Complex 3D formation pathfinding, coherency geometry, and multi-mesh Three.js lifecycle)*
+>
 > **Specification:** See **[RULES_SPECIFICATION.md Section 2.1 & 6.1](./RULES_SPECIFICATION.md#21-spatial-dimensions--coherency)**.
 
 ### Tasks
@@ -381,6 +389,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 10: Interactive Deployment & Army Rosters (Pre-Canned + Custom Builder)
 **Goal:** Provide quickplay pre-canned starter armies for instant fun, an advanced army roster importer/builder, and alternating pre-match deployment.
 
+> **Recommended AI Model:** **3.8** *(or **4.0** for parsing complex custom text formats)*
+
 ### Tasks
 - [ ] **Pre-Canned Quickplay Starter Armies (`shared/data`):**
   - [ ] 1-click ready-to-play, point-balanced starter forces for each faction (e.g. 250pts / 300pts for Frontier Wardens, Rust Raiders, and future factions).
@@ -406,6 +416,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 11: Environmental Terrain Dynamics & Verticality
 **Goal:** Implement full tabletop terrain hazard tests and 3D multi-level vertical movement.
 
+> **Recommended AI Model:** **4.0** *(3D raycasting, elevation platforms, falling physics, and dynamic navmesh)*
+>
 > **Specification:** See **[RULES_SPECIFICATION.md Section 8 & 10](./RULES_SPECIFICATION.md#8-environmental-obstacles--terrain)**.
 
 ### Tasks
@@ -427,6 +439,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 12: Reconnection & Network Resilience
 **Goal:** Handle disconnections, socket recoveries, and snapshot re-syncing without dropping matches.
 
+> **Recommended AI Model:** **4.0** *(WebRTC socket recovery, IndexedDB state caching, and distributed desync prevention)*
+
 ### Tasks
 - [ ] Heartbeat timeout detection across WebRTC data channel and signaling WebSocket.
 - [x] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling drops).
@@ -446,6 +460,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 13: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
 
+> **Recommended AI Model:** **3.8** *(Web Audio triggers, rematch UI resets, CSS polish, and release profiling)*
+
 ### Tasks
 - [ ] Audio & SFX: Dice rattle/roll sounds, laser/gunfire audio cues, melee impact clangs, and victory stingers.
 - [ ] "Play Again" / rematch flow on game-over screen (resets match over existing P2P channel).
@@ -458,6 +474,26 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Two players can complete full 4-round matches with audio, custom/pre-canned armies, and objectives.
 - [ ] Rematch resets the game smoothly without re-entering invite codes.
 - [ ] Production build passes all checks and deploys cleanly via GitHub Actions.
+
+## Recommended AI Model Selection by Phase
+
+To optimize performance, reasoning depth, and token/quota usage across development:
+- **Use 4.0** for **distributed networking, complex state machines, 3D spatial geometry, and formation math** where edge-case bugs cause multiplayer desyncs.
+- **Use 3.8** for **standard game rules, data packs, UI views, straightforward event handling, and test expansion**, achieving faster turnaround while conserving 4.0 quota.
+
+| Phase | Recommended Model | Primary Complexity Driver | Rationale |
+| :--- | :---: | :--- | :--- |
+| **Phase 6.5: Interactive Reactions & Interruption Framework** | **4.0** | Asynchronous P2P state machine, timing, anti-griefing | Shifting from a single-actor turn to an interrupted, bi-directional negotiation across WebRTC requires airtight state reconciliation, timeout edge cases, and host validation. |
+| **Phase 7: Objectives & 4-Round Mission Engine** | **3.8** | Game state entity, 3″ distance checks, round clock, 3D beacon | The logic is clean and additive: placing 3–5 beacons, computing standard 2D distance checks at round end, and tracking integer victory points. |
+| **Phase 8: All-Weapon Firing & Split Fire** | **3.8** | Multi-target dice loop & UI chips | Mostly refactoring `actions.ts` and HUD targeting chips to loop over an array of equipped weapons rather than a single weapon ID. |
+| **Phase 9: Multi-Model Squads & Coherency Engine** | **4.0** | 3D multi-model formation pathfinding & coherency geometry | High mathematical complexity: multi-mesh group rendering in Three.js, maintaining 1″ model / 6″ squad coherency around clearance corners, and squad casualty cascades. |
+| **Phase 10: Interactive Deployment & Pre-Canned / Custom Armies** | **3.8** *(or 4.0 for parser)* | Data curation, text parser, deployment boundary checks | Writing pre-canned starter rosters is pure data; deployment is simple boundary validation. (If writing a complex Army Forge text regex parser, 4.0 can scaffold that piece). |
+| **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
+| **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
+| **Phase 13: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
+
+> [!TIP]
+> **Hybrid Workflow within a Phase:** For 4.0 phases (such as Phase 6.5 and Phase 9), kick off with 4.0 to design the shared state schema and core engine functions in `shared/`, then switch to 3.8 to build the Three.js visual rendering, HTML/CSS HUD components, and supplementary unit tests.
 
 ## Future Considerations (Post-v1)
 - Full host migration if needed
