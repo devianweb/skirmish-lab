@@ -265,49 +265,235 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Two armies playable as data packs
 - [x] Ruleset data is swappable (engine reads stats from data, not code)
 
-## Phase 7: Reconnection & Resilience
-**Goal:** Handle disconnections and reconnection
+## Phase 6.5: Interactive Reactions & Interruption Framework
+**Goal:** Enable out-of-turn player prompts, reactions, and decision-making during action resolution without locking up multiplayer flow or opening griefing vectors.
+
+> **Recommended AI Model:** **4.0** *(Asynchronous P2P state machine, timing synchronization, and host validation)*
+>
+> **Architecture:** Transitions the game engine from a purely sequential "single-actor" turn loop to an extensible reaction state machine. `turnState.pendingReaction` serializes cleanly into `GameState`, synchronizing across WebRTC data channels with host-authoritative validation, timeout countdown safety, and reactive HUD prompts.
 
 ### Tasks
-- [ ] Heartbeat timeout detection
-- [x] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling room connection drops)
-- [ ] Snapshot storage and retrieval
-- [ ] Reconnection flow
-- [ ] State re-sync on reconnection
-- [ ] Room rejoin logic
-- [ ] Handle host reconnection
+- [ ] **State Schema & Protocol (`shared`):**
+  - [ ] Add `ReactionOption` and `PendingReaction` interfaces to `gameTypes.ts`.
+  - [ ] Add `pendingReaction?: PendingReaction | null` to `TurnState`.
+  - [ ] Define `'respond-reaction'` action type in `gameTypes.ts` with actor ownership validation.
+  - [ ] Host-authoritative timer & anti-griefing timeout fallback (auto-resolves default option after 15s or on player disconnect).
+- [ ] **Melee Retaliation Choice:**
+  - [ ] Update `case 'charge'` to defer retaliation strike and push-back into a `pendingReaction` when the defender survives with equipped melee weapons.
+  - [ ] Add `case 'respond-reaction'` resolver:
+    - `strike-back`: Requests server retaliation dice, applies wounds, inflicts Fatigue, and executes 1" push-back separation.
+    - `decline`: Skips retaliation dice, avoids Fatigue (preserving defender's full Quality for its own upcoming activation), and executes 1" push-back separation.
+- [ ] **Interactive Reaction UI (`client`):**
+  - [ ] Dedicated reaction prompt card in the reacting player's bottom HUD dock with title, description, Fatigue warning, action buttons, and live 15s visual countdown bar.
+  - [ ] Non-reacting active player waiting state ("Waiting for opponent to choose...").
+  - [ ] Sound/visual alert ping when a reaction prompt appears for the defending player.
+- [ ] **Future Reaction Capability Hooks:**
+  - [ ] Design framework to support future out-of-turn abilities: Overwatch/reactive fire, defensive stratagems (Smokescreen/Take Cover), Brace, and multi-model casualty allocation.
 
 ### Acceptance Criteria
-- [ ] Disconnect detected via heartbeat timeout
-- [ ] Guest has cached snapshot
-- [ ] Host can reconnect to same room
-- [ ] Game state re-synced after reconnection
-- [ ] Play can resume from last confirmed state
-- [ ] No state corruption on disconnect/reconnect
-- [ ] Clear UI feedback during reconnection
+- [ ] Charging an enemy with melee weapons creates a `pendingReaction` if the defender survives.
+- [ ] Defending player receives an interactive prompt with Strike Back and Decline buttons.
+- [ ] Choosing Decline skips attacks and avoids Fatigue (defender remains un-fatigued).
+- [ ] Choosing Strike Back rolls retaliation attacks and applies Fatigue to both models.
+- [ ] Charger automatically pushes back 1" in both branches.
+- [ ] 15-second timeout automatically chooses the default option if the player is idle or disconnects.
+- [ ] Non-defending player cannot submit a reaction for their opponent.
+- [ ] Full P2P test suite passes with simulated network delays and reaction choices.
 
-## Phase 8: Polish & Testing
-**Goal:** Testing, bug fixes, and polish
+## Phase 7: Objectives & 4-Round Mission Engine
+**Goal:** Implement the standard tabletop skirmish win condition, match clock, and objective control mechanics (replacing pure elimination deathmatch).
+
+> **Recommended AI Model:** **3.8** *(Additive game rules, 2D distance checks, and 3D visual beacon)*
+>
+> **Specification:** See **[RULES_SPECIFICATION.md Section 2.2](./RULES_SPECIFICATION.md#22-objective-placement--control)**.
 
 ### Tasks
-- [ ] End-to-end testing with two clients
-- [ ] Test reconnection scenarios
-- [ ] Test dice rolling fairness
-- [ ] Test action validation
-- [ ] Performance testing
-- [ ] UI/UX polish (connection status indicators & top-banner alerts for peer/room disconnects)
-- [ ] "Play Again" / rematch option on the game-over screen (reset game state over the existing peer connection without returning to the lobby)
-- [ ] Bug fixes
-- [ ] Documentation updates
+- [ ] **Objective Markers Data & State (`shared`):**
+  - [ ] Add `Objective` schema to `GameState` (ID, name, position, controllingPlayerId, isContested).
+  - [ ] Scenario generator places 3 to 5 objective markers across the battlefield (> 9" apart, outside deployment zones).
+- [ ] **Round-End Control Evaluation:**
+  - [ ] Evaluate 3" horizontal radius around each objective at round end.
+  - [ ] Marker controlled if friendly model is within 3" and 0 enemy models are within 3".
+  - [ ] Contested if opposing models are simultaneously within 3" (reverts to neutral).
+  - [ ] Shaken units cannot seize or contest objectives.
+  - [ ] Persistent control: markers remain controlled even if a unit moves away, until an enemy seizes or contests them.
+- [ ] **Match Duration Clock & Scoring:**
+  - [ ] Match concludes after exactly **4 rounds**.
+  - [ ] The player controlling the most objectives at the end of Round 4 wins.
+  - [ ] Army elimination remains an immediate fallback win condition.
+- [ ] **Objective Visuals & UI (`client`):**
+  - [ ] 3D objective beacon rendering in Three.js (glowing radius ring, vertical light beam, team color flag/marker when captured).
+  - [ ] HUD round/score header tracking objective counts for Host and Guest.
+  - [ ] End-of-game victory screen showing final objective score breakdown.
 
 ### Acceptance Criteria
-- [ ] Two players can complete a full game
-- [ ] Reconnection works reliably
-- [ ] No desyncs observed
-- [ ] All actions properly validated
-- [ ] Dice rolls are fair (server-side)
-- [ ] Game is playable on desktop browsers
-- [ ] Documentation is complete and accurate
+- [ ] 3 to 5 objectives render on the board with visible 3" control boundaries.
+- [ ] Non-shaken units within 3" capture objectives at the end of each round.
+- [ ] Contested objectives revert to neutral when opposing units are within 3".
+- [ ] Match terminates after 4 rounds and crowns the winner based on objective control.
+- [ ] Complete elimination still results in an immediate victory.
+
+## Phase 8: Combat Enhancements: All-Weapon Firing & Split Fire
+**Goal:** Fire all equipped ranged weapons during a shoot action matching physical tabletop skirmish rules.
+
+> **Recommended AI Model:** **3.8** *(Straightforward multi-weapon loop refactor and HUD targeting chips)*
+>
+> **Specification:** See **[RULES_SPECIFICATION.md Section 4](./RULES_SPECIFICATION.md#4-ranged-combat-resolution)**.
+
+### Tasks
+- [ ] **All-Weapon Shoot Action (`shared`):**
+  - [ ] When shooting, an active unit discharges all eligible equipped ranged weapons (instead of only selecting 1 weapon).
+  - [ ] Aggregate dice specs for all firing weapons into a unified server roll request.
+- [ ] **Split Fire Target Allocation:**
+  - [ ] Allow assigning different weapon profiles to up to **two distinct enemy targets** in line of sight and range.
+  - [ ] Sequential resolution: resolve weapon A vs Target 1, then weapon B vs Target 2 with separate defense/trauma rolls.
+- [ ] **HUD Multi-Weapon Target Selection (`client`):**
+  - [ ] Shoot targeting interface shows weapon allocation chips to assign targets for each equipped ranged weapon.
+  - [ ] Confirmation bar and dice panel show per-target breakdown.
+
+### Acceptance Criteria
+- [ ] A unit with multiple ranged weapons fires all of them during a single shoot action.
+- [ ] Units can divide weapons between up to two distinct targets.
+- [ ] Server requests and resolves defense rolls for each target accurately.
+
+## Phase 9: Multi-Model Squads & Coherency Engine
+**Goal:** Support 3-model squads alongside single-model specialists and leaders.
+
+> **Recommended AI Model:** **4.0** *(Complex 3D formation pathfinding, coherency geometry, and multi-mesh Three.js lifecycle)*
+>
+> **Specification:** See **[RULES_SPECIFICATION.md Section 2.1 & 6.1](./RULES_SPECIFICATION.md#21-spatial-dimensions--coherency)**.
+
+### Tasks
+- [ ] **Multi-Model Spatial Schema (`shared`):**
+  - [ ] Each model in `unit.models` tracks its own `position`, `rotation`, and individual line-of-sight.
+  - [ ] Coherency validation: every model must remain within **1"** of at least one squad member, and all squad models within **6"** of the entire squad.
+- [ ] **Squad Movement & Pathfinding:**
+  - [ ] Multi-waypoint clearance navigation maintaining formation around obstacles.
+- [ ] **Squad Casualty Allocation:**
+  - [ ] Each unsaved wound eliminates 1 model outright from the squad without rolling trauma.
+  - [ ] Only the **final surviving model** in a squad accumulates trauma tokens and rolls on the Trauma Table.
+  - [ ] Defending player selects which non-leader model is removed as a casualty (integrated into Phase 6.5 reaction framework).
+- [ ] **Melee Consolidation:**
+  - [ ] Defending models consolidate up to **3"** into base contact when charged.
+  - [ ] Surviving models consolidate up to **3"** if the opposing unit is wiped out.
+- [ ] **Multi-Model 3D Scene Rendering (`client`):**
+  - [ ] `UnitRenderer` instantiates and manages multiple 3D meshes per squad.
+  - [ ] Floating wound and status markers follow the squad centroid or individual models.
+
+### Acceptance Criteria
+- [ ] Squads render and move with multiple 3D models while adhering to 1" coherency.
+- [ ] Unsaved wounds remove individual squad models until 1 remains.
+- [ ] Trauma table is only rolled for the last surviving model in a squad.
+- [ ] Melee 3" consolidation pulls squad members into contact.
+
+## Phase 10: Interactive Deployment & Army Rosters (Pre-Canned + Custom Builder)
+**Goal:** Provide quickplay pre-canned starter armies for instant fun, an advanced army roster importer/builder, and alternating pre-match deployment.
+
+> **Recommended AI Model:** **3.8** *(or **4.0** for parsing complex custom text formats)*
+
+### Tasks
+- [ ] **Pre-Canned Quickplay Starter Armies (`shared/data`):**
+  - [ ] 1-click ready-to-play, point-balanced starter forces for each faction (e.g. 250pts / 300pts for Frontier Wardens, Rust Raiders, and future factions).
+  - [ ] Beginners can immediately jump into play without navigating army building.
+- [ ] **Custom Army Roster Importer & Builder:**
+  - [ ] Points budget validation (e.g. 250pt, 300pt, 500pt match limits).
+  - [ ] Clean-room JSON army list import/export format.
+  - [ ] Plain-text roster import compatible with standard army builders (e.g. Army Forge text format).
+- [ ] **Pre-Match Interactive Deployment Phase:**
+  - [ ] Pre-game roll-off for deployment initiative.
+  - [ ] Alternating deployment phase: players take turns placing 1 unit at a time within their 12" deployment zones.
+  - [ ] Deployment validity checks (inside deployment zone bounds, no placement inside obstacles or within 1" of enemy models).
+- [ ] **Deployment Special Rules:**
+  - [ ] **`vanguard` (Infiltrate):** Deploys after standard deployment anywhere on the board > 12" from the enemy deployment zone.
+  - [ ] **`drop-reserve` (Deep Strike):** Held in reserve during deployment; arrives on Round 2, 3, or 4 anywhere > 9" from enemy units.
+
+### Acceptance Criteria
+- [ ] Players can start a match instantly by selecting a pre-canned army per faction.
+- [ ] Advanced players can paste/import custom army lists within a selected points cap.
+- [ ] Interactive deployment lets players alternate placing units before Round 1 begins.
+- [ ] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
+
+## Phase 11: Environmental Terrain Dynamics & Verticality
+**Goal:** Implement full tabletop terrain hazard tests and 3D multi-level vertical movement.
+
+> **Recommended AI Model:** **4.0** *(3D raycasting, elevation platforms, falling physics, and dynamic navmesh)*
+>
+> **Specification:** See **[RULES_SPECIFICATION.md Section 8 & 10](./RULES_SPECIFICATION.md#8-environmental-obstacles--terrain)**.
+
+### Tasks
+- [ ] **Difficult & Dangerous Terrain:**
+  - [ ] **Difficult Terrain:** Caps movement at **6" maximum** across the activation (negates Rush and Charge speed bonuses).
+  - [ ] **Dangerous Terrain:** Roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 automatic wound.
+- [ ] **Vertical Elevation & Platforms:**
+  - [ ] Multi-level terrain meshes with upper platforms, walkways, and roofs (y > 0).
+  - [ ] Vertical ladders/stairs for scaling elevations.
+  - [ ] Standard drop clearance: models safely drop elevations ≤ 3" without penalty.
+  - [ ] Extended jump checks across horizontal gaps (≤ 6").
+  - [ ] Falling damage: AP(1) per full 3" of vertical fall if pushed or failing extended jumps.
+
+### Acceptance Criteria
+- [ ] Difficult terrain caps movement at 6".
+- [ ] Dangerous terrain rolls 1s for wounds on traversal.
+- [ ] Models can move onto elevated platforms and suffer falling damage if displaced off high edges.
+
+## Phase 12: Reconnection & Network Resilience
+**Goal:** Handle disconnections, socket recoveries, and snapshot re-syncing without dropping matches.
+
+> **Recommended AI Model:** **4.0** *(WebRTC socket recovery, IndexedDB state caching, and distributed desync prevention)*
+
+### Tasks
+- [ ] Heartbeat timeout detection across WebRTC data channel and signaling WebSocket.
+- [x] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling drops).
+- [ ] Snapshot storage and retrieval in IndexedDB / local storage.
+- [ ] Guest snapshot caching for potential host rehosting.
+- [ ] Reconnection flow: rejoin active room during the 5-minute grace window.
+- [ ] State re-sync on reconnection (host broadcasts authoritative state to rejoined guest).
+- [ ] Handle host reconnection and socket recovery.
+
+### Acceptance Criteria
+- [ ] Disconnect detected via heartbeat timeout.
+- [ ] Guest has cached snapshot.
+- [ ] Host can reconnect to the same room during grace window.
+- [ ] Game state re-synced after reconnection without state corruption.
+- [ ] Play resumes seamlessly from the last confirmed state.
+
+## Phase 13: Polish, Audio & Release Hardening
+**Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
+
+> **Recommended AI Model:** **3.8** *(Web Audio triggers, rematch UI resets, CSS polish, and release profiling)*
+
+### Tasks
+- [ ] Audio & SFX: Dice rattle/roll sounds, laser/gunfire audio cues, melee impact clangs, and victory stingers.
+- [ ] "Play Again" / rematch flow on game-over screen (resets match over existing P2P channel).
+- [ ] End-to-end playtesting with two clients across varied terrain layouts.
+- [ ] Performance profiling: ensure 60fps on standard desktop browsers with full 3D terrain.
+- [ ] Documentation updates (sync all docs with final feature set).
+- [ ] Deployment to release branch (GitHub Pages client + Azure App Service server).
+
+### Acceptance Criteria
+- [ ] Two players can complete full 4-round matches with audio, custom/pre-canned armies, and objectives.
+- [ ] Rematch resets the game smoothly without re-entering invite codes.
+- [ ] Production build passes all checks and deploys cleanly via GitHub Actions.
+
+## Recommended AI Model Selection by Phase
+
+To optimize performance, reasoning depth, and token/quota usage across development:
+- **Use 4.0** for **distributed networking, complex state machines, 3D spatial geometry, and formation math** where edge-case bugs cause multiplayer desyncs.
+- **Use 3.8** for **standard game rules, data packs, UI views, straightforward event handling, and test expansion**, achieving faster turnaround while conserving 4.0 quota.
+
+| Phase | Recommended Model | Primary Complexity Driver | Rationale |
+| :--- | :---: | :--- | :--- |
+| **Phase 6.5: Interactive Reactions & Interruption Framework** | **4.0** | Asynchronous P2P state machine, timing, anti-griefing | Shifting from a single-actor turn to an interrupted, bi-directional negotiation across WebRTC requires airtight state reconciliation, timeout edge cases, and host validation. |
+| **Phase 7: Objectives & 4-Round Mission Engine** | **3.8** | Game state entity, 3″ distance checks, round clock, 3D beacon | The logic is clean and additive: placing 3–5 beacons, computing standard 2D distance checks at round end, and tracking integer victory points. |
+| **Phase 8: All-Weapon Firing & Split Fire** | **3.8** | Multi-target dice loop & UI chips | Mostly refactoring `actions.ts` and HUD targeting chips to loop over an array of equipped weapons rather than a single weapon ID. |
+| **Phase 9: Multi-Model Squads & Coherency Engine** | **4.0** | 3D multi-model formation pathfinding & coherency geometry | High mathematical complexity: multi-mesh group rendering in Three.js, maintaining 1″ model / 6″ squad coherency around clearance corners, and squad casualty cascades. |
+| **Phase 10: Interactive Deployment & Pre-Canned / Custom Armies** | **3.8** *(or 4.0 for parser)* | Data curation, text parser, deployment boundary checks | Writing pre-canned starter rosters is pure data; deployment is simple boundary validation. (If writing a complex Army Forge text regex parser, 4.0 can scaffold that piece). |
+| **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
+| **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
+| **Phase 13: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
+
+> [!TIP]
+> **Hybrid Workflow within a Phase:** For 4.0 phases (such as Phase 6.5 and Phase 9), kick off with 4.0 to design the shared state schema and core engine functions in `shared/`, then switch to 3.8 to build the Three.js visual rendering, HTML/CSS HUD components, and supplementary unit tests.
 
 ## Future Considerations (Post-v1)
 - Full host migration if needed

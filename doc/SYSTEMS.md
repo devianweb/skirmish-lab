@@ -41,6 +41,11 @@ Each activated unit executes one of the tabletop maneuvers:
 > [!NOTE]
 > Following tabletop skirmish rules (OPR Grimdark Future: Firefight), melee combat occurs exclusively via **Charge** maneuvers. Models do not remain locked in base-to-base melee. The obsolete standalone "Fight" button has been removed from the player HUD; the 4 standard tabletop maneuvers are Hold, Move, Rush, and Charge.
 
+### Interactive Reactions & Interruption Framework (Phase 6.5)
+In Phase 6.5, the single-actor activation loop expands to support out-of-turn interactive decision prompts (reactions):
+- **Melee Retaliation Choice:** Defending players can choose whether to strike back in melee (taking Fatigue) or decline (preserving their fighter's full Quality and fresh state for their upcoming activation).
+- **Extensible Architecture:** Powered by `turnState.pendingReaction` in the pure serializable game state, featuring host-authoritative validation, a 15s visual countdown with automatic default fallback on expiration or disconnection, and waiting state feedback for the active player. Designed to support future out-of-turn mechanics (Overwatch, defensive stratagems, Brace, and casualty allocation).
+
 ### 2D Visibility-Graph Auto-Pathfinding (`findNavPath`)
 Units automatically navigate around terrain obstacles and other fighters rather than halting prematurely:
 - Generates clearance waypoints around all impassable obstacle bounding boxes (with unit base clearance `UNIT_COLLISION_RADIUS + 0.12"`).
