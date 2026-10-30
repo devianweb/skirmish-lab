@@ -336,72 +336,81 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 8: Combat Enhancements: All-Weapon Firing & Split Fire
 **Goal:** Fire all equipped ranged weapons during a shoot action matching physical tabletop skirmish rules.
 
-> **Recommended AI Model:** **3.8** *(Straightforward multi-weapon loop refactor and HUD targeting chips)*
->
-> **Specification:** See **[RULES_SPECIFICATION.md Section 4](./RULES_SPECIFICATION.md#4-ranged-combat-resolution)**.
+> **Atomic Sub-Phases:**
+> - **Sub-phase 8A (Engine & Data Schema — `shared/`):** Multi-weapon firing loop, split fire target allocation (up to 2 targets), aggregated server roll request, and pure unit tests.
+> - **Sub-phase 8B (HUD & Controls — `client/src/ui`):** Targeting chips per weapon, per-target breakdown in dice panel, and firing audio.
 
-### Tasks
-- [ ] **All-Weapon Shoot Action (`shared`):**
-  - [ ] When shooting, an active unit discharges all eligible equipped ranged weapons (instead of only selecting 1 weapon).
-  - [ ] Aggregate dice specs for all firing weapons into a unified server roll request.
-- [ ] **Split Fire Target Allocation:**
-  - [ ] Allow assigning different weapon profiles to up to **two distinct enemy targets** in line of sight and range.
-  - [ ] Sequential resolution: resolve weapon A vs Target 1, then weapon B vs Target 2 with separate defense/trauma rolls.
-- [ ] **HUD Multi-Weapon Target Selection (`client`):**
-  - [ ] Shoot targeting interface shows weapon allocation chips to assign targets for each equipped ranged weapon.
-  - [ ] Confirmation bar and dice panel show per-target breakdown.
+### Sub-phase 8A: Shared Engine & All-Weapon Batching
+- [ ] Support `{ attackerId, allocations: Array<{ weaponId: string, targetId: string }> }` in shoot action payload (backwards-compatible with single weapon/target).
+- [ ] Validate range, line-of-sight, and weapon eligibility across all assigned weapons.
+- [ ] Enforce split fire constraint: weapons can be divided between at most **two distinct enemy targets**.
+- [ ] Aggregate attack dice for all firing weapons into a single unified server roll request.
+- [ ] Pure engine unit tests in `shared/tests/engine/actions.test.ts`.
+
+### Sub-phase 8B: HUD Multi-Target Chips & Dice Log
+- [ ] Weapon allocation chips in targeting HUD allowing players to assign each equipped ranged weapon to eligible targets.
+- [ ] Confirmation bar showing combined attack summary.
+- [ ] Authoritative dice panel grouping rolls, defense saves, and wound effects per weapon and target.
 
 ### Acceptance Criteria
 - [ ] A unit with multiple ranged weapons fires all of them during a single shoot action.
 - [ ] Units can divide weapons between up to two distinct targets.
-- [ ] Server requests and resolves defense rolls for each target accurately.
+- [ ] Server requests and resolves defense rolls for each target accurately in one unified round-trip.
 
 ## Phase 9: Multi-Model Squads & Coherency Engine
-**Goal:** Support 3-model squads alongside single-model specialists and leaders.
+**Goal:** Support multi-model squads (e.g. 3-model infantry squads) alongside single-model specialists and leaders.
 
-> **Recommended AI Model:** **4.0** *(Complex 3D formation pathfinding, coherency geometry, and multi-mesh Three.js lifecycle)*
->
-> **Specification:** See **[RULES_SPECIFICATION.md Section 2.1 & 6.1](./RULES_SPECIFICATION.md#21-spatial-dimensions--coherency)**.
+> **Atomic Sub-Phases:**
+> - **Sub-phase 9A (Spatial Schema & Coherency Engine — `shared/`):** Model position tracking, 1″ model / 6″ squad coherency validation pure functions, and unit tests.
+> - **Sub-phase 9B (Casualty Cascade & Consolidation — `shared/`):** Outright non-leader casualty elimination, last-model trauma table rules, and 3″ melee consolidation math.
+> - **Sub-phase 9C (3D Multi-Mesh Rendering & Centroid Markers — `client/src/scene`):** Three.js `UnitRenderer` multi-mesh lifecycle and squad centroid status tracking.
 
-### Tasks
-- [ ] **Multi-Model Spatial Schema (`shared`):**
-  - [ ] Each model in `unit.models` tracks its own `position`, `rotation`, and individual line-of-sight.
-  - [ ] Coherency validation: every model must remain within **1"** of at least one squad member, and all squad models within **6"** of the entire squad.
-- [ ] **Squad Movement & Pathfinding:**
-  - [ ] Multi-waypoint clearance navigation maintaining formation around obstacles.
-- [ ] **Squad Casualty Allocation:**
-  - [ ] Each unsaved wound eliminates 1 model outright from the squad without rolling trauma.
-  - [ ] Only the **final surviving model** in a squad accumulates trauma tokens and rolls on the Trauma Table.
-  - [ ] Defending player selects which non-leader model is removed as a casualty (integrated into Phase 6.5 reaction framework).
-- [ ] **Melee Consolidation:**
-  - [ ] Defending models consolidate up to **3"** into base contact when charged.
-  - [ ] Surviving models consolidate up to **3"** if the opposing unit is wiped out.
-- [ ] **Multi-Model 3D Scene Rendering (`client`):**
-  - [ ] `UnitRenderer` instantiates and manages multiple 3D meshes per squad.
-  - [ ] Floating wound and status markers follow the squad centroid or individual models.
+### Sub-phase 9A: Spatial Schema & Coherency Engine (`shared/`)
+- [ ] Update `Model` interface to track individual `position: Vector3` and `rotation: Vector3`.
+- [ ] Coherency validation pure functions: every model must remain within **1"** of at least one other squad member, and all squad models within **6"** of the entire squad.
+- [ ] Path movement validation ensuring entire formation maintains coherency at destination.
+- [ ] Unit tests for coherency geometry in `shared/tests/engine/spatial.test.ts`.
+
+### Sub-phase 9B: Casualty Cascade & Melee Consolidation (`shared/`)
+- [ ] Unsaved wounds eliminate individual squad models outright without rolling wound effects.
+- [ ] Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
+- [ ] Melee consolidation: surviving models consolidate up to **3"** into base contact when charged or upon wiping out opposing units.
+- [ ] Unit tests in `shared/tests/engine/actions.test.ts`.
+
+### Sub-phase 9C: 3D Multi-Mesh Rendering & Centroid Badges (`client/`)
+- [ ] `UnitRenderer` instantiates, updates, and disposes multiple 3D meshes per squad.
+- [ ] Status badges and wound markers follow the squad centroid.
+- [ ] Interactive selection highlights the entire squad.
 
 ### Acceptance Criteria
 - [ ] Squads render and move with multiple 3D models while adhering to 1" coherency.
 - [ ] Unsaved wounds remove individual squad models until 1 remains.
-- [ ] Trauma table is only rolled for the last surviving model in a squad.
+- [ ] Wound Effects table is only rolled for the last surviving model in a squad.
 - [ ] Melee 3" consolidation pulls squad members into contact.
 
 ## Phase 10: Interactive Deployment & Pre-Canned Starter Armies
 **Goal:** Provide quickplay point-balanced starter forces for instant match play and an alternating pre-match deployment phase.
 
-> **Recommended AI Model:** **3.8** *(Pure army data definitions and 2D deployment boundary validation)*
+> **Atomic Sub-Phases:**
+> - **Sub-phase 10A (Pre-Canned Armies — `shared/data`):** Point-balanced starter army rosters for Frontier Wardens and Rust Raiders, with special rules definitions (`vanguard`, `drop-reserve`).
+> - **Sub-phase 10B (Deployment Engine — `shared/`):** Deployment turn phase, 12″ deployment zone validation, alternating placement, and initiative roll-off.
+> - **Sub-phase 10C (Deployment HUD & Lobby Picker — `client/src/ui`):** Lobby army selection and 3D deployment zone placement interaction.
 
-### Tasks
-- [ ] **Pre-Canned Quickplay Starter Armies (`shared/data`):**
-  - [ ] 1-click ready-to-play, point-balanced starter forces for each faction (e.g. 250pts / 300pts for Frontier Wardens, Rust Raiders, and future factions).
-  - [ ] Beginners and quickplay matches can immediately jump into play without navigating army building.
-- [ ] **Pre-Match Interactive Deployment Phase:**
-  - [ ] Pre-game roll-off for deployment initiative.
-  - [ ] Alternating deployment phase: players take turns placing 1 unit at a time within their 12" deployment zones.
-  - [ ] Deployment validity checks (inside deployment zone bounds, no placement inside obstacles or within 1" of enemy models).
-- [ ] **Deployment Special Rules:**
-  - [ ] **`vanguard` (Infiltrate):** Deploys after standard deployment anywhere on the board > 12" from the enemy deployment zone.
-  - [ ] **`drop-reserve` (Deep Strike):** Held in reserve during deployment; arrives on Round 2, 3, or 4 anywhere > 9" from enemy units.
+### Sub-phase 10A: Pre-Canned Quickplay Starter Armies (`shared/data`)
+- [ ] 1-click ready-to-play, point-balanced starter forces for each faction in `shared/data/armies.ts`.
+- [ ] Balanced unit composition (e.g. 250pts / 300pts for Frontier Wardens and Rust Raiders).
+- [ ] Special rules data attributes: `vanguard` and `drop-reserve`.
+
+### Sub-phase 10B: Pre-Match Deployment Engine (`shared/`)
+- [ ] Deployment phase state machine (`TurnPhase = 'deployment'`).
+- [ ] Pre-game roll-off for deployment initiative.
+- [ ] Alternating placement validation: units placed within friendly 12" zone, outside obstacles, > 1" from enemy models.
+- [ ] Special deployment handling: `vanguard` places after standard units; `drop-reserve` held for Round 2+.
+
+### Sub-phase 10C: Deployment HUD & Lobby Selection (`client/`)
+- [ ] Lobby UI army selector allowing players to pick their faction force before connecting.
+- [ ] 3D deployment zone boundaries visualizer.
+- [ ] Alternating placement HUD prompt and placement confirmation.
 
 ### Acceptance Criteria
 - [ ] Players can start a match instantly by selecting a pre-canned army per faction in the lobby.
