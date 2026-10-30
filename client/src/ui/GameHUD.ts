@@ -98,6 +98,7 @@ export class GameHUD {
   private lastRoundNumber: number | null = null;
   private toast: string | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private reactionTimerInterval: ReturnType<typeof setInterval> | null = null;
   private visible = false;
   private root: HTMLElement;
 
@@ -120,6 +121,21 @@ export class GameHUD {
       }
     };
     window.addEventListener('keydown', this.keydownHandler);
+  }
+
+  destroy(): void {
+    if (this.reactionTimerInterval) {
+      clearInterval(this.reactionTimerInterval);
+      this.reactionTimerInterval = null;
+    }
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    window.removeEventListener('keydown', this.keydownHandler);
+    if (this.root.parentElement) {
+      this.root.parentElement.removeChild(this.root);
+    }
   }
 
   private peerState: 'connected' | 'disconnected' = 'connected';
@@ -170,7 +186,32 @@ export class GameHUD {
       return;
     }
 
+    if (state.turnState.pendingReaction) {
+      if (!this.reactionTimerInterval) {
+        this.reactionTimerInterval = setInterval(() => {
+          this.updateReactionTimerDisplay();
+        }, 250);
+      }
+    } else if (this.reactionTimerInterval) {
+      clearInterval(this.reactionTimerInterval);
+      this.reactionTimerInterval = null;
+    }
+
     this.render();
+  }
+
+  private updateReactionTimerDisplay(): void {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!pending) return;
+    const remainingSec = Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000));
+    const timerEl = this.root.querySelector('.sl-hud-reaction-timer');
+    if (timerEl) {
+      timerEl.textContent = `${remainingSec}s`;
+    }
+    const waitingTimerEl = this.root.querySelector('.sl-hud-reaction-waiting-timer');
+    if (waitingTimerEl) {
+      waitingTimerEl.textContent = `${remainingSec}s`;
+    }
   }
 
   /** Board/unit picks from GameView (see PickTarget in the renderer). */
@@ -906,6 +947,18 @@ export class GameHUD {
       const effectiveQ = outcome.effectiveQuality ?? attacker?.quality ?? 4;
       const targetD = outcome.effectiveDefense ?? target?.defense ?? 5;
 
+      if (entry.action.type === 'respond-reaction') {
+        const payload = entry.action.payload as { choiceId: string };
+        if (payload.choiceId === 'decline') {
+          return `
+            <div class="sl-hud-dice">
+              <div class="sl-hud-dice-title">Retaliation Declined: ${attacker?.name ?? 'Defender'} held ground</div>
+              <div class="sl-hud-dice-summary">0 attacks · No fatigue applied</div>
+              <div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — Defender declined retaliation (no Fatigue)</div>
+            </div>`;
+        }
+      }
+
       const hitDiceHtml = toHit
         ? toHit.rolls
             .map((r) => {
@@ -1039,11 +1092,14 @@ export class GameHUD {
         pushBackHtml = `<div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — both units Fatigued</div>`;
       }
 
+      const titleText =
+        entry.action.type === 'respond-reaction'
+          ? `Defender Retaliation: ${attacker?.name ?? 'Defender'} → ${target?.name ?? 'Charger'}`
+          : `${attacker?.name ?? 'Attacker'} → ${target?.name ?? 'target'}`;
+
       return `
         <div class="sl-hud-dice">
-          <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} → ${
-        target?.name ?? 'target'
-      }</div>
+          <div class="sl-hud-dice-title">${titleText}</div>
           <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
           <div class="sl-hud-dice-label">Defense (need D${targetD}+${defMods}):</div>
@@ -1089,6 +1145,10 @@ export class GameHUD {
         return `charged ${this.unitName((action.payload as any).targetId)}`;
       case 'fight':
         return `fought ${this.unitName((action.payload as any).targetId)}`;
+      case 'respond-reaction': {
+        const p = action.payload as { choiceId: string };
+        return p.choiceId === 'strike-back' ? 'struck back in retaliation' : 'declined retaliation';
+      }
       case 'end-activation':
         return 'ended an activation';
       case 'end-round':
@@ -1129,6 +1189,46 @@ export class GameHUD {
         </div>`;
     }
 
+    const pendingReaction = this.state.turnState.pendingReaction;
+    if (pendingReaction) {
+      const remainingSec = Math.max(0, Math.ceil((pendingReaction.expiresAt - Date.now()) / 1000));
+      if (pendingReaction.promptingPlayerId === this.localPlayerId) {
+        const warningHtml = pendingReaction.warning
+          ? `<div class="sl-hud-reaction-warning">${pendingReaction.warning}</div>`
+          : '';
+        const optionsHtml = pendingReaction.options
+          .map((opt) => {
+            const btnClass = opt.style === 'primary' ? 'primary' : opt.style === 'danger' ? 'danger' : '';
+            return `<button class="sl-hud-btn ${btnClass}" data-reaction-choice="${opt.id}" data-reaction-id="${pendingReaction.id}">${opt.label}</button>`;
+          })
+          .join('');
+
+        return `
+          <div class="sl-hud-bottom-dock">
+            ${dataCardSlot}
+            <div class="sl-hud-bottom sl-hud-reaction">
+              <div class="sl-hud-reaction-header">
+                <span class="sl-hud-reaction-title">${pendingReaction.title}</span>
+                <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+              </div>
+              <div class="sl-hud-reaction-desc">${pendingReaction.description}</div>
+              ${warningHtml}
+              <div class="sl-hud-reaction-actions">
+                ${optionsHtml}
+              </div>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for opponent: ${pendingReaction.title} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+    }
+
     if (this.flow.mode === 'targeting') {
       const instruction =
         this.flow.action === 'move'
@@ -1153,12 +1253,12 @@ export class GameHUD {
       const hasAttacked = !!active.hasAttacked;
       const hasMoved = !!active.hasMoved;
       const hasActed = hasMoved || hasAttacked;
-      const canMove = !engaged && !hasMoved && !hasAttacked && active.remainingMovement > 0.01;
-      const canRush = !engaged && !hasMoved && !hasAttacked;
+      const canMove = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && active.remainingMovement > 0.01;
+      const canRush = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked;
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-      const canShoot = !engaged && !hasAttacked && !!rangedWeapon;
-      const canCharge = !engaged && !hasMoved && !hasAttacked && !!meleeWeapon;
+      const canShoot = !active.isDestroyed && !engaged && !hasAttacked && !!rangedWeapon;
+      const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -1555,6 +1655,25 @@ export class GameHUD {
         }
       });
     }
+
+    const reactionBtns = this.root.querySelectorAll<HTMLButtonElement>('[data-reaction-choice]');
+    for (const btn of reactionBtns) {
+      btn.addEventListener('click', () => {
+        const choiceId = btn.dataset.reactionChoice;
+        const reactionId = btn.dataset.reactionId;
+        if (choiceId && reactionId) {
+          this.flow = { mode: 'waiting' };
+          this.render();
+          this.controller.submitAction(
+            createAction(this.localPlayerId, 'respond-reaction', {
+              type: 'respond-reaction',
+              reactionId,
+              choiceId,
+            })
+          );
+        }
+      });
+    }
   }
 
   private emitMarkers(): void {
@@ -1844,6 +1963,16 @@ export class GameHUD {
 .sl-hud-btn[disabled] { opacity: 0.4; cursor: default; }
 .sl-hud-btn.primary { background: #2e7d32; border-color: #43a047; font-weight: 600; }
 .sl-hud-btn.primary:hover { background: #43a047; }
+.sl-hud-btn.danger { background: #b71c1c; border-color: #d32f2f; font-weight: 600; }
+.sl-hud-btn.danger:hover { background: #d32f2f; }
+.sl-hud-reaction { flex-direction: column; align-items: stretch; gap: 8px; min-width: 440px; border-color: #ffd54f; background: rgba(18, 22, 30, 0.94); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
+.sl-hud-reaction-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #37474f; padding-bottom: 4px; }
+.sl-hud-reaction-title { font-weight: 700; font-size: 14px; color: #ffd54f; text-transform: uppercase; letter-spacing: 0.5px; }
+.sl-hud-reaction-timer { font-family: monospace; font-size: 13px; font-weight: 700; color: #ffab40; background: #263238; padding: 2px 8px; border-radius: 4px; border: 1px solid #455a64; }
+.sl-hud-reaction-desc { font-size: 13px; color: #eceff1; }
+.sl-hud-reaction-warning { font-size: 11px; color: #ff8a65; font-style: italic; }
+.sl-hud-reaction-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+.sl-hud-reaction-waiting { border-color: #ffd54f; }
 .sl-hud-hint { color: #b0bec5; }
 .sl-hud-active-name { font-weight: 700; color: #69f0ae; margin-right: 8px; }
 .sl-hud-confirm-summary { color: #fff; margin-right: 8px; }

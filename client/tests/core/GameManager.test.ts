@@ -380,10 +380,15 @@ describe('GameManager', () => {
       // other side's registered handlers, mimicking an open data channel.
       const hostHandlers = new Map<string, Function[]>();
       const guestHandlers = new Map<string, Function[]>();
+      const hostConnHandlers: ((state: 'connected' | 'disconnected') => void)[] = [];
+      const guestConnHandlers: ((state: 'connected' | 'disconnected') => void)[] = [];
 
       const hostWebRTC = {
         on: vi.fn((type: string, handler: Function) => {
           hostHandlers.set(type, [...(hostHandlers.get(type) ?? []), handler]);
+        }),
+        onConnectionState: vi.fn((handler: (state: 'connected' | 'disconnected') => void) => {
+          hostConnHandlers.push(handler);
         }),
         send: vi.fn((message: any) => {
           for (const handler of guestHandlers.get(message.type) ?? []) handler(message);
@@ -393,12 +398,21 @@ describe('GameManager', () => {
         on: vi.fn((type: string, handler: Function) => {
           guestHandlers.set(type, [...(guestHandlers.get(type) ?? []), handler]);
         }),
+        onConnectionState: vi.fn((handler: (state: 'connected' | 'disconnected') => void) => {
+          guestConnHandlers.push(handler);
+        }),
         send: vi.fn((message: any) => {
           for (const handler of hostHandlers.get(message.type) ?? []) handler(message);
         }),
       } as any;
 
-      return { hostWebRTC, guestWebRTC };
+      return {
+        hostWebRTC,
+        guestWebRTC,
+        disconnectGuest: () => {
+          for (const h of hostConnHandlers) h('disconnected');
+        },
+      };
     }
 
     it('runs a full alternating activation turn across the wire', async () => {
@@ -615,14 +629,30 @@ describe('GameManager', () => {
       );
       await new Promise((r) => setTimeout(r, 0));
 
-      // Both units survived:
+      // Charge resolves: Host hits, target takes wounds & survives.
+      // A pending reaction is now active for Guest to decide retaliation.
       const afterChargeGuest = guest.getGameState()!;
-      const lastEntry = afterChargeGuest.actionLog[afterChargeGuest.actionLog.length - 1];
-      expect(lastEntry.dice?.outcome.retaliation).toBeDefined();
+      expect(afterChargeGuest.turnState.pendingReaction).toBeDefined();
+      expect(afterChargeGuest.turnState.pendingReaction?.promptingPlayerId).toBe(GUEST_PLAYER_ID);
+
+      // Guest sends respond-reaction with strike-back
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'respond-reaction', {
+          type: 'respond-reaction',
+          reactionId: afterChargeGuest.turnState.pendingReaction!.id,
+          choiceId: 'strike-back',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      // After reaction resolves:
+      const afterReactionGuest = guest.getGameState()!;
+      expect(afterReactionGuest.turnState.pendingReaction).toBeNull();
+      const lastEntry = afterReactionGuest.actionLog[afterReactionGuest.actionLog.length - 1];
       expect(lastEntry.dice?.outcome.pushedBack).toBe(true);
 
-      const chargerInGuest = afterChargeGuest.units.find((u) => u.id === hostCharger.id)!;
-      const targetInGuest = afterChargeGuest.units.find((u) => u.id === guestTarget.id)!;
+      const chargerInGuest = afterReactionGuest.units.find((u) => u.id === hostCharger.id)!;
+      const targetInGuest = afterReactionGuest.units.find((u) => u.id === guestTarget.id)!;
 
       // Both units are Fatigued and NOT Engaged.
       expect(chargerInGuest.status).toContain('fatigued');
@@ -670,6 +700,219 @@ describe('GameManager', () => {
       const afterMove = host.getGameState()!.units.find((u) => u.id === guestTarget.id)!;
       expect(afterMove.position.x).toBeCloseTo(moveDest.x, 1);
       expect(afterMove.hasMoved).toBe(true);
+    });
+
+    it('charge reaction decline: defender declines over wire, avoiding fatigue and pushing charger back', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          requestRoll: async () => [
+            { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+            { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+          ],
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const afterChargeGuest = guest.getGameState()!;
+      const reaction = afterChargeGuest.turnState.pendingReaction!;
+      expect(reaction).toBeDefined();
+
+      // Guest chooses decline
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'respond-reaction', {
+          type: 'respond-reaction',
+          reactionId: reaction.id,
+          choiceId: 'decline',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const afterReactionGuest = guest.getGameState()!;
+      expect(afterReactionGuest.turnState.pendingReaction).toBeNull();
+      const chargerInGuest = afterReactionGuest.units.find((u) => u.id === hostCharger.id)!;
+      const targetInGuest = afterReactionGuest.units.find((u) => u.id === guestTarget.id)!;
+
+      // Charger is pushed back and fatigued
+      expect(chargerInGuest.status).toContain('fatigued');
+      // Defender declined so defender is NOT fatigued!
+      expect(targetInGuest.status).not.toContain('fatigued');
+      // Charger separated
+      const sepDist = Math.hypot(
+        chargerInGuest.position.x - targetInGuest.position.x,
+        chargerInGuest.position.z - targetInGuest.position.z
+      );
+      expect(sepDist).toBeGreaterThanOrEqual(1.5);
+    });
+
+    it('host reaction timeout auto-resolves with default choice', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          requestRoll: async () => [
+            { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+            { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+          ],
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(host.getGameState()!.turnState.pendingReaction).toBeDefined();
+
+      // Trigger timeout directly to test auto-resolution logic
+      (host as any).handleReactionTimeout();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Reaction is resolved with default option (strike-back)
+      expect(host.getGameState()!.turnState.pendingReaction).toBeNull();
+      expect(guest.getGameState()!.turnState.pendingReaction).toBeNull();
+      const lastEntry = host.getGameState()!.actionLog[host.getGameState()!.actionLog.length - 1];
+      expect(lastEntry.action.type).toBe('respond-reaction');
+      expect((lastEntry.action.payload as any).choiceId).toBe('strike-back');
+    });
+
+    it('peer disconnect auto-resolves pending reaction immediately with default choice', async () => {
+      const { hostWebRTC, guestWebRTC, disconnectGuest } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          requestRoll: async () => [
+            { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+            { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+          ],
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(host.getGameState()!.turnState.pendingReaction).toBeDefined();
+
+      // Guest disconnects mid-reaction!
+      disconnectGuest();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Host immediately auto-resolves reaction so game does not deadlock
+      expect(host.getGameState()!.turnState.pendingReaction).toBeNull();
+      const lastEntry = host.getGameState()!.actionLog[host.getGameState()!.actionLog.length - 1];
+      expect(lastEntry.action.type).toBe('respond-reaction');
     });
 
     it('rebinds host GameManager and re-broadcasts state when a guest rejoins over a new channel', async () => {
