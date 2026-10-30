@@ -31,10 +31,13 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 ### Networking
 - **Signaling & dice only:** The ws server is strictly for signaling (SDP/ICE exchange) and authoritative dice rolls. Once WebRTC data channel is open, all gameplay actions, state updates, and movements flow P2P directly over the data channel.
 - **Invite codes:** Use XXX-XXX format room codes, no matchmaking.
-- **Rooms are ephemeral with disconnect grace:** Rooms expire after inactivity (5 minutes) or max lifetime (3 hours). A 5-minute disconnect grace window preserves active rooms to allow socket recovery or reboots without dropping the game.
+- **Rooms are ephemeral with disconnect grace:** Rooms expire after inactivity (5 minutes) or max lifetime (3 hours). A 5-minute disconnect grace window preserves active rooms to allow socket recovery or reboots without dropping the game. Rejoining peers automatically reoccupy vacant role slots (`host` or `guest`) via the standard lobby invite code.
 - **Server-rolled dice:** All dice rolls must go through the server's RNG and be broadcast to both peers simultaneously. Roll requests retry with backoff and the server caches results by `rollId` for strict idempotency.
 - **Keep-alive:** Periodic signaling keep-alive pings (25s interval) ensure WebSocket connections stay active under cloud load balancer idle timeouts (e.g. Azure's 230s limit) even under browser background timer throttling.
 - **Confirmed actions only:** Only broadcast final confirmed positions/actions, no real-time dragging sync.
+
+### Audio & UI Feedback
+- **Zero-dependency audio cues:** In-game notifications (turn transitions, reaction alerts) synthesize tones procedurally via the Web Audio API (`AudioContext`) with zero network latency or external asset bundle dependencies.
 
 ### Rendering & Camera
 - **Role-dependent perspective:** The camera starts positioned from each player's deployment corner looking across the battlefield (Host at South corner `(20, 20, -20)` looking +z; Guest at North corner `(-20, 20, 20)` looking -z).
