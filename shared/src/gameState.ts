@@ -61,6 +61,7 @@ export function createInitialGameState(hostId: string, guestId: string, hostName
     units: [],
     terrain: [],
     markers: [],
+    objectives: [],
     actionLog: [],
     status: 'setting-up',
   };

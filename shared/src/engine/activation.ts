@@ -1,4 +1,4 @@
-import { GameState, Unit } from '../gameTypes';
+import { GameState, MAX_ROUNDS, OBJECTIVE_CONTROL_RADIUS, Unit } from '../gameTypes';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
 
@@ -62,18 +62,87 @@ export function advanceActivation(state: GameState): void {
 }
 
 /**
- * End-of-round cleanup: reset per-round unit flags and start a new round.
+ * Evaluate objective control at the end of a round per OPR skirmish rules.
+ *
+ * Rules:
+ *   1. 3" horizontal radius around each objective marker.
+ *   2. Only living, non-routed, non-shaken units can seize or contest objectives.
+ *   3. If only friendly models are within 3", the friendly player controls it.
+ *   4. If opposing models are simultaneously within 3", the objective becomes
+ *      contested and reverts to neutral (controllingPlayerId = null, isContested = true).
+ *   5. Persistent control: markers remain controlled if units move away, until an
+ *      enemy seizes or contests them.
+ */
+export function evaluateObjectives(state: GameState): void {
+  if (!state.objectives || state.objectives.length === 0) return;
+
+  for (const obj of state.objectives) {
+    const eligibleUnitsInRange = state.units.filter((unit) => {
+      if (unit.isDestroyed || unit.status.includes('routed') || unit.status.includes('shaken')) {
+        return false;
+      }
+      const dist = Math.hypot(unit.position.x - obj.position.x, unit.position.z - obj.position.z);
+      return dist <= OBJECTIVE_CONTROL_RADIUS + 0.001;
+    });
+
+    const hostPresent = eligibleUnitsInRange.some((u) => u.ownerId === state.hostId);
+    const guestPresent = eligibleUnitsInRange.some((u) => u.ownerId === state.guestId);
+
+    if (hostPresent && guestPresent) {
+      obj.isContested = true;
+      obj.controllingPlayerId = null;
+    } else if (hostPresent) {
+      obj.isContested = false;
+      obj.controllingPlayerId = state.hostId;
+    } else if (guestPresent) {
+      obj.isContested = false;
+      obj.controllingPlayerId = state.guestId;
+    } else {
+      // Nobody in range: persistent control maintains current control / contested state
+    }
+  }
+}
+
+/**
+ * End-of-round cleanup: reset per-round unit flags, evaluate objective control,
+ * and either conclude the match (after round 4) or start a new round.
  *
  * The player who finished activating all of their units first in the previous
  * round (i.e. the opponent of whichever player took the final activation of
- * the round, `currentPlayerId`) activates first in the new round. This matches
- * OPR skirmish rules and prevents the last player of round N from also taking
- * the first activation of round N+1.
+ * the round, `currentPlayerId`) activates first in the new round.
  *
- * Engagements persist across rounds (melees carry over); stun clears only via
- * a unit's own activation.
+ * Match duration is exactly 4 rounds. When round 4 finishes, the game ends
+ * and the player controlling the most objectives wins.
  */
 export function endRound(state: GameState): void {
+  if (state.status === 'game-over') return;
+
+  // 1. Evaluate objective control at the end of the round
+  evaluateObjectives(state);
+
+  // 2. Conclude match after Round 4
+  if (state.turnState.roundNumber >= MAX_ROUNDS) {
+    state.status = 'game-over';
+    state.turnState.phase = 'game-over';
+    state.turnState.activeUnitId = null;
+
+    const hostScore = (state.objectives ?? []).filter((o) => o.controllingPlayerId === state.hostId).length;
+    const guestScore = (state.objectives ?? []).filter((o) => o.controllingPlayerId === state.guestId).length;
+
+    if (hostScore > guestScore) {
+      state.winner = state.hostId;
+      state.endReason = `Objective victory (${hostScore} to ${guestScore})`;
+    } else if (guestScore > hostScore) {
+      state.winner = state.guestId;
+      state.endReason = `Objective victory (${guestScore} to ${hostScore})`;
+    } else {
+      state.winner = undefined;
+      state.endReason = `Match drawn (${hostScore} to ${guestScore} objectives)`;
+    }
+    return;
+  }
+
+  // 3. Advance to the next round
   const lastActivatingPlayer = state.turnState.currentPlayerId;
   state.turnState.roundNumber += 1;
   state.turnState.startingPlayerId = getOpponentId(state, lastActivatingPlayer);

@@ -128,6 +128,17 @@ export interface GameMarker {
   data?: Record<string, any>;
 }
 
+export interface Objective {
+  id: string;
+  name: string;
+  position: Vector3;
+  controllingPlayerId?: string | null;
+  isContested?: boolean;
+}
+
+export const MAX_ROUNDS = 4;
+export const OBJECTIVE_CONTROL_RADIUS = 3.0;
+
 export interface Board {
   width: number;
   height: number;
@@ -280,6 +291,7 @@ export interface GameState {
   units: Unit[];
   terrain: TerrainPiece[];
   markers: GameMarker[];
+  objectives?: Objective[];
   actionLog: ActionLogEntry[];
   status: GameStatus;
   winner?: string;

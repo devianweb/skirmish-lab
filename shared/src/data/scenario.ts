@@ -1,4 +1,4 @@
-import { GameState, TerrainPiece, Unit } from '../gameTypes';
+import { GameState, Objective, TerrainPiece, Unit } from '../gameTypes';
 import {
   ARMY_FRONTIER_WARDENS,
   ARMY_RUST_RAIDERS,
@@ -132,11 +132,59 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
   ];
 }
 
+/**
+ * Create default scenario objective markers.
+ * Standard skirmish rules place 3 to 5 objectives outside deployment zones
+ * and > 9" apart from each other.
+ *
+ * Here we provide 4 balanced objectives in open ground:
+ *   - Alpha:   x: -10, z: -4
+ *   - Bravo:   x:  10, z:  4
+ *   - Charlie: x:  -4, z:  5
+ *   - Delta:   x:   4, z: -5
+ *
+ * Pairwise distances: min 10.82" (all > 9"), all within z: -5..5 (outside
+ * deployment zones at z = ±12), and positioned with clearance from obstacles.
+ */
+export function createDefaultScenarioObjectives(): Objective[] {
+  return [
+    {
+      id: 'objective-alpha',
+      name: 'Objective Alpha',
+      position: { x: -10, y: 0, z: -4 },
+      controllingPlayerId: null,
+      isContested: false,
+    },
+    {
+      id: 'objective-bravo',
+      name: 'Objective Bravo',
+      position: { x: 10, y: 0, z: 4 },
+      controllingPlayerId: null,
+      isContested: false,
+    },
+    {
+      id: 'objective-charlie',
+      name: 'Objective Charlie',
+      position: { x: -4, y: 0, z: 5 },
+      controllingPlayerId: null,
+      isContested: false,
+    },
+    {
+      id: 'objective-delta',
+      name: 'Objective Delta',
+      position: { x: 4, y: 0, z: -5 },
+      controllingPlayerId: null,
+      isContested: false,
+    },
+  ];
+}
+
 /** Apply the default scenario to a fresh game state (host-side, at start). */
 export function applyDefaultScenario(state: GameState): void {
   state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
   state.terrain = createDefaultScenarioTerrain();
   state.markers = [];
+  state.objectives = createDefaultScenarioObjectives();
   state.status = 'in-progress';
   state.turnState.phase = 'activation';
 }

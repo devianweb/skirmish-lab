@@ -40,6 +40,17 @@ Used by `MarkerRenderer` for selection, targeting, range rings, and floating wou
 | `outcome-0` | *(Procedural `TorusGeometry`)* | `1.0` | Floating neutral (`0xb0bec5`) 3D "0" digit above a target that received 0 wounds, giving clear attack feedback |
 | `outcome-1` .. `outcome-5` | `number-1.glb` .. `number-5.glb` | `1.2` | Floating red (`0xef5350`) wound-count digit above a wounded target; oriented toward the camera each frame so digits never appear mirrored |
 
+### 4. Mission Objective Markers (`ObjectiveRenderer`)
+Rendered procedurally in Three.js by `ObjectiveRenderer` at each objective's coordinate (`Objective.position`), dynamically color-coded to reflect control status:
+
+| Visual Element | Geometry | Dimensions | Dynamic Color & Behavior |
+| :--- | :--- | :--- | :--- |
+| `boundary-ring` | Procedural `RingGeometry` | Inner `2.92"`, Outer `3.0"` | Floor boundary indicating 3.0" control radius. Color-coded by controlling player: Neutral (`#ffd54f`), Host (`#29b6f6`), Guest (`#ef5350`), Contested (`#ff9800`). |
+| `capture-zone` | Procedural `CircleGeometry` | Radius `2.92"` | Semi-transparent (`opacity: 0.08`) floor disc showing the capture zone. Matches controlling state color. |
+| `beacon-base` | Procedural `CylinderGeometry` | Radius `0.4"`, Height `0.15"` | Central metallic pedestal anchor (`#546e7a`). |
+| `light-pillar` | Procedural `CylinderGeometry` | Radius `0.18"`, Height `4.0"` | Semi-transparent (`opacity: 0.35`) vertical energy column rising from the center. Matches controlling state color. |
+| `hover-crystal` | Procedural `OctahedronGeometry` | Radius `0.35"` | Floating diamond crystal at $y = 4.2"$. Matches controlling state color with high emissive glow (`0.4`). |
+
 ### Shared Texture
 - `Textures/colormap.png`: Shared palette texture referenced by all Kenney Prototype Kit `.glb` materials.
 
