@@ -641,7 +641,7 @@ export class GameHUD {
           path,
           weaponId: weapon.id,
         }),
-        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText}`
+        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
       return;
     }
@@ -959,6 +959,86 @@ export class GameHUD {
         ? `<strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'} (${outcome.wounds} unsaved${woundsGainedTokens})</strong>${outcomeStatus}`
         : '<strong>0 wounds</strong>';
 
+      let retaliationHtml = '';
+      if (outcome.retaliation) {
+        const ret = outcome.retaliation;
+        const retToHit = entry.dice.results.find((r) => r.purpose === 'retaliation-to-hit');
+        const retDefense = entry.dice.results.find((r) => r.purpose === 'retaliation-defense');
+        const retEffectiveQ = ret.effectiveQuality ?? target?.quality ?? 4;
+        const retChargerD = ret.effectiveDefense ?? attacker?.defense ?? 5;
+
+        const retHitDiceHtml = retToHit
+          ? retToHit.rolls
+              .map((r) => {
+                const isHit = r > 1 && (r >= 6 || r >= retEffectiveQ);
+                return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}" title="${
+                  isHit ? `Hit (${r} >= ${retEffectiveQ})` : `Miss (${r} < ${retEffectiveQ})`
+                }">${r}</span>`;
+              })
+              .join('')
+          : '';
+
+        const retUsedDefRolls = retDefense ? retDefense.rolls.slice(0, ret.hitCount) : [];
+        const retDefDiceHtml =
+          retUsedDefRolls.length > 0
+            ? retUsedDefRolls
+                .map((r) => {
+                  const isBlocked = r > 1 && (r >= 6 || r >= retChargerD);
+                  return `<span class="sl-die ${isBlocked ? 'def-pass' : 'def-fail'}" title="${
+                    isBlocked ? `Blocked (${r} >= ${retChargerD})` : `Failed (${r} < ${retChargerD}) → Wound`
+                  }">${r}</span>`;
+                })
+                .join('')
+            : '<span class="sl-hud-dice-empty">no hits to defend</span>';
+
+        const retToHitMods = ret.hitModifiers && ret.hitModifiers.length
+          ? ` · Base Q${ret.baseQuality ?? target?.quality ?? 4} ${ret.hitModifiers.join(' ')}`
+          : '';
+        const retDefMods = ret.defenseModifiers && ret.defenseModifiers.length
+          ? ` · Base D${ret.baseDefense ?? attacker?.defense ?? 5} ${ret.defenseModifiers.join(' ')}`
+          : '';
+
+        const retTraumaTokens = ret.traumaTokens ?? 0;
+        const retTraumaDreadText = ret.traumaDreadBonus ? ` + ${ret.traumaDreadBonus} dread` : '';
+        const retTraumaHtml =
+          ret.traumaRoll !== undefined
+            ? `<div class="sl-hud-dice-label">Trauma (roll ${ret.traumaRoll} + ${retTraumaTokens} token${
+                retTraumaTokens === 1 ? '' : 's'
+              }${retTraumaDreadText} = ${ret.traumaTotal} — need 6+ to KO):</div>
+               <div class="sl-hud-dice-row">
+                 <span class="sl-die ${ret.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${ret.traumaRoll}</span>
+                 <span class="sl-hud-dice-summary">${
+                   ret.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
+                 }</span>
+               </div>`
+            : '';
+
+        const retStatus = ret.targetDestroyed ? ' · charger down' : ret.targetShaken ? ' · charger shaken' : '';
+        const retSummaryWounds = ret.wounds > 0
+          ? `<strong>${ret.wounds} wound${ret.wounds === 1 ? '' : 's'} (${ret.wounds} unsaved)</strong>${retStatus}`
+          : '<strong>0 wounds</strong>';
+
+        retaliationHtml = `
+          <div class="sl-hud-dice-retaliation" style="margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.2); padding-top: 6px;">
+            <div class="sl-hud-dice-title" style="font-size: 11px; opacity: 0.9;">Defender Retaliation: ${target?.name ?? 'Defender'} → ${attacker?.name ?? 'Charger'}</div>
+            <div class="sl-hud-dice-label">To-Hit (need Q${retEffectiveQ}+${retToHitMods}):</div>
+            <div class="sl-hud-dice-row">${retHitDiceHtml}</div>
+            <div class="sl-hud-dice-label">Defense (need D${retChargerD}+${retDefMods}):</div>
+            <div class="sl-hud-dice-row">${retDefDiceHtml}</div>
+            ${retTraumaHtml}
+            <div class="sl-hud-dice-summary">
+              ${ret.hitCount} hit${ret.hitCount === 1 ? '' : 's'} ·
+              ${ret.blockedCount} blocked ·
+              ${retSummaryWounds}
+            </div>
+          </div>`;
+      }
+
+      let pushBackHtml = '';
+      if (outcome.pushedBack) {
+        pushBackHtml = `<div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — both units Fatigued</div>`;
+      }
+
       return `
         <div class="sl-hud-dice">
           <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} → ${
@@ -974,6 +1054,8 @@ export class GameHUD {
             ${outcome.blockedCount} blocked ·
             ${summaryWounds}
           </div>
+          ${retaliationHtml}
+          ${pushBackHtml}
         </div>`;
     }
     return '<div class="sl-hud-dice-empty">No dice rolled yet</div>';
@@ -1077,7 +1159,6 @@ export class GameHUD {
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
       const canShoot = !engaged && !hasAttacked && !!rangedWeapon;
       const canCharge = !engaged && !hasMoved && !hasAttacked && !!meleeWeapon;
-      const canFight = engaged && !hasAttacked && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -1094,7 +1175,6 @@ export class GameHUD {
             <button class="sl-hud-btn" data-action="rush" ${canRush ? '' : 'disabled'}>Rush</button>
             <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
             <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge</button>
-            <button class="sl-hud-btn" data-action="fight" ${canFight ? '' : 'disabled'}>Fight</button>
             ${finishBtn}
           </div>
         </div>`;

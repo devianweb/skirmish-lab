@@ -1344,3 +1344,52 @@ export function findNavPath(
 
   return result;
 }
+
+/**
+ * Compute the 1" separation push-back position for a charging attacker after
+ * melee resolution when both the attacker and defender survive.
+ *
+ * In tabletop rules, units do not stay locked in melee. The charger bounces
+ * back to create a >= 1.0" gap directly away from the defender along the
+ * attack line (with slight angular fan-out if terrain directly blocks straight back).
+ */
+export function computePushBackPosition(
+  state: GameState,
+  attacker: Unit,
+  target: Unit,
+  separationDistance: number = 2.0
+): Vector3 {
+  const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
+  const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
+
+  const dx = attacker.position.x - target.position.x;
+  const dz = attacker.position.z - target.position.z;
+  const len = Math.hypot(dx, dz) || 1;
+  const baseAngle = Math.atan2(dx, dz);
+
+  // Test candidate angles: direct reverse, then slight lateral deviations (+-25 deg, +-50 deg, +-75 deg)
+  const angleOffsets = [0, 0.44, -0.44, 0.87, -0.87, 1.3, -1.3];
+  for (const offset of angleOffsets) {
+    const angle = baseAngle + offset;
+    const candidate: Vector3 = {
+      x: Math.round((target.position.x + Math.sin(angle) * separationDistance) * 100) / 100,
+      y: 0,
+      z: Math.round((target.position.z + Math.cos(angle) * separationDistance) * 100) / 100,
+    };
+    if (Math.abs(candidate.x) > halfW || Math.abs(candidate.z) > halfH) continue;
+    const blocker = findMoveBlocker(state, attacker, [attacker.position, candidate], {
+      ignoreUnitId: target.id,
+    });
+    if (!blocker.blocked) {
+      return candidate;
+    }
+  }
+
+  // Fallback: clamp destination directly away
+  const directCandidate: Vector3 = {
+    x: Math.round((target.position.x + (dx / len) * separationDistance) * 100) / 100,
+    y: 0,
+    z: Math.round((target.position.z + (dz / len) * separationDistance) * 100) / 100,
+  };
+  return clampMoveDestinationWithObstacles(state, attacker, directCandidate, separationDistance);
+}

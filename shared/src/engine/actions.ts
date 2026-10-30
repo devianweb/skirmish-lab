@@ -4,6 +4,7 @@ import {
   DiceResolution,
   GameAction,
   GameState,
+  RetaliationOutcome,
   Unit,
   Weapon,
 } from '../gameTypes';
@@ -18,12 +19,18 @@ import {
 import {
   CombatOutcome,
   extractAttackRolls,
+  extractRetaliationRolls,
   getAttackDiceSpecs,
   resolveAttack,
   resolveTraumaRoll,
   TraumaOutcome,
 } from './combat';
-import { findMoveBlocker, hasCoverAgainstAttack, hasLineOfSight } from './spatial';
+import {
+  computePushBackPosition,
+  findMoveBlocker,
+  hasCoverAgainstAttack,
+  hasLineOfSight,
+} from './spatial';
 import { getTraitValue, hasTrait } from '../rules/traits';
 
 /**
@@ -167,7 +174,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const { unitId, path, finalPosition } = action.payload as {
         unitId: string;
         path: Vector3[];
-        finalPosition: Vector3;
+        finalPosition?: Vector3;
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
@@ -184,7 +191,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Move path must start at unit position' };
       }
       const end = path[path.length - 1];
-      if (boardDistance(end, finalPosition) > 0.01) {
+      if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
         return { valid: false, reason: 'Final position does not match path end' };
       }
       const distance = pathLength(path);
@@ -424,7 +431,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
     : 1;
 
-  return getAttackDiceSpecs(attacks, {
+  const specs = getAttackDiceSpecs(attacks, {
     attackerRules: attacker.specialRules,
     weaponRules: weapon.profile.specialRules,
     defenderRules: target?.specialRules ?? [],
@@ -434,6 +441,34 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     distance,
     includeTrauma: true,
   });
+
+  // For Charge: if the defending target has an equipped melee weapon, request
+  // retaliation attack dice so the defender strikes back if they survive.
+  if (action.type === 'charge' && target) {
+    const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+    if (defenderMelee && typeof defenderMelee.profile.attacks === 'number' && defenderMelee.profile.attacks > 0) {
+      const isTargetFatigued = target.status.includes('fatigued') || target.status.includes('shaken');
+      const retSpecs = getAttackDiceSpecs(defenderMelee.profile.attacks, {
+        attackerRules: target.specialRules,
+        weaponRules: defenderMelee.profile.specialRules,
+        defenderRules: attacker.specialRules,
+        defenderModelCount: Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1),
+        isMelee: true,
+        isCharging: false,
+        isFatigued: isTargetFatigued,
+        distance: 1,
+        includeTrauma: true,
+      });
+      for (const s of retSpecs) {
+        specs.push({
+          ...s,
+          purpose: `retaliation-${s.purpose}`,
+        });
+      }
+    }
+  }
+
+  return specs;
 }
 
 /**
@@ -483,7 +518,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const { unitId, path, finalPosition } = action.payload as {
         unitId: string;
         path: Vector3[];
-        finalPosition: Vector3;
+        finalPosition?: Vector3;
       };
       const unit = getUnit(newState, unitId)!;
       const distance = pathLength(path);
@@ -496,7 +531,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
         }
       }
-      unit.position = { ...finalPosition };
+      unit.position = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
       unit.hasMoved = true;
       unit.remainingMovement = round2(unit.remainingMovement - distance);
       logEntry = acceptedEntry(action);
@@ -697,6 +732,93 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           dreadBonus,
           lethalValue
         );
+
+        if (!attacker.status.includes('fatigued')) {
+          attacker.status.push('fatigued');
+        }
+
+        // 2. Defender Retaliation Strike (if defender survived)
+        let retOutcome: RetaliationOutcome | undefined;
+        const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+        const retRolls = extractRetaliationRolls(dice);
+
+        if (!target.isDestroyed && defenderMelee && retRolls) {
+          const isTargetFatigued = target.status.includes('fatigued') || target.status.includes('shaken');
+          const retAliveModels = attacker.models?.filter((m) => !m.isDestroyed).length ?? 1;
+          const retCombat = resolveAttack(
+            {
+              quality: target.quality,
+              specialRules: target.specialRules,
+              weaponRules: defenderMelee.profile.specialRules,
+              isMelee: true,
+              isCharging: false,
+              hasMoved: target.hasMoved,
+              isFatigued: isTargetFatigued,
+              distance: 1,
+            },
+            {
+              defense: attacker.defense,
+              inCover: false,
+              specialRules: attacker.specialRules,
+              hasMoved: attacker.hasMoved,
+              modelCount: retAliveModels,
+            },
+            defenderMelee.profile.attacks as number,
+            retRolls
+          );
+
+          const retDreadBonus = getTraitValue(target.specialRules, 'dread') ?? 0;
+          const retLethalValue = getTraitValue(defenderMelee.profile.specialRules, 'lethal') ?? 1;
+          const retTrauma = applyWounds(
+            attacker,
+            retCombat.wounds,
+            retRolls.trauma,
+            retDreadBonus,
+            retLethalValue
+          );
+
+          retOutcome = {
+            weaponId: defenderMelee.id,
+            weaponName: defenderMelee.name,
+            attackCount: retCombat.attackCount,
+            hitCount: retCombat.hitCount,
+            ...(retCombat.bonusHits > 0 ? { bonusHits: retCombat.bonusHits } : {}),
+            blockedCount: retCombat.blockedCount,
+            ...(retCombat.wardSavedCount > 0 ? { wardSavedCount: retCombat.wardSavedCount } : {}),
+            wounds: retCombat.wounds,
+            targetDestroyed: attacker.isDestroyed,
+            targetShaken: attacker.status.includes('shaken'),
+            baseQuality: target.quality,
+            effectiveQuality: retCombat.effectiveQuality,
+            hitModifiers: retCombat.hitModifiers,
+            baseDefense: attacker.defense,
+            effectiveDefense: retCombat.effectiveDefense,
+            defenseModifiers: retCombat.defenseModifiers,
+            ...(retTrauma
+              ? {
+                  traumaRoll: retTrauma.roll,
+                  traumaTokens: retTrauma.tokens,
+                  traumaDreadBonus: retTrauma.dreadBonus,
+                  traumaTotal: retTrauma.total,
+                  traumaOutcome: retTrauma.outcome,
+                }
+              : {}),
+          };
+        }
+
+        if (!target.isDestroyed && !target.status.includes('fatigued')) {
+          target.status.push('fatigued');
+        }
+
+        // 3. Separation / 1" Push-Back (if both units survived)
+        let pushedBack = false;
+        let pushBackPos: Vector3 | undefined;
+        if (!attacker.isDestroyed && !target.isDestroyed) {
+          pushBackPos = computePushBackPosition(newState, attacker, target, 2.0);
+          attacker.position = { ...pushBackPos };
+          pushedBack = true;
+        }
+
         refreshEngagements(newState);
 
         diceResolution = {
@@ -707,6 +829,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             attackerId,
             targetId,
             weaponId: weapon.id,
+            retaliationWeaponId: defenderMelee?.id,
             actionId: action.id,
           },
           outcome: {
@@ -735,6 +858,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
                   traumaOutcome: trauma.outcome,
                 }
               : {}),
+            retaliation: retOutcome,
+            pushedBack,
+            pushBackPosition: pushBackPos,
           },
         };
         logEntry = acceptedEntry(action, diceResolution);

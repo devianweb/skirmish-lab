@@ -164,6 +164,30 @@ export interface ActionLogEntry {
   dice?: DiceResolution;
 }
 
+export interface RetaliationOutcome {
+  weaponId?: string;
+  weaponName?: string;
+  attackCount: number;
+  hitCount: number;
+  bonusHits?: number;
+  blockedCount: number;
+  wardSavedCount?: number;
+  wounds: number;
+  targetDestroyed: boolean;
+  targetShaken?: boolean;
+  effectiveQuality?: number;
+  effectiveDefense?: number;
+  baseQuality?: number;
+  hitModifiers?: string[];
+  baseDefense?: number;
+  defenseModifiers?: string[];
+  traumaRoll?: number;
+  traumaTokens?: number;
+  traumaDreadBonus?: number;
+  traumaTotal?: number;
+  traumaOutcome?: 'shaken' | 'knocked-out';
+}
+
 /**
  * A dice resolution attached to an accepted action: the server-rolled results
  * plus the deterministic combat outcome the host derived from them. Both
@@ -177,6 +201,7 @@ export interface DiceResolution {
     attackerId: string;
     targetId: string;
     weaponId?: string;
+    retaliationWeaponId?: string;
     actionId: string;
   };
   outcome: {
@@ -204,6 +229,9 @@ export interface DiceResolution {
     moraleRoll?: number;
     moralePassed?: boolean;
     moraleOutcome?: 'passed' | 'shaken' | 'routed';
+    retaliation?: RetaliationOutcome;
+    pushedBack?: boolean;
+    pushBackPosition?: Vector3;
   };
 }
 
