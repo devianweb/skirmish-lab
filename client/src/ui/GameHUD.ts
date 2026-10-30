@@ -9,6 +9,7 @@ import {
   formatTraitLabel,
   GameState,
   GameAction,
+  getUnitTough,
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
@@ -18,6 +19,15 @@ import {
   Vector3,
 } from '@skirmish-lab/shared';
 import { MovePathMarker } from '../renderer/MarkerRenderer';
+
+function escapeHtmlAttr(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 /** What the HUD needs from the game controller to submit confirmed actions. */
 export interface HUDController {
@@ -491,7 +501,6 @@ export class GameHUD {
 
     this.movePreview = destination;
     this.movePathPreview = path;
-    const left = Math.max(0, active.remainingMovement - distance);
     this.beginConfirmation(
       createAction(this.localPlayerId, 'move-unit', {
         type: 'move-unit',
@@ -499,7 +508,7 @@ export class GameHUD {
         path,
         finalPosition: destination,
       }),
-      `Move ${active.name} ${distance.toFixed(1)}" — ${left > 0.05 ? `${left.toFixed(1)}" left` : 'all movement spent'}`
+      `Move ${active.name} ${distance.toFixed(1)}" (max ${active.speed}") · can shoot after moving`
     );
   }
 
@@ -536,7 +545,7 @@ export class GameHUD {
         path,
         finalPosition: destination,
       }),
-      `Rush ${active.name} ${distance.toFixed(1)}" (double move — activation ends)`
+      `Rush ${active.name} ${distance.toFixed(1)}" (max ${(active.speed * 2).toFixed(1)}") · double move (activation ends)`
     );
   }
 
@@ -612,10 +621,6 @@ export class GameHUD {
       const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
       if (!weapon) {
         this.showToast('No equipped melee weapon to charge with');
-        return;
-      }
-      if (this.state && !hasLineOfSight(this.state, active, target)) {
-        this.showToast('No line of sight to target');
         return;
       }
 
@@ -871,7 +876,7 @@ export class GameHUD {
     if (unit.status.includes('routed')) statusTags.push('ROUTED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('COVER');
-    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}T`);
+    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}W`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
     const canActivate = this.canActivateUnit(unit);
@@ -880,7 +885,7 @@ export class GameHUD {
       .filter((w) => w.isEquipped)
       .map((w) => {
         const traits = w.profile.specialRules
-          .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+          .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
           .join(', ');
         const suffix = traits ? `, ${traits}` : '';
         return w.profile.type === 'ranged'
@@ -917,7 +922,7 @@ export class GameHUD {
     if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('COVER');
-    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}T`);
+    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}W`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
     const classes = ['sl-hud-unit', 'enemy', teamClass, unit.isDestroyed ? 'destroyed' : '']
@@ -991,13 +996,13 @@ export class GameHUD {
         ? ` · Base D${outcome.baseDefense ?? target?.defense ?? 5} ${outcome.defenseModifiers.join(' ')}`
         : outcome.coverApplied ? ' w/ cover' : '';
 
+      const targetTough = target ? getUnitTough(target) : 1;
+      const koThreshold = 5 + targetTough;
       const traumaTokensCount = outcome.traumaTokens ?? 0;
       const traumaDreadText = outcome.traumaDreadBonus ? ` + ${outcome.traumaDreadBonus} dread` : '';
       const traumaHtml =
         outcome.traumaRoll !== undefined
-          ? `<div class="sl-hud-dice-label">Trauma (roll ${outcome.traumaRoll} + ${traumaTokensCount} token${
-              traumaTokensCount === 1 ? '' : 's'
-            }${traumaDreadText} = ${outcome.traumaTotal} — need 6+ to KO):</div>
+          ? `<div class="sl-hud-dice-label">Wound Effect (roll ${outcome.traumaRoll} + ${traumaTokensCount} total wounds${traumaDreadText} = ${outcome.traumaTotal} — need ${koThreshold}+ to KO):</div>
              <div class="sl-hud-dice-row">
                <span class="sl-die ${outcome.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${outcome.traumaRoll}</span>
                <span class="sl-hud-dice-summary">${
@@ -1006,10 +1011,10 @@ export class GameHUD {
              </div>`
           : '';
 
-      const woundsGainedTokens = traumaTokensCount > 0 ? ` +${traumaTokensCount} trauma` : '';
+      const totalWoundsText = traumaTokensCount > 0 ? ` · ${traumaTokensCount} total wounds` : '';
       const outcomeStatus = outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : '';
       const summaryWounds = outcome.wounds > 0
-        ? `<strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'} (${outcome.wounds} unsaved${woundsGainedTokens})</strong>${outcomeStatus}`
+        ? `<strong>${outcome.wounds} unsaved wound${outcome.wounds === 1 ? '' : 's'}${totalWoundsText}</strong>${outcomeStatus}`
         : '<strong>0 wounds</strong>';
 
       let retaliationHtml = '';
@@ -1051,13 +1056,13 @@ export class GameHUD {
           ? ` · Base D${ret.baseDefense ?? attacker?.defense ?? 5} ${ret.defenseModifiers.join(' ')}`
           : '';
 
+        const chargerTough = attacker ? getUnitTough(attacker) : 1;
+        const retKoThreshold = 5 + chargerTough;
         const retTraumaTokens = ret.traumaTokens ?? 0;
         const retTraumaDreadText = ret.traumaDreadBonus ? ` + ${ret.traumaDreadBonus} dread` : '';
         const retTraumaHtml =
           ret.traumaRoll !== undefined
-            ? `<div class="sl-hud-dice-label">Trauma (roll ${ret.traumaRoll} + ${retTraumaTokens} token${
-                retTraumaTokens === 1 ? '' : 's'
-              }${retTraumaDreadText} = ${ret.traumaTotal} — need 6+ to KO):</div>
+            ? `<div class="sl-hud-dice-label">Wound Effect (roll ${ret.traumaRoll} + ${retTraumaTokens} total wounds${retTraumaDreadText} = ${ret.traumaTotal} — need ${retKoThreshold}+ to KO):</div>
                <div class="sl-hud-dice-row">
                  <span class="sl-die ${ret.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${ret.traumaRoll}</span>
                  <span class="sl-hud-dice-summary">${
@@ -1066,9 +1071,10 @@ export class GameHUD {
                </div>`
             : '';
 
+        const retTotalWoundsText = retTraumaTokens > 0 ? ` · ${retTraumaTokens} total wounds` : '';
         const retStatus = ret.targetDestroyed ? ' · charger down' : ret.targetShaken ? ' · charger shaken' : '';
         const retSummaryWounds = ret.wounds > 0
-          ? `<strong>${ret.wounds} wound${ret.wounds === 1 ? '' : 's'} (${ret.wounds} unsaved)</strong>${retStatus}`
+          ? `<strong>${ret.wounds} unsaved wound${ret.wounds === 1 ? '' : 's'}${retTotalWoundsText}</strong>${retStatus}`
           : '<strong>0 wounds</strong>';
 
         retaliationHtml = `
@@ -1328,7 +1334,7 @@ export class GameHUD {
     if (unit.status.includes('routed')) statusTags.push('ROUTED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('IN COVER');
-    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens} TRAUMA`);
+    if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens} WOUNDS`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
     else statusTags.push('READY');
 
@@ -1337,7 +1343,7 @@ export class GameHUD {
     const cardTeamClass = isHostUnit ? 'team-blue' : 'team-red';
 
     const unitTraits = unit.specialRules
-      .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+      .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
       .join(' · ');
     const weaponRows = unit.weapons
       .filter((w) => w.isEquipped)
@@ -1350,7 +1356,7 @@ export class GameHUD {
             <td>${w.profile.attacks}d6</td>
             <td>${
               w.profile.specialRules
-                .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+                .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
                 .join(', ') || '—'
             }</td>
           </tr>`
@@ -1861,7 +1867,6 @@ export class GameHUD {
         return hasLineOfSight(this.state!, unit, candidate);
       }
       if (action === 'charge') {
-        if (!hasLineOfSight(this.state!, unit, candidate)) return false;
         // Verify pathfinder reaches within engagement range under double speed
         const dx = unit.position.x - candidate.position.x;
         const dz = unit.position.z - candidate.position.z;
@@ -1910,7 +1915,7 @@ export class GameHUD {
   border: 1px solid #2a2f3a; border-radius: 8px; padding: 10px; min-width: 220px; }
 .sl-hud-panel h3 { margin: 2px 0 8px; font-size: 12px; text-transform: uppercase;
   letter-spacing: 1px; color: #90caf9; }
-.sl-hud-alerts { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; z-index: 100; }
+.sl-hud-alerts { position: absolute; top: 48px; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; z-index: 100; }
 .sl-hud-alert { padding: 8px 24px; font-weight: 600; font-size: 13px; text-align: center; width: 100%; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
 .sl-hud-alert-error { background: #b71c1c; color: #fff; }
 .sl-hud-alert-warn { background: #e65100; color: #fff; }

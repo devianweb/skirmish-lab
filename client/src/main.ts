@@ -119,6 +119,10 @@ const lobby = new Lobby(lobbyContainer, {
     // to the new WebRTCClient and re-broadcast the current confirmed state.
     if (isHost && gameManager && gameManager.getGameState()) {
       gameManager.rebindWebRTCClient(webrtcClient);
+      webrtcClient.onConnectionState((state) => {
+        hud?.setNetworkStatus({ peer: state });
+      });
+      hud?.setNetworkStatus({ peer: 'connected' });
       lobby.hide();
       hud?.show();
       return;

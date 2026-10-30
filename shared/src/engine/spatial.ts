@@ -1011,6 +1011,10 @@ export function computeLosVisibilityPolygon(
       [hx, hz],
       [-hx, hz],
     ];
+    if (piece.terrainType === 'wall-doorway' || piece.terrainType === 'wall-window') {
+      const apHalf = 0.5;
+      corners.push([-apHalf, -hz], [-apHalf, hz], [apHalf, -hz], [apHalf, hz]);
+    }
     for (const [lx, lz] of corners) {
       const wx = piece.position.x + lx * cos + lz * sin;
       const wz = piece.position.z - lx * sin + lz * cos;
@@ -1056,6 +1060,31 @@ export function computeLosVisibilityPolygon(
 
     for (const piece of state.terrain) {
       if (!piece.blocksLineOfSight) continue;
+
+      if (piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(origin, dirX, dirZ, bestDist, piece, 0);
+        if (ap.hitsJamb && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
+          bestDist = Math.min(bestDist, ap.tEntry);
+        }
+        continue;
+      }
+
+      if (piece.terrainType === 'wall-window') {
+        const ap = intersectAperturePiece(origin, dirX, dirZ, bestDist, piece, 0);
+        if (ap.hitsJamb && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
+          bestDist = Math.min(bestDist, ap.tEntry);
+        } else if (ap.passesAperture) {
+          const { hx, hz } = terrainHalfExtents(piece);
+          const pieceRadius = Math.hypot(hx, hz);
+          const distShooter = Math.hypot(origin.x - piece.position.x, origin.z - piece.position.z);
+          // Only shooters manning the firing port (within 1.0" past radius) can project LoS through the window
+          if (distShooter > pieceRadius + 1.0 && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
+            bestDist = Math.min(bestDist, ap.tEntry);
+          }
+        }
+        continue;
+      }
+
       const hit = intersectRayTerrain(origin, dirX, dirZ, bestDist, piece, 0);
       if (hit && hit.tExit > 0.02) {
         bestDist = Math.min(bestDist, hit.tEntry);
