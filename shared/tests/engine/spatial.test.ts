@@ -178,6 +178,39 @@ describe('spatial: line of sight & visibility polygon', () => {
     }
   });
 
+  it('allows visibility polygon to pass through a window aperture when shooter is adjacent (<= 1.0")', () => {
+    // Window wall at z = 2, aperture at center x = 0 (|x| <= 0.5)
+    const windowWall: TerrainPiece = {
+      id: 'win1',
+      terrainType: 'wall-window',
+      position: { x: 0, y: 0, z: 2 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 1.5, z: 0.5 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    };
+    // Shooter is adjacent to window (z = 0.5, within 1.0" of the wall at z = 2)
+    const shooter = makeUnit('h1', HOST, { x: 0, y: 0, z: 0.5 });
+    const state = makeState([shooter], [windowWall]);
+
+    const poly = computeLosVisibilityPolygon(state, shooter.position, 12, shooter.id);
+
+    // Straight through the aperture (|x| < 0.1, z > 2), rays should extend past the wall (> 5")
+    const aperturePoints = poly.filter((p) => Math.abs(p.x) < 0.1 && p.z > 2);
+    expect(aperturePoints.length).toBeGreaterThan(0);
+    for (const p of aperturePoints) {
+      expect(p.z).toBeGreaterThan(5);
+    }
+
+    // Through the solid wall jambs (e.g. x = 1.0, z > 0), rays should be blocked at z ≈ 2
+    const jambPoints = poly.filter((p) => Math.abs(p.x - 1.0) < 0.1 && p.z > 0);
+    expect(jambPoints.length).toBeGreaterThan(0);
+    for (const p of jambPoints) {
+      expect(p.z).toBeLessThanOrEqual(2.1);
+    }
+  });
+
   it('clips the visibility polygon to the board boundaries so the shooting fan never overhangs the board edge', () => {
     const attacker = makeUnit('h1', HOST, { x: -12, y: 0, z: -12 });
     const state = makeState([attacker]);

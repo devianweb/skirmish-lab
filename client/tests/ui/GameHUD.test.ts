@@ -8,6 +8,7 @@ import {
   createAction,
   createInitialGameState,
   applyDefaultScenario,
+  hasLineOfSight,
 } from '@skirmish-lab/shared';
 
 const HOST = HOST_PLAYER_ID;
@@ -30,11 +31,15 @@ function activateUnit(state: GameState, playerId: string, unitId: string): void 
   state.turnState.phase = 'activation';
 }
 
-function setup(localPlayerId: string = HOST, state: GameState = scenarioState()) {
+function setup(
+  localPlayerId: string = HOST,
+  state: GameState = scenarioState(),
+  options: { roomCode?: string } = {}
+) {
   const controller = { submitAction: vi.fn() };
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const hud = new GameHUD(container, { localPlayerId, controller });
+  const hud = new GameHUD(container, { localPlayerId, roomCode: options.roomCode, controller });
   hud.show();
   hud.syncFromState(state);
   return { hud, controller, container, state };
@@ -176,14 +181,14 @@ describe('GameHUD', () => {
     clickByText(container, 'Move');
     // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) shows remaining movement
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
-    expect(container.textContent).toContain('3.3" — 2.7" left');
+    expect(container.textContent).toContain('3.3" (max 6") · can shoot after moving');
     clickByText(container, 'Cancel');
 
     // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
     clickByText(container, 'Move');
     hud.handleBoardPick({ kind: 'position', position: { x: start.x, y: 0, z: start.z + 20 } });
 
-    expect(container.textContent).toContain(`${unit.remainingMovement.toFixed(1)}" — all movement spent`);
+    expect(container.textContent).toContain('6.0" (max 6") · can shoot after moving');
     expect(container.textContent).toContain('Confirm');
     clickByText(container, 'Confirm');
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
@@ -408,7 +413,7 @@ describe('GameHUD', () => {
     const { container } = setup(GUEST, state);
     expect(container.textContent).toContain('1 hit');
     expect(container.textContent).toContain('0 blocked');
-    expect(container.textContent).toContain('1 wound');
+    expect(container.textContent).toContain('1 unsaved wound');
   });
 
   it('surfaces host rejections and stops waiting', () => {
@@ -934,5 +939,60 @@ describe('GameHUD', () => {
       expect(modal?.textContent).toContain('Alpha: Host');
       expect(modal?.textContent).toContain('Delta: Guest');
     });
+  });
+
+  it('escapes trait descriptions with quotes and angle brackets in HTML attributes', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    unit.weapons[0].profile.specialRules = ['sustained'];
+    unit.specialRules = ['camouflaged'];
+    activateUnit(state, HOST, unit.id);
+    const { container } = setup(HOST, state);
+
+    const badges = container.querySelectorAll('.sl-trait-badge');
+    const titles = Array.from(badges).map((b) => b.getAttribute('title') ?? '');
+    const sustainedTitle = titles.find((t) => t.includes('>9"'));
+    expect(sustainedTitle).toBeDefined();
+    expect(container.innerHTML).toContain('>9&quot;');
+  });
+
+  it('allows charging an enemy unit around an obstacle without direct Line of Sight', () => {
+    const state = scenarioState();
+    const attacker = state.units.find((u) => u.ownerId === HOST)!;
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    attacker.position = { x: 0, y: 0, z: 0 };
+    target.position = { x: 0, y: 0, z: 5 };
+    state.terrain = [
+      {
+        id: 'wall-1',
+        terrainType: 'wall',
+        position: { x: 0, y: 0, z: 2.5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2, z: 0.5 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
+    activateUnit(state, HOST, attacker.id);
+    const { hud, container } = setup(HOST, state);
+
+    expect(hasLineOfSight(state, attacker, target)).toBe(false);
+
+    clickByText(container, 'Charge');
+    hud.handleBoardPick({ kind: 'unit', unitId: target.id });
+    expect(container.textContent).toContain('charges');
+    expect(container.textContent).toContain('into melee');
+  });
+
+  it('positions disconnect alerts below header so lobby room code is not obscured', () => {
+    const state = scenarioState();
+    const { hud, container } = setup(HOST, state, { roomCode: 'ABC-123' });
+    hud.setNetworkStatus({ peer: 'disconnected' });
+
+    expect(container.textContent).toContain('Room: ABC-123');
+    expect(container.textContent).toContain('Opponent disconnected');
+    const alertsEl = container.querySelector('.sl-hud-alerts') as HTMLElement;
+    expect(alertsEl).not.toBeNull();
   });
 });

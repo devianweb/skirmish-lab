@@ -475,7 +475,8 @@ export function resolveAttack(
 export function resolveTraumaRoll(
   roll: number,
   accumulatedTokens: number,
-  dreadBonus: number = 0
+  dreadBonus: number = 0,
+  koThreshold: number = 6
 ): TraumaOutcome {
   const tokens = Math.max(1, accumulatedTokens);
   if (roll <= 1) {
@@ -493,7 +494,7 @@ export function resolveTraumaRoll(
     tokens,
     dreadBonus,
     total,
-    outcome: total >= 6 ? 'knocked-out' : 'shaken',
+    outcome: total >= koThreshold ? 'knocked-out' : 'shaken',
   };
 }
 
