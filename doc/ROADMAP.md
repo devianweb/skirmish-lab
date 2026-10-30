@@ -386,19 +386,15 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Trauma table is only rolled for the last surviving model in a squad.
 - [ ] Melee 3" consolidation pulls squad members into contact.
 
-## Phase 10: Interactive Deployment & Army Rosters (Pre-Canned + Custom Builder)
-**Goal:** Provide quickplay pre-canned starter armies for instant fun, an advanced army roster importer/builder, and alternating pre-match deployment.
+## Phase 10: Interactive Deployment & Pre-Canned Starter Armies
+**Goal:** Provide quickplay point-balanced starter forces for instant match play and an alternating pre-match deployment phase.
 
-> **Recommended AI Model:** **3.8** *(or **4.0** for parsing complex custom text formats)*
+> **Recommended AI Model:** **3.8** *(Pure army data definitions and 2D deployment boundary validation)*
 
 ### Tasks
 - [ ] **Pre-Canned Quickplay Starter Armies (`shared/data`):**
   - [ ] 1-click ready-to-play, point-balanced starter forces for each faction (e.g. 250pts / 300pts for Frontier Wardens, Rust Raiders, and future factions).
-  - [ ] Beginners can immediately jump into play without navigating army building.
-- [ ] **Custom Army Roster Importer & Builder:**
-  - [ ] Points budget validation (e.g. 250pt, 300pt, 500pt match limits).
-  - [ ] Clean-room JSON army list import/export format.
-  - [ ] Plain-text roster import compatible with standard army builders (e.g. Army Forge text format).
+  - [ ] Beginners and quickplay matches can immediately jump into play without navigating army building.
 - [ ] **Pre-Match Interactive Deployment Phase:**
   - [ ] Pre-game roll-off for deployment initiative.
   - [ ] Alternating deployment phase: players take turns placing 1 unit at a time within their 12" deployment zones.
@@ -408,9 +404,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
   - [ ] **`drop-reserve` (Deep Strike):** Held in reserve during deployment; arrives on Round 2, 3, or 4 anywhere > 9" from enemy units.
 
 ### Acceptance Criteria
-- [ ] Players can start a match instantly by selecting a pre-canned army per faction.
-- [ ] Advanced players can paste/import custom army lists within a selected points cap.
-- [ ] Interactive deployment lets players alternate placing units before Round 1 begins.
+- [ ] Players can start a match instantly by selecting a pre-canned army per faction in the lobby.
+- [ ] Interactive deployment lets players alternate placing units within 12" zones before Round 1 begins.
 - [ ] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
 
 ## Phase 11: Environmental Terrain Dynamics & Verticality
@@ -487,7 +482,7 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 | **Phase 7: Objectives & 4-Round Mission Engine** | **3.8** | Game state entity, 3″ distance checks, round clock, 3D beacon | The logic is clean and additive: placing 3–5 beacons, computing standard 2D distance checks at round end, and tracking integer victory points. |
 | **Phase 8: All-Weapon Firing & Split Fire** | **3.8** | Multi-target dice loop & UI chips | Mostly refactoring `actions.ts` and HUD targeting chips to loop over an array of equipped weapons rather than a single weapon ID. |
 | **Phase 9: Multi-Model Squads & Coherency Engine** | **4.0** | 3D multi-model formation pathfinding & coherency geometry | High mathematical complexity: multi-mesh group rendering in Three.js, maintaining 1″ model / 6″ squad coherency around clearance corners, and squad casualty cascades. |
-| **Phase 10: Interactive Deployment & Pre-Canned / Custom Armies** | **3.8** *(or 4.0 for parser)* | Data curation, text parser, deployment boundary checks | Writing pre-canned starter rosters is pure data; deployment is simple boundary validation. (If writing a complex Army Forge text regex parser, 4.0 can scaffold that piece). |
+| **Phase 10: Interactive Deployment & Pre-Canned Starter Armies** | **3.8** | Pre-canned data packs & deployment boundary checks | Writing point-balanced starter rosters is pure data; deployment is straightforward 2D boundary validation. |
 | **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
 | **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
 | **Phase 13: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
@@ -496,6 +491,7 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 > **Hybrid Workflow within a Phase:** For 4.0 phases (such as Phase 6.5 and Phase 9), kick off with 4.0 to design the shared state schema and core engine functions in `shared/`, then switch to 3.8 to build the Three.js visual rendering, HTML/CSS HUD components, and supplementary unit tests.
 
 ## Future Considerations (Post-v1)
+- Custom army roster importer & builder (clean-room JSON import/export, points budget validation, and Army Forge plain-text roster parsing)
 - Full host migration if needed
 - Additional terrain types
 - More special rules
