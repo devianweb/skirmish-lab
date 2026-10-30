@@ -89,7 +89,7 @@ sequenceDiagram
     Server-->>Defender: Hits Scored (Passes to defender)
     Defender->>Server: Roll Defense Dice (1d6 >= Defense - AP + Cover)
     Server->>Server: Calculate Unblocked Wounds
-    Server-->>Defender: Apply Wounds & Roll Trauma Table
+    Server-->>Defender: Apply Wounds & Roll Wound Effects Table
 ```
 
 1. **Targeting & Split Fire:**
@@ -107,7 +107,7 @@ sequenceDiagram
        - *Windows / Firing Ports (`wall-window`):* Windows block model movement. Line of Sight can only be drawn through a window if at least one fighter (shooter or target) is within **1.0"** of the window aperture ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains $+1$ Defense (Cover). If both models are $>1.0"$ from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
    - **Armor Piercing (AP):** Subtracts $X$ from defender's roll.
 4. **Wound Infliction:**
-   - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Trauma Table)**.
+   - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Wound Effects Table)**.
 
 ---
 
@@ -131,23 +131,30 @@ sequenceDiagram
 
 ---
 
-## 6. Casualty, Trauma & Squad Allocation
+## 6. Casualty, Wound Effects & Squad Allocation
 
-Whenever a model suffers wounds, place **1 trauma token** per wound next to the model.
+Whenever a model suffers wounds, place **1 wound token (WT)** per unsaved wound next to the model.
 
 ### 6.1 Multi-Model Squads
 - For units containing multiple models, **each wound immediately eliminates one model** until only the final surviving model remains.
-- Only the **final surviving model** in a squad accumulates trauma tokens and rolls on the Trauma Table.
+- Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
 
-### 6.2 Trauma Roll Table (1d6 + Tokens)
-The defender rolls 1d6 and adds the model's total accumulated trauma tokens:
+### 6.2 Resilient(X) (Toughness) Progression
+- Standard models (Toughness 1) check wound effects immediately upon suffering their 1st wound ($1\text{d}6 + 1$ token; KO on 6+).
+- Multi-wound models with **`resilient(X)`** accumulate wound tokens without rolling wound effects until they have accumulated at least $X$ wounds.
+- While below threshold ($< X$), status badges display progress (e.g. `1/3 WT`, `2/3 WT`).
+- Once reaching $X$ wounds or more, the model makes a Wound Effect Roll. To reflect toughness, the Knockout threshold scales to **$5 + X$**.
+  - Example for `resilient(3)`: Upon taking its 3rd wound, rolls $1\text{d}6 + 3$ tokens; Knocked Out only on **8+** ($5 + 3$).
 
-$$\text{Trauma Score} = \text{1d6 Roll} + \text{Total Accumulated Tokens}$$
+### 6.3 Wound Effects Table (1d6 + Wound Tokens)
+The defender rolls 1d6 and adds the model's total accumulated wound tokens:
 
-| Trauma Score | Status Effect | Gameplay Consequences |
+$$\text{Wound Effect Score} = \text{1d6 Roll} + \text{Total Accumulated Wound Tokens}$$
+
+| Wound Effect Score | Status Effect | Gameplay Consequences |
 | :---: | :--- | :--- |
-| **1 – 5** | **Shaken** | • Model remains in play.<br>• Gains $+1$ to all future Trauma Table rolls.<br>• Must spend its entire next activation idle/recovering to clear suppression.<br>• May strike back in melee, but always counts as **Fatigued** (hits only on 6s).<br>• Automatically fails all morale checks.<br>• Cannot contest or seize objective markers. |
-| **6+** | **Knocked Out (Destroyed)** | • Model is eliminated and removed from play. |
+| **$< 5 + X$** *(1 – 5 for Tough 1)* | **Shaken** | • Model remains in play.<br>• Must spend its entire next activation idle/recovering to clear suppression.<br>• May strike back in melee, but always counts as **Fatigued** (hits only on 6s).<br>• Automatically fails all morale checks.<br>• Cannot contest or seize objective markers. |
+| **$\ge 5 + X$** *(6+ for Tough 1)* | **Knocked Out (Destroyed)** | • Model is eliminated and removed from play. |
 
 ---
 
@@ -191,7 +198,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`brace`** | **Brace** | Strikes first in melee when charged. Attacking charger suffers $-1$ Shock hit per model with Brace. |
 | **`lethal(X)`** | **Lethal(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
 | **`swift`** | **Swift** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
-| **`dread(X)`** | **Dread(X)** | Model counts as having dealt $+X$ additional wounds when calculating Trauma Table roll in melee (requires at least 1 actual wound dealt). |
+| **`dread(X)`** | **Dread(X)** | Model counts as having dealt $+X$ additional wounds when calculating Wound Effects roll in melee (requires at least 1 actual wound dealt). |
 | **`stoic`** | **Stoic** | When failing a morale test, roll 1d6. On a 4+, the test is treated as passed. |
 | **`airborne`** | **Airborne** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. |
 | **`frenzy`** | **Frenzy** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
@@ -210,13 +217,13 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`pathfinder`** | **Pathfinder** | Ignores Difficult Terrain speed cap. Automatically passes jump checks on 2+. |
 | **`overload`** | **Overload** | Unmodified hit rolls of 6 deal 1 additional hit. |
 | **`impale`** | **Impale** | When charging, attacks gain **$+1$ to hit** and **`pierce(+1)`** in melee. |
-| **`resilient(X)`** | **Resilient(X)** | Accumulates wounds without rolling trauma until reaching $X$ wounds. Only knocked out on trauma rolls $\ge 5 + X$. |
+| **`resilient(X)`** | **Resilient(X)** | Accumulates wounds without rolling wound effects until reaching $X$ wounds. Only knocked out on wound effect rolls $\ge 5 + X$. |
 | **`unerring`** | **Unerring** | Ignores target's `ward`, and ignores all negative modifiers applied to this weapon. |
 | **`steadfast`** | **Steadfast** | Units where all models have this rule gain **$+1$ to morale test rolls** ($+2$ with `steadfast-boost`). |
 | **`marksman`** | **Marksman** | Grants **$+1$ to hit rolls** when shooting. |
 | **`rupture`** | **Rupture** | Unmodified hit rolls of 6 gain **`pierce(+2)`**. |
 | **`riot-shield`** | **Riot Shield** | Grants **$+1$ to Defense rolls** against hits that are not from powers. |
-| **`iron-will`** | **Iron Will** | Failed morale tests count as passed; roll dice equal to Tough/wounds needed for trauma (min 1) and take 1 unignorable wound per roll of 1–3. |
+| **`iron-will`** | **Iron Will** | Failed morale tests count as passed; roll dice equal to Tough/wounds needed for wound effects (min 1) and take 1 unignorable wound per roll of 1–3. |
 | **`double-time`** | **Double Time** | Moves **$+4"$** when using Advance actions. |
 
 ---
