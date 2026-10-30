@@ -719,4 +719,155 @@ describe('GameHUD', () => {
     expect(groundMarker?.shootingDebugRay?.targetId).toBeUndefined();
     expect(groundMarker?.shootingDebugRay?.to.x).toBe(5);
   });
+
+  it('renders reaction prompt dock with countdown and option buttons for defender', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+
+    state.turnState.pendingReaction = {
+      id: 'reaction-123',
+      type: 'melee-retaliation',
+      promptingPlayerId: GUEST,
+      sourceUnitId: charger.id,
+      targetUnitId: defender.id,
+      title: 'Melee Retaliation',
+      description: `${charger.name} charged ${defender.name}! Strike back with Blade?`,
+      warning: 'Striking back will make this unit Fatigued.',
+      options: [
+        { id: 'strike-back', label: 'Strike Back (Blade 2d6)', isDefault: true, style: 'primary' },
+        { id: 'decline', label: 'Decline (Avoid Fatigue)', style: 'secondary' },
+      ],
+      expiresAt: Date.now() + 15000,
+    };
+
+    const { hud, controller, container } = setup(GUEST, state);
+
+    // Defender sees reaction prompt
+    expect(container.querySelector('.sl-hud-reaction')).toBeTruthy();
+    expect(container.querySelector('.sl-hud-reaction-title')?.textContent).toBe('Melee Retaliation');
+    expect(container.querySelector('.sl-hud-reaction-timer')?.textContent).toMatch(/\d+s/);
+    expect(container.querySelector('.sl-hud-reaction-desc')?.textContent).toContain(
+      `${charger.name} charged ${defender.name}`
+    );
+    expect(container.querySelector('.sl-hud-reaction-warning')?.textContent).toContain('Fatigued');
+
+    const strikeBackBtn = container.querySelector(
+      'button[data-reaction-choice="strike-back"]'
+    ) as HTMLElement;
+    const declineBtn = container.querySelector(
+      'button[data-reaction-choice="decline"]'
+    ) as HTMLElement;
+    expect(strikeBackBtn).toBeTruthy();
+    expect(declineBtn).toBeTruthy();
+
+    // Clicking strike-back submits respond-reaction action
+    strikeBackBtn.click();
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const submitted = controller.submitAction.mock.calls[0][0];
+    expect(submitted.type).toBe('respond-reaction');
+    expect(submitted.actorId).toBe(GUEST);
+    expect(submitted.payload.reactionId).toBe('reaction-123');
+    expect(submitted.payload.choiceId).toBe('strike-back');
+  });
+
+  it('renders waiting banner for opponent during reaction', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+
+    state.turnState.pendingReaction = {
+      id: 'reaction-456',
+      type: 'melee-retaliation',
+      promptingPlayerId: GUEST,
+      sourceUnitId: charger.id,
+      targetUnitId: defender.id,
+      title: 'Melee Retaliation',
+      description: `${charger.name} charged ${defender.name}!`,
+      options: [
+        { id: 'strike-back', label: 'Strike Back' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      expiresAt: Date.now() + 12000,
+    };
+
+    // Host (the charger) views the HUD while Guest is deciding
+    const { container } = setup(HOST, state);
+
+    expect(container.querySelector('.sl-hud-reaction')).toBeNull();
+    const waitingEl = container.querySelector('.sl-hud-reaction-waiting');
+    expect(waitingEl).toBeTruthy();
+    expect(waitingEl?.textContent).toContain('Waiting for opponent: Melee Retaliation');
+    expect(waitingEl?.textContent).toMatch(/\d+s/);
+  });
+
+  it('renders reaction dice outcomes in dice panel for strike-back and decline', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+
+    // 1. Strike Back outcome:
+    state.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', {
+        type: 'respond-reaction',
+        reactionId: 'r1',
+        choiceId: 'strike-back',
+      }),
+      status: 'accepted',
+      dice: {
+        rollId: 'r1',
+        specs: [],
+        results: [
+          { purpose: 'to-hit', rolls: [6, 4] } as any,
+          { purpose: 'defense', rolls: [5, 2] } as any,
+        ],
+        context: { attackerId: defender.id, targetId: charger.id },
+        outcome: {
+          hitCount: 1,
+          blockedCount: 1,
+          wounds: 0,
+          pushedBack: true,
+        },
+      },
+    });
+
+    const { hud, container } = setup(HOST, state);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(
+      `Defender Retaliation: ${defender.name} → ${charger.name}`
+    );
+    expect(container.querySelector('.sl-hud-pushback-notice')?.textContent).toContain(
+      'Charger pushed back 1" — both units Fatigued'
+    );
+
+    // 2. Decline outcome:
+    const declineState = scenarioState();
+    declineState.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', {
+        type: 'respond-reaction',
+        reactionId: 'r2',
+        choiceId: 'decline',
+      }),
+      status: 'accepted',
+      dice: {
+        rollId: 'r2',
+        specs: [],
+        results: [],
+        context: { attackerId: defender.id, targetId: charger.id },
+        outcome: {
+          hitCount: 0,
+          blockedCount: 0,
+          wounds: 0,
+          pushedBack: true,
+        },
+      },
+    });
+
+    hud.syncFromState(declineState);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(
+      `Retaliation Declined: ${defender.name} held ground`
+    );
+    expect(container.querySelector('.sl-hud-pushback-notice')?.textContent).toContain(
+      'Defender declined retaliation (no Fatigue)'
+    );
+  });
 });
