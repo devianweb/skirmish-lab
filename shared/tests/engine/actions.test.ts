@@ -9,6 +9,7 @@ import {
   Weapon,
 } from '../../src/gameTypes';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
+import { hasLineOfSight } from '../../src/engine/spatial';
 import { WEAPONS } from '../../src/data/weapons';
 
 const HOST = 'host1';
@@ -752,6 +753,75 @@ describe('applyAction: charge', () => {
     expect(outcome.state!.turnState.pendingReaction).toBeUndefined();
   });
 
+  it('allows charging around an obstacle when there is no direct Line of Sight', () => {
+    const state = chargeState();
+    // Place a solid wall between attacker at (0, 0, 0) and target at (0, 0, 5)
+    state.terrain = [
+      {
+        id: 'wall-1',
+        terrainType: 'wall',
+        position: { x: 0, y: 0, z: 2.5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2, z: 0.5 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
+    // Ensure direct Line of Sight is actually blocked
+    expect(hasLineOfSight(state, state.units[0], state.units[1])).toBe(false);
+
+    // Path routes around the wall to engagement range (0, 0, 4.2) of target at (0, 0, 5)
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [
+        { x: 3, y: 0, z: 1 },
+        { x: 3, y: 0, z: 4 },
+        { x: 0, y: 0, z: 4.2 },
+      ],
+    });
+    const outcome = act(state, action, [
+      { purpose: 'to-hit', rolls: [6, 5] } as any,
+      { purpose: 'defense', rolls: [1, 2] } as any,
+      { purpose: 'trauma', rolls: [1] } as any,
+    ]);
+    expect(outcome.ok).toBe(true);
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+    expect(target.status).toContain('shaken');
+  });
+
+  it('charging a defender with no melee weapon pushes charger back, leaves defender unfatigued, and clears engaged', () => {
+    const state = chargeState();
+    // Defender has only a ranged weapon
+    state.units[1].weapons = [weapon('rifle')];
+    state.units[1].wounds = 3;
+    state.units[1].maxWounds = 3;
+    state.units[1].specialRules = ['resilient(3)'];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const outcome = act(state, action, dice(2, [6, 6], [6, 6]));
+    expect(outcome.ok).toBe(true);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const defender = outcome.state!.units.find((u) => u.id === 'g1')!;
+
+    // Charger pushed back and is fatigued
+    expect(attacker.status).toContain('fatigued');
+    expect(attacker.status).not.toContain('engaged');
+    // Defender never struck back: NOT fatigued, NOT engaged
+    expect(defender.status).not.toContain('fatigued');
+    expect(defender.status).not.toContain('engaged');
+    expect(outcome.state!.turnState.pendingReaction).toBeUndefined();
+  });
+
   it('getDiceSpecs for charge includes attacker attack dice and NOT defender retaliation dice', () => {
     const state = chargeState();
     state.units[1].weapons = [weapon('blade')];
@@ -1073,6 +1143,68 @@ describe('applyAction invariants', () => {
     ]);
     const g1After3 = thirdShot.state!.units.find((u) => u.id === 'g1')!;
     expect(g1After3.isDestroyed).toBe(true);
+  });
+
+  it('Tough(3) / Resilient(3) accumulates wounds without rolling until 3 wounds, and uses KO threshold 8+', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { weapons: [weapon('carbine')] }),
+      makeUnit('g-boss', GUEST, {
+        position: { x: 0, y: 0, z: 10 } as Vector3,
+        wounds: 3,
+        maxWounds: 3,
+        specialRules: ['resilient(3)'],
+      }),
+    ]);
+    state.turnState.activeUnitId = 'h1';
+    state.units[0].isActivated = true;
+
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g-boss',
+      weaponId: 'carbine',
+    });
+
+    // 1st attack: deals 2 wounds with carbine (2 attacks). 2 < 3 Tough -> No wound effect roll, boss takes 2 wounds.
+    const shot1 = act(state, shootAction, [
+      { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'to-hit' },
+      { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' }, // Even with high roll, no check triggered
+    ]);
+    const bossAfter1 = shot1.state!.units.find((u) => u.id === 'g-boss')!;
+    expect(bossAfter1.isDestroyed).toBe(false);
+    expect(bossAfter1.wounds).toBe(1); // 3 - 2 = 1 HP remaining
+    expect(bossAfter1.traumaTokens).toBe(2); // 2 wounds taken
+    expect(bossAfter1.status).not.toContain('shaken');
+    expect(shot1.logEntry.dice?.outcome.traumaRoll).toBeUndefined();
+
+    // 2nd attack: deals 1 more wound (now 3 total >= 3 Tough).
+    // Roll is 4: 4 + 3 = 7 < 8 (need 8+ to KO) -> Shaken, survives!
+    shot1.state!.units[0].hasAttacked = false;
+    const shot2 = act(shot1.state!, shootAction, [
+      { rolls: [5, 1], total: 6, finalTotal: 6, purpose: 'to-hit' },
+      { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'defense' },
+      { rolls: [4], total: 4, finalTotal: 4, purpose: 'trauma' },
+    ]);
+    const bossAfter2 = shot2.state!.units.find((u) => u.id === 'g-boss')!;
+    expect(bossAfter2.isDestroyed).toBe(false);
+    expect(bossAfter2.status).toContain('shaken');
+    expect(bossAfter2.traumaTokens).toBe(3);
+    expect(shot2.logEntry.dice?.outcome.traumaRoll).toBe(4);
+    expect(shot2.logEntry.dice?.outcome.traumaTotal).toBe(7);
+    expect(shot2.logEntry.dice?.outcome.traumaOutcome).toBe('shaken');
+
+    // 3rd attack: deals 1 more wound (now 4 total).
+    // Roll is 4: 4 + 4 = 8 >= 8 -> Knocked out!
+    shot2.state!.units[0].hasAttacked = false;
+    const shot3 = act(shot2.state!, shootAction, [
+      { rolls: [5, 1], total: 6, finalTotal: 6, purpose: 'to-hit' },
+      { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'defense' },
+      { rolls: [4], total: 4, finalTotal: 4, purpose: 'trauma' },
+    ]);
+    const bossAfter3 = shot3.state!.units.find((u) => u.id === 'g-boss')!;
+    expect(bossAfter3.isDestroyed).toBe(true);
+    expect(shot3.logEntry.dice?.outcome.traumaOutcome).toBe('knocked-out');
   });
 
   it('allows Lobbed (Indirect) weapons to fire without Line of Sight', () => {

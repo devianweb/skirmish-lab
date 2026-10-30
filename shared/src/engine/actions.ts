@@ -4,6 +4,7 @@ import {
   DiceResolution,
   GameAction,
   GameState,
+  Model,
   RetaliationOutcome,
   Unit,
   Weapon,
@@ -278,9 +279,6 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const distance = pathLength(fullPath);
       if (distance > attacker.result.speed * 2 + 0.01) {
         return { valid: false, reason: 'Target out of charge range' };
-      }
-      if (!hasLineOfSight(state, attacker.result, target.result)) {
-        return { valid: false, reason: 'No line of sight to target' };
       }
       const chargeBlocker = findMoveBlocker(state, attacker.result, fullPath, {
         ignoreUnitId: target.result.id,
@@ -771,12 +769,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         if (target.isDestroyed) {
           refreshEngagements(newState);
         } else if (!defenderMelee) {
-          if (!target.status.includes('fatigued')) {
-            target.status.push('fatigued');
-          }
           pushBackPos = computePushBackPosition(newState, attacker, target, 2.0);
           attacker.position = { ...pushBackPos };
           pushedBack = true;
+          attacker.status = attacker.status.filter((s) => s !== 'engaged');
+          target.status = target.status.filter((s) => s !== 'engaged');
           refreshEngagements(newState);
         } else {
           // Defer retaliation strike to defender's choice via pendingReaction
@@ -925,6 +922,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         pushBackPos = computePushBackPosition(newState, charger, defender, 2.0);
         charger.position = { ...pushBackPos };
         pushedBack = true;
+        charger.status = charger.status.filter((s) => s !== 'engaged');
+        defender.status = defender.status.filter((s) => s !== 'engaged');
       }
 
       newState.turnState.pendingReaction = null;
@@ -1087,6 +1086,15 @@ function finishActivation(state: GameState, dice?: DiceResult[]): void {
   advanceActivation(state);
 }
 
+export function getUnitTough(unit: Unit, finalModel?: Model): number {
+  return (
+    getTraitValue(unit.specialRules, 'resilient') ??
+    finalModel?.maxWounds ??
+    (unit.models.length <= 1 ? unit.maxWounds : 1) ??
+    1
+  );
+}
+
 function applyWounds(
   unit: Unit,
   wounds: number,
@@ -1116,23 +1124,26 @@ function applyWounds(
 
   if (remainingWounds <= 0) return undefined;
 
-  // 2. Final surviving model (or single-model unit): reduce HP toward Tough threshold.
-  unit.wounds -= remainingWounds;
+  // 2. Final surviving model (or single-model unit): accumulate wounds.
   const finalModel = unit.models.find((m) => !m.isDestroyed);
+  const toughValue = getUnitTough(unit, finalModel);
+  unit.traumaTokens = (unit.traumaTokens ?? 0) + remainingWounds;
+  unit.wounds = Math.max(0, toughValue - unit.traumaTokens);
   if (finalModel) {
-    finalModel.wounds -= remainingWounds;
+    finalModel.wounds = unit.wounds;
   }
 
-  // Still above 0 HP (e.g. Resilient(3) / Tough(3) with wounds remaining): no trauma roll yet.
-  if (unit.wounds > 0) {
+  // Tough(X) rule (OPR v3.5.1):
+  // "This model only rolls to check wound effects once it has taken X wounds or more,
+  // and is only Knocked Out on rolls of 5+X or more."
+  if (unit.traumaTokens < toughValue) {
     return undefined;
   }
 
-  // 3. Reached 0 HP threshold: resolve Trauma Table if server trauma roll is present.
+  // 3. Reached Tough threshold: resolve Wound Effects if server trauma roll is present.
+  const koThreshold = 5 + toughValue;
   if (traumaRolls && traumaRolls.length > 0) {
-    const overkill = Math.abs(unit.wounds);
-    const totalTokens = (unit.traumaTokens ?? 0) + 1 + overkill;
-    const trauma = resolveTraumaRoll(traumaRolls[0], totalTokens, dreadBonus);
+    const trauma = resolveTraumaRoll(traumaRolls[0], unit.traumaTokens, dreadBonus, koThreshold);
 
     if (trauma.outcome === 'knocked-out') {
       unit.wounds = 0;
@@ -1145,7 +1156,6 @@ function applyWounds(
     } else {
       // Suppressed (Shaken): remains in play on final HP with accumulated trauma tokens.
       unit.wounds = 1;
-      unit.traumaTokens = totalTokens;
       if (!unit.status.includes('shaken')) unit.status.push('shaken');
       if (!unit.status.includes('stunned')) unit.status.push('stunned');
       if (finalModel) {
@@ -1169,7 +1179,7 @@ function applyWounds(
 
 /**
  * Clear 'engaged' from any surviving unit that no longer has a living
- * enemy within engagement range (e.g. after its melee opponent is destroyed).
+ * enemy within engagement range equipped with melee capability.
  */
 function refreshEngagements(state: GameState): void {
   for (const unit of state.units) {
@@ -1178,7 +1188,9 @@ function refreshEngagements(state: GameState): void {
       (other) =>
         !other.isDestroyed &&
         other.ownerId !== unit.ownerId &&
-        boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01
+        boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01 &&
+        (other.weapons.some((w) => w.isEquipped && w.profile.type === 'melee') ||
+         unit.weapons.some((w) => w.isEquipped && w.profile.type === 'melee'))
     );
     if (!hasEnemyInRange) {
       unit.status = unit.status.filter((s) => s !== 'engaged');
