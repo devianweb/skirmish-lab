@@ -265,6 +265,39 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Two armies playable as data packs
 - [x] Ruleset data is swappable (engine reads stats from data, not code)
 
+## Phase 6.5: Interactive Reactions & Interruption Framework
+**Goal:** Enable out-of-turn player prompts, reactions, and decision-making during action resolution without locking up multiplayer flow or opening griefing vectors.
+
+> **Architecture:** Transitions the game engine from a purely sequential "single-actor" turn loop to an extensible reaction state machine. `turnState.pendingReaction` serializes cleanly into `GameState`, synchronizing across WebRTC data channels with host-authoritative validation, timeout countdown safety, and reactive HUD prompts.
+
+### Tasks
+- [ ] **State Schema & Protocol (`shared`):**
+  - [ ] Add `ReactionOption` and `PendingReaction` interfaces to `gameTypes.ts`.
+  - [ ] Add `pendingReaction?: PendingReaction | null` to `TurnState`.
+  - [ ] Define `'respond-reaction'` action type in `gameTypes.ts` with actor ownership validation.
+  - [ ] Host-authoritative timer & anti-griefing timeout fallback (auto-resolves default option after 15s or on player disconnect).
+- [ ] **Melee Retaliation Choice:**
+  - [ ] Update `case 'charge'` to defer retaliation strike and push-back into a `pendingReaction` when the defender survives with equipped melee weapons.
+  - [ ] Add `case 'respond-reaction'` resolver:
+    - `strike-back`: Requests server retaliation dice, applies wounds, inflicts Fatigue, and executes 1" push-back separation.
+    - `decline`: Skips retaliation dice, avoids Fatigue (preserving defender's full Quality for its own upcoming activation), and executes 1" push-back separation.
+- [ ] **Interactive Reaction UI (`client`):**
+  - [ ] Dedicated reaction prompt card in the reacting player's bottom HUD dock with title, description, Fatigue warning, action buttons, and live 15s visual countdown bar.
+  - [ ] Non-reacting active player waiting state ("Waiting for opponent to choose...").
+  - [ ] Sound/visual alert ping when a reaction prompt appears for the defending player.
+- [ ] **Future Reaction Capability Hooks:**
+  - [ ] Design framework to support future out-of-turn abilities: Overwatch/reactive fire, defensive stratagems (Smokescreen/Take Cover), Brace, and multi-model casualty allocation.
+
+### Acceptance Criteria
+- [ ] Charging an enemy with melee weapons creates a `pendingReaction` if the defender survives.
+- [ ] Defending player receives an interactive prompt with Strike Back and Decline buttons.
+- [ ] Choosing Decline skips attacks and avoids Fatigue (defender remains un-fatigued).
+- [ ] Choosing Strike Back rolls retaliation attacks and applies Fatigue to both models.
+- [ ] Charger automatically pushes back 1" in both branches.
+- [ ] 15-second timeout automatically chooses the default option if the player is idle or disconnects.
+- [ ] Non-defending player cannot submit a reaction for their opponent.
+- [ ] Full P2P test suite passes with simulated network delays and reaction choices.
+
 ## Phase 7: Reconnection & Resilience
 **Goal:** Handle disconnections and reconnection
 
