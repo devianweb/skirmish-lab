@@ -26,6 +26,7 @@ export interface PendingReaction {
   warning?: string;          // e.g. "Striking back will make this unit Fatigued."
   options: ReactionOption[];
   expiresAt: number;         // Timestamp for countdown timer
+  durationMs?: number;       // Duration in milliseconds (e.g. 15000) for clock-skew independent timer
   data?: Record<string, any>;
 }
 
@@ -207,6 +208,7 @@ export interface RetaliationOutcome {
   hitCount: number;
   bonusHits?: number;
   blockedCount: number;
+  blockedRolls?: boolean[];
   wardSavedCount?: number;
   wounds: number;
   targetDestroyed: boolean;
@@ -245,6 +247,7 @@ export interface DiceResolution {
     hitCount: number;
     bonusHits?: number;
     blockedCount: number;
+    blockedRolls?: boolean[];
     wardSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;

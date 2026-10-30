@@ -995,4 +995,87 @@ describe('GameHUD', () => {
     const alertsEl = container.querySelector('.sl-hud-alerts') as HTMLElement;
     expect(alertsEl).not.toBeNull();
   });
+
+  it('renders data card with Toughness, Move, and Charge (double speed) columns without remaining movement', () => {
+    const state = scenarioState();
+    const leader = state.units.find((u) => u.ownerId === HOST && u.specialRules.some((r) => r.startsWith('resilient')))!;
+    activateUnit(state, HOST, leader.id);
+    const { container } = setup(HOST, state);
+
+    const datacard = container.querySelector('.sl-hud-datacard');
+    expect(datacard).toBeTruthy();
+    expect(datacard?.textContent).toContain('Toughness');
+    expect(datacard?.textContent).not.toContain('6.0" / 6"');
+    // Leader speed is 6, charge is 12"
+    expect(datacard?.textContent).toContain('6"');
+    expect(datacard?.textContent).toContain('12"');
+  });
+
+  it('renders wound progress badge (e.g. 1/3 WT) for multi-wound units with damage below threshold', () => {
+    const state = scenarioState();
+    const boss = state.units.find((u) => u.specialRules.includes('resilient(3)'))!;
+    boss.traumaTokens = 1;
+    const { container } = setup(HOST, state);
+
+    expect(container.textContent).toContain('1/3 WT');
+    expect(container.textContent).not.toContain('+1W');
+  });
+
+  it('renders Rupture badge and reflects blockedRolls accurately in dice resolution log', () => {
+    const state = scenarioState();
+    const attacker = state.units.find((u) => u.ownerId === HOST)!;
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    attacker.specialRules = ['rupture'];
+
+    state.actionLog.push({
+      action: createAction('shoot', HOST, {
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: attacker.weapons[0].id,
+      }),
+      dice: {
+        rollId: 'roll-1',
+        specs: [],
+        results: [
+          { purpose: 'to-hit', rolls: [6, 5], total: 11, modifier: 0, finalTotal: 11 },
+          { purpose: 'defense', rolls: [5, 5], total: 10, modifier: 0, finalTotal: 10 },
+        ],
+        context: {
+          attackerId: attacker.id,
+          targetId: target.id,
+          actionId: 'action-1',
+        },
+        outcome: {
+          attackCount: 2,
+          hitCount: 2,
+          blockedCount: 1,
+          blockedRolls: [false, true], // First roll failed vs Rupture, second roll passed
+          wounds: 1,
+          targetDestroyed: false,
+          effectiveQuality: 4,
+          effectiveDefense: 5,
+        },
+      },
+    });
+
+    const { container } = setup(HOST, state);
+    const diceEl = container.querySelector('.sl-hud-dice');
+    expect(diceEl).toBeTruthy();
+    expect(diceEl?.innerHTML).toContain('RUP');
+    expect(diceEl?.textContent).toContain('Rupture');
+
+    const defDice = diceEl?.querySelectorAll('.sl-die.def-fail, .sl-die.def-pass');
+    expect(defDice?.length).toBe(2);
+    // 1st die is def-fail, 2nd die is def-pass
+    expect(defDice?.[0].classList.contains('def-fail')).toBe(true);
+    expect(defDice?.[1].classList.contains('def-pass')).toBe(true);
+  });
+
+  it('uses double speed for charge range fan radius', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    const { hud } = setup(HOST, state);
+    const range = (hud as any).actionMaxRange(unit, 'charge');
+    expect(range).toBe(unit.speed * 2);
+  });
 });

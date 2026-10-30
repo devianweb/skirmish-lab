@@ -210,6 +210,46 @@ describe('SignalingServer Integration', () => {
     guest2.close();
   });
 
+  it('should allow host to rejoin vacant host slot via join-room message', async () => {
+    const host = new WebSocket(`ws://localhost:${port}`);
+    const guest = new WebSocket(`ws://localhost:${port}`);
+    await Promise.all([
+      new Promise((resolve) => host.on('open', resolve)),
+      new Promise((resolve) => guest.on('open', resolve)),
+    ]);
+
+    host.send(JSON.stringify({ type: 'create-room' }));
+    const roomMsg = await new Promise<any>((resolve) => {
+      host.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    const code = roomMsg.code;
+
+    guest.send(JSON.stringify({ type: 'join-room', code }));
+    const guestJoinMsg = await new Promise<any>((resolve) => {
+      guest.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    expect(guestJoinMsg.type).toBe('room-joined');
+    expect(guestJoinMsg.role).toBe('guest');
+
+    // Host disconnects, guest remains in room
+    host.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // New host socket joins room using join-room message
+    const newHost = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => newHost.on('open', resolve));
+
+    newHost.send(JSON.stringify({ type: 'join-room', code }));
+    const hostJoinMsg = await new Promise<any>((resolve) => {
+      newHost.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
+    expect(hostJoinMsg.type).toBe('room-joined');
+    expect(hostJoinMsg.role).toBe('host');
+
+    guest.close();
+    newHost.close();
+  });
+
   it('should refresh room activity on ping so mid-game rooms survive cleanup', async () => {
     const host = new WebSocket(`ws://localhost:${port}`);
     await new Promise((resolve) => host.on('open', resolve));
