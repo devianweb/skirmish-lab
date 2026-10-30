@@ -1,8 +1,10 @@
 import {
-  clampMoveDestinationWithObstacles,
+  computeCombatModifiers,
+  computeShootingRayDebug,
   createAction,
   describeTerrainPiece,
-  findMoveBlocker,
+  describeTrait,
+  findNavPath,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
@@ -10,9 +12,12 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
+  pathLength,
+  ShootingRayDebugInfo,
   Unit,
   Vector3,
 } from '@skirmish-lab/shared';
+import { MovePathMarker } from '../renderer/MarkerRenderer';
 
 /** What the HUD needs from the game controller to submit confirmed actions. */
 export interface HUDController {
@@ -34,10 +39,14 @@ export interface MarkerSnapshot {
   targetUnitId: string | null;
   reachableTargetIds?: string[];
   movementRangeUnitId: string | null;
+  movementRangeRadius?: number;
   attackRange?: { unitId: string; range: number } | null;
-  movePath?: { from: Vector3; to: Vector3 } | null;
+  movePath?: MovePathMarker | null;
+  engagedTargetId?: string | null;
   hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
+  debugActive?: boolean;
+  shootingDebugRay?: ShootingRayDebugInfo | null;
 }
 
 export type PickTarget =
@@ -47,7 +56,7 @@ export type PickTarget =
 type TargetingMode =
   | { mode: 'idle' }
   | { mode: 'waiting' }
-  | { mode: 'targeting'; action: 'move' | 'shoot' | 'charge' | 'fight' }
+  | { mode: 'targeting'; action: 'move' | 'rush' | 'shoot' | 'charge' | 'fight' }
   | { mode: 'confirming'; action: GameAction; summary: string };
 
 /**
@@ -70,6 +79,8 @@ export class GameHUD {
   private hoveredUnitId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
+  /** Ground position hovered on the board (for debug raycast aiming). */
+  private hoveredGroundPosition: Vector3 | null = null;
   /** Whether the F9 terrain hover debugger is enabled. */
   private terrainDebugEnabled = false;
   private keydownHandler: (event: KeyboardEvent) => void;
@@ -77,12 +88,17 @@ export class GameHUD {
   private hoveredAction: string | null = null;
   /** Clamped move destination previewed under the cursor during move targeting. */
   private movePreview: Vector3 | null = null;
+  /** Multi-segment waypoints previewed under cursor during move / rush / charge. */
+  private movePathPreview: Vector3[] | null = null;
+  /** Enemy unit currently highlighted in melee engagement contact. */
+  private hoveredEngagedTargetId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
   private lastRoundNumber: number | null = null;
   private toast: string | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private reactionTimerInterval: ReturnType<typeof setInterval> | null = null;
   private visible = false;
   private root: HTMLElement;
 
@@ -107,6 +123,33 @@ export class GameHUD {
     window.addEventListener('keydown', this.keydownHandler);
   }
 
+  destroy(): void {
+    if (this.reactionTimerInterval) {
+      clearInterval(this.reactionTimerInterval);
+      this.reactionTimerInterval = null;
+    }
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    window.removeEventListener('keydown', this.keydownHandler);
+    if (this.root.parentElement) {
+      this.root.parentElement.removeChild(this.root);
+    }
+  }
+
+  private peerState: 'connected' | 'disconnected' = 'connected';
+  private signalingState: 'connected' | 'disconnected' | 'reconnecting' = 'connected';
+
+  setNetworkStatus(status: {
+    peer?: 'connected' | 'disconnected';
+    signaling?: 'connected' | 'disconnected' | 'reconnecting';
+  }): void {
+    if (status.peer !== undefined) this.peerState = status.peer;
+    if (status.signaling !== undefined) this.signalingState = status.signaling;
+    if (this.visible) this.render();
+  }
+
   /** Toggle the F9 terrain hover debugger (HUD inspector card + 3D wireframe bounds). */
   toggleTerrainDebug(force?: boolean): boolean {
     this.terrainDebugEnabled = force ?? !this.terrainDebugEnabled;
@@ -115,6 +158,8 @@ export class GameHUD {
         ? 'Terrain debugger: ON (hover terrain to inspect, F9 to hide)'
         : 'Terrain debugger: OFF'
     );
+    this.updateDataCardSlot();
+    this.emitMarkers();
     return this.terrainDebugEnabled;
   }
 
@@ -128,6 +173,8 @@ export class GameHUD {
       this.flow = { mode: 'idle' };
     }
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
 
     if (prevRound !== null && state.turnState.roundNumber > prevRound && state.status !== 'game-over') {
@@ -139,21 +186,54 @@ export class GameHUD {
       return;
     }
 
+    if (state.turnState.pendingReaction) {
+      if (!this.reactionTimerInterval) {
+        this.reactionTimerInterval = setInterval(() => {
+          this.updateReactionTimerDisplay();
+        }, 250);
+      }
+    } else if (this.reactionTimerInterval) {
+      clearInterval(this.reactionTimerInterval);
+      this.reactionTimerInterval = null;
+    }
+
     this.render();
+  }
+
+  private updateReactionTimerDisplay(): void {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!pending) return;
+    const remainingSec = Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000));
+    const timerEl = this.root.querySelector('.sl-hud-reaction-timer');
+    if (timerEl) {
+      timerEl.textContent = `${remainingSec}s`;
+    }
+    const waitingTimerEl = this.root.querySelector('.sl-hud-reaction-waiting-timer');
+    if (waitingTimerEl) {
+      waitingTimerEl.textContent = `${remainingSec}s`;
+    }
   }
 
   /** Board/unit picks from GameView (see PickTarget in the renderer). */
   handleBoardPick(target: PickTarget): void {
     if (!this.state || this.state.status === 'game-over') return;
 
-    if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
+    if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       if (target.kind === 'position') {
-        this.prepareMove(target.position);
+        if (this.flow.action === 'move') {
+          this.prepareMove(target.position);
+        } else {
+          this.prepareRush(target.position);
+        }
       }
       return;
     }
 
-    if (this.flow.mode === 'targeting' && this.flow.action !== 'move') {
+    if (
+      this.flow.mode === 'targeting' &&
+      this.flow.action !== 'move' &&
+      this.flow.action !== 'rush'
+    ) {
       if (target.kind === 'unit') {
         this.prepareAttack(target.unitId);
       }
@@ -184,12 +264,39 @@ export class GameHUD {
     const terrainChanged = nextTerrainId !== this.hoveredTerrainId;
     this.hoveredTerrainId = nextTerrainId;
 
-    if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
+    const nextGroundPos = target?.kind === 'position' ? target.position : null;
+    const groundPosChanged =
+      (nextGroundPos === null && this.hoveredGroundPosition !== null) ||
+      (nextGroundPos !== null && this.hoveredGroundPosition === null) ||
+      (nextGroundPos !== null &&
+        this.hoveredGroundPosition !== null &&
+        (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
+          Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
+    this.hoveredGroundPosition = nextGroundPos;
+
+    if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
-        this.movePreview = this.clampMoveDestination(active, target.position);
+        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.remainingMovement;
+        const path = findNavPath(this.state, active, target.position, maxDist);
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+
+        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0")
+        if (this.movePreview) {
+          const enemy = this.enemyUnits.find(
+            (e) =>
+              !e.isDestroyed &&
+              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0
+          );
+          this.hoveredEngagedTargetId = enemy ? enemy.id : null;
+        } else {
+          this.hoveredEngagedTargetId = null;
+        }
       } else {
         this.movePreview = null;
+        this.movePathPreview = null;
+        this.hoveredEngagedTargetId = null;
       }
       if (terrainChanged) {
         this.updateDataCardSlot();
@@ -198,8 +305,37 @@ export class GameHUD {
       return;
     }
 
+    if (this.flow.mode === 'targeting' && this.flow.action === 'charge') {
+      const active = this.activeUnit;
+      const targetUnitId = target?.kind === 'unit' ? target.unitId : null;
+      const enemy = targetUnitId
+        ? this.state.units.find((u) => u.id === targetUnitId && u.ownerId !== this.localPlayerId && !u.isDestroyed)
+        : null;
+
+      if (active && enemy) {
+        const dx = active.position.x - enemy.position.x;
+        const dz = active.position.z - enemy.position.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const contactTarget = {
+          x: Math.round((enemy.position.x + (dx / len) * 0.9) * 100) / 100,
+          y: 0,
+          z: Math.round((enemy.position.z + (dz / len) * 0.9) * 100) / 100,
+        };
+        const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
+          ignoreUnitId: enemy.id,
+        });
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.hoveredEngagedTargetId = enemy.id;
+      } else {
+        this.movePathPreview = null;
+        this.movePreview = null;
+        this.hoveredEngagedTargetId = null;
+      }
+    }
+
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
-    if (nextHover !== this.hoveredUnitId || terrainChanged) {
+    if (nextHover !== this.hoveredUnitId || terrainChanged || (this.terrainDebugEnabled && groundPosChanged)) {
       this.hoveredUnitId = nextHover;
       this.updateDataCardSlot();
       this.emitMarkers();
@@ -315,11 +451,13 @@ export class GameHUD {
     );
   }
 
-  private beginActionTargeting(action: 'move' | 'shoot' | 'charge' | 'fight'): void {
+  private beginActionTargeting(action: 'move' | 'rush' | 'shoot' | 'charge' | 'fight'): void {
     if (this.flow.mode !== 'idle') return;
     const active = this.activeUnit;
     if (!active || active.ownerId !== this.localPlayerId) return;
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.flow = { mode: 'targeting', action };
 
     // If fighting and there is only one enemy in engagement range, automatically
@@ -335,45 +473,70 @@ export class GameHUD {
     this.render();
   }
 
-  /**
-   * Clamp a ground point to the unit's remaining movement allowance, board
-   * bounds, and obstacle terrain / other fighters along the move path.
-   */
-  private clampMoveDestination(unit: Unit, raw: Vector3): Vector3 {
-    if (!this.state) {
-      return { x: Math.round(raw.x * 100) / 100, y: 0, z: Math.round(raw.z * 100) / 100 };
-    }
-    return clampMoveDestinationWithObstacles(this.state, unit, raw, unit.remainingMovement);
-  }
-
   private prepareMove(rawDestination: Vector3): void {
     const active = this.activeUnit;
-    if (!active) return;
+    if (!active || !this.state) return;
 
-    const destination = this.clampMoveDestination(active, rawDestination);
-    const distance = Math.hypot(
-      destination.x - active.position.x,
-      destination.z - active.position.z
-    );
+    const path = findNavPath(this.state, active, rawDestination, active.remainingMovement);
+    if (path.length < 2) {
+      this.showToast('Pick a destination away from the unit');
+      return;
+    }
+    const destination = path[path.length - 1];
+    const distance = pathLength(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
 
     this.movePreview = destination;
-    const path: Vector3[] = [
-      { ...active.position },
-      { x: destination.x, y: 0, z: destination.z },
-    ];
+    this.movePathPreview = path;
     const left = Math.max(0, active.remainingMovement - distance);
     this.beginConfirmation(
       createAction(this.localPlayerId, 'move-unit', {
         type: 'move-unit',
         unitId: active.id,
         path,
-        finalPosition: path[path.length - 1],
+        finalPosition: destination,
       }),
       `Move ${active.name} ${distance.toFixed(1)}" — ${left > 0.05 ? `${left.toFixed(1)}" left` : 'all movement spent'}`
+    );
+  }
+
+  private prepareRush(rawDestination: Vector3): void {
+    const active = this.activeUnit;
+    if (!active || !this.state) return;
+
+    const path = findNavPath(this.state, active, rawDestination, active.speed * 2);
+    if (path.length < 2) {
+      this.showToast('Pick a destination away from the unit');
+      return;
+    }
+    const destination = path[path.length - 1];
+    const distance = pathLength(path);
+    if (distance < 0.05) {
+      this.showToast('Pick a destination away from the unit');
+      return;
+    }
+
+    const wouldEngage = this.enemyUnits.some(
+      (e) => !e.isDestroyed && Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0
+    );
+    if (wouldEngage) {
+      this.showToast('Rush cannot end in melee contact — use Charge instead');
+      return;
+    }
+
+    this.movePreview = destination;
+    this.movePathPreview = path;
+    this.beginConfirmation(
+      createAction(this.localPlayerId, 'rush', {
+        type: 'rush',
+        unitId: active.id,
+        path,
+        finalPosition: destination,
+      }),
+      `Rush ${active.name} ${distance.toFixed(1)}" (double move — activation ends)`
     );
   }
 
@@ -410,7 +573,25 @@ export class GameHUD {
         (target.status.includes('in-cover') ||
           (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
       const attacks = weapon.profile.attacks;
-      const diceText = `${attacks}d6 (Hit Q${active.quality}+, Def D${target.defense}+${inCover ? ' cover +1' : ''})`;
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: false,
+          distance,
+          hasMoved: active.hasMoved,
+        },
+        {
+          defense: target.defense,
+          inCover: !!inCover,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'shoot', {
           type: 'shoot',
@@ -428,44 +609,80 @@ export class GameHUD {
         this.showToast('Already engaged — fight instead');
         return;
       }
-      // Charge ends at 1" engagement distance of the target.
-      const dx = active.position.x - target.position.x;
-      const dz = active.position.z - target.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const end = {
-        x: Math.round((target.position.x + (dx / len) * 1) * 100) / 100,
-        y: 0,
-        z: Math.round((target.position.z + (dz / len) * 1) * 100) / 100,
-      };
-      const chargeDistance = Math.hypot(end.x - active.position.x, end.z - active.position.z);
-      if (chargeDistance > active.speed + 0.01) {
-        this.showToast(`Too far to charge: ${chargeDistance.toFixed(1)}" vs speed ${active.speed}"`);
+      const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+      if (!weapon) {
+        this.showToast('No equipped melee weapon to charge with');
         return;
       }
       if (this.state && !hasLineOfSight(this.state, active, target)) {
         this.showToast('No line of sight to target');
         return;
       }
-      if (this.state) {
-        const blocker = findMoveBlocker(
-          this.state,
-          active,
-          [{ ...active.position }, end],
-          { ignoreUnitId: target.id }
-        );
-        if (blocker.blocked) {
-          this.showToast(blocker.reason);
-          return;
-        }
+
+      // Charge ends at 0.9" engagement distance of the target.
+      const dx = active.position.x - target.position.x;
+      const dz = active.position.z - target.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const contactTarget = {
+        x: Math.round((target.position.x + (dx / len) * 0.9) * 100) / 100,
+        y: 0,
+        z: Math.round((target.position.z + (dz / len) * 0.9) * 100) / 100,
+      };
+
+      const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
+        ignoreUnitId: target.id,
+      });
+      const end = path[path.length - 1];
+      const distToEnemy = Math.hypot(end.x - target.position.x, end.z - target.position.z);
+      if (distToEnemy > 1.25) {
+        this.showToast('Cannot reach engagement range of target');
+        return;
       }
+      const chargeDistance = pathLength(path);
+      if (chargeDistance > active.speed * 2 + 0.01) {
+        this.showToast(
+          `Too far to charge: ${chargeDistance.toFixed(1)}" vs charge speed ${(active.speed * 2).toFixed(1)}"`
+        );
+        return;
+      }
+
+      const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: true,
+          isCharging: true,
+          hasMoved: true,
+          isFatigued,
+          distance: distToEnemy,
+        },
+        {
+          defense: target.defense,
+          inCover: false,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+      const attacks = weapon.profile.attacks;
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+
+      this.movePreview = end;
+      this.movePathPreview = path;
+      this.hoveredEngagedTargetId = target.id;
+
       this.beginConfirmation(
         createAction(this.localPlayerId, 'charge', {
           type: 'charge',
           attackerId: active.id,
           targetId: target.id,
-          path: [end],
+          path,
+          weaponId: weapon.id,
         }),
-        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee — then Fight)`
+        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
       return;
     }
@@ -484,8 +701,29 @@ export class GameHUD {
         this.showToast('Target not in engagement range');
         return;
       }
+      const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: true,
+          isCharging: active.hasMoved,
+          hasMoved: active.hasMoved,
+          isFatigued,
+          distance,
+        },
+        {
+          defense: target.defense,
+          inCover: false,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
       const attacks = weapon.profile.attacks;
-      const diceText = `${attacks}d6 (Hit Q${active.quality}+, Def D${target.defense}+)`;
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'fight', {
           type: 'fight',
@@ -507,6 +745,8 @@ export class GameHUD {
     if (this.flow.mode !== 'confirming') return;
     const action = this.flow.action;
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.flow = { mode: 'waiting' };
     this.render();
     // Only confirmed actions ever leave the HUD — no optimistic dispatch.
@@ -516,6 +756,8 @@ export class GameHUD {
   private cancel(): void {
     if (this.flow.mode === 'waiting') return; // already sent, nothing to cancel
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
     this.render();
@@ -545,13 +787,29 @@ export class GameHUD {
 
   private renderHTML(): string {
     const state = this.state!;
-    const myName =
-      state.players.find((p) => p.id === this.localPlayerId)?.name ?? 'You';
+    const myPlayer = state.players.find((p) => p.id === this.localPlayerId);
+    const myName = myPlayer?.name ?? 'You';
     const opponent = state.players.find((p) => p.id !== this.localPlayerId);
     const opponentName = opponent?.name ?? 'Opponent';
 
+    const isHost = myPlayer?.role === 'host';
+    const myTeamClass = isHost ? 'team-blue' : 'team-red';
+    const enemyTeamClass = isHost ? 'team-red' : 'team-blue';
+    const myTeamHex = isHost ? '#29b6f6' : '#ef5350';
+    const enemyTeamHex = isHost ? '#ef5350' : '#29b6f6';
+
     const myUnactivated = this.myUnits.filter((u) => !u.isDestroyed && !u.isActivated).length;
     const enemyUnactivated = this.enemyUnits.filter((u) => !u.isDestroyed && !u.isActivated).length;
+
+    const alerts: string[] = [];
+    if (this.peerState === 'disconnected') {
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-error">⚠️ Opponent disconnected — waiting for peer to reconnect...</div>');
+    } else if (this.signalingState === 'reconnecting') {
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling disconnected — reconnecting to room...</div>');
+    } else if (this.signalingState === 'disconnected') {
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling offline</div>');
+    }
+    const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}</div>` : '';
 
     const header = `
       <div class="sl-hud-header">
@@ -569,10 +827,10 @@ export class GameHUD {
 
     const units = `
       <div class="sl-hud-panel sl-hud-units">
-        <h3>${myName} — Fighters (${myUnactivated} ready)</h3>
-        ${this.myUnits.map((unit) => this.renderUnitRow(unit)).join('')}
-        <h3 style="margin-top: 10px; color: #ef9a9a;">${opponentName} — Enemy (${enemyUnactivated} ready)</h3>
-        ${this.enemyUnits.map((unit) => this.renderEnemyRow(unit)).join('')}
+        <h3 style="color: ${myTeamHex};">${myName} — Fighters (${myUnactivated} ready)</h3>
+        ${this.myUnits.map((unit) => this.renderUnitRow(unit, myTeamClass)).join('')}
+        <h3 style="margin-top: 10px; color: ${enemyTeamHex};">${opponentName} — Enemy (${enemyUnactivated} ready)</h3>
+        ${this.enemyUnits.map((unit) => this.renderEnemyRow(unit, enemyTeamClass)).join('')}
       </div>`;
 
     const right = `
@@ -593,7 +851,7 @@ export class GameHUD {
       </div>`
         : '';
 
-    return `${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${
+    return `${alertsHtml}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${
       this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : ''
     }`;
   }
@@ -605,7 +863,7 @@ export class GameHUD {
     return `Game over — ${state.endReason ?? 'draw'} vs ${opponentName}`;
   }
 
-  private renderUnitRow(unit: Unit): string {
+  private renderUnitRow(unit: Unit, teamClass: string = 'team-blue'): string {
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
     else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
@@ -621,7 +879,9 @@ export class GameHUD {
     const weaponSummary = unit.weapons
       .filter((w) => w.isEquipped)
       .map((w) => {
-        const traits = w.profile.specialRules.map(formatTraitLabel).join(', ');
+        const traits = w.profile.specialRules
+          .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+          .join(', ');
         const suffix = traits ? `, ${traits}` : '';
         return w.profile.type === 'ranged'
           ? `${w.name} (${w.profile.range}", A${w.profile.attacks}${suffix})`
@@ -631,6 +891,7 @@ export class GameHUD {
 
     const classes = [
       'sl-hud-unit',
+      teamClass,
       unit.isDestroyed ? 'destroyed' : '',
       canActivate ? 'activatable' : '',
       isActive ? 'active' : '',
@@ -649,7 +910,7 @@ export class GameHUD {
       </div>`;
   }
 
-  private renderEnemyRow(unit: Unit): string {
+  private renderEnemyRow(unit: Unit, teamClass: string = 'team-red'): string {
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
     else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
@@ -659,7 +920,7 @@ export class GameHUD {
     if (unit.traumaTokens && unit.traumaTokens > 0) statusTags.push(`+${unit.traumaTokens}T`);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
-    const classes = ['sl-hud-unit', 'enemy', unit.isDestroyed ? 'destroyed' : '']
+    const classes = ['sl-hud-unit', 'enemy', teamClass, unit.isDestroyed ? 'destroyed' : '']
       .filter(Boolean)
       .join(' ');
 
@@ -686,6 +947,18 @@ export class GameHUD {
       const effectiveQ = outcome.effectiveQuality ?? attacker?.quality ?? 4;
       const targetD = outcome.effectiveDefense ?? target?.defense ?? 5;
 
+      if (entry.action.type === 'respond-reaction') {
+        const payload = entry.action.payload as { choiceId: string };
+        if (payload.choiceId === 'decline') {
+          return `
+            <div class="sl-hud-dice">
+              <div class="sl-hud-dice-title">Retaliation Declined: ${attacker?.name ?? 'Defender'} held ground</div>
+              <div class="sl-hud-dice-summary">0 attacks · No fatigue applied</div>
+              <div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — Defender declined retaliation (no Fatigue)</div>
+            </div>`;
+        }
+      }
+
       const hitDiceHtml = toHit
         ? toHit.rolls
             .map((r) => {
@@ -711,33 +984,134 @@ export class GameHUD {
               .join('')
           : '<span class="sl-hud-dice-empty">no hits to defend</span>';
 
+      const toHitMods = outcome.hitModifiers && outcome.hitModifiers.length
+        ? ` · Base Q${outcome.baseQuality ?? attacker?.quality ?? 4} ${outcome.hitModifiers.join(' ')}`
+        : '';
+      const defMods = outcome.defenseModifiers && outcome.defenseModifiers.length
+        ? ` · Base D${outcome.baseDefense ?? target?.defense ?? 5} ${outcome.defenseModifiers.join(' ')}`
+        : outcome.coverApplied ? ' w/ cover' : '';
+
+      const traumaTokensCount = outcome.traumaTokens ?? 0;
+      const traumaDreadText = outcome.traumaDreadBonus ? ` + ${outcome.traumaDreadBonus} dread` : '';
       const traumaHtml =
         outcome.traumaRoll !== undefined
-          ? `<div class="sl-hud-dice-label">Trauma (1d6 + tokens = ${outcome.traumaTotal}):</div>
+          ? `<div class="sl-hud-dice-label">Trauma (roll ${outcome.traumaRoll} + ${traumaTokensCount} token${
+              traumaTokensCount === 1 ? '' : 's'
+            }${traumaDreadText} = ${outcome.traumaTotal} — need 6+ to KO):</div>
              <div class="sl-hud-dice-row">
                <span class="sl-die ${outcome.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${outcome.traumaRoll}</span>
                <span class="sl-hud-dice-summary">${
-                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SUPPRESSED (SHAKEN)'
+                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
                }</span>
              </div>`
           : '';
 
+      const woundsGainedTokens = traumaTokensCount > 0 ? ` +${traumaTokensCount} trauma` : '';
+      const outcomeStatus = outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : '';
+      const summaryWounds = outcome.wounds > 0
+        ? `<strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'} (${outcome.wounds} unsaved${woundsGainedTokens})</strong>${outcomeStatus}`
+        : '<strong>0 wounds</strong>';
+
+      let retaliationHtml = '';
+      if (outcome.retaliation) {
+        const ret = outcome.retaliation;
+        const retToHit = entry.dice.results.find((r) => r.purpose === 'retaliation-to-hit');
+        const retDefense = entry.dice.results.find((r) => r.purpose === 'retaliation-defense');
+        const retEffectiveQ = ret.effectiveQuality ?? target?.quality ?? 4;
+        const retChargerD = ret.effectiveDefense ?? attacker?.defense ?? 5;
+
+        const retHitDiceHtml = retToHit
+          ? retToHit.rolls
+              .map((r) => {
+                const isHit = r > 1 && (r >= 6 || r >= retEffectiveQ);
+                return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}" title="${
+                  isHit ? `Hit (${r} >= ${retEffectiveQ})` : `Miss (${r} < ${retEffectiveQ})`
+                }">${r}</span>`;
+              })
+              .join('')
+          : '';
+
+        const retUsedDefRolls = retDefense ? retDefense.rolls.slice(0, ret.hitCount) : [];
+        const retDefDiceHtml =
+          retUsedDefRolls.length > 0
+            ? retUsedDefRolls
+                .map((r) => {
+                  const isBlocked = r > 1 && (r >= 6 || r >= retChargerD);
+                  return `<span class="sl-die ${isBlocked ? 'def-pass' : 'def-fail'}" title="${
+                    isBlocked ? `Blocked (${r} >= ${retChargerD})` : `Failed (${r} < ${retChargerD}) → Wound`
+                  }">${r}</span>`;
+                })
+                .join('')
+            : '<span class="sl-hud-dice-empty">no hits to defend</span>';
+
+        const retToHitMods = ret.hitModifiers && ret.hitModifiers.length
+          ? ` · Base Q${ret.baseQuality ?? target?.quality ?? 4} ${ret.hitModifiers.join(' ')}`
+          : '';
+        const retDefMods = ret.defenseModifiers && ret.defenseModifiers.length
+          ? ` · Base D${ret.baseDefense ?? attacker?.defense ?? 5} ${ret.defenseModifiers.join(' ')}`
+          : '';
+
+        const retTraumaTokens = ret.traumaTokens ?? 0;
+        const retTraumaDreadText = ret.traumaDreadBonus ? ` + ${ret.traumaDreadBonus} dread` : '';
+        const retTraumaHtml =
+          ret.traumaRoll !== undefined
+            ? `<div class="sl-hud-dice-label">Trauma (roll ${ret.traumaRoll} + ${retTraumaTokens} token${
+                retTraumaTokens === 1 ? '' : 's'
+              }${retTraumaDreadText} = ${ret.traumaTotal} — need 6+ to KO):</div>
+               <div class="sl-hud-dice-row">
+                 <span class="sl-die ${ret.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${ret.traumaRoll}</span>
+                 <span class="sl-hud-dice-summary">${
+                   ret.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
+                 }</span>
+               </div>`
+            : '';
+
+        const retStatus = ret.targetDestroyed ? ' · charger down' : ret.targetShaken ? ' · charger shaken' : '';
+        const retSummaryWounds = ret.wounds > 0
+          ? `<strong>${ret.wounds} wound${ret.wounds === 1 ? '' : 's'} (${ret.wounds} unsaved)</strong>${retStatus}`
+          : '<strong>0 wounds</strong>';
+
+        retaliationHtml = `
+          <div class="sl-hud-dice-retaliation" style="margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.2); padding-top: 6px;">
+            <div class="sl-hud-dice-title" style="font-size: 11px; opacity: 0.9;">Defender Retaliation: ${target?.name ?? 'Defender'} → ${attacker?.name ?? 'Charger'}</div>
+            <div class="sl-hud-dice-label">To-Hit (need Q${retEffectiveQ}+${retToHitMods}):</div>
+            <div class="sl-hud-dice-row">${retHitDiceHtml}</div>
+            <div class="sl-hud-dice-label">Defense (need D${retChargerD}+${retDefMods}):</div>
+            <div class="sl-hud-dice-row">${retDefDiceHtml}</div>
+            ${retTraumaHtml}
+            <div class="sl-hud-dice-summary">
+              ${ret.hitCount} hit${ret.hitCount === 1 ? '' : 's'} ·
+              ${ret.blockedCount} blocked ·
+              ${retSummaryWounds}
+            </div>
+          </div>`;
+      }
+
+      let pushBackHtml = '';
+      if (outcome.pushedBack) {
+        pushBackHtml = `<div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — both units Fatigued</div>`;
+      }
+
+      const titleText =
+        entry.action.type === 'respond-reaction'
+          ? `Defender Retaliation: ${attacker?.name ?? 'Defender'} → ${target?.name ?? 'Charger'}`
+          : `${attacker?.name ?? 'Attacker'} → ${target?.name ?? 'target'}`;
+
       return `
         <div class="sl-hud-dice">
-          <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} → ${
-        target?.name ?? 'target'
-      }</div>
-          <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+):</div>
+          <div class="sl-hud-dice-title">${titleText}</div>
+          <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
-          <div class="sl-hud-dice-label">Defense (need D${targetD}+${outcome.coverApplied ? ' w/ cover' : ''}):</div>
+          <div class="sl-hud-dice-label">Defense (need D${targetD}+${defMods}):</div>
           <div class="sl-hud-dice-row">${defDiceHtml}</div>
           ${traumaHtml}
           <div class="sl-hud-dice-summary">
             ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
             ${outcome.blockedCount} blocked ·
-            <strong>${outcome.wounds} wound${outcome.wounds === 1 ? '' : 's'}</strong>
-            ${outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : ''}
+            ${summaryWounds}
           </div>
+          ${retaliationHtml}
+          ${pushBackHtml}
         </div>`;
     }
     return '<div class="sl-hud-dice-empty">No dice rolled yet</div>';
@@ -763,12 +1137,18 @@ export class GameHUD {
         return `held with ${this.unitName((action.payload as any).unitId)}`;
       case 'move-unit':
         return `moved ${this.unitName((action.payload as any).unitId)}`;
+      case 'rush':
+        return `rushed ${this.unitName((action.payload as any).unitId)}`;
       case 'shoot':
         return `shot ${this.unitName((action.payload as any).targetId)}`;
       case 'charge':
         return `charged ${this.unitName((action.payload as any).targetId)}`;
       case 'fight':
         return `fought ${this.unitName((action.payload as any).targetId)}`;
+      case 'respond-reaction': {
+        const p = action.payload as { choiceId: string };
+        return p.choiceId === 'strike-back' ? 'struck back in retaliation' : 'declined retaliation';
+      }
       case 'end-activation':
         return 'ended an activation';
       case 'end-round':
@@ -809,10 +1189,54 @@ export class GameHUD {
         </div>`;
     }
 
+    const pendingReaction = this.state.turnState.pendingReaction;
+    if (pendingReaction) {
+      const remainingSec = Math.max(0, Math.ceil((pendingReaction.expiresAt - Date.now()) / 1000));
+      if (pendingReaction.promptingPlayerId === this.localPlayerId) {
+        const warningHtml = pendingReaction.warning
+          ? `<div class="sl-hud-reaction-warning">${pendingReaction.warning}</div>`
+          : '';
+        const optionsHtml = pendingReaction.options
+          .map((opt) => {
+            const btnClass = opt.style === 'primary' ? 'primary' : opt.style === 'danger' ? 'danger' : '';
+            return `<button class="sl-hud-btn ${btnClass}" data-reaction-choice="${opt.id}" data-reaction-id="${pendingReaction.id}">${opt.label}</button>`;
+          })
+          .join('');
+
+        return `
+          <div class="sl-hud-bottom-dock">
+            ${dataCardSlot}
+            <div class="sl-hud-bottom sl-hud-reaction">
+              <div class="sl-hud-reaction-header">
+                <span class="sl-hud-reaction-title">${pendingReaction.title}</span>
+                <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+              </div>
+              <div class="sl-hud-reaction-desc">${pendingReaction.description}</div>
+              ${warningHtml}
+              <div class="sl-hud-reaction-actions">
+                ${optionsHtml}
+              </div>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for opponent: ${pendingReaction.title} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+    }
+
     if (this.flow.mode === 'targeting') {
       const instruction =
         this.flow.action === 'move'
-          ? 'Click a destination on the board (auto-clamps to max move)'
+          ? 'Click a destination on the board (auto-paths around obstacles)'
+          : this.flow.action === 'rush'
+          ? 'Click a destination to Rush (double move, auto-paths around obstacles)'
+          : this.flow.action === 'charge'
+          ? 'Click an enemy unit within charge range to Charge into melee and strike'
           : `Select an enemy target within the red range ring (${this.flow.action})`;
       return `
         <div class="sl-hud-bottom-dock">
@@ -827,13 +1251,14 @@ export class GameHUD {
     if (this.myTurn && activeIsMine && active) {
       const engaged = active.status.includes('engaged');
       const hasAttacked = !!active.hasAttacked;
-      const hasActed = active.hasMoved || hasAttacked;
-      const canMove = !engaged && active.remainingMovement > 0.01;
+      const hasMoved = !!active.hasMoved;
+      const hasActed = hasMoved || hasAttacked;
+      const canMove = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && active.remainingMovement > 0.01;
+      const canRush = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked;
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-      const canShoot = !engaged && !hasAttacked && !!rangedWeapon;
-      const canCharge = !engaged && !active.hasMoved && !hasAttacked;
-      const canFight = engaged && !hasAttacked && !!meleeWeapon;
+      const canShoot = !active.isDestroyed && !engaged && !hasAttacked && !!rangedWeapon;
+      const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -847,9 +1272,9 @@ export class GameHUD {
           <div class="sl-hud-bottom sl-hud-actions">
             <span class="sl-hud-active-name">${active.name}</span>
             <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move</button>
+            <button class="sl-hud-btn" data-action="rush" ${canRush ? '' : 'disabled'}>Rush</button>
             <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
             <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge</button>
-            <button class="sl-hud-btn" data-action="fight" ${canFight ? '' : 'disabled'}>Fight</button>
             ${finishBtn}
           </div>
         </div>`;
@@ -907,7 +1332,13 @@ export class GameHUD {
     if (unit.isActivated) statusTags.push('ACTIVATED');
     else statusTags.push('READY');
 
-    const unitTraits = unit.specialRules.map(formatTraitLabel).join(', ');
+    const owner = this.state?.players.find((p) => p.id === unit.ownerId);
+    const isHostUnit = owner?.role === 'host';
+    const cardTeamClass = isHostUnit ? 'team-blue' : 'team-red';
+
+    const unitTraits = unit.specialRules
+      .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+      .join(' · ');
     const weaponRows = unit.weapons
       .filter((w) => w.isEquipped)
       .map(
@@ -917,16 +1348,20 @@ export class GameHUD {
             <td>${w.profile.type === 'ranged' ? 'Ranged' : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
-            <td>${w.profile.specialRules.map(formatTraitLabel).join(', ') || '—'}</td>
+            <td>${
+              w.profile.specialRules
+                .map((r) => `<span class="sl-trait-badge" title="${describeTrait(r)}">${formatTraitLabel(r)}</span>`)
+                .join(', ') || '—'
+            }</td>
           </tr>`
       )
       .join('');
 
     return `${terrainHtml}
-      <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'}">
+      <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'} ${cardTeamClass}">
         <div class="sl-hud-datacard-header">
           <span class="sl-hud-datacard-name">${unit.name}</span>
-          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} · ${unit.unitType}${unitTraits ? ` · ${unitTraits}` : ''}</span>
+          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
         </div>
         <div class="sl-hud-datacard-tables">
@@ -956,42 +1391,171 @@ export class GameHUD {
       </div>`;
   }
 
-  private renderTerrainDebugCard(): string {
-    if (!this.terrainDebugEnabled || !this.state || !this.hoveredTerrainId) return '';
-    const piece = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
-    if (!piece) return '';
-    const info = describeTerrainPiece(piece);
-    const flags = [
-      info.blocksLineOfSight ? 'Blocks LoS' : 'No LoS Block',
-      info.isObstacle ? 'Obstacle' : 'Passable',
-      info.providesCover ? 'Cover' : 'No Cover',
-    ].join(' · ');
+  private getActiveShootingDebug(): ShootingRayDebugInfo | null {
+    if (!this.terrainDebugEnabled || !this.state) return null;
 
-    return `
-      <div class="sl-hud-datacard sl-hud-terrain-debug">
-        <div class="sl-hud-datacard-header">
-          <span class="sl-hud-datacard-name">${info.id}</span>
-          <span class="sl-hud-datacard-meta">Terrain · ${info.terrainType} · <code>${info.modelFile}</code></span>
-          <span class="sl-hud-datacard-tags">${flags}</span>
-        </div>
-        <div class="sl-hud-datacard-tables">
-          <table class="sl-hud-table">
-            <thead>
-              <tr><th>Position</th><th>Scale</th><th>Rot Y</th><th>Footprint (X×Z)</th><th>Half-Extents</th><th>Raw GLB Size</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>(${info.position.x.toFixed(1)}, ${info.position.y.toFixed(1)}, ${info.position.z.toFixed(1)})</td>
-                <td>(${info.scale.x}, ${info.scale.y}, ${info.scale.z})</td>
-                <td>${info.rotationDeg}°</td>
-                <td>${info.worldFootprint.width.toFixed(2)}" × ${info.worldFootprint.depth.toFixed(2)}"</td>
-                <td>hx=${info.halfExtents.hx.toFixed(2)}", hz=${info.halfExtents.hz.toFixed(2)}"</td>
-                <td>${info.rawGlbSize}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>`;
+    let shooter: Unit | null = null;
+    let targetOrPoint: Unit | Vector3 | null = null;
+
+    if (this.flow.mode === 'confirming' && this.flow.action.type === 'shoot') {
+      const payload = this.flow.action.payload as { attackerId?: string; targetId?: string };
+      shooter = this.state.units.find((u) => u.id === payload.attackerId) ?? this.activeUnit;
+      if (payload.targetId) {
+        targetOrPoint = this.state.units.find((u) => u.id === payload.targetId) ?? null;
+      }
+    } else if (this.flow.mode === 'targeting' && this.flow.action === 'shoot') {
+      shooter = this.activeUnit;
+      if (this.hoveredUnitId) {
+        targetOrPoint = this.state.units.find((u) => u.id === this.hoveredUnitId && !u.isDestroyed) ?? null;
+      }
+      if (!targetOrPoint && this.hoveredGroundPosition) {
+        targetOrPoint = this.hoveredGroundPosition;
+      }
+    } else if (
+      (this.flow.mode === 'idle' || this.hoveredAction === 'shoot') &&
+      this.activeUnit
+    ) {
+      shooter = this.activeUnit;
+      if (this.hoveredUnitId && this.hoveredUnitId !== shooter.id) {
+        targetOrPoint = this.state.units.find((u) => u.id === this.hoveredUnitId && !u.isDestroyed) ?? null;
+      }
+    }
+
+    if (!shooter || !targetOrPoint) return null;
+    return computeShootingRayDebug(this.state, shooter, targetOrPoint);
+  }
+
+  private renderTerrainDebugCard(): string {
+    if (!this.terrainDebugEnabled || !this.state) return '';
+    const cards: string[] = [];
+
+    const ray = this.getActiveShootingDebug();
+    if (ray) {
+      const shooter = this.state.units.find((u) => u.id === ray.attackerId);
+      const targetUnit = ray.targetId ? this.state.units.find((u) => u.id === ray.targetId) : null;
+      const targetName = targetUnit
+        ? targetUnit.name
+        : `Ground (${ray.to.x.toFixed(1)}, ${ray.to.z.toFixed(1)})`;
+      const shooterName = shooter ? shooter.name : ray.attackerId;
+
+      const losTag = ray.hasLineOfSight
+        ? '<span style="color:#00e5ff;">LoS: CLEAR</span>'
+        : `<span style="color:#ef5350;">LoS: BLOCKED (${
+            ray.blockedByPieceId
+              ? `Piece: ${ray.blockedByPieceId}`
+              : ray.blockedByUnitId
+              ? `Unit: ${ray.blockedByUnitId}`
+              : 'Obstacle'
+          })</span>`;
+
+      const coverTag = ray.providesCover
+        ? `<span style="color:#ffd600;">Cover: IN COVER (+1 Def${
+            ray.coverPieceId ? ` via ${ray.coverPieceId}` : ''
+          })</span>`
+        : '<span style="color:#90a4ae;">Cover: OPEN (No Cover)</span>';
+
+      const flankText =
+        ray.flankRays && ray.flankRays.length > 0
+          ? ray.flankRays
+              .map(
+                (f) =>
+                  `${f.side.toUpperCase()}: ${
+                    f.blocked
+                      ? '<span style="color:#ef5350;">Blocked</span>'
+                      : '<span style="color:#26a69a;">Clear</span>'
+                  }`
+              )
+              .join(' · ')
+          : null;
+
+      const interRows =
+        ray.intersections.length === 0
+          ? '<tr><td colspan="5" style="color:#78909c; font-style:italic;">No terrain intersected along shooting line</td></tr>'
+          : ray.intersections
+              .map((i) => {
+                const tag = i.isLoSBlocker
+                  ? '<span style="color:#ef5350;">Blocks LoS</span>'
+                  : i.isCoverProvider
+                  ? '<span style="color:#ffd600;">Provides Cover</span>'
+                  : i.ignoredAsAdjacentShooterCover
+                  ? '<span style="color:#78909c;">Shooter Touch (Ignored)</span>'
+                  : '<span style="color:#90caf9;">Passable</span>';
+                return `<tr>
+                  <td><code>${i.pieceId}</code></td>
+                  <td>${i.terrainType}</td>
+                  <td>(${i.entryPoint.x.toFixed(1)}, ${i.entryPoint.z.toFixed(1)})</td>
+                  <td>(${i.exitPoint.x.toFixed(1)}, ${i.exitPoint.z.toFixed(1)})</td>
+                  <td>${tag}</td>
+                </tr>`;
+              })
+              .join('');
+
+      cards.push(`
+        <div class="sl-hud-datacard sl-hud-terrain-debug">
+          <div class="sl-hud-datacard-header">
+            <span class="sl-hud-datacard-name">Shooting Ray Debug (F9)</span>
+            <span class="sl-hud-datacard-meta">${shooterName} ➔ ${targetName} (${ray.distance.toFixed(1)}")</span>
+            <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}</span>
+          </div>
+          <div class="sl-hud-datacard-tables">
+            <table class="sl-hud-table">
+              <thead>
+                <tr><th>Terrain Piece</th><th>Type</th><th>Entry (X, Z)</th><th>Exit (X, Z)</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                ${interRows}
+              </tbody>
+            </table>
+            ${
+              flankText
+                ? `<div style="font-size:11px; margin-top:4px; color:#b0bec5;">Flank rays: ${flankText}${
+                    ray.coverReason ? ` · <em>${ray.coverReason}</em>` : ''
+                  }</div>`
+                : ''
+            }
+          </div>
+        </div>`);
+    }
+
+    if (this.hoveredTerrainId) {
+      const piece = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
+      if (piece) {
+        const info = describeTerrainPiece(piece);
+        const flags = [
+          info.blocksLineOfSight ? 'Blocks LoS' : 'No LoS Block',
+          info.isObstacle ? 'Obstacle' : 'Passable',
+          info.providesCover ? 'Cover' : 'No Cover',
+        ].join(' · ');
+
+        cards.push(`
+          <div class="sl-hud-datacard sl-hud-terrain-debug">
+            <div class="sl-hud-datacard-header">
+              <span class="sl-hud-datacard-name">${info.id}</span>
+              <span class="sl-hud-datacard-meta">Terrain · ${info.terrainType} · <code>${info.modelFile}</code></span>
+              <span class="sl-hud-datacard-tags">${flags}</span>
+            </div>
+            <div class="sl-hud-datacard-tables">
+              <table class="sl-hud-table">
+                <thead>
+                  <tr><th>Position</th><th>Scale</th><th>Rot Y</th><th>Footprint (X×Z)</th><th>Half-Extents</th><th>Raw GLB Size</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>(${info.position.x.toFixed(1)}, ${info.position.y.toFixed(1)}, ${info.position.z.toFixed(1)})</td>
+                    <td>(${info.scale.x}, ${info.scale.y}, ${info.scale.z})</td>
+                    <td>${info.rotationDeg}°</td>
+                    <td>${info.worldFootprint.width.toFixed(2)}" × ${info.worldFootprint.depth.toFixed(2)}"</td>
+                    <td>hx=${info.halfExtents.hx.toFixed(2)}", hz=${info.halfExtents.hz.toFixed(2)}"</td>
+                    <td>${info.rawGlbSize}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>`);
+      }
+    }
+
+    return cards.join('');
   }
 
   private updateDataCardSlot(): void {
@@ -1034,6 +1598,7 @@ export class GameHUD {
       const actionKey = el.dataset.action ?? '';
       if (
         actionKey === 'move' ||
+        actionKey === 'rush' ||
         actionKey === 'shoot' ||
         actionKey === 'charge' ||
         actionKey === 'fight'
@@ -1062,10 +1627,13 @@ export class GameHUD {
             this.controller.onReturnToLobby?.();
             break;
           case 'move':
+          case 'rush':
           case 'shoot':
           case 'charge':
           case 'fight':
-            this.beginActionTargeting(el.dataset.action as 'move' | 'shoot' | 'charge' | 'fight');
+            this.beginActionTargeting(
+              el.dataset.action as 'move' | 'rush' | 'shoot' | 'charge' | 'fight'
+            );
             break;
           case 'hold': {
             const active = this.activeUnit;
@@ -1087,6 +1655,25 @@ export class GameHUD {
         }
       });
     }
+
+    const reactionBtns = this.root.querySelectorAll<HTMLButtonElement>('[data-reaction-choice]');
+    for (const btn of reactionBtns) {
+      btn.addEventListener('click', () => {
+        const choiceId = btn.dataset.reactionChoice;
+        const reactionId = btn.dataset.reactionId;
+        if (choiceId && reactionId) {
+          this.flow = { mode: 'waiting' };
+          this.render();
+          this.controller.submitAction(
+            createAction(this.localPlayerId, 'respond-reaction', {
+              type: 'respond-reaction',
+              reactionId,
+              choiceId,
+            })
+          );
+        }
+      });
+    }
   }
 
   private emitMarkers(): void {
@@ -1095,7 +1682,7 @@ export class GameHUD {
     if (this.state) {
       for (let i = this.state.actionLog.length - 1; i >= this.lastSeenLogIndex; i--) {
         const entry = this.state.actionLog[i];
-        if (entry.dice && entry.dice.outcome.wounds > 0) {
+        if (entry.dice && entry.dice.outcome.wounds !== undefined) {
           const target = this.state.units.find((u) => u.id === entry.dice!.context.targetId);
           if (target) {
             outcome = { position: { ...target.position }, wounds: entry.dice.outcome.wounds };
@@ -1116,6 +1703,8 @@ export class GameHUD {
         ? hoveredUnit.id
         : this.selectedUnitId;
 
+    const shootingDebugRay = this.getActiveShootingDebug();
+
     const markers: MarkerSnapshot = {
       selectedUnitId: selectedId,
       targetUnitId: null,
@@ -1123,8 +1712,11 @@ export class GameHUD {
       movementRangeUnitId: null,
       attackRange: null,
       movePath: null,
+      engagedTargetId: this.hoveredEngagedTargetId,
       hoveredTerrainId: this.terrainDebugEnabled ? this.hoveredTerrainId : null,
       outcome,
+      debugActive: this.terrainDebugEnabled,
+      shootingDebugRay,
     };
 
     // If hovering an enemy unit, show the bright red target ring under that enemy.
@@ -1132,17 +1724,28 @@ export class GameHUD {
       markers.targetUnitId = hoveredUnit.id;
     }
 
-    // While confirming an attack/charge, keep the bright red target marker on the chosen target.
+    // While confirming an attack/charge/rush/move, reflect markers
     if (this.flow.mode === 'confirming') {
       const payload = this.flow.action.payload as { targetId?: string; path?: Vector3[] };
       if (payload.targetId) {
         markers.targetUnitId = payload.targetId;
       }
-      if (this.flow.action.type === 'move-unit' && payload.path && payload.path.length >= 2) {
+      if (
+        (this.flow.action.type === 'move-unit' ||
+          this.flow.action.type === 'rush' ||
+          this.flow.action.type === 'charge') &&
+        payload.path &&
+        payload.path.length >= 2
+      ) {
         markers.movePath = {
           from: payload.path[0],
           to: payload.path[payload.path.length - 1],
+          waypoints: payload.path,
+          isMeleeContact: this.flow.action.type === 'charge',
         };
+      }
+      if (this.flow.action.type === 'charge' && payload.targetId) {
+        markers.engagedTargetId = payload.targetId;
       }
     }
 
@@ -1150,7 +1753,9 @@ export class GameHUD {
     // (with LoS shadow fill), darker red rings under all reachable enemy targets, and
     // a bright red ring under any hovered target.
     const attackAction =
-      this.flow.mode === 'targeting' && this.flow.action !== 'move'
+      this.flow.mode === 'targeting' &&
+      this.flow.action !== 'move' &&
+      this.flow.action !== 'rush'
         ? this.flow.action
         : this.flow.mode === 'idle' &&
           (this.hoveredAction === 'shoot' ||
@@ -1173,19 +1778,47 @@ export class GameHUD {
       }
     }
 
-    // Only show the movement-range ring when Move is hovered, clicked (targeting), or confirming.
-    if (
+    // Movement-range ring when Move or Rush is hovered, clicked (targeting), or confirming.
+    const isRushMode =
+      (this.flow.mode === 'targeting' && this.flow.action === 'rush') ||
+      (this.flow.mode === 'confirming' && this.flow.action.type === 'rush') ||
+      (this.flow.mode === 'idle' && this.hoveredAction === 'rush');
+    const isMoveMode =
       (this.flow.mode === 'targeting' && this.flow.action === 'move') ||
       (this.flow.mode === 'confirming' && this.flow.action.type === 'move-unit') ||
-      (this.flow.mode === 'idle' && this.hoveredAction === 'move')
-    ) {
-      markers.movementRangeUnitId = this.activeUnit?.id ?? null;
-      if (this.activeUnit && this.movePreview) {
+      (this.flow.mode === 'idle' && this.hoveredAction === 'move');
+
+    if ((isMoveMode || isRushMode) && this.activeUnit) {
+      markers.movementRangeUnitId = this.activeUnit.id;
+      markers.movementRangeRadius = isRushMode
+        ? this.activeUnit.speed * 2
+        : this.activeUnit.remainingMovement;
+      if (this.movePathPreview && this.movePathPreview.length >= 2) {
+        markers.movePath = {
+          from: this.movePathPreview[0],
+          to: this.movePathPreview[this.movePathPreview.length - 1],
+          waypoints: this.movePathPreview,
+          isMeleeContact: !!this.hoveredEngagedTargetId,
+        };
+      } else if (this.movePreview) {
         markers.movePath = {
           from: { ...this.activeUnit.position },
           to: { ...this.movePreview },
         };
       }
+    } else if (
+      this.flow.mode === 'targeting' &&
+      this.flow.action === 'charge' &&
+      this.activeUnit &&
+      this.movePathPreview &&
+      this.movePathPreview.length >= 2
+    ) {
+      markers.movePath = {
+        from: this.movePathPreview[0],
+        to: this.movePathPreview[this.movePathPreview.length - 1],
+        waypoints: this.movePathPreview,
+        isMeleeContact: true,
+      };
     }
 
     for (const handler of this.markerHandlers) {
@@ -1203,8 +1836,8 @@ export class GameHUD {
       );
     }
     if (action === 'charge') {
-      // Charge path ends at 1" engagement distance, so a target up to speed + 1" away is reachable.
-      return unit.speed + 1;
+      // Charge can move up to double speed and reach target within 1" engagement range.
+      return unit.speed * 2 + 1;
     }
     return 1.5;
   }
@@ -1228,7 +1861,22 @@ export class GameHUD {
         return hasLineOfSight(this.state!, unit, candidate);
       }
       if (action === 'charge') {
-        return hasLineOfSight(this.state!, unit, candidate);
+        if (!hasLineOfSight(this.state!, unit, candidate)) return false;
+        // Verify pathfinder reaches within engagement range under double speed
+        const dx = unit.position.x - candidate.position.x;
+        const dz = unit.position.z - candidate.position.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const contactTarget = {
+          x: candidate.position.x + (dx / len) * 0.9,
+          y: 0,
+          z: candidate.position.z + (dz / len) * 0.9,
+        };
+        const path = findNavPath(this.state!, unit, contactTarget, unit.speed * 2, {
+          ignoreUnitId: candidate.id,
+        });
+        const end = path[path.length - 1];
+        const distToEnd = Math.hypot(end.x - candidate.position.x, end.z - candidate.position.z);
+        return distToEnd <= 1.25 && pathLength(path) <= unit.speed * 2 + 0.01;
       }
       return true;
     });
@@ -1262,14 +1910,22 @@ export class GameHUD {
   border: 1px solid #2a2f3a; border-radius: 8px; padding: 10px; min-width: 220px; }
 .sl-hud-panel h3 { margin: 2px 0 8px; font-size: 12px; text-transform: uppercase;
   letter-spacing: 1px; color: #90caf9; }
+.sl-hud-alerts { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; z-index: 100; }
+.sl-hud-alert { padding: 8px 24px; font-weight: 600; font-size: 13px; text-align: center; width: 100%; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.sl-hud-alert-error { background: #b71c1c; color: #fff; }
+.sl-hud-alert-warn { background: #e65100; color: #fff; }
+.sl-trait-badge { cursor: help; border-bottom: 1px dotted #90a4ae; }
 .sl-hud-units { top: 60px; left: 12px; max-width: 290px; max-height: 75vh; overflow-y: auto; }
 .sl-hud-side { top: 60px; right: 12px; width: 270px; max-height: 60vh; overflow-y: auto; }
 .sl-hud-unit { padding: 6px 8px; margin-bottom: 4px; border-radius: 6px; background: #1a1f29;
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sl-hud-unit.team-blue { background: #162436; border-left: 3px solid #29b6f6; }
+.sl-hud-unit.team-red { background: #26161b; border-left: 3px solid #ef5350; }
+.sl-hud-unit.team-blue:hover { background: #1c3048; }
+.sl-hud-unit.team-red:hover { background: #351e24; }
 .sl-hud-unit.activatable { cursor: pointer; outline: 1px solid #69f0ae; }
 .sl-hud-unit.activatable:hover { background: #213028; }
-.sl-hud-unit.enemy { background: #241a1d; cursor: pointer; }
-.sl-hud-unit.enemy:hover { background: #332024; }
+.sl-hud-unit.enemy { cursor: pointer; }
 .sl-hud-unit.active { outline: 2px solid #69f0ae; }
 .sl-hud-unit.destroyed { opacity: 0.35; text-decoration: line-through; }
 .sl-hud-unit-name { font-weight: 600; }
@@ -1282,6 +1938,10 @@ export class GameHUD {
   border: 1px solid #37474f; border-radius: 10px; padding: 8px 14px; min-width: 440px; }
 .sl-hud-datacard.mine { border-color: #29b6f6; }
 .sl-hud-datacard.enemy { border-color: #ef5350; }
+.sl-hud-datacard.team-blue { border-color: #29b6f6; }
+.sl-hud-datacard.team-blue .sl-hud-datacard-meta { color: #90caf9; }
+.sl-hud-datacard.team-red { border-color: #ef5350; }
+.sl-hud-datacard.team-red .sl-hud-datacard-meta { color: #ef9a9a; }
 .sl-hud-datacard.sl-hud-terrain-debug { border-color: #00e5ff; margin-bottom: 6px; }
 .sl-hud-datacard.sl-hud-terrain-debug code { color: #ffd54f; font-size: 11px; }
 .sl-hud-datacard-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
@@ -1303,6 +1963,16 @@ export class GameHUD {
 .sl-hud-btn[disabled] { opacity: 0.4; cursor: default; }
 .sl-hud-btn.primary { background: #2e7d32; border-color: #43a047; font-weight: 600; }
 .sl-hud-btn.primary:hover { background: #43a047; }
+.sl-hud-btn.danger { background: #b71c1c; border-color: #d32f2f; font-weight: 600; }
+.sl-hud-btn.danger:hover { background: #d32f2f; }
+.sl-hud-reaction { flex-direction: column; align-items: stretch; gap: 8px; min-width: 440px; border-color: #ffd54f; background: rgba(18, 22, 30, 0.94); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
+.sl-hud-reaction-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #37474f; padding-bottom: 4px; }
+.sl-hud-reaction-title { font-weight: 700; font-size: 14px; color: #ffd54f; text-transform: uppercase; letter-spacing: 0.5px; }
+.sl-hud-reaction-timer { font-family: monospace; font-size: 13px; font-weight: 700; color: #ffab40; background: #263238; padding: 2px 8px; border-radius: 4px; border: 1px solid #455a64; }
+.sl-hud-reaction-desc { font-size: 13px; color: #eceff1; }
+.sl-hud-reaction-warning { font-size: 11px; color: #ff8a65; font-style: italic; }
+.sl-hud-reaction-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+.sl-hud-reaction-waiting { border-color: #ffd54f; }
 .sl-hud-hint { color: #b0bec5; }
 .sl-hud-active-name { font-weight: 700; color: #69f0ae; margin-right: 8px; }
 .sl-hud-confirm-summary { color: #fff; margin-right: 8px; }

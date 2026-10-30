@@ -260,6 +260,21 @@ describe('applyAction: move-unit', () => {
     });
     expect(act(state, action).reason).toBe('Move path must start at unit position');
   });
+
+  it('updates unit rotation.y toward the direction of movement', () => {
+    const state = moveState();
+    // Move from (0,0,0) to (3,0,0) -> +X direction -> yaw = Math.atan2(3, 0) = PI/2
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }],
+      finalPosition: { x: 3, y: 0, z: 0 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(moved.rotation.y).toBeCloseTo(Math.PI / 2);
+  });
 });
 
 describe('applyAction: shoot', () => {
@@ -299,7 +314,7 @@ describe('applyAction: shoot', () => {
 
     const logEntry = outcome.state!.actionLog[0];
     expect(logEntry.dice).toBeDefined();
-    expect(logEntry.dice!.outcome).toEqual({
+    expect(logEntry.dice!.outcome).toMatchObject({
       attackCount: 1,
       hitCount: 1,
       blockedCount: 0,
@@ -309,6 +324,8 @@ describe('applyAction: shoot', () => {
     expect(logEntry.dice!.context.attackerId).toBe('h1');
     expect(logEntry.dice!.context.targetId).toBe('g1');
     expect(logEntry.dice!.rollId).toBe(action.id);
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(attacker.rotation.y).toBeCloseTo(0);
   });
 
   it('applies a +1 Defense bonus when the target is in cover', () => {
@@ -395,16 +412,17 @@ describe('applyAction: shoot', () => {
   });
 });
 
+function chargeState(): GameState {
+  const state = makeState([
+    makeUnit('h1', HOST, { weapons: [weapon('blade')] }),
+    makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } as Vector3 }),
+  ]);
+  state.turnState.activeUnitId = 'h1';
+  state.units[0].isActivated = true;
+  return state;
+}
+
 describe('applyAction: charge', () => {
-  function chargeState(): GameState {
-    const state = makeState([
-      makeUnit('h1', HOST, { weapons: [weapon('blade')] }),
-      makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } as Vector3 }),
-    ]);
-    state.turnState.activeUnitId = 'h1';
-    state.units[0].isActivated = true;
-    return state;
-  }
 
   it('moves the charger into engagement and engages both units', () => {
     const state = chargeState();
@@ -427,14 +445,14 @@ describe('applyAction: charge', () => {
     expect(attacker.hasMoved).toBe(true);
   });
 
-  it('rejects charging beyond the charger\'s speed', () => {
+  it('rejects charging beyond the charger\'s double speed', () => {
     const state = chargeState();
-    state.units[1].position = { x: 0, y: 0, z: 12 }; // speed 6
+    state.units[1].position = { x: 0, y: 0, z: 15 }; // speed 6, double speed 12
     const action = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
       targetId: 'g1',
-      path: [{ x: 0, y: 0, z: 11 }],
+      path: [{ x: 0, y: 0, z: 14 }],
     });
     expect(act(state, action).reason).toBe('Target out of charge range');
   });
@@ -460,6 +478,329 @@ describe('applyAction: charge', () => {
       path: [{ x: 0, y: 0, z: 4 }],
     });
     expect(act(state, action).reason).toBe('Already engaged — fight instead');
+  });
+
+  it('charge with dice rolls automatically resolves melee attack against target', () => {
+    const state = chargeState();
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+    const dice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 5] } as any,
+      { purpose: 'defense', rolls: [1, 2] } as any,
+      { purpose: 'trauma', rolls: [1] } as any,
+    ];
+    const outcome = applyAction(state, action, dice);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.logEntry.dice).toBeDefined();
+    expect(outcome.logEntry.dice?.outcome.hitCount).toBe(2);
+    expect(outcome.logEntry.dice?.outcome.wounds).toBe(2);
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+    expect(target.status).toContain('shaken');
+  });
+
+  it('charge initiates pendingReaction when defender survives with a melee weapon', () => {
+    const state = chargeState();
+    // Give defender an equipped melee weapon so they can retaliate
+    state.units[1].weapons = [weapon('blade')];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const dice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 5] } as any,
+      { purpose: 'defense', rolls: [1, 2] } as any,
+      { purpose: 'trauma', rolls: [1] } as any, // Target takes wounds + shaken (survives)
+    ];
+
+    const outcome = applyAction(state, action, dice);
+    expect(outcome.ok).toBe(true);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+
+    // Charger is fatigued
+    expect(attacker.status).toContain('fatigued');
+    // Pending reaction is created awaiting target's decision
+    const pending = outcome.state!.turnState.pendingReaction;
+    expect(pending).toBeDefined();
+    expect(pending?.type).toBe('melee-retaliation');
+    expect(pending?.promptingPlayerId).toBe(GUEST);
+    expect(pending?.sourceUnitId).toBe('h1');
+    expect(pending?.targetUnitId).toBe('g1');
+    expect(pending?.options.map((o) => o.id)).toEqual(['strike-back', 'decline']);
+
+    // Charger remains in contact pending resolution
+    expect(attacker.position.z).toBe(4);
+    // Defender has not yet reacted, so defender is not yet fatigued (unless shaken)
+    // Note: shaken is present from trauma, but fatigued status is added only upon striking back
+    expect(target.status).not.toContain('fatigued');
+  });
+
+  it('respond-reaction with strike-back resolves retaliation and pushes charger back', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const chargeAction = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const chargeDice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 5] } as any,
+      { purpose: 'defense', rolls: [1, 2] } as any,
+      { purpose: 'trauma', rolls: [1] } as any,
+    ];
+
+    const chargeOutcome = applyAction(state, chargeAction, chargeDice);
+    expect(chargeOutcome.ok).toBe(true);
+    const chargedState = chargeOutcome.state!;
+    const reaction = chargedState.turnState.pendingReaction!;
+    expect(reaction).toBeDefined();
+
+    const respondAction = createAction(GUEST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: reaction.id,
+      choiceId: 'strike-back',
+    });
+
+    // Check dice specs required for strike back
+    const specs = getDiceSpecs(chargedState, respondAction);
+    expect(specs).toBeDefined();
+    expect(specs?.some((s) => s.purpose === 'to-hit')).toBe(true);
+    expect(specs?.some((s) => s.purpose === 'defense')).toBe(true);
+
+    const retDice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 5] } as any, // Defender strikes back
+      { purpose: 'defense', rolls: [6, 6] } as any, // Charger blocks
+    ];
+
+    const outcome = applyAction(chargedState, respondAction, retDice);
+    expect(outcome.ok).toBe(true);
+
+    const diceOut = outcome.logEntry.dice?.outcome;
+    expect(diceOut?.hitCount).toBe(1); // Defender was shaken, hits on 6 only
+    expect(diceOut?.blockedCount).toBe(1);
+    expect(diceOut?.wounds).toBe(0);
+    expect(diceOut?.pushedBack).toBe(true);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+
+    // Charger pushed back to create >= 1.0" gap between models (target is at z = 5, charger pushed back to z = 3.0)
+    expect(attacker.position.z).toBeCloseTo(3.0, 1);
+    expect(Math.hypot(attacker.position.x - target.position.x, attacker.position.z - target.position.z)).toBeGreaterThanOrEqual(1.5);
+
+    // Both models become fatigued and are NOT locked in engaged status
+    expect(attacker.status).toContain('fatigued');
+    expect(target.status).toContain('fatigued');
+    expect(attacker.status).not.toContain('engaged');
+    expect(target.status).not.toContain('engaged');
+    // Pending reaction cleared
+    expect(outcome.state!.turnState.pendingReaction).toBeNull();
+  });
+
+  it('respond-reaction with decline avoids fatigue and pushes charger back without strikes', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const chargeAction = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const chargeDice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [5, 4] } as any,
+      { purpose: 'defense', rolls: [5, 5] } as any, // 0 wounds, target untouched and not shaken
+    ];
+
+    const chargeOutcome = applyAction(state, chargeAction, chargeDice);
+    expect(chargeOutcome.ok).toBe(true);
+    const chargedState = chargeOutcome.state!;
+    const reaction = chargedState.turnState.pendingReaction!;
+    expect(reaction).toBeDefined();
+
+    const declineAction = createAction(GUEST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: reaction.id,
+      choiceId: 'decline',
+    });
+
+    // Decline does not require dice
+    const specs = getDiceSpecs(chargedState, declineAction);
+    expect(specs).toBeNull();
+
+    const outcome = applyAction(chargedState, declineAction);
+    expect(outcome.ok).toBe(true);
+
+    const diceOut = outcome.logEntry.dice?.outcome;
+    expect(diceOut?.pushedBack).toBe(true);
+    expect(diceOut?.hitCount).toBe(0);
+    expect(diceOut?.wounds).toBe(0);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+
+    // Charger pushed back
+    expect(attacker.position.z).toBeCloseTo(3.0, 1);
+    // Charger is fatigued from charging
+    expect(attacker.status).toContain('fatigued');
+    // Defender declined so defender is NOT fatigued!
+    expect(target.status).not.toContain('fatigued');
+    // Pending reaction cleared
+    expect(outcome.state!.turnState.pendingReaction).toBeNull();
+  });
+
+  it('validates reaction permissions and blocks other actions while reaction is pending', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const chargeAction = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const chargeDice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [5, 4] } as any,
+      { purpose: 'defense', rolls: [5, 5] } as any,
+    ];
+
+    const chargeOutcome = applyAction(state, chargeAction, chargeDice);
+    const chargedState = chargeOutcome.state!;
+    const reaction = chargedState.turnState.pendingReaction!;
+
+    // 1. Host tries to take another action while reaction is pending -> rejected
+    const endAct = createAction(HOST, 'end-activation', { type: 'end-activation' });
+    const endVal = validateAction(chargedState, endAct);
+    expect(endVal.valid).toBe(false);
+    expect(endVal.reason).toContain('A reaction is pending');
+
+    // 2. Host tries to respond to Guest's reaction -> rejected
+    const hostReaction = createAction(HOST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: reaction.id,
+      choiceId: 'strike-back',
+    });
+    const hostVal = validateAction(chargedState, hostReaction);
+    expect(hostVal.valid).toBe(false);
+    expect(hostVal.reason).toContain('Not your reaction to respond to');
+
+    // 3. Guest tries to respond with an invalid reactionId -> rejected
+    const badIdReaction = createAction(GUEST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: 'wrong-id',
+      choiceId: 'strike-back',
+    });
+    const badIdVal = validateAction(chargedState, badIdReaction);
+    expect(badIdVal.valid).toBe(false);
+    expect(badIdVal.reason).toContain('No matching pending reaction');
+
+    // 4. Guest tries to respond with an invalid choiceId -> rejected
+    const badChoiceReaction = createAction(GUEST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: reaction.id,
+      choiceId: 'teleport',
+    });
+    const badChoiceVal = validateAction(chargedState, badChoiceReaction);
+    expect(badChoiceVal.valid).toBe(false);
+    expect(badChoiceVal.reason).toContain('Invalid reaction choice');
+  });
+
+  it('charge destroying target: no retaliation and no push-back', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const dice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 6] } as any,
+      { purpose: 'defense', rolls: [1, 1] } as any,
+      { purpose: 'trauma', rolls: [6] } as any, // 6 = Knocked Out
+    ];
+
+    const outcome = applyAction(state, action, dice);
+    expect(outcome.ok).toBe(true);
+
+    const diceOut = outcome.logEntry.dice?.outcome;
+    expect(diceOut?.targetDestroyed).toBe(true);
+    expect(diceOut?.retaliation).toBeUndefined();
+    expect(diceOut?.pushedBack).toBe(false);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+    expect(target.isDestroyed).toBe(true);
+    expect(attacker.position.z).toBe(4); // Did not push back
+    expect(attacker.status).toContain('fatigued');
+    expect(outcome.state!.turnState.pendingReaction).toBeUndefined();
+  });
+
+  it('getDiceSpecs for charge includes attacker attack dice and NOT defender retaliation dice', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const specs = getDiceSpecs(state, action);
+    expect(specs).toBeDefined();
+    expect(specs?.some((s) => s.purpose === 'to-hit')).toBe(true);
+    expect(specs?.some((s) => s.purpose === 'defense')).toBe(true);
+    expect(specs?.some((s) => s.purpose === 'retaliation-to-hit')).toBe(false);
+    expect(specs?.some((s) => s.purpose === 'retaliation-defense')).toBe(false);
+  });
+});
+
+describe('applyAction: rush', () => {
+  it('allows moving up to double speed and finishes activation without attacks', () => {
+    const state = chargeState();
+    const action = createAction(HOST, 'rush', {
+      type: 'rush',
+      unitId: 'h1',
+      path: [{ x: 10, y: 0, z: 0 }],
+      finalPosition: { x: 10, y: 0, z: 0 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(unit.position.x).toBe(10);
+    expect(unit.hasMoved).toBe(true);
+    expect(unit.hasAttacked).toBe(true);
+    expect(unit.remainingMovement).toBe(0);
+  });
+
+  it('rejects rush exceeding double speed', () => {
+    const state = chargeState();
+    const action = createAction(HOST, 'rush', {
+      type: 'rush',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 14 }],
+      finalPosition: { x: 0, y: 0, z: 14 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('Rush distance exceeds double speed');
   });
 });
 

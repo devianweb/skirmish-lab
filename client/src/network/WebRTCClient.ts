@@ -14,9 +14,11 @@ export class WebRTCClient {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private handlers: Map<string, GameMessageHandler[]> = new Map();
+  private stateChangeHandlers: Array<(state: 'connected' | 'disconnected') => void> = [];
   private heartbeatInterval: number | null = null;
   private lastPongTime: number = Date.now();
   private heartbeatTimeout: number = 10000;
+  private currentConnectionState: 'connected' | 'disconnected' = 'disconnected';
 
   private rtcConfig = {
     iceServers: [
@@ -30,6 +32,14 @@ export class WebRTCClient {
 
   async createPeerConnection(): Promise<RTCPeerConnection> {
     this.peerConnection = new RTCPeerConnection(this.rtcConfig);
+    this.peerConnection.onconnectionstatechange = () => {
+      const state = this.peerConnection?.connectionState;
+      if (state === 'connected') {
+        this.setConnectionState('connected');
+      } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+        this.setConnectionState('disconnected');
+      }
+    };
     return this.peerConnection;
   }
 
@@ -54,6 +64,7 @@ export class WebRTCClient {
 
     this.dataChannel.onopen = () => {
       console.log('Data channel opened');
+      this.setConnectionState('connected');
       this.startHeartbeat();
       // Send an immediate ping so both peers know the channel is live without
       // waiting for the first 3-second heartbeat interval.
@@ -62,11 +73,13 @@ export class WebRTCClient {
 
     this.dataChannel.onclose = () => {
       console.log('Data channel closed');
+      this.setConnectionState('disconnected');
       this.stopHeartbeat();
     };
 
     this.dataChannel.onerror = (error) => {
       console.error('Data channel error:', error);
+      this.setConnectionState('disconnected');
     };
 
     this.dataChannel.onmessage = (event) => {
@@ -79,6 +92,7 @@ export class WebRTCClient {
         }
         if (message.type === 'heartbeat-pong') {
           this.lastPongTime = Date.now();
+          this.setConnectionState('connected');
         }
       } catch (error) {
         console.error('Error parsing game message:', error);
@@ -153,8 +167,22 @@ export class WebRTCClient {
       this.send({ type: 'heartbeat-ping', timestamp: Date.now() });
       if (Date.now() - this.lastPongTime > this.heartbeatTimeout) {
         console.warn('Heartbeat timeout - connection may be lost');
+        this.setConnectionState('disconnected');
       }
     }, 3000);
+  }
+
+  onConnectionState(callback: (state: 'connected' | 'disconnected') => void): void {
+    this.stateChangeHandlers.push(callback);
+    callback(this.currentConnectionState);
+  }
+
+  private setConnectionState(newState: 'connected' | 'disconnected'): void {
+    if (this.currentConnectionState === newState) return;
+    this.currentConnectionState = newState;
+    for (const handler of this.stateChangeHandlers) {
+      handler(newState);
+    }
   }
 
   private stopHeartbeat(): void {

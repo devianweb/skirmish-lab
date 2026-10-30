@@ -24,37 +24,38 @@ interface ActivationState {
 }
 ```
 
-### Activation Options
-An activated unit may typically:
-- **Move and/or act** (shoot or fight), in either order or only one
-- **Hold** (stay put, no action)
-Movement allowances and action restrictions come from unit data and special rules (e.g., some units may not shoot after moving).
+### Tabletop Maneuver Actions (Phase 6 Engine)
+Each activated unit executes one of the tabletop maneuvers:
 
-### Phase 5 Implementation (as shipped)
-The basic action set is live in the shared engine (`shared/src/engine/`):
+- **`hold`**: The unit holds its position (or clears a `stunned` token) without moving or attacking.
+- **`move-unit` (Advance)**: Spends up to base `speed` (1×), automatically pathfinding around obstacles and other fighters (`findNavPath`). Eligible to shoot a ranged weapon after moving.
+- **`rush`**: Rapid double-distance sprint (moves up to 2× `speed` via auto-pathfinding). Ineligible to shoot this activation. Cannot end in melee contact (use Charge instead).
+- **`charge`**: Moves up to double `speed` (2×) via auto-pathfinding into melee engagement contact (≤ 1.0" of an enemy model) and **automatically resolves the full melee combat sequence**:
+  1. **Attacker Strike:** Attacker attacks with equipped melee weapon using server-rolled dice, applying wounds and trauma/KO checks.
+  2. **Defender Retaliation:** If the defender survives, it immediately strikes back with its equipped melee weapon. Shaken defenders strike back counting as Fatigued (hits on natural 6s only).
+  3. **1" Separation Push-Back:** If both fighters survive, the charger automatically bounces back to create a ≥ 1.0" gap between models (to 2.0" center distance, using angular fan-out collision avoidance against obstacles).
+  4. **No Locked Melee:** Both surviving models become `fatigued` and clear `engaged` status. In subsequent activations, models are never stuck in melee and may freely Hold, Move, Rush, Shoot, or Charge again.
+- **`shoot`**: Fires an equipped ranged weapon at an enemy target within range and line of sight. Not available while engaged.
+- **`end-activation`**: Deliberately concludes the activation, passing initiative to the opponent (or activating remaining fighters if the opponent has none left).
 
-- **`activate-unit`** marks the unit activated, clears `stunned`, and sets
-  `turnState.activeUnitId`. A `hold` is a one-step activation: the unit
-  activates, does nothing, and the activation ends immediately.
-- **`move-unit`** spends `remainingMovement` by straight-line path length;
-  every path point must stay inside the board. Engaged units cannot move
-  away. (Pathfinding around obstacles is Phase 6.)
-- **`shoot`** requires a ranged weapon, an enemy target in range, and the
-  attacker not engaged. Resolution needs server-rolled dice (below).
-- **`charge`** moves the charger to engagement distance 1 of the target
-  (path end must match), consumes all remaining movement, and marks both
-  units `engaged`. Already-engaged units must fight instead.
-- **`fight`** requires the attacker `engaged`, the target within 1.5 board
-  units, and a melee weapon.
-- **`end-activation`** passes initiative: the opponent activates next if
-  they still have units; otherwise the current player keeps activating
-  their remaining units; when all units have activated, the round ends and
-  a new one begins with the other player starting.
-- **`end-round`** is only legal when the round is complete (normally
-  rounds end automatically via `end-activation`).
-- Engagements persist across rounds; stun clears only via the unit's own
-  activation. Win condition (v1): elimination — the game ends when a player
-  has no living units.
+> [!NOTE]
+> Following tabletop skirmish rules (OPR Grimdark Future: Firefight), melee combat occurs exclusively via **Charge** maneuvers. Models do not remain locked in base-to-base melee. The obsolete standalone "Fight" button has been removed from the player HUD; the 4 standard tabletop maneuvers are Hold, Move, Rush, and Charge.
+
+### Interactive Reactions & Interruption Framework (Phase 6.5)
+In Phase 6.5, the single-actor activation loop expands to support out-of-turn interactive decision prompts (reactions):
+- **Melee Retaliation Choice:** Defending players can choose whether to strike back in melee (taking Fatigue) or decline (preserving their fighter's full Quality and fresh state for their upcoming activation).
+- **Extensible Architecture:** Powered by `turnState.pendingReaction` in the pure serializable game state, featuring host-authoritative validation, a 15s visual countdown with automatic default fallback on expiration or disconnection, and waiting state feedback for the active player. Designed to support future out-of-turn mechanics (Overwatch, defensive stratagems, Brace, and casualty allocation).
+
+### 2D Visibility-Graph Auto-Pathfinding (`findNavPath`)
+Units automatically navigate around terrain obstacles and other fighters rather than halting prematurely:
+- Generates clearance waypoints around all impassable obstacle bounding boxes (with unit base clearance `UNIT_COLLISION_RADIUS + 0.12"`).
+- Accounts for doorway jambs (allowing passage through the 1.0" center opening of `wall-doorway`).
+- Finds the shortest navigable path via visibility graph A* search.
+- Applies string-pulling shortcutting and cumulative distance clamping to the unit's remaining movement or double speed allowance.
+
+### Melee Engagement Contact Visualization
+- When moving or charging into melee engagement (≤ 1.0"), the path line reflects contact in bright orange/crimson and renders a pulsing contact disc.
+- A distinctive glowing double-ring melee marker (`0xff5252` and `0xffab40`) highlights the opposing enemy fighter under threat.
 
 ## Combat Resolution (Quality / Defense)
 
@@ -253,17 +254,32 @@ Track all modifiers to rolls:
   (`ensureConnected()`). The signaling server caches recent roll results by
   `rollId` (`room.rollCache`), ensuring retries are strictly idempotent.
 
-## Line of Sight & Targeting
+## Line of Sight, Cover & Apertures
 
 ### LOS Rules
-- Check if target is visible from attacker
-- Terrain can block LOS
-- Specific rules for terrain types come from terrain data
+- **Standard Checks:** Line of sight is drawn directly between attacker and target on the board plane.
+- **Sight-Blockers:** Blocked by solid terrain with `blocksLineOfSight: true` (e.g. solid walls, columns) and by other living fighters (`LOS_UNIT_RADIUS = 0.4`).
+- **Apertures (Windows & Doorways):**
+  - **Doorways (`wall-doorway`):** The central 1.0" opening allows unobstructed Line of Sight and model movement. Models within 1.0" of the door frame claim Cover (+1 Defense) against shots passing through the door.
+  - **Windows / Firing Ports (`wall-window`):** Windows block model movement. Line of Sight can be drawn through the central 1.0" window aperture if at least one model (shooter or target) is within 1.0" of the opening ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains +1 Defense (Cover). If both models are >1.0" from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
+
+### Cover Determination
+- **In-Cover Status:** Targets with `in-cover` status always receive +1 Defense.
+- **Low Cover Proximity Rule:** Intervening low cover (crates, low barricades) only grants +1 Defense if the defending target is within **1.0"** of the terrain piece along the line of fire (and the terrain is not adjacent to the shooter, i.e. `projDist > 1.0"`). Distant low crates in the middle of no-man's-land do not grant cover to targets standing in the open downrange, matching tabletop True-Line-of-Sight conventions.
+- **Sight-Blocking Partial Cover:** For walls and columns, the target must be within 1.0" of the piece and partially obscured (at least one ray to the model's flanks blocked while center LoS remains open).
 
 ### Targeting Restrictions
 - Must be in range
-- Must have LOS (for shooting)
+- Must have LOS (for shooting; ignored by weapons with `lobbed`)
 - Engagement restrictions apply (engaged fighters typically fight rather than shoot)
+
+### LoS & Cover Debugger (F9)
+Pressing `F9` in-game activates the real-time spatial debugger:
+- **Shooting Ray Trace:** Renders the 3D trajectory from shooter eye level (`y = 0.45"`) to target or aim point, color-coded by obstruction (Cyan = clear LoS, Amber = passing through cover, Red = blocked LoS).
+- **Boundary Intersections:** 3D disc rings highlight exact entry and exit coordinates where the shooting line breaches terrain bounding boxes.
+- **Flank Rays:** Shows left and right rays (±0.3" from target center) to verify partial corner obscuration for low cover and wall corners.
+- **Cover Map Wireframes:** Renders full-table wireframe boundaries for all terrain pieces (Cyan = solid LoS blockers, Amber = low cover, Gold highlight = piece actively granting cover to target).
+- **HUD Analysis Card:** Displays real-time calculations: distance, Line of Sight status, cover reason, piece IDs, and coordinate breakdown of all intersected pieces.
 
 ## Game State Transitions
 

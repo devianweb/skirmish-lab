@@ -269,7 +269,7 @@ describe('GameManager', () => {
         weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
       });
       manager.sendAction(action);
-      await Promise.resolve(); // let the dice promise settle
+      await new Promise((r) => setTimeout(r, 0)); // let the dice promise settle
 
       expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
         { count: 1, sides: 6, purpose: 'to-hit' },
@@ -314,7 +314,7 @@ describe('GameManager', () => {
         weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
       });
       manager.sendAction(action);
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(rejectionHandler).toHaveBeenCalledWith(
         expect.objectContaining({ reason: 'Dice roll failed or timed out' })
@@ -369,7 +369,7 @@ describe('GameManager', () => {
         { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
         { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       ]);
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       expect(manager.getGameState()!.actionLog.find((e) => e.action.id === shoot.id)).toBeDefined();
     });
   });
@@ -380,10 +380,15 @@ describe('GameManager', () => {
       // other side's registered handlers, mimicking an open data channel.
       const hostHandlers = new Map<string, Function[]>();
       const guestHandlers = new Map<string, Function[]>();
+      const hostConnHandlers: ((state: 'connected' | 'disconnected') => void)[] = [];
+      const guestConnHandlers: ((state: 'connected' | 'disconnected') => void)[] = [];
 
       const hostWebRTC = {
         on: vi.fn((type: string, handler: Function) => {
           hostHandlers.set(type, [...(hostHandlers.get(type) ?? []), handler]);
+        }),
+        onConnectionState: vi.fn((handler: (state: 'connected' | 'disconnected') => void) => {
+          hostConnHandlers.push(handler);
         }),
         send: vi.fn((message: any) => {
           for (const handler of guestHandlers.get(message.type) ?? []) handler(message);
@@ -393,12 +398,21 @@ describe('GameManager', () => {
         on: vi.fn((type: string, handler: Function) => {
           guestHandlers.set(type, [...(guestHandlers.get(type) ?? []), handler]);
         }),
+        onConnectionState: vi.fn((handler: (state: 'connected' | 'disconnected') => void) => {
+          guestConnHandlers.push(handler);
+        }),
         send: vi.fn((message: any) => {
           for (const handler of hostHandlers.get(message.type) ?? []) handler(message);
         }),
       } as any;
 
-      return { hostWebRTC, guestWebRTC };
+      return {
+        hostWebRTC,
+        guestWebRTC,
+        disconnectGuest: () => {
+          for (const h of hostConnHandlers) h('disconnected');
+        },
+      };
     }
 
     it('runs a full alternating activation turn across the wire', async () => {
@@ -435,7 +449,7 @@ describe('GameManager', () => {
           unitId: guestUnitId,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       // The host applied the guest's action and both sides agree.
       const hostState = host.getGameState()!;
@@ -464,7 +478,7 @@ describe('GameManager', () => {
         unitId: guestUnitId,
       });
       guest.sendAction(badAction);
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(rejections).toHaveLength(1);
       expect(rejections[0].reason).toBe('Not your turn');
@@ -485,8 +499,8 @@ describe('GameManager', () => {
 
       host.startGame('Host', 'Guest');
 
-      // 1. Host charges a guest fighter and fights it to destruction; surviving
-      //    charger must have 'engaged' cleared once the melee target dies.
+      // 1. Host charges a guest fighter and strikes it; charge automatically resolves
+      //    the melee strike to destruction and finishes the activation.
       const hostCharger = host
         .getGameState()!
         .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
@@ -515,21 +529,10 @@ describe('GameManager', () => {
           attackerId: hostCharger.id,
           targetId: guestTarget.id,
           path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
-        })
-      );
-      expect(
-        host.getGameState()!.units.find((u) => u.id === hostCharger.id)!.status
-      ).toContain('engaged');
-
-      host.sendAction(
-        createAction(HOST_PLAYER_ID, 'fight', {
-          type: 'fight',
-          attackerId: hostCharger.id,
-          targetId: guestTarget.id,
           weaponId: 'blade',
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       // Target destroyed → charger is no longer engaged; guest sees the same state + dice.
       const afterFight = guest.getGameState()!;
@@ -543,6 +546,7 @@ describe('GameManager', () => {
       host.sendAction(
         createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
       );
+      await new Promise((r) => setTimeout(r, 0));
       expect(guest.getGameState()!.turnState.currentPlayerId).toBe(GUEST_PLAYER_ID);
 
       // Guest activates a unit and chooses Hold from the action bar → passes back to Host.
@@ -555,17 +559,360 @@ describe('GameManager', () => {
           unitId: guestUnit.id,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       guest.sendAction(
         createAction(GUEST_PLAYER_ID, 'hold', {
           type: 'hold',
           unitId: guestUnit.id,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(host.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
       expect(guest.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+    });
+
+    it('charge with defender retaliation and push-back separation across the wire', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6, 5], total: 11, finalTotal: 11, purpose: 'to-hit' },
+          { rolls: [1, 2], total: 3, finalTotal: 3, purpose: 'defense' },
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'trauma' }, // Defender survives, becomes shaken
+          { rolls: [6, 4], total: 10, finalTotal: 10, purpose: 'retaliation-to-hit' },
+          { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'retaliation-defense' },
+        ]),
+      };
+      const host = new GameManager(hostWebRTC, true, { diceProvider });
+      const guest = new GameManager(guestWebRTC, false);
+
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Charge resolves: Host hits, target takes wounds & survives.
+      // A pending reaction is now active for Guest to decide retaliation.
+      const afterChargeGuest = guest.getGameState()!;
+      expect(afterChargeGuest.turnState.pendingReaction).toBeDefined();
+      expect(afterChargeGuest.turnState.pendingReaction?.promptingPlayerId).toBe(GUEST_PLAYER_ID);
+
+      // Guest sends respond-reaction with strike-back
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'respond-reaction', {
+          type: 'respond-reaction',
+          reactionId: afterChargeGuest.turnState.pendingReaction!.id,
+          choiceId: 'strike-back',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      // After reaction resolves:
+      const afterReactionGuest = guest.getGameState()!;
+      expect(afterReactionGuest.turnState.pendingReaction).toBeNull();
+      const lastEntry = afterReactionGuest.actionLog[afterReactionGuest.actionLog.length - 1];
+      expect(lastEntry.dice?.outcome.pushedBack).toBe(true);
+
+      const chargerInGuest = afterReactionGuest.units.find((u) => u.id === hostCharger.id)!;
+      const targetInGuest = afterReactionGuest.units.find((u) => u.id === guestTarget.id)!;
+
+      // Both units are Fatigued and NOT Engaged.
+      expect(chargerInGuest.status).toContain('fatigued');
+      expect(targetInGuest.status).toContain('fatigued');
+      expect(chargerInGuest.status).not.toContain('engaged');
+      expect(targetInGuest.status).not.toContain('engaged');
+
+      // Charger has been pushed back to create >= 1.5" center separation.
+      const sepDist = Math.hypot(
+        chargerInGuest.position.x - targetInGuest.position.x,
+        chargerInGuest.position.z - targetInGuest.position.z
+      );
+      expect(sepDist).toBeGreaterThanOrEqual(1.5);
+
+      // Host ends activation, and Guest in their turn can freely execute a Move
+      // (proving models are not locked in melee).
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      expect(guest.getGameState()!.turnState.currentPlayerId).toBe(GUEST_PLAYER_ID);
+
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestTarget.id,
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const moveDest = {
+        x: targetInGuest.position.x + 2,
+        y: 0,
+        z: targetInGuest.position.z,
+      };
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'move-unit', {
+          type: 'move-unit',
+          unitId: guestTarget.id,
+          path: [targetInGuest.position, moveDest],
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const afterMove = host.getGameState()!.units.find((u) => u.id === guestTarget.id)!;
+      expect(afterMove.position.x).toBeCloseTo(moveDest.x, 1);
+      expect(afterMove.hasMoved).toBe(true);
+    });
+
+    it('charge reaction decline: defender declines over wire, avoiding fatigue and pushing charger back', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          requestRoll: async () => [
+            { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+            { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+          ],
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const afterChargeGuest = guest.getGameState()!;
+      const reaction = afterChargeGuest.turnState.pendingReaction!;
+      expect(reaction).toBeDefined();
+
+      // Guest chooses decline
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'respond-reaction', {
+          type: 'respond-reaction',
+          reactionId: reaction.id,
+          choiceId: 'decline',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const afterReactionGuest = guest.getGameState()!;
+      expect(afterReactionGuest.turnState.pendingReaction).toBeNull();
+      const chargerInGuest = afterReactionGuest.units.find((u) => u.id === hostCharger.id)!;
+      const targetInGuest = afterReactionGuest.units.find((u) => u.id === guestTarget.id)!;
+
+      // Charger is pushed back and fatigued
+      expect(chargerInGuest.status).toContain('fatigued');
+      // Defender declined so defender is NOT fatigued!
+      expect(targetInGuest.status).not.toContain('fatigued');
+      // Charger separated
+      const sepDist = Math.hypot(
+        chargerInGuest.position.x - targetInGuest.position.x,
+        chargerInGuest.position.z - targetInGuest.position.z
+      );
+      expect(sepDist).toBeGreaterThanOrEqual(1.5);
+    });
+
+    it('host reaction timeout auto-resolves with default choice', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          requestRoll: async () => [
+            { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+            { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+          ],
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(host.getGameState()!.turnState.pendingReaction).toBeDefined();
+
+      // Trigger timeout directly to test auto-resolution logic
+      (host as any).handleReactionTimeout();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Reaction is resolved with default option (strike-back)
+      expect(host.getGameState()!.turnState.pendingReaction).toBeNull();
+      expect(guest.getGameState()!.turnState.pendingReaction).toBeNull();
+      const lastEntry = host.getGameState()!.actionLog[host.getGameState()!.actionLog.length - 1];
+      expect(lastEntry.action.type).toBe('respond-reaction');
+      expect((lastEntry.action.payload as any).choiceId).toBe('strike-back');
+    });
+
+    it('peer disconnect auto-resolves pending reaction immediately with default choice', async () => {
+      const { hostWebRTC, guestWebRTC, disconnectGuest } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          requestRoll: async () => [
+            { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+            { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+          ],
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(host.getGameState()!.turnState.pendingReaction).toBeDefined();
+
+      // Guest disconnects mid-reaction!
+      disconnectGuest();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Host immediately auto-resolves reaction so game does not deadlock
+      expect(host.getGameState()!.turnState.pendingReaction).toBeNull();
+      const lastEntry = host.getGameState()!.actionLog[host.getGameState()!.actionLog.length - 1];
+      expect(lastEntry.action.type).toBe('respond-reaction');
     });
 
     it('rebinds host GameManager and re-broadcasts state when a guest rejoins over a new channel', async () => {
@@ -603,7 +950,7 @@ describe('GameManager', () => {
           unitId: guestUnitId,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       expect(host.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
       expect(guest2.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
     });

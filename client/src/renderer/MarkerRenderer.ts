@@ -1,7 +1,15 @@
 import * as THREE from 'three';
-import { TerrainPiece, terrainHalfExtents, Vector3 } from '@skirmish-lab/shared';
+import {
+  TerrainPiece,
+  terrainHalfExtents,
+  Vector3,
+  Unit,
+  LOS_UNIT_RADIUS,
+  ShootingRayDebugInfo,
+} from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
+import { outcomeMarkerKey } from './assetManifest';
 
 /** Minimal unit shape the markers need (decoupled from game state schema). */
 export interface MarkerUnit {
@@ -20,6 +28,9 @@ export interface AttackRangeMarker {
 export interface MovePathMarker {
   from: Vector3;
   to: Vector3;
+  waypoints?: Vector3[];
+  color?: number;
+  isMeleeContact?: boolean;
 }
 
 const SELECTION_COLOR = 0x29b6f6;
@@ -50,7 +61,10 @@ export class MarkerRenderer {
   private range: THREE.Object3D | null = null;
   private attackRange: THREE.Object3D | null = null;
   private movePath: THREE.Object3D | null = null;
+  private meleeContact: THREE.Object3D | null = null;
   private terrainDebug: THREE.Object3D | null = null;
+  private unitsDebug: THREE.Object3D | null = null;
+  private shootingDebug: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -95,11 +109,11 @@ export class MarkerRenderer {
     this.reachableTargets = group;
   }
 
-  /** Thin movement-range ring sized to the unit's remaining movement. */
-  setMovementRange(unit: MarkerUnit | null): void {
+  /** Thin movement-range ring sized to the unit's remaining movement (or override radius, e.g. for Rush). */
+  setMovementRange(unit: MarkerUnit | null, overrideRadius?: number): void {
     this.removeMarker('range');
     if (!unit) return;
-    const radius = Math.max(unit.remainingMovement ?? 0, 0);
+    const radius = Math.max(overrideRadius ?? unit.remainingMovement ?? 0, 0);
     if (radius <= 0) return;
 
     const normalizedThickness = Math.min(0.25, 0.08 / radius);
@@ -144,15 +158,29 @@ export class MarkerRenderer {
     const group = new THREE.Group();
     group.name = 'marker-move-path';
 
-    const points = [
-      new THREE.Vector3(path.from.x, 0.06, path.from.z),
-      new THREE.Vector3(path.to.x, 0.06, path.to.z),
-    ];
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-    const lineMat = new THREE.LineBasicMaterial({ color: PATH_COLOR });
+    const pathColor = path.color ?? (path.isMeleeContact ? 0xff7043 : PATH_COLOR);
+    const allPts: THREE.Vector3[] = [new THREE.Vector3(path.from.x, 0.06, path.from.z)];
+    if (path.waypoints && path.waypoints.length > 0) {
+      for (const wp of path.waypoints) {
+        allPts.push(new THREE.Vector3(wp.x, 0.06, wp.z));
+      }
+    }
+    allPts.push(new THREE.Vector3(path.to.x, 0.06, path.to.z));
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
+    const lineMat = new THREE.LineBasicMaterial({ color: pathColor });
     group.add(new THREE.Line(lineGeo, lineMat));
 
-    const endDisc = this.createFlatRing(PATH_COLOR, 0.4, 0.06);
+    // Intermediate waypoint node dots
+    if (path.waypoints && path.waypoints.length > 0) {
+      for (const wp of path.waypoints) {
+        const dot = this.createFlatRing(pathColor, 0.18, 0.05);
+        dot.position.set(wp.x, 0.06, wp.z);
+        group.add(dot);
+      }
+    }
+
+    const endDisc = this.createFlatRing(pathColor, path.isMeleeContact ? 0.55 : 0.4, 0.06);
     endDisc.position.set(path.to.x, 0.06, path.to.z);
     group.add(endDisc);
 
@@ -161,64 +189,251 @@ export class MarkerRenderer {
   }
 
   /**
-   * Wireframe debug box showing the exact 2D Line-of-Sight / obstacle footprint
-   * (`terrainHalfExtents`) of a hovered terrain piece.
+   * Melee engagement visual contact highlight: bright pulsing double ring
+   * under an opposing unit in 1.0" base contact.
    */
-  setTerrainDebug(piece: TerrainPiece | null): void {
-    this.removeMarker('terrainDebug');
-    if (!piece) return;
+  setMeleeContact(unit: MarkerUnit | null): void {
+    this.removeMarker('meleeContact');
+    if (!unit) return;
 
-    const { hx, hz } = terrainHalfExtents(piece);
-    const height = Math.max(0.5, piece.scale.y);
+    const group = new THREE.Group();
+    group.name = 'marker-melee-contact';
+
+    const outerRing = this.createFlatRing(0xff5252, 0.75, 0.08);
+    const innerRing = this.createFlatRing(0xffab40, 0.55, 0.06);
+    group.add(outerRing);
+    group.add(innerRing);
+    group.position.set(unit.position.x, 0.02, unit.position.z);
+
+    this.markerGroup.add(group);
+    this.meleeContact = group;
+  }
+
+  /**
+   * Wireframe debug boxes showing Line-of-Sight / obstacle footprints and
+   * boundaries for all terrain pieces when F9 is active, with highlights
+   * for hovered or active cover pieces.
+   */
+  setTerrainDebug(
+    terrain: TerrainPiece[] | TerrainPiece | null,
+    options?: { hoveredPieceId?: string; activeCoverPieceId?: string }
+  ): void {
+    this.removeMarker('terrainDebug');
+    if (!terrain) return;
+
+    const pieces = Array.isArray(terrain) ? terrain : [terrain];
+    if (pieces.length === 0) return;
+
     const group = new THREE.Group();
     group.name = 'marker-terrain-debug';
-    group.position.set(piece.position.x, 0, piece.position.z);
-    group.rotation.y = piece.rotation.y || 0;
 
-    // Ground-level footprint outline (bright yellow)
-    const floorPts = [
-      new THREE.Vector3(-hx, 0.05, -hz),
-      new THREE.Vector3(hx, 0.05, -hz),
-      new THREE.Vector3(hx, 0.05, hz),
-      new THREE.Vector3(-hx, 0.05, hz),
-      new THREE.Vector3(-hx, 0.05, -hz),
-    ];
-    const floorGeo = new THREE.BufferGeometry().setFromPoints(floorPts);
-    const floorMat = new THREE.LineBasicMaterial({ color: 0xffeb3b });
-    group.add(new THREE.Line(floorGeo, floorMat));
+    for (const piece of pieces) {
+      const { hx, hz } = terrainHalfExtents(piece);
+      const height = Math.max(0.5, piece.scale.y);
+      const isHovered = piece.id === options?.hoveredPieceId;
+      const isActiveCover = piece.id === options?.activeCoverPieceId;
 
-    // 3D bounding wireframe box
-    const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
-    const edges = new THREE.EdgesGeometry(boxGeo);
-    const boxLine = new THREE.LineSegments(
-      edges,
-      new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.75 })
-    );
-    boxLine.position.y = height / 2;
-    group.add(boxLine);
-    boxGeo.dispose();
+      const pieceGroup = new THREE.Group();
+      pieceGroup.name = `marker-terrain-${piece.id}`;
+      pieceGroup.position.set(piece.position.x, 0, piece.position.z);
+      pieceGroup.rotation.y = piece.rotation.y || 0;
+
+      let wireColor = piece.blocksLineOfSight ? 0x00e5ff : 0xffb300;
+      if (isActiveCover) {
+        wireColor = 0xffd600;
+      }
+
+      if (isHovered || isActiveCover) {
+        const floorPts = [
+          new THREE.Vector3(-hx, 0.05, -hz),
+          new THREE.Vector3(hx, 0.05, -hz),
+          new THREE.Vector3(hx, 0.05, hz),
+          new THREE.Vector3(-hx, 0.05, hz),
+          new THREE.Vector3(-hx, 0.05, -hz),
+        ];
+        const floorGeo = new THREE.BufferGeometry().setFromPoints(floorPts);
+        const floorMat = new THREE.LineBasicMaterial({
+          color: isActiveCover ? 0xffd600 : 0xffeb3b,
+        });
+        pieceGroup.add(new THREE.Line(floorGeo, floorMat));
+      }
+
+      const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
+      const edges = new THREE.EdgesGeometry(boxGeo);
+      const boxLine = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({
+          color: wireColor,
+          transparent: true,
+          opacity: isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45,
+        })
+      );
+      boxLine.position.y = height / 2;
+      pieceGroup.add(boxLine);
+      boxGeo.dispose();
+
+      group.add(pieceGroup);
+    }
 
     this.markerGroup.add(group);
     this.terrainDebug = group;
   }
 
   /**
-   * Floating wound-count token above a position, auto-cleared after a
-   * short delay so results stay visible without cluttering the board.
+   * 3D shooting line, terrain entry/exit intersection rings, and target flank
+   * rays showing Line-of-Sight and cover reasons when F9 is active.
+   */
+  setShootingDebugRay(debug: ShootingRayDebugInfo | null): void {
+    this.removeMarker('shootingDebug');
+    if (!debug) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-shooting-debug';
+
+    // 1. Target flank rays (showing corner obscuration)
+    if (debug.flankRays && debug.flankRays.length > 0) {
+      for (const flank of debug.flankRays) {
+        const pts = [
+          new THREE.Vector3(flank.from.x, 0.45, flank.from.z),
+          new THREE.Vector3(flank.to.x, 0.45, flank.to.z),
+        ];
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({
+          color: flank.blocked ? 0xef5350 : 0x26a69a,
+          transparent: true,
+          opacity: flank.blocked ? 0.75 : 0.35,
+        });
+        group.add(new THREE.Line(geo, mat));
+      }
+    }
+
+    // 2. Segmented shooting line & intersection discs
+    const startPt = new THREE.Vector3(debug.from.x, 0.45, debug.from.z);
+    const endPt = new THREE.Vector3(debug.to.x, 0.45, debug.to.z);
+
+    if (debug.intersections.length === 0) {
+      const geo = new THREE.BufferGeometry().setFromPoints([startPt, endPt]);
+      const mat = new THREE.LineBasicMaterial({
+        color: debug.hasLineOfSight ? 0x00e5ff : 0xef5350,
+      });
+      group.add(new THREE.Line(geo, mat));
+    } else {
+      let currentPt = startPt;
+      let blockedEncountered = false;
+
+      for (const inter of debug.intersections) {
+        const entry = new THREE.Vector3(inter.entryPoint.x, 0.45, inter.entryPoint.z);
+        const exit = new THREE.Vector3(inter.exitPoint.x, 0.45, inter.exitPoint.z);
+
+        // Segment before this terrain piece
+        if (currentPt.distanceTo(entry) > 0.05) {
+          const segGeo = new THREE.BufferGeometry().setFromPoints([currentPt, entry]);
+          const segMat = new THREE.LineBasicMaterial({
+            color: blockedEncountered ? 0xef5350 : 0x00e5ff,
+            transparent: blockedEncountered,
+            opacity: blockedEncountered ? 0.35 : 0.9,
+          });
+          group.add(new THREE.Line(segGeo, segMat));
+        }
+
+        // Segment passing inside this terrain piece
+        const pieceGeo = new THREE.BufferGeometry().setFromPoints([entry, exit]);
+        const pieceColor = inter.isLoSBlocker
+          ? 0xef5350
+          : inter.isCoverProvider || inter.providesCover
+          ? 0xffb300
+          : 0x90caf9;
+        const pieceMat = new THREE.LineBasicMaterial({
+          color: pieceColor,
+          transparent: true,
+          opacity: 0.95,
+        });
+        group.add(new THREE.Line(pieceGeo, pieceMat));
+
+        // Entry disc on terrain boundary
+        const ringGeo = new THREE.RingGeometry(0.08, 0.16, 16);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: pieceColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const entryMesh = new THREE.Mesh(ringGeo, ringMat);
+        entryMesh.position.copy(entry);
+        entryMesh.rotation.x = -Math.PI / 2;
+        group.add(entryMesh);
+
+        // Exit disc on terrain boundary
+        const exitMesh = new THREE.Mesh(ringGeo.clone(), ringMat.clone());
+        exitMesh.position.copy(exit);
+        exitMesh.rotation.x = -Math.PI / 2;
+        group.add(exitMesh);
+
+        if (inter.isLoSBlocker) {
+          blockedEncountered = true;
+        }
+        currentPt = exit;
+      }
+
+      // Final segment from last exit to target
+      if (currentPt.distanceTo(endPt) > 0.05) {
+        const segGeo = new THREE.BufferGeometry().setFromPoints([currentPt, endPt]);
+        const segMat = new THREE.LineBasicMaterial({
+          color: blockedEncountered ? 0xef5350 : 0x00e5ff,
+          transparent: blockedEncountered,
+          opacity: blockedEncountered ? 0.35 : 0.9,
+        });
+        group.add(new THREE.Line(segGeo, segMat));
+      }
+    }
+
+    this.markerGroup.add(group);
+    this.shootingDebug = group;
+  }
+
+  /**
+   * Wireframe cylinders showing the OPR Line of Sight blocking boundary
+   * (`LOS_UNIT_RADIUS = 0.4`) for all living fighters when debug is active.
+   */
+  setUnitsDebug(units: Unit[] | null): void {
+    this.removeMarker('unitsDebug');
+    if (!units || units.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-units-debug';
+
+    for (const unit of units) {
+      if (unit.isDestroyed) continue;
+      const cylGeo = new THREE.CylinderGeometry(LOS_UNIT_RADIUS, LOS_UNIT_RADIUS, 1.4, 16, 1, true);
+      const edges = new THREE.EdgesGeometry(cylGeo);
+      const line = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.65 })
+      );
+      line.position.set(unit.position.x, 0.7, unit.position.z);
+      group.add(line);
+      cylGeo.dispose();
+    }
+
+    this.markerGroup.add(group);
+    this.unitsDebug = group;
+  }
+
+  /**
+   * Floating wound-count token above a position (supports 0 wounds for clean
+   * attack feedback), auto-cleared after a short delay.
    */
   showOutcome(position: Vector3, wounds: number): void {
-    if (wounds < 1) return;
+    if (wounds < 0) return;
     this.clearOutcome();
 
-    const key = `outcome-${Math.max(1, Math.min(5, Math.round(wounds)))}`;
+    const key = outcomeMarkerKey(wounds);
     const marker = this.modelLoader.createMarkerMesh(key, () =>
       this.createOutcomeToken(OUTCOME_COLOR, wounds)
     );
-    this.applyTint(marker, OUTCOME_COLOR);
+    this.applyTint(marker, wounds === 0 ? 0xb0bec5 : OUTCOME_COLOR);
     marker.name = `marker-${key}`;
     marker.position.set(position.x, 1.6, position.z);
-    // Orient the number's front face (-X in Kenney's number GLBs) toward the
-    // default camera quadrant (+X, +Z) so digits like '2' never appear mirrored as '5'.
     marker.rotation.y = (-3 * Math.PI) / 4;
     this.markerGroup.add(marker);
     this.outcome = marker;
@@ -243,7 +458,10 @@ export class MarkerRenderer {
     this.removeMarker('range');
     this.removeMarker('attackRange');
     this.removeMarker('movePath');
+    this.removeMarker('meleeContact');
     this.removeMarker('terrainDebug');
+    this.removeMarker('unitsDebug');
+    this.removeMarker('shootingDebug');
     this.clearOutcome();
   }
 
@@ -276,7 +494,10 @@ export class MarkerRenderer {
       | 'range'
       | 'attackRange'
       | 'movePath'
+      | 'meleeContact'
       | 'terrainDebug'
+      | 'unitsDebug'
+      | 'shootingDebug'
   ): void {
     const current = this[kind];
     if (current) {
@@ -355,8 +576,20 @@ export class MarkerRenderer {
     return mesh;
   }
 
-  /** Outcome-token fallback: floating octahedron (GLB number tokens in prod). */
+  /** Outcome-token fallback: floating 3D numeral / torus / octahedron. */
   private createOutcomeToken(color: number, wounds: number): THREE.Object3D {
+    if (wounds === 0) {
+      const group = new THREE.Group();
+      // Three.js Torus lies in the XY plane; rotating 90° around Y makes its front face point along -X,
+      // matching the Kenney number GLBs oriented by orientOutcomeToCamera.
+      const geometry = new THREE.TorusGeometry(0.24, 0.065, 16, 32);
+      const material = new THREE.MeshStandardMaterial({ color: 0xb0bec5, roughness: 0.4 });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.y = Math.PI / 2;
+      mesh.scale.set(0.8, 1.2, 0.8);
+      group.add(mesh);
+      return group;
+    }
     const geometry = new THREE.OctahedronGeometry(0.22 + 0.05 * wounds);
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
     return new THREE.Mesh(geometry, material);

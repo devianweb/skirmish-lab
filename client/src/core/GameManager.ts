@@ -10,6 +10,7 @@ import {
   getDiceSpecs,
   validateAction,
   applyDefaultScenario,
+  createAction,
 } from '@skirmish-lab/shared';
 import { WebRTCClient, GameMessage } from '../network/WebRTCClient';
 
@@ -39,6 +40,8 @@ export class GameManager {
   private diceProvider: DiceProvider | undefined;
   /** Action currently being processed (guards concurrent host processing). */
   private pendingActionId: string | null = null;
+  /** Reaction countdown timer on host for auto-resolving timeouts / anti-griefing. */
+  private reactionTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(webrtcClient: WebRTCClient, isHost: boolean, options: GameManagerOptions = {}) {
     this.webrtcClient = webrtcClient;
@@ -126,6 +129,17 @@ export class GameManager {
         void this.processAction(msg.action);
       }
     });
+
+    if (typeof this.webrtcClient.onConnectionState === 'function') {
+      this.webrtcClient.onConnectionState((state: 'connected' | 'disconnected') => {
+        if (this.isHost && state === 'disconnected' && this.gameState?.turnState.pendingReaction) {
+          // If the peer disconnected while their reaction was pending, auto-resolve with default
+          if (this.gameState.turnState.pendingReaction.promptingPlayerId !== HOST_PLAYER_ID) {
+            this.handleReactionTimeout();
+          }
+        }
+      });
+    }
   }
 
   /**
@@ -138,6 +152,7 @@ export class GameManager {
     this.gameState = createInitialGameState(HOST_PLAYER_ID, GUEST_PLAYER_ID, hostName, guestName);
     applyDefaultScenario(this.gameState);
     this.saveSnapshot(this.gameState);
+    this.syncReactionTimer();
     this.broadcastState('game-start');
     this.emitStateUpdate();
   }
@@ -151,6 +166,7 @@ export class GameManager {
     if (this.isHost) {
       this.gameState = createInitialGameState(hostId, guestId, hostName, guestName);
       this.saveSnapshot(this.gameState);
+      this.syncReactionTimer();
       this.broadcastState('init');
       this.emitStateUpdate();
     }
@@ -216,10 +232,52 @@ export class GameManager {
         return;
       }
       this.saveSnapshot(this.gameState);
+      this.syncReactionTimer();
       this.broadcastState(action.id);
       this.emitStateUpdate();
     } finally {
       this.pendingActionId = null;
+    }
+  }
+
+  private syncReactionTimer(): void {
+    if (this.reactionTimeoutTimer) {
+      clearTimeout(this.reactionTimeoutTimer);
+      this.reactionTimeoutTimer = null;
+    }
+    if (!this.isHost || !this.gameState) return;
+
+    const pending = this.gameState.turnState.pendingReaction;
+    if (!pending) return;
+
+    const remaining = Math.max(0, pending.expiresAt - Date.now());
+    this.reactionTimeoutTimer = setTimeout(() => {
+      this.handleReactionTimeout();
+    }, remaining);
+  }
+
+  private handleReactionTimeout(): void {
+    this.reactionTimeoutTimer = null;
+    if (!this.isHost || !this.gameState) return;
+    const pending = this.gameState.turnState.pendingReaction;
+    if (!pending) return;
+
+    const defaultOption = pending.options.find((o) => o.isDefault) ?? pending.options[0];
+    const choiceId = defaultOption ? defaultOption.id : 'strike-back';
+
+    const fallbackAction = createAction(pending.promptingPlayerId, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: pending.id,
+      choiceId,
+    });
+
+    void this.processAction(fallbackAction);
+  }
+
+  destroy(): void {
+    if (this.reactionTimeoutTimer) {
+      clearTimeout(this.reactionTimeoutTimer);
+      this.reactionTimeoutTimer = null;
     }
   }
 

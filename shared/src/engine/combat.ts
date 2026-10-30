@@ -76,6 +76,10 @@ export interface CombatOutcome {
   effectiveDefense: number;
   coverApplied: boolean;
   apApplied: number;
+  baseQuality: number;
+  hitModifiers: string[];
+  baseDefense: number;
+  defenseModifiers: string[];
 }
 
 export interface CombatStats {
@@ -114,6 +118,7 @@ export interface AttackDiceOptions {
   defenderModelCount?: number;
   isMelee?: boolean;
   isCharging?: boolean;
+  isFatigued?: boolean;
   distance?: number;
   includeTrauma?: boolean;
 }
@@ -179,6 +184,115 @@ export function getAttackDiceSpecs(
   return specs;
 }
 
+export interface CombatModifierBreakdown {
+  baseQuality: number;
+  hitModifiers: string[];
+  effectiveQuality: number;
+  baseDefense: number;
+  defenseModifiers: string[];
+  effectiveDefense: number;
+  baseAp: number;
+  coverApplied: boolean;
+}
+
+/**
+ * Compute the explicit breakdown of Quality, Hit Modifiers, Defense, and Defense Modifiers.
+ */
+export function computeCombatModifiers(
+  attacker: CombatStats,
+  defender: DefenseStats,
+  weaponRules: string[] = []
+): CombatModifierBreakdown {
+  const allAttackerRules = [
+    ...(attacker.specialRules ?? []),
+    ...(attacker.weaponRules ?? weaponRules),
+  ];
+  const defenderRules = defender.specialRules ?? [];
+  const isMelee = !!attacker.isMelee;
+  const isCharging = !!attacker.isCharging;
+  const distance = attacker.distance ?? (isMelee ? 1 : 12);
+
+  const baseQuality = hasTrait(allAttackerRules, 'calibrated') ? 2 : attacker.quality;
+  let hitMod = 0;
+  const hitModifiers: string[] = [];
+
+  if (hasTrait(allAttackerRules, 'calibrated')) {
+    hitModifiers.push('Calibrated (Q2)');
+  }
+  if (!isMelee) {
+    if (hasTrait(allAttackerRules, 'marksman')) {
+      hitMod += 1;
+      hitModifiers.push('+1 Marksman');
+    }
+    if (hasTrait(defenderRules, 'camouflaged') && distance > 9) {
+      hitMod -= 1;
+      hitModifiers.push('-1 Camouflaged (>9")');
+    }
+    if (hasTrait(defenderRules, 'entrenched') && !defender.hasMoved && distance > 9) {
+      hitMod -= 1;
+      hitModifiers.push('-1 Entrenched (>9")');
+    }
+    if (hasTrait(allAttackerRules, 'lobbed') && attacker.hasMoved) {
+      hitMod -= 1;
+      hitModifiers.push('-1 Lobbed (moved)');
+    }
+  } else {
+    if (hasTrait(allAttackerRules, 'impale') && isCharging) {
+      hitMod += 1;
+      hitModifiers.push('+1 Impale (charge)');
+    }
+  }
+
+  if (hasTrait(allAttackerRules, 'unerring') && hitMod < 0) {
+    hitModifiers.push('Unerring (negates penalty)');
+    hitMod = 0;
+  }
+
+  const isFatiguedMelee = isMelee && !!attacker.isFatigued;
+  if (isFatiguedMelee) {
+    hitModifiers.push('Fatigued (need 6)');
+  }
+  const effectiveQuality = isFatiguedMelee
+    ? 6
+    : Math.max(2, Math.min(6, baseQuality - hitMod));
+
+  const baseAp =
+    sumTraitValue(allAttackerRules, 'pierce') +
+    (isMelee && isCharging && hasTrait(allAttackerRules, 'impale') ? 1 : 0);
+
+  const blastVal = getTraitValue(allAttackerRules, 'blast');
+  const hasBlast = blastVal !== undefined;
+  const coverApplied = !isMelee && !!defender.inCover && !hasBlast;
+  const coverBonus = coverApplied ? 1 : 0;
+  const defenseModifiers: string[] = [];
+  if (coverApplied) {
+    defenseModifiers.push('+1 Cover');
+  }
+  const shieldBonus = hasTrait(defenderRules, 'riot-shield') ? 1 : 0;
+  if (shieldBonus > 0) {
+    defenseModifiers.push('+1 Riot Shield');
+  }
+  if (baseAp > 0) {
+    defenseModifiers.push(`-${baseAp} Pierce(${baseAp})`);
+  }
+
+  const effectiveDefense = Math.max(
+    2,
+    Math.min(6, defender.defense - coverBonus - shieldBonus + baseAp)
+  );
+
+  return {
+    baseQuality,
+    hitModifiers,
+    effectiveQuality,
+    baseDefense: defender.defense,
+    defenseModifiers,
+    effectiveDefense,
+    baseAp,
+    coverApplied,
+  };
+}
+
 /**
  * Resolve one attack deterministically from pre-rolled server dice.
  */
@@ -203,29 +317,20 @@ export function resolveAttack(
   const isCharging = !!attacker.isCharging;
   const distance = attacker.distance ?? (isMelee ? 1 : 12);
 
-  // 1. Base Quality & Hit Modifiers
-  const baseQuality = hasTrait(allAttackerRules, 'calibrated') ? 2 : attacker.quality;
-  let hitMod = 0;
-
-  if (!isMelee) {
-    if (hasTrait(allAttackerRules, 'marksman')) hitMod += 1;
-    if (hasTrait(defenderRules, 'camouflaged') && distance > 9) hitMod -= 1;
-    if (hasTrait(defenderRules, 'entrenched') && !defender.hasMoved && distance > 9) {
-      hitMod -= 1;
-    }
-    if (hasTrait(allAttackerRules, 'lobbed') && attacker.hasMoved) hitMod -= 1;
-  } else {
-    if (hasTrait(allAttackerRules, 'impale') && isCharging) hitMod += 1;
-  }
-
-  if (hasTrait(allAttackerRules, 'unerring') && hitMod < 0) {
-    hitMod = 0;
-  }
+  const modifiers = computeCombatModifiers(attacker, defender);
+  const {
+    baseQuality,
+    hitModifiers,
+    effectiveQuality,
+    baseDefense,
+    defenseModifiers,
+    effectiveDefense,
+    baseAp,
+    coverApplied,
+  } = modifiers;
 
   const isFatiguedMelee = isMelee && !!attacker.isFatigued;
-  const effectiveQuality = isFatiguedMelee
-    ? 6
-    : Math.max(2, Math.min(6, baseQuality - hitMod));
+  const hitMod = baseQuality - effectiveQuality;
 
   const toHitRolls = rolls.toHit.slice(0, attackCount);
   const hitRolls = toHitRolls.map((roll) => {
@@ -236,10 +341,6 @@ export function resolveAttack(
   });
 
   // 2. Hit Expansion (Bonus hits on 6s, Blast(X), per-hit AP & Ward bypass)
-  const baseAp =
-    sumTraitValue(allAttackerRules, 'pierce') +
-    (isMelee && isCharging && hasTrait(allAttackerRules, 'impale') ? 1 : 0);
-
   const baseIgnoresWard =
     hasTrait(allAttackerRules, 'hexed') ||
     hasTrait(allAttackerRules, 'unerring') ||
@@ -279,16 +380,9 @@ export function resolveAttack(
   const hitCount = expandedHits.length;
 
   // 3. Defense Rolls (Cover +1, Riot Shield +1, Pierce -AP, Hexed re-rolls 6s)
-  const hasBlast = blastVal !== undefined;
-  const coverApplied = !isMelee && !!defender.inCover && !hasBlast;
-  const coverBonus = coverApplied ? 1 : 0;
-  const shieldBonus = hasTrait(defenderRules, 'riot-shield') ? 1 : 0;
   const isHexed = hasTrait(allAttackerRules, 'hexed');
-
-  const effectiveDefense = Math.max(
-    2,
-    Math.min(6, defender.defense - coverBonus - shieldBonus + baseAp)
-  );
+  const coverBonus = coverApplied ? 1 : 0;
+  const shieldBonus = hasTrait(defender.specialRules ?? [], 'riot-shield') ? 1 : 0;
 
   const usedDefenseRolls: number[] = [];
   const rerolledDefenseRolls: number[] = [];
@@ -365,6 +459,10 @@ export function resolveAttack(
     effectiveDefense,
     coverApplied,
     apApplied: baseAp,
+    baseQuality,
+    hitModifiers,
+    baseDefense,
+    defenseModifiers,
   };
 }
 
@@ -489,6 +587,21 @@ export function extractAttackRolls(results: DiceResult[]): AttackRolls {
   }
   const ward = results.find((r) => r.purpose === 'ward');
   const trauma = results.find((r) => r.purpose === 'trauma');
+  return {
+    toHit: toHit.rolls,
+    defense: defense.rolls,
+    ...(ward ? { ward: ward.rolls } : {}),
+    ...(trauma ? { trauma: trauma.rolls } : {}),
+  };
+}
+
+/** Extract defender retaliation roll values from server-rolled results (if present). */
+export function extractRetaliationRolls(results: DiceResult[]): AttackRolls | null {
+  const toHit = results.find((r) => r.purpose === 'retaliation-to-hit');
+  const defense = results.find((r) => r.purpose === 'retaliation-defense');
+  if (!toHit || !defense) return null;
+  const ward = results.find((r) => r.purpose === 'retaliation-ward');
+  const trauma = results.find((r) => r.purpose === 'retaliation-trauma');
   return {
     toHit: toHit.rolls,
     defense: defense.rolls,

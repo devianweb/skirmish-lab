@@ -8,6 +8,27 @@ export type TurnPhase =
   | 'round-cleanup'   // Morale, end-of-round effects
   | 'game-over';
 
+export interface ReactionOption {
+  id: string;               // e.g. 'strike-back' | 'decline'
+  label: string;            // Button text: "Strike Back (Blade 2d6)"
+  isDefault?: boolean;      // Fallback if timeout expires (e.g. true for strike-back)
+  style?: 'primary' | 'secondary' | 'danger';
+}
+
+export interface PendingReaction {
+  id: string;
+  type: 'melee-retaliation' | string;
+  promptingPlayerId: string; // The player who must choose (defender)
+  sourceUnitId: string;      // The attacker/charger
+  targetUnitId: string;      // The defender making the decision
+  title: string;             // e.g. "Melee Retaliation"
+  description: string;       // e.g. "Warden Captain charged Raid Boss! Strike back with Blade?"
+  warning?: string;          // e.g. "Striking back will make this unit Fatigued."
+  options: ReactionOption[];
+  expiresAt: number;         // Timestamp for countdown timer
+  data?: Record<string, any>;
+}
+
 export interface TurnState {
   currentPlayerId: string;             // Who activates next
   roundNumber: number;
@@ -17,6 +38,8 @@ export interface TurnState {
   roundStartTime?: number;
   /** Unit currently mid-activation (set by activate-unit, cleared by end-activation). */
   activeUnitId?: string | null;
+  /** An active prompt awaiting a reaction choice from promptingPlayerId. */
+  pendingReaction?: PendingReaction | null;
 }
 
 export type UnitStatus =
@@ -124,22 +147,26 @@ export interface Player {
 export type ActionType =
   | 'activate-unit'
   | 'move-unit'
+  | 'rush'
   | 'shoot'
   | 'charge'
   | 'fight'
   | 'use-ability'
   | 'hold'
+  | 'respond-reaction'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round';       // Finish the round (cleanup/morale)
 
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
+  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3 }
   | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
+  | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'end-activation' }
   | { type: 'end-round' };
 
@@ -162,6 +189,30 @@ export interface ActionLogEntry {
   dice?: DiceResolution;
 }
 
+export interface RetaliationOutcome {
+  weaponId?: string;
+  weaponName?: string;
+  attackCount: number;
+  hitCount: number;
+  bonusHits?: number;
+  blockedCount: number;
+  wardSavedCount?: number;
+  wounds: number;
+  targetDestroyed: boolean;
+  targetShaken?: boolean;
+  effectiveQuality?: number;
+  effectiveDefense?: number;
+  baseQuality?: number;
+  hitModifiers?: string[];
+  baseDefense?: number;
+  defenseModifiers?: string[];
+  traumaRoll?: number;
+  traumaTokens?: number;
+  traumaDreadBonus?: number;
+  traumaTotal?: number;
+  traumaOutcome?: 'shaken' | 'knocked-out';
+}
+
 /**
  * A dice resolution attached to an accepted action: the server-rolled results
  * plus the deterministic combat outcome the host derived from them. Both
@@ -175,6 +226,7 @@ export interface DiceResolution {
     attackerId: string;
     targetId: string;
     weaponId?: string;
+    retaliationWeaponId?: string;
     actionId: string;
   };
   outcome: {
@@ -190,12 +242,21 @@ export interface DiceResolution {
     effectiveDefense?: number;
     coverApplied?: boolean;
     apApplied?: number;
+    baseQuality?: number;
+    hitModifiers?: string[];
+    baseDefense?: number;
+    defenseModifiers?: string[];
     traumaRoll?: number;
+    traumaTokens?: number;
+    traumaDreadBonus?: number;
     traumaTotal?: number;
     traumaOutcome?: 'shaken' | 'knocked-out';
     moraleRoll?: number;
     moralePassed?: boolean;
     moraleOutcome?: 'passed' | 'shaken' | 'routed';
+    retaliation?: RetaliationOutcome;
+    pushedBack?: boolean;
+    pushBackPosition?: Vector3;
   };
 }
 

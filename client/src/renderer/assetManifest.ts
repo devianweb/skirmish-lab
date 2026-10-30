@@ -19,8 +19,8 @@ function model(file: string, scale?: number): AssetDefinition {
 }
 
 export const UNIT_ASSETS: Record<string, AssetDefinition> = {
-  trooper: model('figurine.glb', 0.9),
-  specialist: model('figurine-cube.glb', 0.9),
+  trooper: model('figurine.glb', 1.15),
+  specialist: model('figurine-cube.glb', 0.95),
   heavy: model('figurine-cube-detailed.glb', 1.0),
   leader: model('figurine-large.glb', 1.0),
 };
@@ -45,7 +45,7 @@ export const TERRAIN_ASSETS: Record<string, AssetDefinition> = {
     scaleVector: { x: 1 / 0.3, y: 1, z: 1 },
     rotationY: Math.PI / 2,
   },
-  crate: model('crate.glb', 1.4),
+  crate: model('crate.glb', 1.0),
   column: {
     url: `${MODELS_BASE}column.glb`,
     scaleVector: { x: 2.5, y: 1, z: 2.5 },
@@ -58,9 +58,9 @@ export const MARKER_ASSETS: Record<string, AssetDefinition> = {
   'reachable-target': model('indicator-round-b.glb', 1.4),
 };
 
-/** Wound-count outcome tokens: number-N models (1..5). */
+/** Wound-count outcome tokens: number-N models (0..5). */
 export function outcomeMarkerKey(wounds: number): string {
-  return `outcome-${Math.max(1, Math.min(5, Math.round(wounds)))}`;
+  return `outcome-${Math.max(0, Math.min(5, Math.round(wounds)))}`;
 }
 
 export const OUTCOME_ASSETS: Record<string, AssetDefinition> = {

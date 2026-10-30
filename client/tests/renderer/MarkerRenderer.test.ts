@@ -81,10 +81,43 @@ describe('MarkerRenderer', () => {
     }
   });
 
-  it('ignores zero-wound outcomes (nothing to show)', () => {
+  it('shows a 0-wound outcome token when damage is 0, and ignores negative', () => {
     const renderer = makeRenderer();
     renderer.showOutcome({ x: 2, y: 0, z: 2 }, 0);
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-outcome-0');
+
+    renderer.clearAll();
+    renderer.showOutcome({ x: 2, y: 0, z: 2 }, -1);
     expect(renderer.getRenderedMarkerNames()).toHaveLength(0);
+  });
+
+  it('renders unit debug wireframes when units are provided', () => {
+    const renderer = makeRenderer();
+    renderer.setUnitsDebug([
+      {
+        id: 'u1',
+        ownerId: 'h1',
+        armyId: 'a1',
+        unitType: 'trooper',
+        name: 'Trooper 1',
+        quality: 4,
+        defense: 5,
+        speed: 6,
+        position: { x: 1, y: 0, z: 1 },
+        rotation: { x: 0, y: 0, z: 0 },
+        status: [],
+        wounds: 1,
+        maxWounds: 1,
+        isActivated: false,
+        isDestroyed: false,
+        models: [],
+        weapons: [],
+        specialRules: [],
+        hasMoved: false,
+        remainingMovement: 6,
+      },
+    ]);
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-units-debug');
   });
 
   it('clears everything on clearAll', () => {
@@ -142,5 +175,139 @@ describe('MarkerRenderer', () => {
       isObstacle: true,
     });
     expect(renderer.getRenderedMarkerNames()).toContain('marker-terrain-debug');
+  });
+
+  it('renders wireframe debug boxes for all terrain pieces with hovered and active cover highlights', () => {
+    const renderer = makeRenderer();
+    const terrain = [
+      {
+        id: 'wall-1',
+        terrainType: 'wall',
+        position: { x: 0, y: 0, z: 5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2, z: 1 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+      {
+        id: 'crate-1',
+        terrainType: 'crate',
+        position: { x: 3, y: 0, z: 2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
+
+    renderer.setTerrainDebug(terrain, {
+      hoveredPieceId: 'wall-1',
+      activeCoverPieceId: 'crate-1',
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-terrain-debug');
+    const debugGroup = scene.getObjectByName('marker-terrain-debug')!;
+    expect(debugGroup.getObjectByName('marker-terrain-wall-1')).toBeDefined();
+    expect(debugGroup.getObjectByName('marker-terrain-crate-1')).toBeDefined();
+  });
+
+  it('renders 3D shooting line, intersection rings, and flank rays for shooting debug', () => {
+    const renderer = makeRenderer();
+    renderer.setShootingDebugRay({
+      attackerId: 'u1',
+      targetId: 'u2',
+      from: { x: 0, y: 0.45, z: 0 },
+      to: { x: 0, y: 0.45, z: 10 },
+      distance: 10,
+      hasLineOfSight: true,
+      providesCover: true,
+      coverPieceId: 'crate-1',
+      intersections: [
+        {
+          pieceId: 'crate-1',
+          terrainType: 'crate',
+          entryPoint: { x: 0, y: 0.45, z: 4.5 },
+          exitPoint: { x: 0, y: 0.45, z: 5.5 },
+          tEntry: 0.45,
+          tExit: 0.55,
+          providesCover: true,
+          blocksLineOfSight: false,
+          isCoverProvider: true,
+          isLoSBlocker: false,
+          ignoredAsAdjacentShooterCover: false,
+        },
+      ],
+      flankRays: [
+        {
+          from: { x: 0, y: 0.45, z: 0 },
+          to: { x: -0.3, y: 0.45, z: 10 },
+          side: 'left',
+          blocked: false,
+        },
+        {
+          from: { x: 0, y: 0.45, z: 0 },
+          to: { x: 0.3, y: 0.45, z: 10 },
+          side: 'right',
+          blocked: true,
+          blockedByPieceId: 'crate-1',
+        },
+      ],
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-shooting-debug');
+    const rayGroup = scene.getObjectByName('marker-shooting-debug')!;
+    expect(rayGroup.children.length).toBeGreaterThanOrEqual(4);
+
+    renderer.clearAll();
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-shooting-debug');
+  });
+
+  it('renders melee contact highlight marker under an engaged enemy model', () => {
+    const renderer = makeRenderer();
+    renderer.setMeleeContact({ id: 'enemy-1', position: { x: 5, y: 0, z: -2 } });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-melee-contact');
+    const contactMarker = scene.getObjectByName('marker-melee-contact')!;
+    expect(contactMarker.position.x).toBe(5);
+    expect(contactMarker.position.z).toBe(-2);
+    expect(contactMarker.children.length).toBeGreaterThanOrEqual(2);
+
+    renderer.setMeleeContact(null);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-melee-contact');
+  });
+
+  it('renders multi-point move path with waypoints and melee contact indicator', () => {
+    const renderer = makeRenderer();
+    renderer.setMovePath({
+      from: { x: 0, y: 0, z: 0 },
+      to: { x: 5, y: 0, z: 5 },
+      waypoints: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 2, y: 0, z: 3 },
+        { x: 5, y: 0, z: 5 },
+      ],
+      isMeleeContact: true,
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-move-path');
+    const group = scene.getObjectByName('marker-move-path')!;
+    // Waypoints, lines, destination disc, and contact ring
+    expect(group.children.length).toBeGreaterThanOrEqual(4);
+
+    renderer.clearAll();
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-move-path');
+  });
+
+  it('allows overriding movement-range ring radius (e.g. for Rush double move)', () => {
+    const renderer = makeRenderer();
+    renderer.setMovementRange({ id: 'u1', position: { x: 2, y: 0, z: 2 }, remainingMovement: 6 }, 12);
+
+    const marker = scene.getObjectByName('marker-movement-range')!;
+    expect(marker).toBeDefined();
+    expect(marker.scale.x).toBeCloseTo(12, 1);
+    expect(marker.scale.z).toBeCloseTo(12, 1);
   });
 });

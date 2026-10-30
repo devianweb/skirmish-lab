@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { GameView, SceneManagerLike } from '../../src/renderer/GameView';
@@ -238,16 +239,19 @@ describe('GameView', () => {
 
       gameView.setSelectionMarker({ id: 'u1', position: { x: 1, y: 0, z: 2 } });
       gameView.setTargetMarker({ id: 'u2', position: { x: 3, y: 0, z: 4 } });
-      gameView.setMovementRangeMarker({ id: 'u1', position: { x: 1, y: 0, z: 2 }, remainingMovement: 3 });
+      gameView.setMovementRangeMarker({ id: 'u1', position: { x: 1, y: 0, z: 2 }, remainingMovement: 3 }, 8);
+      gameView.setMeleeContactMarker({ id: 'u2', position: { x: 3, y: 0, z: 4 } });
       gameView.showOutcomeToken({ x: 3, y: 0, z: 4 }, 2);
 
       expect(scene.getObjectByName('marker-selection')).toBeDefined();
       expect(scene.getObjectByName('marker-target')).toBeDefined();
       expect(scene.getObjectByName('marker-movement-range')).toBeDefined();
+      expect(scene.getObjectByName('marker-melee-contact')).toBeDefined();
       expect(scene.getObjectByName('marker-outcome-2')).toBeDefined();
 
       gameView.clearMarkers();
       expect(scene.getObjectByName('marker-selection')).toBeUndefined();
+      expect(scene.getObjectByName('marker-melee-contact')).toBeUndefined();
       expect(scene.getObjectByName('marker-outcome-2')).toBeUndefined();
     });
 
@@ -291,6 +295,33 @@ describe('GameView', () => {
 
       gameView.setupCameraForRole('guest');
       expect(setupForRoleSpy).toHaveBeenCalledWith('guest');
+    });
+
+    it('delegates terrain debug and shooting debug rays to MarkerRenderer', () => {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = {
+        getScene: () => scene,
+        startAnimationLoop: () => {},
+      };
+      const gameView = new GameView({ sceneManager });
+
+      gameView.setTerrainDebugMarker([makeTerrain()], { hoveredPieceId: 'terrain-1' });
+      expect(scene.getObjectByName('marker-terrain-debug')).toBeDefined();
+
+      gameView.setShootingDebugRayMarker({
+        attackerId: 'u1',
+        from: { x: 0, y: 0.45, z: 0 },
+        to: { x: 0, y: 0.45, z: 5 },
+        distance: 5,
+        hasLineOfSight: true,
+        providesCover: false,
+        intersections: [],
+      });
+      expect(scene.getObjectByName('marker-shooting-debug')).toBeDefined();
+
+      gameView.clearMarkers();
+      expect(scene.getObjectByName('marker-terrain-debug')).toBeUndefined();
+      expect(scene.getObjectByName('marker-shooting-debug')).toBeUndefined();
     });
   });
 });

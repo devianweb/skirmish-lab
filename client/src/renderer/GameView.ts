@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, TerrainPiece, Vector3 } from '@skirmish-lab/shared';
+import { GameState, ShootingRayDebugInfo, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
@@ -174,8 +174,8 @@ export class GameView {
     this.markerRenderer.setReachableTargets(units);
   }
 
-  setMovementRangeMarker(unit: MarkerUnit | null): void {
-    this.markerRenderer.setMovementRange(unit);
+  setMovementRangeMarker(unit: MarkerUnit | null, overrideRadius?: number): void {
+    this.markerRenderer.setMovementRange(unit, overrideRadius);
   }
 
   setAttackRangeMarker(spec: AttackRangeMarker | null): void {
@@ -186,8 +186,23 @@ export class GameView {
     this.markerRenderer.setMovePath(path);
   }
 
-  setTerrainDebugMarker(piece: TerrainPiece | null): void {
-    this.markerRenderer.setTerrainDebug(piece);
+  setMeleeContactMarker(unit: MarkerUnit | null): void {
+    this.markerRenderer.setMeleeContact(unit);
+  }
+
+  setTerrainDebugMarker(
+    piece: TerrainPiece | TerrainPiece[] | null,
+    options?: { hoveredPieceId?: string; activeCoverPieceId?: string }
+  ): void {
+    this.markerRenderer.setTerrainDebug(piece, options);
+  }
+
+  setShootingDebugRayMarker(debug: ShootingRayDebugInfo | null): void {
+    this.markerRenderer.setShootingDebugRay(debug);
+  }
+
+  setUnitsDebugMarker(units: Unit[] | null): void {
+    this.markerRenderer.setUnitsDebug(units);
   }
 
   showOutcomeToken(position: Vector3, wounds: number): void {

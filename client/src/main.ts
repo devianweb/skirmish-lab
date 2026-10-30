@@ -51,7 +51,10 @@ function applyMarkers(markers: MarkerSnapshot): void {
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
   gameView.setReachableTargetsMarker(reachable);
-  gameView.setMovementRangeMarker(unitForMarkers(markers.movementRangeUnitId));
+  gameView.setMovementRangeMarker(
+    unitForMarkers(markers.movementRangeUnitId),
+    markers.movementRangeRadius
+  );
   const attackRangeUnit = markers.attackRange
     ? unitForMarkers(markers.attackRange.unitId)
     : null;
@@ -70,11 +73,21 @@ function applyMarkers(markers: MarkerSnapshot): void {
       : null
   );
   gameView.setMovePathMarker(markers.movePath ?? null);
+  gameView.setMeleeContactMarker(unitForMarkers(markers.engagedTargetId ?? null));
   const hoveredTerrain =
     latestState && markers.hoveredTerrainId
       ? latestState.terrain.find((t) => t.id === markers.hoveredTerrainId) ?? null
       : null;
-  gameView.setTerrainDebugMarker(hoveredTerrain);
+  if (markers.debugActive && latestState) {
+    gameView.setTerrainDebugMarker(latestState.terrain, {
+      hoveredPieceId: markers.hoveredTerrainId ?? undefined,
+      activeCoverPieceId: markers.shootingDebugRay?.coverPieceId,
+    });
+  } else {
+    gameView.setTerrainDebugMarker(hoveredTerrain);
+  }
+  gameView.setShootingDebugRayMarker(markers.shootingDebugRay ?? null);
+  gameView.setUnitsDebugMarker(markers.debugActive && latestState ? latestState.units : null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }
@@ -135,6 +148,13 @@ const lobby = new Lobby(lobbyContainer, {
       },
     });
     hud.show();
+
+    webrtcClient.onConnectionState((state) => {
+      hud?.setNetworkStatus({ peer: state });
+    });
+    signalingClient.onConnectionState((state) => {
+      hud?.setNetworkStatus({ signaling: state });
+    });
 
     gameManager.onStateUpdate((state) => {
       latestState = state;

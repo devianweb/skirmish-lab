@@ -264,9 +264,25 @@ interface DiceResolution {
   outcome: {
     attackCount: number;
     hitCount: number;
+    bonusHits?: number;
     blockedCount: number;
+    wardSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
+    targetShaken?: boolean;
+    effectiveQuality?: number;
+    effectiveDefense?: number;
+    coverApplied?: boolean;
+    apApplied?: number;
+    baseQuality?: number;
+    hitModifiers?: string[];
+    baseDefense?: number;
+    defenseModifiers?: string[];
+    traumaRoll?: number;
+    traumaTokens?: number;
+    traumaDreadBonus?: number;
+    traumaTotal?: number;
+    traumaOutcome?: 'shaken' | 'knocked-out';
   };
 }
 ```

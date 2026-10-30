@@ -125,7 +125,7 @@ describe('GameHUD', () => {
     expect(shoot.disabled).toBe(false);
   });
 
-  it('disables move and shoot while engaged, enabling fight', () => {
+  it('disables maneuvers while engaged (no fight button, tabletop push-back separates units)', () => {
     const state = scenarioState();
     const unit = state.units.find(
       (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
@@ -137,9 +137,10 @@ describe('GameHUD', () => {
     const buttons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];
     const byLabel = (label: string) => buttons.find((b) => b.textContent?.startsWith(label))!;
     expect(byLabel('Move').disabled).toBe(true);
+    expect(byLabel('Rush').disabled).toBe(true);
     expect(byLabel('Shoot').disabled).toBe(true);
-    expect(byLabel('Fight').disabled).toBe(false);
     expect(byLabel('Charge').disabled).toBe(true);
+    expect(buttons.some((b) => b.textContent?.startsWith('Fight'))).toBe(false);
   });
 
   it('move flow: destination pick → distance summary → confirmed action with path', () => {
@@ -173,8 +174,8 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
-    // Moving sideways (+x) toward Warden Trooper 2 at (-4, 0, -12) stops in front of the fighter (~3.3")
-    hud.handleBoardPick({ kind: 'position', position: { x: start.x + 20, y: 0, z: start.z } });
+    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) shows remaining movement
+    hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
     expect(container.textContent).toContain('3.3" — 2.7" left');
     clickByText(container, 'Cancel');
 
@@ -186,11 +187,9 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Confirm');
     clickByText(container, 'Confirm');
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
-    expect(controller.submitAction.mock.calls[0][0].payload.finalPosition).toEqual({
-      x: start.x,
-      y: 0,
-      z: start.z + unit.remainingMovement,
-    });
+    const submitted = controller.submitAction.mock.calls[0][0].payload;
+    expect(submitted.path.length).toBeGreaterThanOrEqual(2);
+    expect(submitted.finalPosition).toEqual(submitted.path[submitted.path.length - 1]);
   });
 
   it('shoot flow: enemy target in range → confirmed action with weapon', () => {
@@ -235,6 +234,64 @@ describe('GameHUD', () => {
 
     expect(container.textContent).toContain('Out of range');
     expect(controller.submitAction).not.toHaveBeenCalled();
+  });
+
+  it('rush flow: destination pick up to double speed → distance summary → confirmed action', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    const start = { ...unit.position };
+    activateUnit(state, HOST, unit.id);
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Rush');
+    expect(container.textContent).toContain('Click a destination to Rush');
+
+    // Rush forward 10" (speed is 6", double speed is 12")
+    const destination = { x: start.x, y: 0, z: start.z + 10 };
+    hud.handleBoardPick({ kind: 'position', position: destination });
+
+    expect(container.textContent).toContain('Rush');
+    expect(container.textContent).toContain('double move');
+    expect(controller.submitAction).not.toHaveBeenCalled();
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('rush');
+    expect(action.payload.unitId).toBe(unit.id);
+    expect(action.payload.path.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('charge flow: picks reachable enemy, shows auto-melee strike confirmation with dice preview', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
+    )!;
+    activateUnit(state, HOST, attacker.id);
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    // Position target 5" away (well within double speed of 12")
+    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 5 };
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Charge');
+    expect(container.textContent).toContain('Click an enemy unit within charge range');
+
+    hud.handleBoardPick({ kind: 'unit', unitId: target.id });
+
+    expect(container.textContent).toContain('charges');
+    expect(container.textContent).toContain('strikes with');
+    expect(container.textContent).toContain('Hit Q');
+    expect(container.textContent).toContain('Def D');
+    expect(controller.submitAction).not.toHaveBeenCalled();
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('charge');
+    expect(action.payload.attackerId).toBe(attacker.id);
+    expect(action.payload.targetId).toBe(target.id);
+    expect(action.payload.weaponId).toBeDefined();
+    expect(action.payload.path.length).toBeGreaterThanOrEqual(2);
   });
 
   it('hold and end-activation require confirmation too (Hold before acting, End Activation after)', () => {
@@ -449,28 +506,75 @@ describe('GameHUD', () => {
     expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
   });
 
-  it('auto-selects the target and jumps to confirmation when clicking Fight with only one enemy in melee range', () => {
+  it('renders defender retaliation and 1" push-back notice in dice panel when charge combat resolves', () => {
     const state = scenarioState();
     const attacker = state.units.find(
       (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
     )!;
     const target = state.units.find((u) => u.ownerId === GUEST)!;
-    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 1 };
-    attacker.status = ['engaged'];
-    target.status = ['engaged'];
-    activateUnit(state, HOST, attacker.id);
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: attacker.id,
+      targetId: target.id,
+      path: [{ x: 0, y: 0, z: 4 }],
+      weaponId: 'blade',
+    });
 
-    const { container, controller } = setup(HOST, state);
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [
+          { count: 2, sides: 6, purpose: 'to-hit' },
+          { count: 2, sides: 6, purpose: 'defense' },
+          { count: 2, sides: 6, purpose: 'retaliation-to-hit' },
+          { count: 2, sides: 6, purpose: 'retaliation-defense' },
+        ],
+        results: [
+          { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'to-hit' },
+          { rolls: [2, 1], total: 3, finalTotal: 3, purpose: 'defense' },
+          { rolls: [6, 4], total: 10, finalTotal: 10, purpose: 'retaliation-to-hit' },
+          { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'retaliation-defense' },
+        ],
+        context: {
+          attackerId: attacker.id,
+          targetId: target.id,
+          weaponId: 'blade',
+          actionId: action.id,
+        },
+        outcome: {
+          attackCount: 2,
+          hitCount: 2,
+          blockedCount: 0,
+          wounds: 2,
+          targetDestroyed: false,
+          targetShaken: true,
+          pushedBack: true,
+          retaliation: {
+            weaponId: 'blade',
+            weaponName: 'Blade',
+            attackCount: 2,
+            hitCount: 1,
+            blockedCount: 1,
+            wounds: 0,
+            targetDestroyed: false,
+            targetShaken: false,
+            baseQuality: 4,
+            effectiveQuality: 6,
+            hitModifiers: ['Fatigued (need 6)'],
+            baseDefense: 4,
+            effectiveDefense: 4,
+            defenseModifiers: [],
+          },
+        },
+      },
+    });
 
-    clickByText(container, 'Fight');
-    // Should skip manual targeting and go straight to confirmation for the single engaged enemy.
-    expect(container.textContent).toContain(`strikes ${target.name}`);
-    expect(container.textContent).toContain('Confirm');
-
-    clickByText(container, 'Confirm');
-    expect(controller.submitAction).toHaveBeenCalledTimes(1);
-    expect(controller.submitAction.mock.calls[0][0].type).toBe('fight');
-    expect(controller.submitAction.mock.calls[0][0].payload.targetId).toBe(target.id);
+    const { container } = setup(HOST, state);
+    expect(container.textContent).toContain('Defender Retaliation');
+    expect(container.textContent).toContain('Charger pushed back 1" — both units Fatigued');
   });
 
   it('renders an RTS-style unit data card above the action bar when a unit is active or selected', () => {
@@ -529,5 +633,241 @@ describe('GameHUD', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
     expect(container.querySelector('.sl-hud-terrain-debug')).toBeNull();
     expect(emitted.at(-1)?.hoveredTerrainId).toBeNull();
+  });
+
+  it('renders top alert banners when opponent or signaling disconnects', () => {
+    const state = scenarioState();
+    const { hud, container } = setup(HOST, state);
+    expect(container.querySelector('.sl-hud-alert')).toBeNull();
+
+    hud.setNetworkStatus({ peer: 'disconnected' });
+    expect(container.querySelector('.sl-hud-alert-error')?.textContent).toContain('Opponent disconnected');
+
+    hud.setNetworkStatus({ peer: 'connected', signaling: 'reconnecting' });
+    expect(container.querySelector('.sl-hud-alert-warn')?.textContent).toContain('Signaling disconnected');
+
+    hud.setNetworkStatus({ signaling: 'connected' });
+    expect(container.querySelector('.sl-hud-alert')).toBeNull();
+  });
+
+  it('applies red team styling to Guest units and blue team styling to Host units', () => {
+    const state = scenarioState();
+    // From Host perspective: Host units are team-blue, Guest units are team-red
+    const hostView = setup(HOST, state);
+    expect(hostView.container.querySelectorAll('.sl-hud-unit.team-blue').length).toBe(5);
+    expect(hostView.container.querySelectorAll('.sl-hud-unit.enemy.team-red').length).toBe(5);
+
+    // From Guest perspective: Guest units are still team-red, Host enemy units are team-blue
+    const guestView = setup(GUEST, state);
+    expect(guestView.container.querySelectorAll('.sl-hud-unit.team-red:not(.enemy)').length).toBe(5);
+    expect(guestView.container.querySelectorAll('.sl-hud-unit.enemy.team-blue').length).toBe(5);
+  });
+
+  it('renders trait tooltips with describeTrait explanations', () => {
+    const state = scenarioState();
+    const { container } = setup(HOST, state);
+    const badges = Array.from(container.querySelectorAll('.sl-trait-badge'));
+    expect(badges.length).toBeGreaterThan(0);
+    // Every trait badge must have an explanatory title attribute
+    for (const badge of badges) {
+      expect(badge.getAttribute('title')).toBeTruthy();
+      expect(badge.getAttribute('title')!.length).toBeGreaterThan(5);
+    }
+  });
+
+  it('emits shootingDebugRay and renders shooting debug card when F9 is active during shoot targeting', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged')
+    )!;
+    const enemy = state.units.find((u) => u.ownerId === GUEST)!;
+    activateUnit(state, HOST, attacker.id);
+
+    const { hud, container } = setup(HOST, state);
+    const emitted: MarkerSnapshot[] = [];
+    hud.onMarkers((m) => emitted.push(m));
+
+    // Turn F9 ON
+    hud.toggleTerrainDebug(true);
+    expect(emitted.at(-1)?.debugActive).toBe(true);
+
+    // Click Shoot
+    clickByText(container, 'Shoot');
+    expect(container.textContent).toContain('Select an enemy target');
+
+    // Hover an enemy unit
+    hud.handleBoardHover({ kind: 'unit', unitId: enemy.id });
+    const lastMarker = emitted.at(-1);
+    expect(lastMarker?.shootingDebugRay).toBeDefined();
+    expect(lastMarker?.shootingDebugRay?.attackerId).toBe(attacker.id);
+    expect(lastMarker?.shootingDebugRay?.targetId).toBe(enemy.id);
+
+    // Inspector card shows shooting debug
+    const debugCards = container.querySelectorAll('.sl-hud-terrain-debug');
+    expect(debugCards.length).toBeGreaterThan(0);
+    const shootingCard = Array.from(debugCards).find((c) =>
+      c.textContent?.includes('Shooting Ray Debug (F9)')
+    );
+    expect(shootingCard).toBeTruthy();
+    expect(shootingCard?.textContent).toContain('LoS:');
+    expect(shootingCard?.textContent).toContain('Cover:');
+
+    // Hover ground position instead
+    hud.handleBoardHover({ kind: 'position', position: { x: 5, y: 0, z: 5 } });
+    const groundMarker = emitted.at(-1);
+    expect(groundMarker?.shootingDebugRay).toBeDefined();
+    expect(groundMarker?.shootingDebugRay?.targetId).toBeUndefined();
+    expect(groundMarker?.shootingDebugRay?.to.x).toBe(5);
+  });
+
+  it('renders reaction prompt dock with countdown and option buttons for defender', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+
+    state.turnState.pendingReaction = {
+      id: 'reaction-123',
+      type: 'melee-retaliation',
+      promptingPlayerId: GUEST,
+      sourceUnitId: charger.id,
+      targetUnitId: defender.id,
+      title: 'Melee Retaliation',
+      description: `${charger.name} charged ${defender.name}! Strike back with Blade?`,
+      warning: 'Striking back will make this unit Fatigued.',
+      options: [
+        { id: 'strike-back', label: 'Strike Back (Blade 2d6)', isDefault: true, style: 'primary' },
+        { id: 'decline', label: 'Decline (Avoid Fatigue)', style: 'secondary' },
+      ],
+      expiresAt: Date.now() + 15000,
+    };
+
+    const { hud, controller, container } = setup(GUEST, state);
+
+    // Defender sees reaction prompt
+    expect(container.querySelector('.sl-hud-reaction')).toBeTruthy();
+    expect(container.querySelector('.sl-hud-reaction-title')?.textContent).toBe('Melee Retaliation');
+    expect(container.querySelector('.sl-hud-reaction-timer')?.textContent).toMatch(/\d+s/);
+    expect(container.querySelector('.sl-hud-reaction-desc')?.textContent).toContain(
+      `${charger.name} charged ${defender.name}`
+    );
+    expect(container.querySelector('.sl-hud-reaction-warning')?.textContent).toContain('Fatigued');
+
+    const strikeBackBtn = container.querySelector(
+      'button[data-reaction-choice="strike-back"]'
+    ) as HTMLElement;
+    const declineBtn = container.querySelector(
+      'button[data-reaction-choice="decline"]'
+    ) as HTMLElement;
+    expect(strikeBackBtn).toBeTruthy();
+    expect(declineBtn).toBeTruthy();
+
+    // Clicking strike-back submits respond-reaction action
+    strikeBackBtn.click();
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const submitted = controller.submitAction.mock.calls[0][0];
+    expect(submitted.type).toBe('respond-reaction');
+    expect(submitted.actorId).toBe(GUEST);
+    expect(submitted.payload.reactionId).toBe('reaction-123');
+    expect(submitted.payload.choiceId).toBe('strike-back');
+  });
+
+  it('renders waiting banner for opponent during reaction', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+
+    state.turnState.pendingReaction = {
+      id: 'reaction-456',
+      type: 'melee-retaliation',
+      promptingPlayerId: GUEST,
+      sourceUnitId: charger.id,
+      targetUnitId: defender.id,
+      title: 'Melee Retaliation',
+      description: `${charger.name} charged ${defender.name}!`,
+      options: [
+        { id: 'strike-back', label: 'Strike Back' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      expiresAt: Date.now() + 12000,
+    };
+
+    // Host (the charger) views the HUD while Guest is deciding
+    const { container } = setup(HOST, state);
+
+    expect(container.querySelector('.sl-hud-reaction')).toBeNull();
+    const waitingEl = container.querySelector('.sl-hud-reaction-waiting');
+    expect(waitingEl).toBeTruthy();
+    expect(waitingEl?.textContent).toContain('Waiting for opponent: Melee Retaliation');
+    expect(waitingEl?.textContent).toMatch(/\d+s/);
+  });
+
+  it('renders reaction dice outcomes in dice panel for strike-back and decline', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+
+    // 1. Strike Back outcome:
+    state.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', {
+        type: 'respond-reaction',
+        reactionId: 'r1',
+        choiceId: 'strike-back',
+      }),
+      status: 'accepted',
+      dice: {
+        rollId: 'r1',
+        specs: [],
+        results: [
+          { purpose: 'to-hit', rolls: [6, 4] } as any,
+          { purpose: 'defense', rolls: [5, 2] } as any,
+        ],
+        context: { attackerId: defender.id, targetId: charger.id },
+        outcome: {
+          hitCount: 1,
+          blockedCount: 1,
+          wounds: 0,
+          pushedBack: true,
+        },
+      },
+    });
+
+    const { hud, container } = setup(HOST, state);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(
+      `Defender Retaliation: ${defender.name} → ${charger.name}`
+    );
+    expect(container.querySelector('.sl-hud-pushback-notice')?.textContent).toContain(
+      'Charger pushed back 1" — both units Fatigued'
+    );
+
+    // 2. Decline outcome:
+    const declineState = scenarioState();
+    declineState.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', {
+        type: 'respond-reaction',
+        reactionId: 'r2',
+        choiceId: 'decline',
+      }),
+      status: 'accepted',
+      dice: {
+        rollId: 'r2',
+        specs: [],
+        results: [],
+        context: { attackerId: defender.id, targetId: charger.id },
+        outcome: {
+          hitCount: 0,
+          blockedCount: 0,
+          wounds: 0,
+          pushedBack: true,
+        },
+      },
+    });
+
+    hud.syncFromState(declineState);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(
+      `Retaliation Declined: ${defender.name} held ground`
+    );
+    expect(container.querySelector('.sl-hud-pushback-notice')?.textContent).toContain(
+      'Defender declined retaliation (no Fatigue)'
+    );
   });
 });
