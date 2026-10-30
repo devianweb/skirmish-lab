@@ -36,6 +36,7 @@ interface GameState {
   units: Unit[];
   terrain: TerrainPiece[];
   markers: GameMarker[];
+  objectives?: Objective[];  // 3-5 mission objectives across board (Phase 7)
   
   // Game History
   actionLog: ActionLogEntry[];
@@ -68,6 +69,29 @@ interface TurnState {
   startingPlayerId: string;    // Who started this round (alternates each round)
   activeUnitId?: string | null; // Unit currently mid-activation (schema 2.1.0)
   roundStartTime?: number;
+  pendingReaction?: PendingReaction | null; // Active reaction prompt awaiting player decision
+}
+
+interface PendingReaction {
+  id: string;
+  type: string;
+  promptingPlayerId: string;   // The player who must choose (defender)
+  sourceUnitId: string;        // The attacker/charger
+  targetUnitId: string;        // The defender making the decision
+  title: string;               // e.g. "Melee Retaliation"
+  description: string;         // e.g. "Warden Captain charged Raid Boss! Strike back with Blade?"
+  warning?: string;            // e.g. "Striking back will make this unit Fatigued."
+  options: ReactionOption[];
+  expiresAt: number;           // Host wall-clock timestamp for authoritative timeout
+  durationMs?: number;         // Relative duration (15000ms) for clock-skew independent timer
+  data?: Record<string, any>;
+}
+
+interface ReactionOption {
+  id: string;                  // e.g. 'strike-back' | 'decline'
+  label: string;
+  isDefault?: boolean;
+  style?: 'primary' | 'secondary' | 'danger';
 }
 
 type TurnPhase = 
@@ -213,9 +237,11 @@ interface GameAction {
 type ActionType =
   | 'activate-unit'
   | 'move-unit'
+  | 'rush'
   | 'shoot'
   | 'charge'
   | 'fight'
+  | 'respond-reaction' // Reaction choice submitted by player
   | 'use-ability'
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
@@ -227,9 +253,11 @@ type ActionType =
 type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
+  | { type: 'rush', unitId: string, path: Vector3[] }
   | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
+  | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
   | { type: 'end-activation' }
@@ -266,6 +294,7 @@ interface DiceResolution {
     hitCount: number;
     bonusHits?: number;
     blockedCount: number;
+    blockedRolls?: boolean[];  // Authoritative per-hit block result (preserves Rupture/Shred AP)
     wardSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
@@ -283,6 +312,9 @@ interface DiceResolution {
     traumaDreadBonus?: number;
     traumaTotal?: number;
     traumaOutcome?: 'shaken' | 'knocked-out';
+    retaliation?: RetaliationOutcome;
+    pushedBack?: boolean;
+    pushBackPosition?: Vector3;
   };
 }
 ```

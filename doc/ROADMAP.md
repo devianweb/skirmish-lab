@@ -226,7 +226,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] **PR 6A.1: Playtest Fixes & Combat Clarity** (completed):
   - [x] Refined cover calculation: ignores adjacent shooter cover (shooting out of cover never grants cover to open targets), partial LoS flank rays for sight-blocking terrain, eliminates touching-wall false positives.
   - [x] Explicit combat modifier breakdowns in confirmation bar and dice panel (Base Q/D, Marksman, Camouflaged, Pierce, Cover, etc.).
-  - [x] Explicit Trauma Table math display (`roll X + Y tokens = Z — need 6+ to KO`) and unsaved wounds vs trauma tokens summary line.
+  - [x] Explicit Wound Effects Table math display (`roll X + Y tokens = Z — need 6+ to KO`) and unsaved wounds vs wound tokens summary line.
   - [x] Unit facing rotation on move, shoot, and charge.
   - [x] Floating 3D "0" wound outcome marker for zero-damage attack feedback.
   - [x] Trait tooltips on hover (`describeTrait`) across unit lists, weapons, and data cards.
@@ -298,7 +298,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Charger automatically pushes back 1" in both branches.
 - [x] 15-second timeout automatically chooses the default option if the player is idle or disconnects.
 - [x] Non-defending player cannot submit a reaction for their opponent.
-- [ ] Full P2P test suite passes with simulated network delays and reaction choices.
+- [x] Full P2P test suite passes with simulated network delays and reaction choices.
 
 ## Phase 7: Objectives & 4-Round Mission Engine
 **Goal:** Implement the standard tabletop skirmish win condition, match clock, and objective control mechanics (replacing pure elimination deathmatch).
