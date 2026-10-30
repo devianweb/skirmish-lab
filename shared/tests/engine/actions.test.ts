@@ -501,6 +501,103 @@ describe('applyAction: charge', () => {
     const target = outcome.state!.units.find((u) => u.id === 'g1')!;
     expect(target.status).toContain('shaken');
   });
+
+  it('charge with defender retaliation and push-back separation when both survive', () => {
+    const state = chargeState();
+    // Give defender an equipped melee weapon so they can retaliate
+    state.units[1].weapons = [weapon('blade')];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const dice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 5] } as any,
+      { purpose: 'defense', rolls: [1, 2] } as any,
+      { purpose: 'trauma', rolls: [1] } as any, // Target takes wounds + shaken (survives)
+      { purpose: 'retaliation-to-hit', rolls: [6, 5] } as any,
+      { purpose: 'retaliation-defense', rolls: [6, 6] } as any, // Charger blocks retaliation
+    ];
+
+    const outcome = applyAction(state, action, dice);
+    expect(outcome.ok).toBe(true);
+
+    const diceOut = outcome.logEntry.dice?.outcome;
+    expect(diceOut?.retaliation).toBeDefined();
+    // Defender became shaken from the charge wounds, so they strike back fatigued (hitting on 6s only).
+    // Given rolls [6, 5], only the natural 6 hits.
+    expect(diceOut?.retaliation?.hitCount).toBe(1);
+    expect(diceOut?.retaliation?.blockedCount).toBe(1);
+    expect(diceOut?.retaliation?.wounds).toBe(0);
+    expect(diceOut?.pushedBack).toBe(true);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+
+    // Charger pushed back to create >= 1.0" gap between models (target is at z = 5, charger pushed back to z = 3.0)
+    expect(attacker.position.z).toBeCloseTo(3.0, 1);
+    expect(Math.hypot(attacker.position.x - target.position.x, attacker.position.z - target.position.z)).toBeGreaterThanOrEqual(1.5);
+
+    // Both models become fatigued and are NOT locked in engaged status
+    expect(attacker.status).toContain('fatigued');
+    expect(target.status).toContain('fatigued');
+    expect(attacker.status).not.toContain('engaged');
+    expect(target.status).not.toContain('engaged');
+  });
+
+  it('charge destroying target: no retaliation and no push-back', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const dice: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [6, 6] } as any,
+      { purpose: 'defense', rolls: [1, 1] } as any,
+      { purpose: 'trauma', rolls: [6] } as any, // 6 = Knocked Out
+    ];
+
+    const outcome = applyAction(state, action, dice);
+    expect(outcome.ok).toBe(true);
+
+    const diceOut = outcome.logEntry.dice?.outcome;
+    expect(diceOut?.targetDestroyed).toBe(true);
+    expect(diceOut?.retaliation).toBeUndefined();
+    expect(diceOut?.pushedBack).toBe(false);
+
+    const attacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    const target = outcome.state!.units.find((u) => u.id === 'g1')!;
+    expect(target.isDestroyed).toBe(true);
+    expect(attacker.position.z).toBe(4); // Did not push back
+    expect(attacker.status).toContain('fatigued');
+  });
+
+  it('getDiceSpecs for charge includes attacker attack dice and defender retaliation dice', () => {
+    const state = chargeState();
+    state.units[1].weapons = [weapon('blade')];
+
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 4 }],
+    });
+
+    const specs = getDiceSpecs(state, action);
+    expect(specs).toBeDefined();
+    expect(specs?.some((s) => s.purpose === 'to-hit')).toBe(true);
+    expect(specs?.some((s) => s.purpose === 'defense')).toBe(true);
+    expect(specs?.some((s) => s.purpose === 'retaliation-to-hit')).toBe(true);
+    expect(specs?.some((s) => s.purpose === 'retaliation-defense')).toBe(true);
+  });
 });
 
 describe('applyAction: rush', () => {

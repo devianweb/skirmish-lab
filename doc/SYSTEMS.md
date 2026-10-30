@@ -29,11 +29,17 @@ Each activated unit executes one of the tabletop maneuvers:
 
 - **`hold`**: The unit holds its position (or clears a `stunned` token) without moving or attacking.
 - **`move-unit` (Advance)**: Spends up to base `speed` (1×), automatically pathfinding around obstacles and other fighters (`findNavPath`). Eligible to shoot a ranged weapon after moving.
-- **`rush`**: Rapid double-distance sprint (moves up to 2× `speed` via auto-pathfinding). Ineligible to shoot or fight this activation. Cannot end in melee contact (use Charge instead).
-- **`charge`**: Moves up to double `speed` (2×) via auto-pathfinding into melee engagement contact (≤ 1.0" of an enemy model) and **automatically resolves the melee strike** against the target fighter using server-rolled dice! Inflicts wounds, checks trauma/knockout, and marks surviving fighters as `engaged`.
-- **`fight`**: Dedicated melee attack for fighters already engaged at the start of their activation (or who did not charge).
+- **`rush`**: Rapid double-distance sprint (moves up to 2× `speed` via auto-pathfinding). Ineligible to shoot this activation. Cannot end in melee contact (use Charge instead).
+- **`charge`**: Moves up to double `speed` (2×) via auto-pathfinding into melee engagement contact (≤ 1.0" of an enemy model) and **automatically resolves the full melee combat sequence**:
+  1. **Attacker Strike:** Attacker attacks with equipped melee weapon using server-rolled dice, applying wounds and trauma/KO checks.
+  2. **Defender Retaliation:** If the defender survives, it immediately strikes back with its equipped melee weapon. Shaken defenders strike back counting as Fatigued (hits on natural 6s only).
+  3. **1" Separation Push-Back:** If both fighters survive, the charger automatically bounces back to create a ≥ 1.0" gap between models (to 2.0" center distance, using angular fan-out collision avoidance against obstacles).
+  4. **No Locked Melee:** Both surviving models become `fatigued` and clear `engaged` status. In subsequent activations, models are never stuck in melee and may freely Hold, Move, Rush, Shoot, or Charge again.
 - **`shoot`**: Fires an equipped ranged weapon at an enemy target within range and line of sight. Not available while engaged.
 - **`end-activation`**: Deliberately concludes the activation, passing initiative to the opponent (or activating remaining fighters if the opponent has none left).
+
+> [!NOTE]
+> Following tabletop skirmish rules (OPR Grimdark Future: Firefight), melee combat occurs exclusively via **Charge** maneuvers. Models do not remain locked in base-to-base melee. The obsolete standalone "Fight" button has been removed from the player HUD; the 4 standard tabletop maneuvers are Hold, Move, Rush, and Charge.
 
 ### 2D Visibility-Graph Auto-Pathfinding (`findNavPath`)
 Units automatically navigate around terrain obstacles and other fighters rather than halting prematurely:

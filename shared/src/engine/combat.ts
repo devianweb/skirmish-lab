@@ -118,6 +118,7 @@ export interface AttackDiceOptions {
   defenderModelCount?: number;
   isMelee?: boolean;
   isCharging?: boolean;
+  isFatigued?: boolean;
   distance?: number;
   includeTrauma?: boolean;
 }
@@ -586,6 +587,21 @@ export function extractAttackRolls(results: DiceResult[]): AttackRolls {
   }
   const ward = results.find((r) => r.purpose === 'ward');
   const trauma = results.find((r) => r.purpose === 'trauma');
+  return {
+    toHit: toHit.rolls,
+    defense: defense.rolls,
+    ...(ward ? { ward: ward.rolls } : {}),
+    ...(trauma ? { trauma: trauma.rolls } : {}),
+  };
+}
+
+/** Extract defender retaliation roll values from server-rolled results (if present). */
+export function extractRetaliationRolls(results: DiceResult[]): AttackRolls | null {
+  const toHit = results.find((r) => r.purpose === 'retaliation-to-hit');
+  const defense = results.find((r) => r.purpose === 'retaliation-defense');
+  if (!toHit || !defense) return null;
+  const ward = results.find((r) => r.purpose === 'retaliation-ward');
+  const trauma = results.find((r) => r.purpose === 'retaliation-trauma');
   return {
     toHit: toHit.rolls,
     defense: defense.rolls,

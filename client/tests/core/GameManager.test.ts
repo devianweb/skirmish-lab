@@ -558,6 +558,120 @@ describe('GameManager', () => {
       expect(guest.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
     });
 
+    it('charge with defender retaliation and push-back separation across the wire', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6, 5], total: 11, finalTotal: 11, purpose: 'to-hit' },
+          { rolls: [1, 2], total: 3, finalTotal: 3, purpose: 'defense' },
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'trauma' }, // Defender survives, becomes shaken
+          { rolls: [6, 4], total: 10, finalTotal: 10, purpose: 'retaliation-to-hit' },
+          { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'retaliation-defense' },
+        ]),
+      };
+      const host = new GameManager(hostWebRTC, true, { diceProvider });
+      const guest = new GameManager(guestWebRTC, false);
+
+      host.startGame('Host', 'Guest');
+
+      const hostCharger = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
+      const guestTarget = host
+        .getGameState()!
+        .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+      const patched = host.getGameState()!;
+      const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+      targetInState.position = {
+        x: hostCharger.position.x,
+        y: 0,
+        z: hostCharger.position.z + 5,
+      };
+      if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+        targetInState.weapons.push({
+          id: 'blade',
+          name: 'Blade',
+          isEquipped: true,
+          profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+        });
+      }
+      (host as any).gameState = patched;
+
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostCharger.id,
+        })
+      );
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: hostCharger.id,
+          targetId: guestTarget.id,
+          path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+          weaponId: 'blade',
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Both units survived:
+      const afterChargeGuest = guest.getGameState()!;
+      const lastEntry = afterChargeGuest.actionLog[afterChargeGuest.actionLog.length - 1];
+      expect(lastEntry.dice?.outcome.retaliation).toBeDefined();
+      expect(lastEntry.dice?.outcome.pushedBack).toBe(true);
+
+      const chargerInGuest = afterChargeGuest.units.find((u) => u.id === hostCharger.id)!;
+      const targetInGuest = afterChargeGuest.units.find((u) => u.id === guestTarget.id)!;
+
+      // Both units are Fatigued and NOT Engaged.
+      expect(chargerInGuest.status).toContain('fatigued');
+      expect(targetInGuest.status).toContain('fatigued');
+      expect(chargerInGuest.status).not.toContain('engaged');
+      expect(targetInGuest.status).not.toContain('engaged');
+
+      // Charger has been pushed back to create >= 1.5" center separation.
+      const sepDist = Math.hypot(
+        chargerInGuest.position.x - targetInGuest.position.x,
+        chargerInGuest.position.z - targetInGuest.position.z
+      );
+      expect(sepDist).toBeGreaterThanOrEqual(1.5);
+
+      // Host ends activation, and Guest in their turn can freely execute a Move
+      // (proving models are not locked in melee).
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      expect(guest.getGameState()!.turnState.currentPlayerId).toBe(GUEST_PLAYER_ID);
+
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: guestTarget.id,
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const moveDest = {
+        x: targetInGuest.position.x + 2,
+        y: 0,
+        z: targetInGuest.position.z,
+      };
+      guest.sendAction(
+        createAction(GUEST_PLAYER_ID, 'move-unit', {
+          type: 'move-unit',
+          unitId: guestTarget.id,
+          path: [targetInGuest.position, moveDest],
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const afterMove = host.getGameState()!.units.find((u) => u.id === guestTarget.id)!;
+      expect(afterMove.position.x).toBeCloseTo(moveDest.x, 1);
+      expect(afterMove.hasMoved).toBe(true);
+    });
+
     it('rebinds host GameManager and re-broadcasts state when a guest rejoins over a new channel', async () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);

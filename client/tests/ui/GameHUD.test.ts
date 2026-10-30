@@ -125,7 +125,7 @@ describe('GameHUD', () => {
     expect(shoot.disabled).toBe(false);
   });
 
-  it('disables move and shoot while engaged, enabling fight', () => {
+  it('disables maneuvers while engaged (no fight button, tabletop push-back separates units)', () => {
     const state = scenarioState();
     const unit = state.units.find(
       (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
@@ -137,9 +137,10 @@ describe('GameHUD', () => {
     const buttons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];
     const byLabel = (label: string) => buttons.find((b) => b.textContent?.startsWith(label))!;
     expect(byLabel('Move').disabled).toBe(true);
+    expect(byLabel('Rush').disabled).toBe(true);
     expect(byLabel('Shoot').disabled).toBe(true);
-    expect(byLabel('Fight').disabled).toBe(false);
     expect(byLabel('Charge').disabled).toBe(true);
+    expect(buttons.some((b) => b.textContent?.startsWith('Fight'))).toBe(false);
   });
 
   it('move flow: destination pick → distance summary → confirmed action with path', () => {
@@ -505,28 +506,75 @@ describe('GameHUD', () => {
     expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
   });
 
-  it('auto-selects the target and jumps to confirmation when clicking Fight with only one enemy in melee range', () => {
+  it('renders defender retaliation and 1" push-back notice in dice panel when charge combat resolves', () => {
     const state = scenarioState();
     const attacker = state.units.find(
       (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'melee')
     )!;
     const target = state.units.find((u) => u.ownerId === GUEST)!;
-    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 1 };
-    attacker.status = ['engaged'];
-    target.status = ['engaged'];
-    activateUnit(state, HOST, attacker.id);
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: attacker.id,
+      targetId: target.id,
+      path: [{ x: 0, y: 0, z: 4 }],
+      weaponId: 'blade',
+    });
 
-    const { container, controller } = setup(HOST, state);
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [
+          { count: 2, sides: 6, purpose: 'to-hit' },
+          { count: 2, sides: 6, purpose: 'defense' },
+          { count: 2, sides: 6, purpose: 'retaliation-to-hit' },
+          { count: 2, sides: 6, purpose: 'retaliation-defense' },
+        ],
+        results: [
+          { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'to-hit' },
+          { rolls: [2, 1], total: 3, finalTotal: 3, purpose: 'defense' },
+          { rolls: [6, 4], total: 10, finalTotal: 10, purpose: 'retaliation-to-hit' },
+          { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'retaliation-defense' },
+        ],
+        context: {
+          attackerId: attacker.id,
+          targetId: target.id,
+          weaponId: 'blade',
+          actionId: action.id,
+        },
+        outcome: {
+          attackCount: 2,
+          hitCount: 2,
+          blockedCount: 0,
+          wounds: 2,
+          targetDestroyed: false,
+          targetShaken: true,
+          pushedBack: true,
+          retaliation: {
+            weaponId: 'blade',
+            weaponName: 'Blade',
+            attackCount: 2,
+            hitCount: 1,
+            blockedCount: 1,
+            wounds: 0,
+            targetDestroyed: false,
+            targetShaken: false,
+            baseQuality: 4,
+            effectiveQuality: 6,
+            hitModifiers: ['Fatigued (need 6)'],
+            baseDefense: 4,
+            effectiveDefense: 4,
+            defenseModifiers: [],
+          },
+        },
+      },
+    });
 
-    clickByText(container, 'Fight');
-    // Should skip manual targeting and go straight to confirmation for the single engaged enemy.
-    expect(container.textContent).toContain(`strikes ${target.name}`);
-    expect(container.textContent).toContain('Confirm');
-
-    clickByText(container, 'Confirm');
-    expect(controller.submitAction).toHaveBeenCalledTimes(1);
-    expect(controller.submitAction.mock.calls[0][0].type).toBe('fight');
-    expect(controller.submitAction.mock.calls[0][0].payload.targetId).toBe(target.id);
+    const { container } = setup(HOST, state);
+    expect(container.textContent).toContain('Defender Retaliation');
+    expect(container.textContent).toContain('Charger pushed back 1" — both units Fatigued');
   });
 
   it('renders an RTS-style unit data card above the action bar when a unit is active or selected', () => {

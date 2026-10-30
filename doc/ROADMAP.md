@@ -245,6 +245,12 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
   - [x] **Terrain Apertures (Windows & Doorways):**
     - [x] **Doorways (`wall-doorway`):** Central 1.0" aperture is open to both model movement (passable) and unobstructed Line of Sight.
     - [x] **Windows (`wall-window`):** Central 1.0" aperture allows Line of Sight when at least one model (shooter or target) is within 1.0" of the window ("manning the firing port"); models within 1.0" receiving fire through the window gain +1 Defense (Cover), while movement through the window remains blocked.
+- [x] **PR 6C: Tabletop Melee Push-Back Separation & Defender Retaliation** (completed):
+  - [x] **Defender Retaliation Strike:** If the defender survives the initial charge strike, it immediately strikes back with equipped melee weapons. Shaken defenders strike back counting as Fatigued (hits on natural 6s only per Section 6.2).
+  - [x] **Automatic 1" Separation Push-Back:** Tabletop skirmish models do not remain locked in base-to-base melee. When both units survive, the charging unit automatically pushes back to create a ≥ 1.0" gap (2.0" center distance, using angular fan-out collision avoidance against obstacles).
+  - [x] **No Locked Melee:** Both surviving units are marked `fatigued` and clear `engaged` status. In subsequent activations, units are free to execute any maneuver (Hold, Move, Rush, Shoot, or Charge again).
+  - [x] **HUD Melee Streamlining:** Removed obsolete standalone "Fight" button from the action bar; all melee combat initiates via Charge.
+  - [x] **Retaliation & Separation Dice Panel Feedback:** Added defender retaliation strike rolls and green 1" push-back separation notice to the authoritative dice panel.
 
 ### Acceptance Criteria
 - [x] Movement validated correctly by host
