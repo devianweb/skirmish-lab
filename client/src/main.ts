@@ -51,7 +51,10 @@ function applyMarkers(markers: MarkerSnapshot): void {
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
   gameView.setReachableTargetsMarker(reachable);
-  gameView.setMovementRangeMarker(unitForMarkers(markers.movementRangeUnitId));
+  gameView.setMovementRangeMarker(
+    unitForMarkers(markers.movementRangeUnitId),
+    markers.movementRangeRadius
+  );
   const attackRangeUnit = markers.attackRange
     ? unitForMarkers(markers.attackRange.unitId)
     : null;
@@ -70,6 +73,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
       : null
   );
   gameView.setMovePathMarker(markers.movePath ?? null);
+  gameView.setMeleeContactMarker(unitForMarkers(markers.engagedTargetId ?? null));
   const hoveredTerrain =
     latestState && markers.hoveredTerrainId
       ? latestState.terrain.find((t) => t.id === markers.hoveredTerrainId) ?? null

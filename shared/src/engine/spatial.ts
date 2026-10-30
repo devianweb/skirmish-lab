@@ -142,24 +142,41 @@ export function intersectRayTerrain(
   const localDx = dirX * cos - dirZ * sin;
   const localDz = dirX * sin + dirZ * cos;
 
+  return intersectLocalBox(localOx, localOz, localDx, localDz, -hx, hx, -hz, hz, maxDist);
+}
+
+/**
+ * Test intersection of a ray in local coordinates with an axis-aligned box [minX, maxX] x [minZ, maxZ].
+ */
+export function intersectLocalBox(
+  localOx: number,
+  localOz: number,
+  localDx: number,
+  localDz: number,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  maxDist: number
+): { tEntry: number; tExit: number } | null {
   let tMin = 0;
   let tMax = maxDist;
 
   if (Math.abs(localDx) < 1e-8) {
-    if (localOx < -hx || localOx > hx) return null;
+    if (localOx < minX || localOx > maxX) return null;
   } else {
-    const t1 = (-hx - localOx) / localDx;
-    const t2 = (hx - localOx) / localDx;
+    const t1 = (minX - localOx) / localDx;
+    const t2 = (maxX - localOx) / localDx;
     tMin = Math.max(tMin, Math.min(t1, t2));
     tMax = Math.min(tMax, Math.max(t1, t2));
     if (tMin > tMax) return null;
   }
 
   if (Math.abs(localDz) < 1e-8) {
-    if (localOz < -hz || localOz > hz) return null;
+    if (localOz < minZ || localOz > maxZ) return null;
   } else {
-    const t1 = (-hz - localOz) / localDz;
-    const t2 = (hz - localOz) / localDz;
+    const t1 = (minZ - localOz) / localDz;
+    const t2 = (maxZ - localOz) / localDz;
     tMin = Math.max(tMin, Math.min(t1, t2));
     tMax = Math.min(tMax, Math.max(t1, t2));
     if (tMin > tMax) return null;
@@ -167,6 +184,100 @@ export function intersectRayTerrain(
 
   if (tMax < 0 || tMin > maxDist) return null;
   return { tEntry: Math.max(0, tMin), tExit: Math.min(maxDist, tMax) };
+}
+
+export interface ApertureRayResult {
+  hitPiece: boolean;
+  passesAperture: boolean;
+  hitsJamb: boolean;
+  tEntry?: number;
+  tExit?: number;
+}
+
+/**
+ * Check whether a ray hits the solid jambs of an aperture piece (wall-doorway or wall-window)
+ * or passes through the central 1.0" opening (|localX| <= 0.5).
+ */
+export function intersectAperturePiece(
+  origin: Vector3,
+  dirX: number,
+  dirZ: number,
+  maxDist: number,
+  piece: TerrainPiece,
+  margin: number = 0
+): ApertureRayResult {
+  const { hx, hz } = terrainHalfExtents(piece);
+  const yaw = piece.rotation.y || 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const dx = origin.x - piece.position.x;
+  const dz = origin.z - piece.position.z;
+
+  const localOx = dx * cos - dz * sin;
+  const localOz = dx * sin + dz * cos;
+  const localDx = dirX * cos - dirZ * sin;
+  const localDz = dirX * sin + dirZ * cos;
+
+  const overall = intersectLocalBox(
+    localOx,
+    localOz,
+    localDx,
+    localDz,
+    -hx - margin,
+    hx + margin,
+    -hz - margin,
+    hz + margin,
+    maxDist
+  );
+  if (!overall) {
+    return { hitPiece: false, passesAperture: false, hitsJamb: false };
+  }
+
+  const apertureHalfWidth = 0.5; // Central 1.0" opening
+  const leftJamb = intersectLocalBox(
+    localOx,
+    localOz,
+    localDx,
+    localDz,
+    -hx - margin,
+    -apertureHalfWidth + margin,
+    -hz - margin,
+    hz + margin,
+    maxDist
+  );
+  const rightJamb = intersectLocalBox(
+    localOx,
+    localOz,
+    localDx,
+    localDz,
+    apertureHalfWidth - margin,
+    hx + margin,
+    -hz - margin,
+    hz + margin,
+    maxDist
+  );
+
+  const hitsJamb = !!(leftJamb || rightJamb);
+  const apertureHit = intersectLocalBox(
+    localOx,
+    localOz,
+    localDx,
+    localDz,
+    -apertureHalfWidth,
+    apertureHalfWidth,
+    -hz,
+    hz,
+    maxDist
+  );
+  const passesAperture = !!apertureHit && !hitsJamb;
+
+  return {
+    hitPiece: true,
+    passesAperture,
+    hitsJamb,
+    tEntry: overall.tEntry,
+    tExit: overall.tExit,
+  };
 }
 
 /**
@@ -221,6 +332,18 @@ export function findMoveBlocker(
 
     for (const piece of state.terrain) {
       if (!piece.isObstacle) continue;
+      if (piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
+        if (
+          ap.hitsJamb &&
+          ap.tExit !== undefined &&
+          ap.tExit > 0.02 &&
+          (ap.tEntry === undefined || ap.tEntry > 0.001 || ap.tExit >= segLen - 0.02)
+        ) {
+          return { blocked: true, reason: 'Move path is blocked by terrain' };
+        }
+        continue;
+      }
       const hit = intersectRayTerrain(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
       // Allow moving away if the start point happened to touch the margin,
       // but block entering or crossing through the obstacle.
@@ -352,6 +475,33 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
 
   for (const piece of state.terrain) {
     if (!piece.blocksLineOfSight) continue;
+
+    if (piece.terrainType === 'wall-doorway') {
+      const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+      if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
+        return false;
+      }
+      continue;
+    }
+
+    if (piece.terrainType === 'wall-window') {
+      const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+      if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
+        return false;
+      }
+      if (ap.passesAperture) {
+        const { hx, hz } = terrainHalfExtents(piece);
+        const pieceRadius = Math.hypot(hx, hz);
+        const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
+        const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
+        if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
+          continue; // Peeking / manning the firing port allows sight
+        }
+        return false; // Distant window blocks sight
+      }
+      continue;
+    }
+
     const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0);
     if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
       return false;
@@ -430,12 +580,31 @@ export function hasCoverAgainstAttack(
     if (projDist > dist + pieceRadius) continue;
 
     if (!piece.blocksLineOfSight) {
-      // Low cover (crates, barricades): line of fire must pass across the piece.
+      // Low cover (crates, barricades): line of fire must pass across the piece,
+      // and defender must be within 1.0" of the low cover along the line of fire.
       const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.15);
       if (hit && hit.tEntry >= 0.8 && hit.tExit <= dist + 0.1 && hit.tEntry < dist - 0.05) {
-        return true;
+        const distFromExitToTarget = dist - hit.tExit;
+        if (distFromExitToTarget <= 1.0) {
+          return true;
+        }
       }
     } else {
+      // Apertures (doorways and windows): if the shot passes through the opening,
+      // a target within 1.0" of the doorway/window claims Cover (+1 Defense).
+      if (piece.terrainType === 'wall-doorway' || piece.terrainType === 'wall-window') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+        if (ap.passesAperture && ap.tExit !== undefined) {
+          const distToTarget = Math.hypot(
+            target.position.x - piece.position.x,
+            target.position.z - piece.position.z
+          );
+          if (distToTarget <= pieceRadius + 1.0 && dist - ap.tExit <= 1.0) {
+            return true;
+          }
+        }
+      }
+
       // Sight-blocking cover (walls, columns): target must be adjacent to the piece (within 1.0")
       // and partially obscured by it from the shooter's vantage point.
       const distToTarget = Math.hypot(
@@ -582,10 +751,41 @@ export function computeShootingRayDebug(
 
     let isLoSBlocker = false;
     if (piece.blocksLineOfSight && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
-      isLoSBlocker = true;
-      if (hit.tEntry < earliestLoSBlockDist) {
-        earliestLoSBlockDist = hit.tEntry;
-        blockedByPieceId = piece.id;
+      if (piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, distance, piece, 0);
+        if (ap.hitsJamb) {
+          isLoSBlocker = true;
+          if (hit.tEntry < earliestLoSBlockDist) {
+            earliestLoSBlockDist = hit.tEntry;
+            blockedByPieceId = piece.id;
+          }
+        }
+      } else if (piece.terrainType === 'wall-window') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, distance, piece, 0);
+        if (ap.hitsJamb) {
+          isLoSBlocker = true;
+          if (hit.tEntry < earliestLoSBlockDist) {
+            earliestLoSBlockDist = hit.tEntry;
+            blockedByPieceId = piece.id;
+          }
+        } else if (ap.passesAperture) {
+          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
+          const distTarget = Math.hypot(targetPos.x - piece.position.x, targetPos.z - piece.position.z);
+          const canPeek = distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0;
+          if (!canPeek) {
+            isLoSBlocker = true;
+            if (hit.tEntry < earliestLoSBlockDist) {
+              earliestLoSBlockDist = hit.tEntry;
+              blockedByPieceId = piece.id;
+            }
+          }
+        }
+      } else {
+        isLoSBlocker = true;
+        if (hit.tEntry < earliestLoSBlockDist) {
+          earliestLoSBlockDist = hit.tEntry;
+          blockedByPieceId = piece.id;
+        }
       }
     }
 
@@ -593,9 +793,21 @@ export function computeShootingRayDebug(
     if (piece.providesCover && !isAdjacentShooterCover && !isBehindTarget) {
       if (!piece.blocksLineOfSight) {
         if (hit.tEntry >= 0.8 && hit.tExit <= distance + 0.1 && hit.tEntry < distance - 0.05) {
-          isCoverProvider = true;
-          coverPieceId = piece.id;
-          coverReason = `Intervening low cover (${piece.terrainType})`;
+          if (distance - hit.tExit <= 1.0) {
+            isCoverProvider = true;
+            coverPieceId = piece.id;
+            coverReason = `Intervening low cover (${piece.terrainType}, defender within 1.0")`;
+          }
+        }
+      } else if (piece.terrainType === 'wall-doorway' || piece.terrainType === 'wall-window') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, distance, piece, 0);
+        if (ap.passesAperture && ap.tExit !== undefined) {
+          const distTarget = Math.hypot(targetPos.x - piece.position.x, targetPos.z - piece.position.z);
+          if (distTarget <= pieceRadius + 1.0 && distance - ap.tExit <= 1.0) {
+            isCoverProvider = true;
+            coverPieceId = piece.id;
+            coverReason = `${piece.terrainType === 'wall-doorway' ? 'Doorway' : 'Window firing port'} cover (defender within 1.0")`;
+          }
         }
       }
     }
@@ -875,4 +1087,260 @@ export function computeLosVisibilityPolygon(
   }
 
   return polygon;
+}
+
+/**
+ * Computes the shortest legal movement path from `unit.position` to `destination`,
+ * navigating around obstacle terrain (including door frames and solid walls) and other
+ * fighters using 2D visibility-graph A* pathfinding.
+ *
+ * If the shortest path exceeds `maxDistance`, it is clamped along the polyline so
+ * the returned path stops cleanly at the exact maximum movement allowed.
+ */
+export function findNavPath(
+  state: GameState,
+  unit: Unit,
+  destination: Vector3,
+  maxDistance: number = unit.remainingMovement,
+  options: { ignoreUnitId?: string } = {}
+): Vector3[] {
+  const from: Vector3 = { x: unit.position.x, y: 0, z: unit.position.z };
+
+  // 1. Board clamping: ensure destination is within board boundaries
+  const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
+  const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
+  const target: Vector3 = {
+    x: Math.max(-halfW, Math.min(halfW, destination.x)),
+    y: 0,
+    z: Math.max(-halfH, Math.min(halfH, destination.z)),
+  };
+
+  // 2. Fast path: check if straight line [from, target] is unblocked
+  const directCheck = findMoveBlocker(state, unit, [from, target], options);
+  if (!directCheck.blocked) {
+    const dist = Math.hypot(target.x - from.x, target.z - from.z);
+    if (dist <= maxDistance + 1e-4) {
+      return [from, target];
+    }
+    const ratio = maxDistance / dist;
+    return [
+      from,
+      {
+        x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
+        y: 0,
+        z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
+      },
+    ];
+  }
+
+  // 3. Obstacle waypoints generation
+  const clearance = UNIT_COLLISION_RADIUS + 0.12; // ~0.47" clearance
+  const candidateWaypoints: Vector3[] = [];
+
+  for (const piece of state.terrain) {
+    if (!piece.isObstacle) continue;
+    const { hx, hz } = terrainHalfExtents(piece);
+    const yaw = piece.rotation.y || 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+
+    const addLocalBoxCorners = (minX: number, maxX: number, minZ: number, maxZ: number) => {
+      const corners = [
+        { x: minX - clearance, z: minZ - clearance },
+        { x: maxX + clearance, z: minZ - clearance },
+        { x: maxX + clearance, z: maxZ + clearance },
+        { x: minX - clearance, z: maxZ + clearance },
+      ];
+      for (const c of corners) {
+        const wx = piece.position.x + c.x * cos - c.z * sin;
+        const wz = piece.position.z + c.x * sin + c.z * cos;
+        if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
+          candidateWaypoints.push({ x: wx, y: 0, z: wz });
+        }
+      }
+    };
+
+    if (piece.terrainType === 'wall-doorway') {
+      // Left jamb and right jamb with central opening
+      addLocalBoxCorners(-hx, -0.5, -hz, hz);
+      addLocalBoxCorners(0.5, hx, -hz, hz);
+      // Doorway center waypoint for smooth passage through opening
+      candidateWaypoints.push({
+        x: piece.position.x,
+        y: 0,
+        z: piece.position.z,
+      });
+    } else {
+      addLocalBoxCorners(-hx, hx, -hz, hz);
+    }
+  }
+
+  // Waypoints around other living fighters
+  for (const other of state.units) {
+    if (other.isDestroyed || other.id === unit.id || other.id === options.ignoreUnitId) {
+      continue;
+    }
+    const fR = UNIT_SEPARATION_DISTANCE + 0.12;
+    const offsets = [
+      { x: fR, z: 0 },
+      { x: -fR, z: 0 },
+      { x: 0, z: fR },
+      { x: 0, z: -fR },
+    ];
+    for (const off of offsets) {
+      const wx = other.position.x + off.x;
+      const wz = other.position.z + off.z;
+      if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
+        candidateWaypoints.push({ x: wx, y: 0, z: wz });
+      }
+    }
+  }
+
+  // Filter out any waypoint that is inside an obstacle
+  const validWaypoints: Vector3[] = [];
+  for (const wp of candidateWaypoints) {
+    const blk = findMoveBlocker(state, unit, [wp, { x: wp.x + 0.001, y: 0, z: wp.z }], options);
+    if (!blk.blocked) {
+      validWaypoints.push(wp);
+    }
+  }
+
+  // 4. A* Search
+  interface Node {
+    pos: Vector3;
+    g: number;
+    h: number;
+    f: number;
+    parent?: Node;
+  }
+
+  const startNode: Node = {
+    pos: from,
+    g: 0,
+    h: Math.hypot(target.x - from.x, target.z - from.z),
+    f: 0,
+  };
+  startNode.f = startNode.h;
+
+  const targetNode: Node = { pos: target, g: Infinity, h: 0, f: Infinity };
+  const allNodes: Node[] = [
+    startNode,
+    targetNode,
+    ...validWaypoints.map((p) => ({
+      pos: p,
+      g: Infinity,
+      h: Math.hypot(target.x - p.x, target.z - p.z),
+      f: Infinity,
+    })),
+  ];
+
+  const openSet: Node[] = [startNode];
+  const closedSet = new Set<Node>();
+  let foundTarget: Node | null = null;
+
+  while (openSet.length > 0) {
+    openSet.sort((a, b) => a.f - b.f);
+    const current = openSet.shift()!;
+    if (
+      current === targetNode ||
+      Math.hypot(current.pos.x - target.x, current.pos.z - target.z) < 0.05
+    ) {
+      foundTarget = current;
+      break;
+    }
+    closedSet.add(current);
+
+    // Try direct link to target first
+    if (!closedSet.has(targetNode)) {
+      const directBlk = findMoveBlocker(state, unit, [current.pos, targetNode.pos], options);
+      if (!directBlk.blocked) {
+        const tentG =
+          current.g + Math.hypot(targetNode.pos.x - current.pos.x, targetNode.pos.z - current.pos.z);
+        if (tentG < targetNode.g) {
+          targetNode.g = tentG;
+          targetNode.f = tentG;
+          targetNode.parent = current;
+          if (!openSet.includes(targetNode)) openSet.push(targetNode);
+        }
+      }
+    }
+
+    for (const neighbor of allNodes) {
+      if (neighbor === current || closedSet.has(neighbor) || neighbor === startNode) continue;
+      const d = Math.hypot(neighbor.pos.x - current.pos.x, neighbor.pos.z - current.pos.z);
+      if (d > 16.0) continue;
+
+      const blk = findMoveBlocker(state, unit, [current.pos, neighbor.pos], options);
+      if (blk.blocked) continue;
+
+      const tentativeG = current.g + d;
+      if (tentativeG < neighbor.g) {
+        neighbor.parent = current;
+        neighbor.g = tentativeG;
+        neighbor.f = tentativeG + neighbor.h;
+        if (!openSet.includes(neighbor)) {
+          openSet.push(neighbor);
+        }
+      }
+    }
+  }
+
+  let rawPath: Vector3[];
+  if (foundTarget) {
+    const rev: Vector3[] = [];
+    let cur: Node | undefined = foundTarget;
+    while (cur) {
+      rev.push({ ...cur.pos });
+      cur = cur.parent;
+    }
+    rawPath = rev.reverse();
+  } else {
+    // If no path around obstacles, clamp straight toward target
+    const clamped = clampMoveDestinationWithObstacles(state, unit, destination, maxDistance);
+    return [from, clamped];
+  }
+
+  // 5. String pulling / shortcutting
+  const smoothed: Vector3[] = [rawPath[0]];
+  let curIdx = 0;
+  while (curIdx < rawPath.length - 1) {
+    let furthest = curIdx + 1;
+    for (let test = rawPath.length - 1; test > curIdx + 1; test--) {
+      const blk = findMoveBlocker(state, unit, [rawPath[curIdx], rawPath[test]], options);
+      if (!blk.blocked) {
+        furthest = test;
+        break;
+      }
+    }
+    smoothed.push(rawPath[furthest]);
+    curIdx = furthest;
+  }
+
+  // 6. Cumulative distance clamping
+  const result: Vector3[] = [{ ...smoothed[0] }];
+  let distLeft = maxDistance;
+
+  for (let i = 1; i < smoothed.length; i++) {
+    const p1 = smoothed[i - 1];
+    const p2 = smoothed[i];
+    const segLen = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+    if (segLen <= distLeft + 1e-4) {
+      result.push({
+        x: Math.round(p2.x * 100) / 100,
+        y: 0,
+        z: Math.round(p2.z * 100) / 100,
+      });
+      distLeft -= segLen;
+    } else {
+      const ratio = distLeft / segLen;
+      result.push({
+        x: Math.round((p1.x + (p2.x - p1.x) * ratio) * 100) / 100,
+        y: 0,
+        z: Math.round((p1.z + (p2.z - p1.z) * ratio) * 100) / 100,
+      });
+      break;
+    }
+  }
+
+  return result;
 }

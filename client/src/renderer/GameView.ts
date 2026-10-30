@@ -174,8 +174,8 @@ export class GameView {
     this.markerRenderer.setReachableTargets(units);
   }
 
-  setMovementRangeMarker(unit: MarkerUnit | null): void {
-    this.markerRenderer.setMovementRange(unit);
+  setMovementRangeMarker(unit: MarkerUnit | null, overrideRadius?: number): void {
+    this.markerRenderer.setMovementRange(unit, overrideRadius);
   }
 
   setAttackRangeMarker(spec: AttackRangeMarker | null): void {
@@ -184,6 +184,10 @@ export class GameView {
 
   setMovePathMarker(path: MovePathMarker | null): void {
     this.markerRenderer.setMovePath(path);
+  }
+
+  setMeleeContactMarker(unit: MarkerUnit | null): void {
+    this.markerRenderer.setMeleeContact(unit);
   }
 
   setTerrainDebugMarker(

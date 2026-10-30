@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { createAction, createInitialGameState } from '../../src/gameState';
 import { GameState, TerrainPiece, Unit, Vector3 } from '../../src/gameTypes';
-import { applyAction } from '../../src/engine/actions';
+import { applyAction, pathLength } from '../../src/engine/actions';
 import {
   clampMoveDestinationWithObstacles,
   computeLosVisibilityPolygon,
   computeShootingRayDebug,
   findMoveBlocker,
+  findNavPath,
   hasCoverAgainstAttack,
   hasLineOfSight,
 } from '../../src/engine/spatial';
@@ -48,6 +49,19 @@ function makeWall(id: string, position: Vector3, blocksLineOfSight = true): Terr
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 4, y: 1.5, z: 0.5 },
     blocksLineOfSight,
+    providesCover: true,
+    isObstacle: true,
+  };
+}
+
+function makeCrate(id: string, position: Vector3): TerrainPiece {
+  return {
+    id,
+    terrainType: 'crate',
+    position,
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    blocksLineOfSight: false,
     providesCover: true,
     isObstacle: true,
   };
@@ -181,26 +195,17 @@ describe('spatial: line of sight & visibility polygon', () => {
 });
 
 describe('spatial: hasCoverAgainstAttack', () => {
-  function makeCrate(id: string, position: Vector3): TerrainPiece {
-    return {
-      id,
-      terrainType: 'crate',
-      position,
-      rotation: { x: 0, y: 0, z: 0 },
-      scale: { x: 1, y: 1, z: 1 },
-      blocksLineOfSight: false,
-      providesCover: true,
-      isObstacle: true,
-    };
-  }
 
-  it('grants cover when target is behind a crate along the line of fire', () => {
+  it('grants cover when target is behind a crate within 1.0" along the line of fire, but NOT when open downrange', () => {
     const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
-    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const targetNear = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
+    const targetFar = makeUnit('g2', GUEST, { x: 0, y: 0, z: 10 });
     const crate = makeCrate('c1', { x: 0, y: 0, z: 5 });
-    const state = makeState([attacker, target], [crate]);
+    const stateNear = makeState([attacker, targetNear], [crate]);
+    const stateFar = makeState([attacker, targetFar], [crate]);
 
-    expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
+    expect(hasCoverAgainstAttack(stateNear, attacker, targetNear)).toBe(true);
+    expect(hasCoverAgainstAttack(stateFar, attacker, targetFar)).toBe(false);
   });
 
   it('does NOT grant cover to an open target when the attacker is shooting out of adjacent cover', () => {
@@ -244,7 +249,7 @@ describe('spatial: hasCoverAgainstAttack', () => {
 describe('spatial: shooting ray debug calculations', () => {
   it('computes ray intersections with a crate along the line of fire', () => {
     const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
-    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
     // Crate at (0, 0, 5) with scale (1, 1, 1), half-extents (0.35, 0.35) + 0.15 margin = 0.5
     const crate = {
       id: 'c1',
@@ -261,7 +266,7 @@ describe('spatial: shooting ray debug calculations', () => {
     const debug = computeShootingRayDebug(state, attacker, target);
     expect(debug.attackerId).toBe('h1');
     expect(debug.targetId).toBe('g1');
-    expect(debug.distance).toBe(10);
+    expect(debug.distance).toBe(6);
     expect(debug.hasLineOfSight).toBe(true);
     expect(debug.providesCover).toBe(true);
     expect(debug.coverPieceId).toBe('c1');
@@ -305,5 +310,112 @@ describe('spatial: shooting ray debug calculations', () => {
     const rightFlank = debug.flankRays!.find((f) => f.side === 'right');
     expect(rightFlank?.blocked).toBe(true);
     expect(leftFlank?.blocked).toBe(false);
+  });
+});
+
+describe('spatial: apertures (doorways and windows)', () => {
+  it('allows model movement and line of sight through wall-doorway opening', () => {
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
+    const doorway: TerrainPiece = {
+      id: 'd1',
+      terrainType: 'wall-doorway',
+      position: { x: 0, y: 0, z: 3 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 1.5, z: 0.5 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    };
+    const state = makeState([attacker, target], [doorway]);
+
+    // Path directly through center of doorway
+    const pathThroughDoor = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 5 }];
+    expect(findMoveBlocker(state, attacker, pathThroughDoor).blocked).toBe(false);
+
+    // Path through the jamb (x = 1.0)
+    const pathThroughJamb = [{ x: 1.0, y: 0, z: 0 }, { x: 1.0, y: 0, z: 5 }];
+    expect(findMoveBlocker(state, attacker, pathThroughJamb).blocked).toBe(true);
+
+    // LoS through doorway
+    expect(hasLineOfSight(state, attacker, target)).toBe(true);
+
+    // Target within 1.0" of doorway receiving fire through it gains Cover
+    const targetNear = makeUnit('g1', GUEST, { x: 0, y: 0, z: 3.8 });
+    const stateNear = makeState([attacker, targetNear], [doorway]);
+    expect(hasCoverAgainstAttack(stateNear, attacker, targetNear)).toBe(true);
+  });
+
+  it('handles wall-window: blocks movement, permits LoS when peeking, blocks distant keyholing', () => {
+    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 8 });
+    const windowPiece: TerrainPiece = {
+      id: 'w1',
+      terrainType: 'wall-window',
+      position: { x: 0, y: 0, z: 4 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 1.5, z: 0.5 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    };
+
+    // Movement through window is always blocked
+    const state = makeState([attacker, target], [windowPiece]);
+    const pathThroughWindow = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 6 }];
+    expect(findMoveBlocker(state, attacker, pathThroughWindow).blocked).toBe(true);
+
+    // Both models > 1.0" from window -> LoS blocked (no distant geometric keyholing)
+    expect(hasLineOfSight(state, attacker, target)).toBe(false);
+
+    // Attacker within 1.0" of window (manning the firing port) -> LoS clear
+    attacker.position = { x: 0, y: 0, z: 3.2 };
+    expect(hasLineOfSight(state, attacker, target)).toBe(true);
+
+    // Attacker back at origin, target within 1.0" of window (z = 4.8) -> LoS clear and target gains Cover (+1 Def)
+    attacker.position = { x: 0, y: 0, z: 0 };
+    target.position = { x: 0, y: 0, z: 4.8 };
+    expect(hasLineOfSight(state, attacker, target)).toBe(true);
+    expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
+  });
+});
+
+describe('spatial: findNavPath obstacle pathfinding', () => {
+  it('returns direct path when line to destination is clear', () => {
+    const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
+    const state = makeState([unit], []);
+
+    const path = findNavPath(state, unit, { x: 0, y: 0, z: 4 }, 6);
+    expect(path).toHaveLength(2);
+    expect(path[0]).toEqual({ x: 0, y: 0, z: 0 });
+    expect(path[1]).toEqual({ x: 0, y: 0, z: 4 });
+  });
+
+  it('navigates around an obstacle crate to reach the destination behind it', () => {
+    const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 });
+    const state = makeState([unit], [crate]);
+
+    // Destination is directly behind crate at (0, 0, 6)
+    const path = findNavPath(state, unit, { x: 0, y: 0, z: 6 }, 10);
+    expect(path.length).toBeGreaterThan(2); // Has waypoints going around crate
+    expect(path[0]).toEqual({ x: 0, y: 0, z: 0 });
+    expect(path[path.length - 1].z).toBeCloseTo(6, 1);
+    expect(Math.abs(path[path.length - 1].x)).toBeCloseTo(0, 1);
+
+    // Verify none of the path segments collide with the crate
+    expect(findMoveBlocker(state, unit, path).blocked).toBe(false);
+  });
+
+  it('clamps path along polyline when destination exceeds max movement', () => {
+    const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 });
+    const state = makeState([unit], [crate]);
+
+    // Only 3" of movement allowed
+    const path = findNavPath(state, unit, { x: 0, y: 0, z: 6 }, 3);
+    const len = pathLength(path);
+    expect(len).toBeCloseTo(3, 1);
+    expect(findMoveBlocker(state, unit, path).blocked).toBe(false);
   });
 });

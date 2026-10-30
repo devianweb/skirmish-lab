@@ -1,11 +1,10 @@
 import {
-  clampMoveDestinationWithObstacles,
   computeCombatModifiers,
   computeShootingRayDebug,
   createAction,
   describeTerrainPiece,
   describeTrait,
-  findMoveBlocker,
+  findNavPath,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
@@ -13,10 +12,12 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
+  pathLength,
   ShootingRayDebugInfo,
   Unit,
   Vector3,
 } from '@skirmish-lab/shared';
+import { MovePathMarker } from '../renderer/MarkerRenderer';
 
 /** What the HUD needs from the game controller to submit confirmed actions. */
 export interface HUDController {
@@ -38,8 +39,10 @@ export interface MarkerSnapshot {
   targetUnitId: string | null;
   reachableTargetIds?: string[];
   movementRangeUnitId: string | null;
+  movementRangeRadius?: number;
   attackRange?: { unitId: string; range: number } | null;
-  movePath?: { from: Vector3; to: Vector3 } | null;
+  movePath?: MovePathMarker | null;
+  engagedTargetId?: string | null;
   hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
   debugActive?: boolean;
@@ -53,7 +56,7 @@ export type PickTarget =
 type TargetingMode =
   | { mode: 'idle' }
   | { mode: 'waiting' }
-  | { mode: 'targeting'; action: 'move' | 'shoot' | 'charge' | 'fight' }
+  | { mode: 'targeting'; action: 'move' | 'rush' | 'shoot' | 'charge' | 'fight' }
   | { mode: 'confirming'; action: GameAction; summary: string };
 
 /**
@@ -85,6 +88,10 @@ export class GameHUD {
   private hoveredAction: string | null = null;
   /** Clamped move destination previewed under the cursor during move targeting. */
   private movePreview: Vector3 | null = null;
+  /** Multi-segment waypoints previewed under cursor during move / rush / charge. */
+  private movePathPreview: Vector3[] | null = null;
+  /** Enemy unit currently highlighted in melee engagement contact. */
+  private hoveredEngagedTargetId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -150,6 +157,8 @@ export class GameHUD {
       this.flow = { mode: 'idle' };
     }
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
 
     if (prevRound !== null && state.turnState.roundNumber > prevRound && state.status !== 'game-over') {
@@ -168,14 +177,22 @@ export class GameHUD {
   handleBoardPick(target: PickTarget): void {
     if (!this.state || this.state.status === 'game-over') return;
 
-    if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
+    if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       if (target.kind === 'position') {
-        this.prepareMove(target.position);
+        if (this.flow.action === 'move') {
+          this.prepareMove(target.position);
+        } else {
+          this.prepareRush(target.position);
+        }
       }
       return;
     }
 
-    if (this.flow.mode === 'targeting' && this.flow.action !== 'move') {
+    if (
+      this.flow.mode === 'targeting' &&
+      this.flow.action !== 'move' &&
+      this.flow.action !== 'rush'
+    ) {
       if (target.kind === 'unit') {
         this.prepareAttack(target.unitId);
       }
@@ -216,18 +233,64 @@ export class GameHUD {
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
 
-    if (this.flow.mode === 'targeting' && this.flow.action === 'move') {
+    if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
-        this.movePreview = this.clampMoveDestination(active, target.position);
+        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.remainingMovement;
+        const path = findNavPath(this.state, active, target.position, maxDist);
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+
+        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0")
+        if (this.movePreview) {
+          const enemy = this.enemyUnits.find(
+            (e) =>
+              !e.isDestroyed &&
+              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0
+          );
+          this.hoveredEngagedTargetId = enemy ? enemy.id : null;
+        } else {
+          this.hoveredEngagedTargetId = null;
+        }
       } else {
         this.movePreview = null;
+        this.movePathPreview = null;
+        this.hoveredEngagedTargetId = null;
       }
       if (terrainChanged) {
         this.updateDataCardSlot();
       }
       this.emitMarkers();
       return;
+    }
+
+    if (this.flow.mode === 'targeting' && this.flow.action === 'charge') {
+      const active = this.activeUnit;
+      const targetUnitId = target?.kind === 'unit' ? target.unitId : null;
+      const enemy = targetUnitId
+        ? this.state.units.find((u) => u.id === targetUnitId && u.ownerId !== this.localPlayerId && !u.isDestroyed)
+        : null;
+
+      if (active && enemy) {
+        const dx = active.position.x - enemy.position.x;
+        const dz = active.position.z - enemy.position.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const contactTarget = {
+          x: Math.round((enemy.position.x + (dx / len) * 0.9) * 100) / 100,
+          y: 0,
+          z: Math.round((enemy.position.z + (dz / len) * 0.9) * 100) / 100,
+        };
+        const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
+          ignoreUnitId: enemy.id,
+        });
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.hoveredEngagedTargetId = enemy.id;
+      } else {
+        this.movePathPreview = null;
+        this.movePreview = null;
+        this.hoveredEngagedTargetId = null;
+      }
     }
 
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
@@ -347,11 +410,13 @@ export class GameHUD {
     );
   }
 
-  private beginActionTargeting(action: 'move' | 'shoot' | 'charge' | 'fight'): void {
+  private beginActionTargeting(action: 'move' | 'rush' | 'shoot' | 'charge' | 'fight'): void {
     if (this.flow.mode !== 'idle') return;
     const active = this.activeUnit;
     if (!active || active.ownerId !== this.localPlayerId) return;
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.flow = { mode: 'targeting', action };
 
     // If fighting and there is only one enemy in engagement range, automatically
@@ -367,45 +432,70 @@ export class GameHUD {
     this.render();
   }
 
-  /**
-   * Clamp a ground point to the unit's remaining movement allowance, board
-   * bounds, and obstacle terrain / other fighters along the move path.
-   */
-  private clampMoveDestination(unit: Unit, raw: Vector3): Vector3 {
-    if (!this.state) {
-      return { x: Math.round(raw.x * 100) / 100, y: 0, z: Math.round(raw.z * 100) / 100 };
-    }
-    return clampMoveDestinationWithObstacles(this.state, unit, raw, unit.remainingMovement);
-  }
-
   private prepareMove(rawDestination: Vector3): void {
     const active = this.activeUnit;
-    if (!active) return;
+    if (!active || !this.state) return;
 
-    const destination = this.clampMoveDestination(active, rawDestination);
-    const distance = Math.hypot(
-      destination.x - active.position.x,
-      destination.z - active.position.z
-    );
+    const path = findNavPath(this.state, active, rawDestination, active.remainingMovement);
+    if (path.length < 2) {
+      this.showToast('Pick a destination away from the unit');
+      return;
+    }
+    const destination = path[path.length - 1];
+    const distance = pathLength(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
 
     this.movePreview = destination;
-    const path: Vector3[] = [
-      { ...active.position },
-      { x: destination.x, y: 0, z: destination.z },
-    ];
+    this.movePathPreview = path;
     const left = Math.max(0, active.remainingMovement - distance);
     this.beginConfirmation(
       createAction(this.localPlayerId, 'move-unit', {
         type: 'move-unit',
         unitId: active.id,
         path,
-        finalPosition: path[path.length - 1],
+        finalPosition: destination,
       }),
       `Move ${active.name} ${distance.toFixed(1)}" — ${left > 0.05 ? `${left.toFixed(1)}" left` : 'all movement spent'}`
+    );
+  }
+
+  private prepareRush(rawDestination: Vector3): void {
+    const active = this.activeUnit;
+    if (!active || !this.state) return;
+
+    const path = findNavPath(this.state, active, rawDestination, active.speed * 2);
+    if (path.length < 2) {
+      this.showToast('Pick a destination away from the unit');
+      return;
+    }
+    const destination = path[path.length - 1];
+    const distance = pathLength(path);
+    if (distance < 0.05) {
+      this.showToast('Pick a destination away from the unit');
+      return;
+    }
+
+    const wouldEngage = this.enemyUnits.some(
+      (e) => !e.isDestroyed && Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0
+    );
+    if (wouldEngage) {
+      this.showToast('Rush cannot end in melee contact — use Charge instead');
+      return;
+    }
+
+    this.movePreview = destination;
+    this.movePathPreview = path;
+    this.beginConfirmation(
+      createAction(this.localPlayerId, 'rush', {
+        type: 'rush',
+        unitId: active.id,
+        path,
+        finalPosition: destination,
+      }),
+      `Rush ${active.name} ${distance.toFixed(1)}" (double move — activation ends)`
     );
   }
 
@@ -478,44 +568,80 @@ export class GameHUD {
         this.showToast('Already engaged — fight instead');
         return;
       }
-      // Charge ends at 1" engagement distance of the target.
-      const dx = active.position.x - target.position.x;
-      const dz = active.position.z - target.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const end = {
-        x: Math.round((target.position.x + (dx / len) * 1) * 100) / 100,
-        y: 0,
-        z: Math.round((target.position.z + (dz / len) * 1) * 100) / 100,
-      };
-      const chargeDistance = Math.hypot(end.x - active.position.x, end.z - active.position.z);
-      if (chargeDistance > active.speed + 0.01) {
-        this.showToast(`Too far to charge: ${chargeDistance.toFixed(1)}" vs speed ${active.speed}"`);
+      const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+      if (!weapon) {
+        this.showToast('No equipped melee weapon to charge with');
         return;
       }
       if (this.state && !hasLineOfSight(this.state, active, target)) {
         this.showToast('No line of sight to target');
         return;
       }
-      if (this.state) {
-        const blocker = findMoveBlocker(
-          this.state,
-          active,
-          [{ ...active.position }, end],
-          { ignoreUnitId: target.id }
-        );
-        if (blocker.blocked) {
-          this.showToast(blocker.reason);
-          return;
-        }
+
+      // Charge ends at 0.9" engagement distance of the target.
+      const dx = active.position.x - target.position.x;
+      const dz = active.position.z - target.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const contactTarget = {
+        x: Math.round((target.position.x + (dx / len) * 0.9) * 100) / 100,
+        y: 0,
+        z: Math.round((target.position.z + (dz / len) * 0.9) * 100) / 100,
+      };
+
+      const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
+        ignoreUnitId: target.id,
+      });
+      const end = path[path.length - 1];
+      const distToEnemy = Math.hypot(end.x - target.position.x, end.z - target.position.z);
+      if (distToEnemy > 1.25) {
+        this.showToast('Cannot reach engagement range of target');
+        return;
       }
+      const chargeDistance = pathLength(path);
+      if (chargeDistance > active.speed * 2 + 0.01) {
+        this.showToast(
+          `Too far to charge: ${chargeDistance.toFixed(1)}" vs charge speed ${(active.speed * 2).toFixed(1)}"`
+        );
+        return;
+      }
+
+      const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: true,
+          isCharging: true,
+          hasMoved: true,
+          isFatigued,
+          distance: distToEnemy,
+        },
+        {
+          defense: target.defense,
+          inCover: false,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+      const attacks = weapon.profile.attacks;
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+
+      this.movePreview = end;
+      this.movePathPreview = path;
+      this.hoveredEngagedTargetId = target.id;
+
       this.beginConfirmation(
         createAction(this.localPlayerId, 'charge', {
           type: 'charge',
           attackerId: active.id,
           targetId: target.id,
-          path: [end],
+          path,
+          weaponId: weapon.id,
         }),
-        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee — then Fight)`
+        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText}`
       );
       return;
     }
@@ -578,6 +704,8 @@ export class GameHUD {
     if (this.flow.mode !== 'confirming') return;
     const action = this.flow.action;
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.flow = { mode: 'waiting' };
     this.render();
     // Only confirmed actions ever leave the HUD — no optimistic dispatch.
@@ -587,6 +715,8 @@ export class GameHUD {
   private cancel(): void {
     if (this.flow.mode === 'waiting') return; // already sent, nothing to cancel
     this.movePreview = null;
+    this.movePathPreview = null;
+    this.hoveredEngagedTargetId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
     this.render();
@@ -869,6 +999,8 @@ export class GameHUD {
         return `held with ${this.unitName((action.payload as any).unitId)}`;
       case 'move-unit':
         return `moved ${this.unitName((action.payload as any).unitId)}`;
+      case 'rush':
+        return `rushed ${this.unitName((action.payload as any).unitId)}`;
       case 'shoot':
         return `shot ${this.unitName((action.payload as any).targetId)}`;
       case 'charge':
@@ -918,7 +1050,11 @@ export class GameHUD {
     if (this.flow.mode === 'targeting') {
       const instruction =
         this.flow.action === 'move'
-          ? 'Click a destination on the board (auto-clamps to max move)'
+          ? 'Click a destination on the board (auto-paths around obstacles)'
+          : this.flow.action === 'rush'
+          ? 'Click a destination to Rush (double move, auto-paths around obstacles)'
+          : this.flow.action === 'charge'
+          ? 'Click an enemy unit within charge range to Charge into melee and strike'
           : `Select an enemy target within the red range ring (${this.flow.action})`;
       return `
         <div class="sl-hud-bottom-dock">
@@ -933,12 +1069,14 @@ export class GameHUD {
     if (this.myTurn && activeIsMine && active) {
       const engaged = active.status.includes('engaged');
       const hasAttacked = !!active.hasAttacked;
-      const hasActed = active.hasMoved || hasAttacked;
-      const canMove = !engaged && active.remainingMovement > 0.01;
+      const hasMoved = !!active.hasMoved;
+      const hasActed = hasMoved || hasAttacked;
+      const canMove = !engaged && !hasMoved && !hasAttacked && active.remainingMovement > 0.01;
+      const canRush = !engaged && !hasMoved && !hasAttacked;
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
       const canShoot = !engaged && !hasAttacked && !!rangedWeapon;
-      const canCharge = !engaged && !active.hasMoved && !hasAttacked;
+      const canCharge = !engaged && !hasMoved && !hasAttacked && !!meleeWeapon;
       const canFight = engaged && !hasAttacked && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
@@ -953,6 +1091,7 @@ export class GameHUD {
           <div class="sl-hud-bottom sl-hud-actions">
             <span class="sl-hud-active-name">${active.name}</span>
             <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move</button>
+            <button class="sl-hud-btn" data-action="rush" ${canRush ? '' : 'disabled'}>Rush</button>
             <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
             <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge</button>
             <button class="sl-hud-btn" data-action="fight" ${canFight ? '' : 'disabled'}>Fight</button>
@@ -1279,6 +1418,7 @@ export class GameHUD {
       const actionKey = el.dataset.action ?? '';
       if (
         actionKey === 'move' ||
+        actionKey === 'rush' ||
         actionKey === 'shoot' ||
         actionKey === 'charge' ||
         actionKey === 'fight'
@@ -1307,10 +1447,13 @@ export class GameHUD {
             this.controller.onReturnToLobby?.();
             break;
           case 'move':
+          case 'rush':
           case 'shoot':
           case 'charge':
           case 'fight':
-            this.beginActionTargeting(el.dataset.action as 'move' | 'shoot' | 'charge' | 'fight');
+            this.beginActionTargeting(
+              el.dataset.action as 'move' | 'rush' | 'shoot' | 'charge' | 'fight'
+            );
             break;
           case 'hold': {
             const active = this.activeUnit;
@@ -1370,6 +1513,7 @@ export class GameHUD {
       movementRangeUnitId: null,
       attackRange: null,
       movePath: null,
+      engagedTargetId: this.hoveredEngagedTargetId,
       hoveredTerrainId: this.terrainDebugEnabled ? this.hoveredTerrainId : null,
       outcome,
       debugActive: this.terrainDebugEnabled,
@@ -1381,17 +1525,28 @@ export class GameHUD {
       markers.targetUnitId = hoveredUnit.id;
     }
 
-    // While confirming an attack/charge, keep the bright red target marker on the chosen target.
+    // While confirming an attack/charge/rush/move, reflect markers
     if (this.flow.mode === 'confirming') {
       const payload = this.flow.action.payload as { targetId?: string; path?: Vector3[] };
       if (payload.targetId) {
         markers.targetUnitId = payload.targetId;
       }
-      if (this.flow.action.type === 'move-unit' && payload.path && payload.path.length >= 2) {
+      if (
+        (this.flow.action.type === 'move-unit' ||
+          this.flow.action.type === 'rush' ||
+          this.flow.action.type === 'charge') &&
+        payload.path &&
+        payload.path.length >= 2
+      ) {
         markers.movePath = {
           from: payload.path[0],
           to: payload.path[payload.path.length - 1],
+          waypoints: payload.path,
+          isMeleeContact: this.flow.action.type === 'charge',
         };
+      }
+      if (this.flow.action.type === 'charge' && payload.targetId) {
+        markers.engagedTargetId = payload.targetId;
       }
     }
 
@@ -1399,7 +1554,9 @@ export class GameHUD {
     // (with LoS shadow fill), darker red rings under all reachable enemy targets, and
     // a bright red ring under any hovered target.
     const attackAction =
-      this.flow.mode === 'targeting' && this.flow.action !== 'move'
+      this.flow.mode === 'targeting' &&
+      this.flow.action !== 'move' &&
+      this.flow.action !== 'rush'
         ? this.flow.action
         : this.flow.mode === 'idle' &&
           (this.hoveredAction === 'shoot' ||
@@ -1422,19 +1579,47 @@ export class GameHUD {
       }
     }
 
-    // Only show the movement-range ring when Move is hovered, clicked (targeting), or confirming.
-    if (
+    // Movement-range ring when Move or Rush is hovered, clicked (targeting), or confirming.
+    const isRushMode =
+      (this.flow.mode === 'targeting' && this.flow.action === 'rush') ||
+      (this.flow.mode === 'confirming' && this.flow.action.type === 'rush') ||
+      (this.flow.mode === 'idle' && this.hoveredAction === 'rush');
+    const isMoveMode =
       (this.flow.mode === 'targeting' && this.flow.action === 'move') ||
       (this.flow.mode === 'confirming' && this.flow.action.type === 'move-unit') ||
-      (this.flow.mode === 'idle' && this.hoveredAction === 'move')
-    ) {
-      markers.movementRangeUnitId = this.activeUnit?.id ?? null;
-      if (this.activeUnit && this.movePreview) {
+      (this.flow.mode === 'idle' && this.hoveredAction === 'move');
+
+    if ((isMoveMode || isRushMode) && this.activeUnit) {
+      markers.movementRangeUnitId = this.activeUnit.id;
+      markers.movementRangeRadius = isRushMode
+        ? this.activeUnit.speed * 2
+        : this.activeUnit.remainingMovement;
+      if (this.movePathPreview && this.movePathPreview.length >= 2) {
+        markers.movePath = {
+          from: this.movePathPreview[0],
+          to: this.movePathPreview[this.movePathPreview.length - 1],
+          waypoints: this.movePathPreview,
+          isMeleeContact: !!this.hoveredEngagedTargetId,
+        };
+      } else if (this.movePreview) {
         markers.movePath = {
           from: { ...this.activeUnit.position },
           to: { ...this.movePreview },
         };
       }
+    } else if (
+      this.flow.mode === 'targeting' &&
+      this.flow.action === 'charge' &&
+      this.activeUnit &&
+      this.movePathPreview &&
+      this.movePathPreview.length >= 2
+    ) {
+      markers.movePath = {
+        from: this.movePathPreview[0],
+        to: this.movePathPreview[this.movePathPreview.length - 1],
+        waypoints: this.movePathPreview,
+        isMeleeContact: true,
+      };
     }
 
     for (const handler of this.markerHandlers) {
@@ -1452,8 +1637,8 @@ export class GameHUD {
       );
     }
     if (action === 'charge') {
-      // Charge path ends at 1" engagement distance, so a target up to speed + 1" away is reachable.
-      return unit.speed + 1;
+      // Charge can move up to double speed and reach target within 1" engagement range.
+      return unit.speed * 2 + 1;
     }
     return 1.5;
   }
@@ -1477,7 +1662,22 @@ export class GameHUD {
         return hasLineOfSight(this.state!, unit, candidate);
       }
       if (action === 'charge') {
-        return hasLineOfSight(this.state!, unit, candidate);
+        if (!hasLineOfSight(this.state!, unit, candidate)) return false;
+        // Verify pathfinder reaches within engagement range under double speed
+        const dx = unit.position.x - candidate.position.x;
+        const dz = unit.position.z - candidate.position.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const contactTarget = {
+          x: candidate.position.x + (dx / len) * 0.9,
+          y: 0,
+          z: candidate.position.z + (dz / len) * 0.9,
+        };
+        const path = findNavPath(this.state!, unit, contactTarget, unit.speed * 2, {
+          ignoreUnitId: candidate.id,
+        });
+        const end = path[path.length - 1];
+        const distToEnd = Math.hypot(end.x - candidate.position.x, end.z - candidate.position.z);
+        return distToEnd <= 1.25 && pathLength(path) <= unit.speed * 2 + 0.01;
       }
       return true;
     });

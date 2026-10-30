@@ -269,7 +269,7 @@ describe('GameManager', () => {
         weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
       });
       manager.sendAction(action);
-      await Promise.resolve(); // let the dice promise settle
+      await new Promise((r) => setTimeout(r, 0)); // let the dice promise settle
 
       expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
         { count: 1, sides: 6, purpose: 'to-hit' },
@@ -314,7 +314,7 @@ describe('GameManager', () => {
         weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
       });
       manager.sendAction(action);
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(rejectionHandler).toHaveBeenCalledWith(
         expect.objectContaining({ reason: 'Dice roll failed or timed out' })
@@ -369,7 +369,7 @@ describe('GameManager', () => {
         { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
         { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       ]);
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       expect(manager.getGameState()!.actionLog.find((e) => e.action.id === shoot.id)).toBeDefined();
     });
   });
@@ -435,7 +435,7 @@ describe('GameManager', () => {
           unitId: guestUnitId,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       // The host applied the guest's action and both sides agree.
       const hostState = host.getGameState()!;
@@ -464,7 +464,7 @@ describe('GameManager', () => {
         unitId: guestUnitId,
       });
       guest.sendAction(badAction);
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(rejections).toHaveLength(1);
       expect(rejections[0].reason).toBe('Not your turn');
@@ -485,8 +485,8 @@ describe('GameManager', () => {
 
       host.startGame('Host', 'Guest');
 
-      // 1. Host charges a guest fighter and fights it to destruction; surviving
-      //    charger must have 'engaged' cleared once the melee target dies.
+      // 1. Host charges a guest fighter and strikes it; charge automatically resolves
+      //    the melee strike to destruction and finishes the activation.
       const hostCharger = host
         .getGameState()!
         .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
@@ -515,21 +515,10 @@ describe('GameManager', () => {
           attackerId: hostCharger.id,
           targetId: guestTarget.id,
           path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
-        })
-      );
-      expect(
-        host.getGameState()!.units.find((u) => u.id === hostCharger.id)!.status
-      ).toContain('engaged');
-
-      host.sendAction(
-        createAction(HOST_PLAYER_ID, 'fight', {
-          type: 'fight',
-          attackerId: hostCharger.id,
-          targetId: guestTarget.id,
           weaponId: 'blade',
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       // Target destroyed → charger is no longer engaged; guest sees the same state + dice.
       const afterFight = guest.getGameState()!;
@@ -543,6 +532,7 @@ describe('GameManager', () => {
       host.sendAction(
         createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
       );
+      await new Promise((r) => setTimeout(r, 0));
       expect(guest.getGameState()!.turnState.currentPlayerId).toBe(GUEST_PLAYER_ID);
 
       // Guest activates a unit and chooses Hold from the action bar → passes back to Host.
@@ -555,14 +545,14 @@ describe('GameManager', () => {
           unitId: guestUnit.id,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       guest.sendAction(
         createAction(GUEST_PLAYER_ID, 'hold', {
           type: 'hold',
           unitId: guestUnit.id,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(host.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
       expect(guest.getGameState()!.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
@@ -603,7 +593,7 @@ describe('GameManager', () => {
           unitId: guestUnitId,
         })
       );
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
       expect(host.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
       expect(guest2.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
     });

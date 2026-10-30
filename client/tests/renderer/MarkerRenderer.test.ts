@@ -263,4 +263,51 @@ describe('MarkerRenderer', () => {
     renderer.clearAll();
     expect(renderer.getRenderedMarkerNames()).not.toContain('marker-shooting-debug');
   });
+
+  it('renders melee contact highlight marker under an engaged enemy model', () => {
+    const renderer = makeRenderer();
+    renderer.setMeleeContact({ id: 'enemy-1', position: { x: 5, y: 0, z: -2 } });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-melee-contact');
+    const contactMarker = scene.getObjectByName('marker-melee-contact')!;
+    expect(contactMarker.position.x).toBe(5);
+    expect(contactMarker.position.z).toBe(-2);
+    expect(contactMarker.children.length).toBeGreaterThanOrEqual(2);
+
+    renderer.setMeleeContact(null);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-melee-contact');
+  });
+
+  it('renders multi-point move path with waypoints and melee contact indicator', () => {
+    const renderer = makeRenderer();
+    renderer.setMovePath({
+      from: { x: 0, y: 0, z: 0 },
+      to: { x: 5, y: 0, z: 5 },
+      waypoints: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 2, y: 0, z: 3 },
+        { x: 5, y: 0, z: 5 },
+      ],
+      isMeleeContact: true,
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-move-path');
+    const group = scene.getObjectByName('marker-move-path')!;
+    // Waypoints, lines, destination disc, and contact ring
+    expect(group.children.length).toBeGreaterThanOrEqual(4);
+
+    renderer.clearAll();
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-move-path');
+  });
+
+  it('allows overriding movement-range ring radius (e.g. for Rush double move)', () => {
+    const renderer = makeRenderer();
+    renderer.setMovementRange({ id: 'u1', position: { x: 2, y: 0, z: 2 }, remainingMovement: 6 }, 12);
+
+    const marker = scene.getObjectByName('marker-movement-range')!;
+    expect(marker).toBeDefined();
+    expect(marker.scale.x).toBeCloseTo(12, 1);
+    expect(marker.scale.z).toBeCloseTo(12, 1);
+  });
 });
