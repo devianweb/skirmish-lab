@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState, HOST_PLAYER_ID, GUEST_PLAYER_ID } from '../../src/gameState';
-import { applyDefaultScenario, createDefaultScenarioTerrain, createDefaultScenarioUnits } from '../../src/data/scenario';
+import {
+  applyDefaultScenario,
+  createDefaultScenarioObjectives,
+  createDefaultScenarioTerrain,
+  createDefaultScenarioUnits,
+} from '../../src/data/scenario';
 import { DEFAULT_ARMIES } from '../../src/data/armies';
 import { WEAPONS } from '../../src/data/weapons';
 import { getActivatableUnits, isRoundComplete } from '../../src/engine/activation';
@@ -70,6 +75,7 @@ describe('scenario data pack', () => {
     expect(state.turnState.phase).toBe('activation');
     expect(state.units).toHaveLength(10);
     expect(state.terrain.length).toBeGreaterThan(0);
+    expect(state.objectives).toHaveLength(4);
 
     // Round 1 has not started: both players have all units activatable.
     expect(isRoundComplete(state)).toBe(false);
@@ -97,5 +103,29 @@ describe('scenario data pack', () => {
   it('exposes deterministic player ids used by both peers', () => {
     expect(HOST_PLAYER_ID).toBe('player-host');
     expect(GUEST_PLAYER_ID).toBe('player-guest');
+  });
+
+  it('spawns 3 to 5 objective markers placed > 9" apart outside deployment zones', () => {
+    const objectives = createDefaultScenarioObjectives();
+    expect(objectives.length).toBeGreaterThanOrEqual(3);
+    expect(objectives.length).toBeLessThanOrEqual(5);
+
+    // All objectives are placed outside deployment zones (deployment is z = ±12)
+    for (const obj of objectives) {
+      expect(Math.abs(obj.position.z)).toBeLessThan(10);
+      expect(obj.controllingPlayerId).toBeNull();
+      expect(obj.isContested).toBe(false);
+    }
+
+    // Check pairwise distance > 9"
+    for (let i = 0; i < objectives.length; i++) {
+      for (let j = i + 1; j < objectives.length; j++) {
+        const dist = Math.hypot(
+          objectives[i].position.x - objectives[j].position.x,
+          objectives[i].position.z - objectives[j].position.z
+        );
+        expect(dist).toBeGreaterThanOrEqual(9.0);
+      }
+    }
   });
 });

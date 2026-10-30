@@ -12,6 +12,7 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
+  Objective,
   pathLength,
   ShootingRayDebugInfo,
   Unit,
@@ -79,6 +80,8 @@ export class GameHUD {
   private hoveredUnitId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
+  /** Objective hovered on the board within control radius. */
+  private lastHoveredObjectiveId: string | null = null;
   /** Ground position hovered on the board (for debug raycast aiming). */
   private hoveredGroundPosition: Vector3 | null = null;
   /** Whether the F9 terrain hover debugger is enabled. */
@@ -335,7 +338,16 @@ export class GameHUD {
     }
 
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
-    if (nextHover !== this.hoveredUnitId || terrainChanged || (this.terrainDebugEnabled && groundPosChanged)) {
+    const nextObjective = this.inspectedObjective;
+    const objectiveChanged = nextObjective?.id !== this.lastHoveredObjectiveId;
+    this.lastHoveredObjectiveId = nextObjective?.id ?? null;
+
+    if (
+      nextHover !== this.hoveredUnitId ||
+      terrainChanged ||
+      objectiveChanged ||
+      (this.terrainDebugEnabled && groundPosChanged)
+    ) {
       this.hoveredUnitId = nextHover;
       this.updateDataCardSlot();
       this.emitMarkers();
@@ -801,6 +813,10 @@ export class GameHUD {
     const myUnactivated = this.myUnits.filter((u) => !u.isDestroyed && !u.isActivated).length;
     const enemyUnactivated = this.enemyUnits.filter((u) => !u.isDestroyed && !u.isActivated).length;
 
+    const objectives = state.objectives ?? [];
+    const hostScore = objectives.filter((o) => o.controllingPlayerId === state.hostId).length;
+    const guestScore = objectives.filter((o) => o.controllingPlayerId === state.guestId).length;
+
     const alerts: string[] = [];
     if (this.peerState === 'disconnected') {
       alerts.push('<div class="sl-hud-alert sl-hud-alert-error">⚠️ Opponent disconnected — waiting for peer to reconnect...</div>');
@@ -814,7 +830,10 @@ export class GameHUD {
     const header = `
       <div class="sl-hud-header">
         <span class="sl-hud-title">SkirmishLab</span>
-        <span class="sl-hud-round">Round ${state.turnState.roundNumber}</span>
+        <span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>
+        <span class="sl-hud-objectives-score">
+          Objectives: <span class="score-team-host" style="color: #29b6f6; font-weight: 700;">Host ${hostScore}</span> — <span class="score-team-guest" style="color: #ef5350; font-weight: 700;">Guest ${guestScore}</span>
+        </span>
         <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${
       state.status === 'game-over'
         ? this.gameOverText(opponentName)
@@ -846,7 +865,33 @@ export class GameHUD {
         ? `
       <div class="sl-hud-gameover">
         <h2>${this.gameOverText(opponentName)}</h2>
-        <p>${state.endReason ?? 'Game ended'}</p>
+        <p class="sl-hud-gameover-reason">${state.endReason ?? 'Game ended'}</p>
+        <div class="sl-hud-gameover-score" style="margin: 14px 0 16px; font-size: 13px;">
+          <div style="font-weight: 600; margin-bottom: 6px; color: #ffd54f;">Final Objective Score</div>
+          <div style="display: flex; justify-content: center; gap: 16px; font-size: 15px; font-weight: 700;">
+            <span style="color: #29b6f6;">Host: ${hostScore}</span>
+            <span style="color: #888;">—</span>
+            <span style="color: #ef5350;">Guest: ${guestScore}</span>
+          </div>
+          ${
+            objectives.length > 0
+              ? `<div class="sl-hud-gameover-breakdown" style="margin-top: 10px; font-size: 12px; color: #b0bec5; display: flex; flex-direction: column; gap: 3px;">
+                  ${objectives
+                    .map((o) => {
+                      const ctrlText = o.isContested
+                        ? '<span style="color: #ff9800; font-weight: 600;">Contested</span>'
+                        : o.controllingPlayerId === state.hostId
+                        ? '<span style="color: #29b6f6; font-weight: 600;">Host</span>'
+                        : o.controllingPlayerId === state.guestId
+                        ? '<span style="color: #ef5350; font-weight: 600;">Guest</span>'
+                        : '<span style="color: #ffd54f;">Neutral</span>';
+                      return `<div>${o.name}: ${ctrlText}</div>`;
+                    })
+                    .join('')}
+                </div>`
+              : ''
+          }
+        </div>
         <button class="sl-hud-btn primary" data-action="return-lobby">Return to Lobby</button>
       </div>`
         : '';
@@ -1315,10 +1360,63 @@ export class GameHUD {
     return null;
   }
 
+  /** Objective shown in the RTS data card when hovering within its 3" control radius. */
+  private get inspectedObjective(): Objective | null {
+    if (!this.state?.objectives || !this.hoveredGroundPosition) return null;
+    const pos = this.hoveredGroundPosition;
+    for (const obj of this.state.objectives) {
+      const dist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
+      if (dist <= 3.0) return obj;
+    }
+    return null;
+  }
+
+  private renderObjectiveCard(obj: Objective): string {
+    const isHost = obj.controllingPlayerId === this.state?.hostId;
+    const isGuest = obj.controllingPlayerId === this.state?.guestId;
+    const teamClass = obj.isContested
+      ? 'contested'
+      : isHost
+      ? 'team-blue'
+      : isGuest
+      ? 'team-red'
+      : 'neutral';
+    const statusText = obj.isContested
+      ? 'Contested'
+      : isHost
+      ? 'Controlled by Host'
+      : isGuest
+      ? 'Controlled by Guest'
+      : 'Neutral (Unclaimed)';
+    const statusColor = obj.isContested
+      ? '#ff9800'
+      : isHost
+      ? '#29b6f6'
+      : isGuest
+      ? '#ef5350'
+      : '#ffd54f';
+
+    return `
+      <div class="sl-hud-datacard ${teamClass}">
+        <div class="sl-hud-datacard-header">
+          <span class="sl-hud-datacard-name">🎯 ${obj.name}</span>
+          <span class="sl-hud-datacard-meta">Objective (3.0" control radius)</span>
+          <span class="sl-hud-datacard-tags" style="color: ${statusColor}; font-weight: 700;">${statusText}</span>
+        </div>
+        <div style="font-size: 11px; color: #b0bec5;">
+          End-of-round control: friendly unit in 3", zero enemy units in 3". Persistent until seized or contested.
+        </div>
+      </div>`;
+  }
+
   private renderDataCard(): string {
     const terrainHtml = this.renderTerrainDebugCard();
     const unit = this.inspectedUnit;
-    if (!unit) return terrainHtml;
+    if (!unit) {
+      const obj = this.inspectedObjective;
+      if (obj) return this.renderObjectiveCard(obj);
+      return terrainHtml;
+    }
 
     const isMine = unit.ownerId === this.localPlayerId;
     const statusTags: string[] = [];
@@ -1900,6 +1998,7 @@ export class GameHUD {
   background: rgba(10, 12, 16, 0.82); border-bottom: 1px solid #2a2f3a; }
 .sl-hud-title { font-weight: 700; letter-spacing: 0.5px; }
 .sl-hud-round { color: #ffd54f; font-weight: 600; }
+.sl-hud-objectives-score { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #b0bec5; margin-left: 4px; padding-left: 12px; border-left: 1px solid #37474f; }
 .sl-hud-turn.mine { color: #69f0ae; font-weight: 600; }
 .sl-hud-turn.theirs { color: #ff8a65; }
 .sl-hud-room { margin-left: auto; font-family: monospace; font-size: 13px;
@@ -1938,6 +2037,8 @@ export class GameHUD {
   border: 1px solid #37474f; border-radius: 10px; padding: 8px 14px; min-width: 440px; }
 .sl-hud-datacard.mine { border-color: #29b6f6; }
 .sl-hud-datacard.enemy { border-color: #ef5350; }
+.sl-hud-datacard.contested { border-color: #ff9800; }
+.sl-hud-datacard.neutral { border-color: #ffd54f; }
 .sl-hud-datacard.team-blue { border-color: #29b6f6; }
 .sl-hud-datacard.team-blue .sl-hud-datacard-meta { color: #90caf9; }
 .sl-hud-datacard.team-red { border-color: #ef5350; }

@@ -4,11 +4,13 @@ import { Unit, Vector3 } from '../../src/gameTypes';
 import {
   advanceActivation,
   endRound,
+  evaluateObjectives,
   getActivatableUnits,
   getOpponentId,
   hasActivatableUnits,
   isRoundComplete,
 } from '../../src/engine/activation';
+import { Objective, Unit, Vector3 } from '../../src/gameTypes';
 
 const HOST = 'host1';
 const GUEST = 'guest1';
@@ -134,5 +136,110 @@ describe('activation', () => {
     const state = makeState([makeUnit('h1', HOST, { isDestroyed: true, isActivated: true })]);
     endRound(state);
     expect(state.units.find((u) => u.id === 'h1')!.isActivated).toBe(true);
+  });
+
+  describe('objectives & 4-round mission engine', () => {
+    it('captures an objective if a friendly non-shaken unit is within 3" and 0 enemy units are in 3"', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 2, y: 0, z: 0 } }),
+        makeUnit('g1', GUEST, { position: { x: 10, y: 0, z: 0 } }),
+      ]);
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBe(HOST);
+      expect(state.objectives[0].isContested).toBe(false);
+    });
+
+    it('retains persistent control when capturing unit moves away', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 10, y: 0, z: 0 } }),
+        makeUnit('g1', GUEST, { position: { x: 15, y: 0, z: 0 } }),
+      ]);
+      // Objective was previously captured by HOST
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+      ];
+
+      // No units of either side within 3"
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBe(HOST);
+      expect(state.objectives[0].isContested).toBe(false);
+    });
+
+    it('contests an objective and reverts to neutral when opposing units are simultaneously within 3"', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 2, y: 0, z: 0 } }),
+        makeUnit('g1', GUEST, { position: { x: -2, y: 0, z: 0 } }),
+      ]);
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+      ];
+
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBeNull();
+      expect(state.objectives[0].isContested).toBe(true);
+    });
+
+    it('ignores shaken, routed, or destroyed units for seizing or contesting objectives', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 2, y: 0, z: 0 } }),
+        makeUnit('g-shaken', GUEST, { position: { x: -2, y: 0, z: 0 }, status: ['shaken'] as any }),
+        makeUnit('g-routed', GUEST, { position: { x: 1, y: 0, z: 1 }, status: ['routed'] as any }),
+        makeUnit('g-dead', GUEST, { position: { x: 0, y: 0, z: 2 }, isDestroyed: true }),
+      ]);
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+
+      evaluateObjectives(state);
+      // All guest units are shaken/routed/dead, so only host unit counts
+      expect(state.objectives[0].controllingPlayerId).toBe(HOST);
+      expect(state.objectives[0].isContested).toBe(false);
+    });
+
+    it('terminates the match after round 4 and crowns the winner based on objective control', () => {
+      // Place units far from any objective so existing control is preserved
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 50, y: 0, z: 50 } }),
+        makeUnit('g1', GUEST, { position: { x: -50, y: 0, z: -50 } }),
+      ]);
+      state.turnState.roundNumber = 4;
+      state.objectives = [
+        { id: 'o1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o2', name: 'Bravo', position: { x: 10, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o3', name: 'Charlie', position: { x: -10, y: 0, z: 0 }, controllingPlayerId: GUEST, isContested: false },
+        { id: 'o4', name: 'Delta', position: { x: 0, y: 0, z: 10 }, controllingPlayerId: null, isContested: true },
+      ];
+
+      endRound(state);
+
+      expect(state.status).toBe('game-over');
+      expect(state.turnState.phase).toBe('game-over');
+      expect(state.turnState.roundNumber).toBe(4); // Did not advance to 5
+      expect(state.winner).toBe(HOST);
+      expect(state.endReason).toBe('Objective victory (2 to 1)');
+    });
+
+    it('declares a draw if players control an equal number of objectives after round 4', () => {
+      // Place units far from any objective so existing control is preserved
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 50, y: 0, z: 50 } }),
+        makeUnit('g1', GUEST, { position: { x: -50, y: 0, z: -50 } }),
+      ]);
+      state.turnState.roundNumber = 4;
+      state.objectives = [
+        { id: 'o1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o2', name: 'Bravo', position: { x: 10, y: 0, z: 0 }, controllingPlayerId: GUEST, isContested: false },
+      ];
+
+      endRound(state);
+
+      expect(state.status).toBe('game-over');
+      expect(state.winner).toBeUndefined();
+      expect(state.endReason).toBe('Match drawn (1 to 1 objectives)');
+    });
   });
 });

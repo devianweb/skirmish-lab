@@ -870,4 +870,69 @@ describe('GameHUD', () => {
       'Defender declined retaliation (no Fatigue)'
     );
   });
+
+  describe('Phase 7: Objectives & 4-Round Mission UI', () => {
+    it('displays round number out of 4 and live objective score badges in header', () => {
+      const state = scenarioState();
+      state.turnState.roundNumber = 3;
+      state.objectives = [
+        { id: 'o1', name: 'Alpha', position: { x: -5, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o2', name: 'Bravo', position: { x: 5, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o3', name: 'Charlie', position: { x: 0, y: 0, z: 5 }, controllingPlayerId: GUEST, isContested: false },
+        { id: 'o4', name: 'Delta', position: { x: 0, y: 0, z: -5 }, controllingPlayerId: null, isContested: true },
+      ];
+
+      const { container } = setup(HOST, state);
+
+      const roundEl = container.querySelector('.sl-hud-round');
+      expect(roundEl?.textContent).toBe('Round 3 / 4');
+
+      const scoreEl = container.querySelector('.sl-hud-objectives-score');
+      expect(scoreEl?.textContent).toContain('Objectives:');
+      expect(scoreEl?.textContent).toContain('Host 2');
+      expect(scoreEl?.textContent).toContain('Guest 1');
+    });
+
+    it('renders objective inspection datacard when hovering on or near an objective', () => {
+      const state = scenarioState();
+      state.objectives = [
+        { id: 'alpha', name: 'Objective Alpha', position: { x: -10, y: 0, z: -4 }, controllingPlayerId: HOST, isContested: false },
+      ];
+
+      const { hud, container } = setup(HOST, state);
+
+      // Hovering ground near Objective Alpha (within 3.0")
+      hud.handleBoardHover({ kind: 'position', position: { x: -11, y: 0, z: -4 } });
+
+      const card = container.querySelector('.sl-hud-datacard');
+      expect(card?.textContent).toContain('Objective Alpha');
+      expect(card?.textContent).toContain('Controlled by Host');
+      expect(card?.textContent).toContain('3.0" control radius');
+    });
+
+    it('displays final objective score and breakdown on game over screen', () => {
+      const state = scenarioState();
+      state.status = 'game-over';
+      state.turnState.phase = 'game-over';
+      state.winner = HOST;
+      state.endReason = 'Objective victory (3 to 1)';
+      state.objectives = [
+        { id: 'o1', name: 'Alpha', position: { x: -5, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o2', name: 'Bravo', position: { x: 5, y: 0, z: 0 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o3', name: 'Charlie', position: { x: 0, y: 0, z: 5 }, controllingPlayerId: HOST, isContested: false },
+        { id: 'o4', name: 'Delta', position: { x: 0, y: 0, z: -5 }, controllingPlayerId: GUEST, isContested: false },
+      ];
+
+      const { container } = setup(HOST, state);
+
+      const modal = container.querySelector('.sl-hud-gameover');
+      expect(modal).toBeTruthy();
+      expect(modal?.querySelector('.sl-hud-gameover-reason')?.textContent).toBe('Objective victory (3 to 1)');
+      expect(modal?.textContent).toContain('Final Objective Score');
+      expect(modal?.textContent).toContain('Host: 3');
+      expect(modal?.textContent).toContain('Guest: 1');
+      expect(modal?.textContent).toContain('Alpha: Host');
+      expect(modal?.textContent).toContain('Delta: Guest');
+    });
+  });
 });

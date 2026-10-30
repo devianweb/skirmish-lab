@@ -11,6 +11,7 @@ import {
 import { ModelLoader } from './ModelLoader';
 import { SceneManager } from './SceneManager';
 import { UnitRenderer } from './UnitRenderer';
+import { ObjectiveRenderer } from './ObjectiveRenderer';
 
 /**
  * The subset of SceneManager GameView depends on. Kept minimal so tests can
@@ -38,6 +39,8 @@ export interface GameViewOptions {
   boardRenderer?: BoardRenderer;
   /** Injected unit renderer (defaults to the real one on the scene). */
   unitRenderer?: UnitRenderer;
+  /** Injected objective renderer (defaults to a new one on the scene). */
+  objectiveRenderer?: ObjectiveRenderer;
   /** Injected model loader (defaults to a new one). */
   modelLoader?: ModelLoader;
   /** Camera for pick raycasting (defaults to the SceneManager camera). */
@@ -65,6 +68,7 @@ export class GameView {
   private boardRenderer: BoardRenderer;
   private unitRenderer: UnitRenderer;
   private markerRenderer: MarkerRenderer;
+  private objectiveRenderer: ObjectiveRenderer;
   private boardSignature: string | null = null;
 
   private camera: THREE.Camera | null;
@@ -98,6 +102,7 @@ export class GameView {
     this.boardRenderer = options.boardRenderer ?? new BoardRenderer(scene, modelLoader);
     this.unitRenderer = options.unitRenderer ?? new UnitRenderer(scene, modelLoader);
     this.markerRenderer = new MarkerRenderer(scene, modelLoader);
+    this.objectiveRenderer = options.objectiveRenderer ?? new ObjectiveRenderer(scene);
 
     this.camera = options.camera ?? this.sceneManager.getCamera?.() ?? null;
     this.inputElement = this.camera ? inputElement : null;
@@ -118,6 +123,7 @@ export class GameView {
       this.boardSignature = signature;
     }
     this.unitRenderer.syncFromState(state);
+    this.objectiveRenderer.syncFromState(state);
   }
 
   /** Start the render loop (camera controls and outcome orientation are updated each frame). */
@@ -213,12 +219,17 @@ export class GameView {
     this.markerRenderer.clearAll();
   }
 
-  /** Clear the entire 3D battlefield (board, terrain, units, and markers). */
+  /** Clear the entire 3D battlefield (board, terrain, units, markers, and objectives). */
   clear(): void {
     this.boardRenderer.clear();
     this.unitRenderer.clear();
     this.markerRenderer.clearAll();
+    this.objectiveRenderer.clear();
     this.boardSignature = null;
+  }
+
+  getObjectiveRenderer(): ObjectiveRenderer {
+    return this.objectiveRenderer;
   }
 
   // --- internals ----------------------------------------------------------
