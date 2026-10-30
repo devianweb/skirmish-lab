@@ -226,7 +226,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] **PR 6A.1: Playtest Fixes & Combat Clarity** (completed):
   - [x] Refined cover calculation: ignores adjacent shooter cover (shooting out of cover never grants cover to open targets), partial LoS flank rays for sight-blocking terrain, eliminates touching-wall false positives.
   - [x] Explicit combat modifier breakdowns in confirmation bar and dice panel (Base Q/D, Marksman, Camouflaged, Pierce, Cover, etc.).
-  - [x] Explicit Trauma Table math display (`roll X + Y tokens = Z — need 6+ to KO`) and unsaved wounds vs trauma tokens summary line.
+  - [x] Explicit Wound Effects Table math display (`roll X + Y tokens = Z — need 6+ to KO`) and unsaved wounds vs wound tokens summary line.
   - [x] Unit facing rotation on move, shoot, and charge.
   - [x] Floating 3D "0" wound outcome marker for zero-damage attack feedback.
   - [x] Trait tooltips on hover (`describeTrait`) across unit lists, weapons, and data cards.
@@ -298,7 +298,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Charger automatically pushes back 1" in both branches.
 - [x] 15-second timeout automatically chooses the default option if the player is idle or disconnects.
 - [x] Non-defending player cannot submit a reaction for their opponent.
-- [ ] Full P2P test suite passes with simulated network delays and reaction choices.
+- [x] Full P2P test suite passes with simulated network delays and reaction choices.
 
 ## Phase 7: Objectives & 4-Round Mission Engine
 **Goal:** Implement the standard tabletop skirmish win condition, match clock, and objective control mechanics (replacing pure elimination deathmatch).
@@ -308,30 +308,30 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > **Specification:** See **[RULES_SPECIFICATION.md Section 2.2](./RULES_SPECIFICATION.md#22-objective-placement--control)**.
 
 ### Tasks
-- [ ] **Objective Markers Data & State (`shared`):**
-  - [ ] Add `Objective` schema to `GameState` (ID, name, position, controllingPlayerId, isContested).
-  - [ ] Scenario generator places 3 to 5 objective markers across the battlefield (> 9" apart, outside deployment zones).
-- [ ] **Round-End Control Evaluation:**
-  - [ ] Evaluate 3" horizontal radius around each objective at round end.
-  - [ ] Marker controlled if friendly model is within 3" and 0 enemy models are within 3".
-  - [ ] Contested if opposing models are simultaneously within 3" (reverts to neutral).
-  - [ ] Shaken units cannot seize or contest objectives.
-  - [ ] Persistent control: markers remain controlled even if a unit moves away, until an enemy seizes or contests them.
-- [ ] **Match Duration Clock & Scoring:**
-  - [ ] Match concludes after exactly **4 rounds**.
-  - [ ] The player controlling the most objectives at the end of Round 4 wins.
-  - [ ] Army elimination remains an immediate fallback win condition.
-- [ ] **Objective Visuals & UI (`client`):**
-  - [ ] 3D objective beacon rendering in Three.js (glowing radius ring, vertical light beam, team color flag/marker when captured).
-  - [ ] HUD round/score header tracking objective counts for Host and Guest.
-  - [ ] End-of-game victory screen showing final objective score breakdown.
+- [x] **Objective Markers Data & State (`shared`):**
+  - [x] Add `Objective` schema to `GameState` (ID, name, position, controllingPlayerId, isContested).
+  - [x] Scenario generator places 3 to 5 objective markers across the battlefield (> 9" apart, outside deployment zones).
+- [x] **Round-End Control Evaluation:**
+  - [x] Evaluate 3" horizontal radius around each objective at round end.
+  - [x] Marker controlled if friendly model is within 3" and 0 enemy models are within 3".
+  - [x] Contested if opposing models are simultaneously within 3" (reverts to neutral).
+  - [x] Shaken units cannot seize or contest objectives.
+  - [x] Persistent control: markers remain controlled even if a unit moves away, until an enemy seizes or contests them.
+- [x] **Match Duration Clock & Scoring:**
+  - [x] Match concludes after exactly **4 rounds**.
+  - [x] The player controlling the most objectives at the end of Round 4 wins.
+  - [x] Army elimination remains an immediate fallback win condition.
+- [x] **Objective Visuals & UI (`client`):**
+  - [x] 3D objective beacon rendering in Three.js (glowing radius ring, vertical light beam, team color flag/marker when captured).
+  - [x] HUD round/score header tracking objective counts for Host and Guest.
+  - [x] End-of-game victory screen showing final objective score breakdown.
 
 ### Acceptance Criteria
-- [ ] 3 to 5 objectives render on the board with visible 3" control boundaries.
-- [ ] Non-shaken units within 3" capture objectives at the end of each round.
-- [ ] Contested objectives revert to neutral when opposing units are within 3".
-- [ ] Match terminates after 4 rounds and crowns the winner based on objective control.
-- [ ] Complete elimination still results in an immediate victory.
+- [x] 3 to 5 objectives render on the board with visible 3" control boundaries.
+- [x] Non-shaken units within 3" capture objectives at the end of each round.
+- [x] Contested objectives revert to neutral when opposing units are within 3".
+- [x] Match terminates after 4 rounds and crowns the winner based on objective control.
+- [x] Complete elimination still results in an immediate victory.
 
 ## Phase 8: Combat Enhancements: All-Weapon Firing & Split Fire
 **Goal:** Fire all equipped ranged weapons during a shoot action matching physical tabletop skirmish rules.

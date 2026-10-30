@@ -10,6 +10,11 @@ export interface Room {
   rollCache?: Map<string, any>;
 }
 
+export interface JoinRoomResult {
+  room: Room;
+  role: 'host' | 'guest';
+}
+
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
   private readonly codeLength = 6;
@@ -55,19 +60,27 @@ export class RoomManager {
     return code;
   }
 
-  joinRoom(code: string, guest: WebSocket): Room | null {
+  joinRoom(code: string, ws: WebSocket): JoinRoomResult | null {
     const room = this.rooms.get(code.toUpperCase());
     if (!room) {
       return null;
     }
-    if (room.guest) {
+
+    let role: 'host' | 'guest';
+    if (!room.host) {
+      room.host = ws;
+      role = 'host';
+      console.log(`Host rejoined room: ${code}`);
+    } else if (!room.guest) {
+      room.guest = ws;
+      role = 'guest';
+      console.log(`Guest joined room: ${code}`);
+    } else {
       return null; // Room full
     }
 
-    room.guest = guest;
     room.lastActivity = Date.now();
-    console.log(`Guest joined room: ${code}`);
-    return room;
+    return { room, role };
   }
 
   getRoom(code: string): Room | undefined {

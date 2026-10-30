@@ -115,17 +115,21 @@ export class SignalingServer {
   }
 
   private handleJoinRoom(ws: WebSocket, code: string): void {
-    const room = this.roomManager.joinRoom(code, ws);
-    if (!room) {
+    const result = this.roomManager.joinRoom(code, ws);
+    if (!result) {
       this.send(ws, { type: 'error', message: 'Room not found or full' });
       return;
     }
 
+    const { room, role } = result;
     this.clientRooms.set(ws, room.code);
-    this.send(ws, { type: 'room-joined', code: room.code, role: 'guest' });
+    this.send(ws, { type: 'room-joined', code: room.code, role });
     
-    // Notify host
-    if (room.host) {
+    // Notify peer(s)
+    if (role === 'host' && room.guest) {
+      this.send(ws, { type: 'peer-joined' });
+      this.send(room.guest, { type: 'peer-joined' });
+    } else if (role === 'guest' && room.host) {
       this.send(room.host, { type: 'peer-joined' });
     }
   }

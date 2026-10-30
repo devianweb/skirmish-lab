@@ -75,10 +75,15 @@ export class Lobby {
 
     this.signalingClient.on('room-joined', async (msg: any) => {
       this.roomCode = msg.code;
-      this.role = 'guest';
-      this.options.onRoleAssigned?.('guest');
+      const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
+      this.role = assignedRole;
+      this.options.onRoleAssigned?.(assignedRole);
       this.webrtcClient = new WebRTCClient();
-      await this.setupWebRTCAsGuest();
+      if (assignedRole === 'host') {
+        await this.setupWebRTCAsHost();
+      } else {
+        await this.setupWebRTCAsGuest();
+      }
       this.render();
     });
 
@@ -89,6 +94,11 @@ export class Lobby {
         this.webrtcClient = new WebRTCClient();
         await this.setupWebRTCAsHost();
         await this.createAndSendOffer();
+      } else if (this.role === 'guest') {
+        this.peerReadyFired = false;
+        this.webrtcClient?.close();
+        this.webrtcClient = new WebRTCClient();
+        await this.setupWebRTCAsGuest();
       }
     });
 

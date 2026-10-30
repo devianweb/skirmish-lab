@@ -29,30 +29,45 @@ describe('RoomManager', () => {
 
   it('should allow guest to join room', () => {
     const code = roomManager.createRoom(mockHost);
-    const room = roomManager.joinRoom(code, mockGuest);
-    expect(room).toBeDefined();
-    expect(room?.guest).toBe(mockGuest);
-    expect(room?.host).toBe(mockHost);
+    const result = roomManager.joinRoom(code, mockGuest);
+    expect(result).toBeDefined();
+    expect(result?.role).toBe('guest');
+    expect(result?.room.guest).toBe(mockGuest);
+    expect(result?.room.host).toBe(mockHost);
+  });
+
+  it('should allow host to rejoin vacant host slot via joinRoom when guest is present', () => {
+    const code = roomManager.createRoom(mockHost);
+    roomManager.joinRoom(code, mockGuest);
+    roomManager.removeClient(mockHost); // Host drops, guest remains
+
+    const newHost = {} as WebSocket;
+    const result = roomManager.joinRoom(code, newHost);
+    expect(result).toBeDefined();
+    expect(result?.role).toBe('host');
+    expect(result?.room.host).toBe(newHost);
+    expect(result?.room.guest).toBe(mockGuest);
   });
 
   it('should not allow joining non-existent room', () => {
-    const room = roomManager.joinRoom('XXX-XXX', mockGuest);
-    expect(room).toBeNull();
+    const result = roomManager.joinRoom('XXX-XXX', mockGuest);
+    expect(result).toBeNull();
   });
 
   it('should not allow joining full room', () => {
     const code = roomManager.createRoom(mockHost);
     roomManager.joinRoom(code, mockGuest);
     const mockGuest2 = {} as WebSocket;
-    const room = roomManager.joinRoom(code, mockGuest2);
-    expect(room).toBeNull();
+    const result = roomManager.joinRoom(code, mockGuest2);
+    expect(result).toBeNull();
   });
 
   it('should handle case-insensitive room codes', () => {
     const code = roomManager.createRoom(mockHost);
     const lowerCode = code.toLowerCase();
-    const room = roomManager.joinRoom(lowerCode, mockGuest);
-    expect(room).toBeDefined();
+    const result = roomManager.joinRoom(lowerCode, mockGuest);
+    expect(result).toBeDefined();
+    expect(result?.room.guest).toBe(mockGuest);
   });
 
   it('should remove guest when they disconnect', () => {

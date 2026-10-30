@@ -954,6 +954,41 @@ describe('GameManager', () => {
       expect(host.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
       expect(guest2.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
     });
+
+    it('terminates game after round 4 with objective control winner across the wire', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      // Set round 4 and position units so Host controls 1 objective and Guest controls 0
+      const patched = host.getGameState()!;
+      patched.turnState.roundNumber = 4;
+      // Host unit at Objective Alpha (-10, 0, -4)
+      patched.units[0].position = { x: -10, y: 0, z: -4 };
+      // Move all other units far away
+      for (let i = 1; i < patched.units.length; i++) {
+        patched.units[i].position = { x: 50 + i * 2, y: 0, z: 50 };
+      }
+      (host as any).gameState = patched;
+
+      // Finish activations for all units
+      for (const u of patched.units) {
+        u.isActivated = true;
+      }
+      host.sendAction(createAction(HOST_PLAYER_ID, 'end-round', { type: 'end-round' }));
+      await new Promise((r) => setTimeout(r, 0));
+
+      const finalHostState = host.getGameState()!;
+      const finalGuestState = guest.getGameState()!;
+
+      expect(finalHostState.status).toBe('game-over');
+      expect(finalGuestState.status).toBe('game-over');
+      expect(finalHostState.turnState.roundNumber).toBe(4);
+      expect(finalHostState.winner).toBe(HOST_PLAYER_ID);
+      expect(finalGuestState.winner).toBe(HOST_PLAYER_ID);
+      expect(finalHostState.endReason).toContain('Objective victory');
+    });
   });
 
   describe('onActionRejected subscription', () => {
