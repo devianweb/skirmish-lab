@@ -175,6 +175,47 @@ describe('applyAction: hold', () => {
   });
 });
 
+describe('applyAction: deploy-unit', () => {
+  it('places unit in deployment zone, sets isDeployed = true, and advances turn', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { isDeployed: false }),
+      makeUnit('g1', GUEST, { isDeployed: false }),
+    ]);
+    state.turnState.phase = 'deployment';
+    state.turnState.currentPlayerId = HOST;
+
+    const action = createAction(HOST, 'deploy-unit', {
+      type: 'deploy-unit',
+      unitId: 'h1',
+      position: { x: 0, y: 0, z: -12 },
+    });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+
+    const placed = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(placed.isDeployed).toBe(true);
+    expect(placed.position).toEqual({ x: 0, y: 0, z: -12 });
+    expect(outcome.state!.turnState.currentPlayerId).toBe(GUEST);
+  });
+
+  it('rejects deployment when not the player turn', () => {
+    const state = makeState([makeUnit('h1', HOST, { isDeployed: false })]);
+    state.turnState.phase = 'deployment';
+    state.turnState.currentPlayerId = GUEST;
+
+    const action = createAction(HOST, 'deploy-unit', {
+      type: 'deploy-unit',
+      unitId: 'h1',
+      position: { x: 0, y: 0, z: -12 },
+    });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toBe('Not your turn');
+  });
+});
+
 describe('applyAction: move-unit', () => {
   function moveState(): GameState {
     const state = makeState([makeUnit('h1', HOST), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } as Vector3 })]);

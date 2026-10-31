@@ -3,12 +3,18 @@ import { createInitialGameState } from '../../src/gameState';
 import { Unit, Vector3 } from '../../src/gameTypes';
 import {
   advanceActivation,
+  advanceDeployment,
   endRound,
   evaluateObjectives,
   getActivatableUnits,
+  getDeployableUnits,
+  getDeploymentZoneBounds,
   getOpponentId,
   hasActivatableUnits,
+  hasDeployableUnits,
+  isDeploymentComplete,
   isRoundComplete,
+  validateDeploymentPosition,
 } from '../../src/engine/activation';
 import { Objective, Unit, Vector3 } from '../../src/gameTypes';
 
@@ -240,6 +246,109 @@ describe('activation', () => {
       expect(state.status).toBe('game-over');
       expect(state.winner).toBeUndefined();
       expect(state.endReason).toBe('Match drawn (1 to 1 objectives)');
+    });
+  });
+
+  describe('Phase 10B: Pre-Match Deployment Engine', () => {
+    it('calculates 12" standard and vanguard deployment zone boundaries', () => {
+      const state = makeState([]);
+      // Board 36x36 (halfW = 18, halfH = 18)
+      const hostStandard = getDeploymentZoneBounds(state, HOST, false);
+      expect(hostStandard.minZ).toBe(-18);
+      expect(hostStandard.maxZ).toBe(-6);
+
+      const hostVanguard = getDeploymentZoneBounds(state, HOST, true);
+      expect(hostVanguard.minZ).toBe(-18);
+      expect(hostVanguard.maxZ).toBe(0);
+
+      const guestStandard = getDeploymentZoneBounds(state, GUEST, false);
+      expect(guestStandard.minZ).toBe(6);
+      expect(guestStandard.maxZ).toBe(18);
+
+      const guestVanguard = getDeploymentZoneBounds(state, GUEST, true);
+      expect(guestVanguard.minZ).toBe(0);
+      expect(guestVanguard.maxZ).toBe(18);
+    });
+
+    it('enforces deployment sequencing: standard units before vanguard, drop-reserves held', () => {
+      const state = makeState([
+        makeUnit('h-std', HOST, { isDeployed: false }),
+        makeUnit('h-van', HOST, { isDeployed: false, specialRules: ['vanguard'] }),
+        makeUnit('h-drop', HOST, { isDeployed: false, specialRules: ['drop-reserve'] }),
+      ]);
+
+      // Standard unit must be deployed first
+      const eligible1 = getDeployableUnits(state, HOST);
+      expect(eligible1.map((u) => u.id)).toEqual(['h-std']);
+
+      // Once standard is deployed, vanguard becomes eligible
+      state.units[0].isDeployed = true;
+      const eligible2 = getDeployableUnits(state, HOST);
+      expect(eligible2.map((u) => u.id)).toEqual(['h-van']);
+
+      // Once vanguard is deployed, no units remain for pre-match deployment (drop-reserve is held)
+      state.units[1].isDeployed = true;
+      const eligible3 = getDeployableUnits(state, HOST);
+      expect(eligible3).toHaveLength(0);
+      expect(hasDeployableUnits(state, HOST)).toBe(false);
+    });
+
+    it('validates legal deployment positions within zone and rejects obstacles/enemies', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { isDeployed: false }),
+        makeUnit('g1', GUEST, { isDeployed: true, position: { x: 0, y: 0, z: 8 } }),
+      ]);
+      state.terrain = [
+        {
+          id: 'wall-1',
+          terrainType: 'wall',
+          position: { x: 0, y: 0, z: -10 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 2, y: 1, z: 1 },
+          blocksLineOfSight: true,
+          providesCover: true,
+          isObstacle: true,
+        },
+      ];
+
+      const unit = state.units[0];
+
+      // Legal position in Host 12" zone (-18 to -6)
+      expect(validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -14 }).valid).toBe(true);
+
+      // Outside zone (too far forward at z = -4)
+      const outOfZone = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -4 });
+      expect(outOfZone.valid).toBe(false);
+      expect(outOfZone.reason).toContain('outside friendly 12" deployment zone');
+
+      // Inside terrain obstacle
+      const insideObstacle = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -10 });
+      expect(insideObstacle.valid).toBe(false);
+      expect(insideObstacle.reason).toContain('obstacle');
+    });
+
+    it('advances deployment turns and transitions to activation once all units are placed', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { isDeployed: false }),
+        makeUnit('g1', GUEST, { isDeployed: false }),
+      ]);
+      state.turnState.phase = 'deployment';
+      state.turnState.currentPlayerId = HOST;
+      state.turnState.startingPlayerId = HOST;
+
+      // Host deploys
+      state.units[0].isDeployed = true;
+      advanceDeployment(state);
+      expect(state.turnState.currentPlayerId).toBe(GUEST);
+      expect(state.turnState.phase).toBe('deployment');
+
+      // Guest deploys
+      state.units[1].isDeployed = true;
+      advanceDeployment(state);
+      // All units deployed -> Round 1 begins
+      expect(state.turnState.phase).toBe('activation');
+      expect(state.turnState.roundNumber).toBe(1);
+      expect(state.turnState.currentPlayerId).toBe(HOST);
     });
   });
 });
