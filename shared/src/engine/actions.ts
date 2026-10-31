@@ -191,6 +191,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (hasTrait(unit.result.specialRules, 'stationary')) {
         return { valid: false, reason: 'Stationary units cannot move or charge' };
       }
+      if (unit.result.hasMoved || unit.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
       if (isEngaged(unit.result)) {
         return { valid: false, reason: 'Engaged units cannot move away' };
       }
@@ -205,8 +208,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Final position does not match path end' };
       }
       const distance = pathLength(path);
-      if (distance > unit.result.remainingMovement + 0.01) {
-        return { valid: false, reason: 'Move exceeds remaining movement' };
+      const maxMove = Math.max(unit.result.speed, unit.result.remainingMovement);
+      if (distance > maxMove + 0.01) {
+        return { valid: false, reason: 'Move exceeds unit speed' };
       }
       for (const point of path) {
         if (!isWithinBoard(state, point)) {
@@ -558,7 +562,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
       unit.position = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
       unit.hasMoved = true;
-      unit.remainingMovement = round2(unit.remainingMovement - distance);
+      unit.remainingMovement = 0;
       logEntry = acceptedEntry(action);
       break;
     }
@@ -878,6 +882,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let trauma: ReturnType<typeof applyWounds> | undefined;
 
       if (choiceId === 'strike-back' && defenderMelee && dice) {
+        // Turn defender to face the charger
+        const rdx = charger.position.x - defender.position.x;
+        const rdz = charger.position.z - defender.position.z;
+        if (Math.hypot(rdx, rdz) > 1e-4) {
+          defender.rotation = { ...defender.rotation, y: Math.atan2(rdx, rdz) };
+        }
+
         const retRolls = extractAttackRolls(dice);
         const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
         const retAliveModels = charger.models?.filter((m) => !m.isDestroyed).length ?? 1;

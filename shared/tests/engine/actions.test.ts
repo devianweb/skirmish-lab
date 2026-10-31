@@ -201,10 +201,10 @@ describe('applyAction: move-unit', () => {
     const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
     expect(unit.position).toEqual({ x: 3, y: 0, z: 4 });
     expect(unit.hasMoved).toBe(true);
-    expect(unit.remainingMovement).toBe(1); // 6 - 5
+    expect(unit.remainingMovement).toBe(0);
   });
 
-  it('rejects moving further than the remaining movement', () => {
+  it('rejects moving further than unit speed', () => {
     const state = moveState();
     const action = createAction(HOST, 'move-unit', {
       type: 'move-unit',
@@ -212,7 +212,31 @@ describe('applyAction: move-unit', () => {
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 7 }],
       finalPosition: { x: 0, y: 0, z: 7 },
     });
-    expect(act(state, action).reason).toBe('Move exceeds remaining movement');
+    expect(act(state, action).reason).toBe('Move exceeds unit speed');
+  });
+
+  it('rejects moving if the unit has already moved this activation', () => {
+    const state = moveState();
+    state.units.find((u) => u.id === 'h1')!.hasMoved = true;
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
+      finalPosition: { x: 0, y: 0, z: 2 },
+    });
+    expect(act(state, action).reason).toBe('Unit has already moved or attacked this activation');
+  });
+
+  it('rejects moving if the unit has already attacked this activation', () => {
+    const state = moveState();
+    state.units.find((u) => u.id === 'h1')!.hasAttacked = true;
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
+      finalPosition: { x: 0, y: 0, z: 2 },
+    });
+    expect(act(state, action).reason).toBe('Unit has already moved or attacked this activation');
   });
 
   it('rejects moves that leave the board', () => {
