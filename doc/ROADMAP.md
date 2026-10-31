@@ -438,16 +438,16 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Pure engine unit tests in `shared/tests/engine/`.
 
 ### Sub-phase 11B: Elevation Geometry, 3D Line of Sight & Expanded Testing Map (`shared/` & `client/`)
-- [ ] Extend `TerrainPiece` schema with elevation attributes: `isDifficult`, `isDangerous`, `elevation`, `walkable`, and climb access points.
-- [ ] 3D Line of Sight raycasting updates:
-  - Models on elevated platforms within 1.0″ of edge facing the shooter receive +1 Defense (Parapet Cover).
-  - Models set back $> 1.0″$ from roof edges are visually blocked by floor polygons (floor blind spots).
-  - Plunging fire looks over ground-level low cover ($\le 1.0″$) along the line of fire.
-- [ ] Expanded default testing scenario map (`createDefaultScenarioTerrain`):
-  - Multi-level platforms, walkways, industrial pipes, ladders, stairs, low barricades, and dangerous terrain hazard zones (toxic sludge / acid pool).
-  - Curate and register new Kenney Prototype Kit models in `client/public/models/`: `ladder.glb`, `stairs-small.glb`, `floor-square.glb`, `wall-low.glb`, `pipe.glb`.
-  - Update `doc/ASSETS.md` asset mapping table with footprints and mechanical roles.
-- [ ] Unit tests for 3D elevation geometry and line of sight.
+- [x] Extend `TerrainPiece` schema with elevation attributes: `isDifficult`, `isDangerous`, `elevation`, `walkable`, and climb access points.
+- [x] 3D Line of Sight raycasting updates:
+  - [x] Models on elevated platforms within 1.0″ of edge facing the shooter receive +1 Defense (Parapet Cover).
+  - [x] Models set back $> 1.0″$ from roof edges are visually blocked by floor polygons (floor blind spots).
+  - [x] Plunging fire looks over ground-level low cover ($\le 1.0″$) along the line of fire.
+- [x] Expanded default testing scenario map (`createDefaultScenarioTerrain`):
+  - [x] Multi-level platforms, walkways, industrial pipes, ladders, stairs, low barricades, and dangerous terrain hazard zones (toxic sludge / acid pool).
+  - [x] Curate and register new Kenney Prototype Kit models in `client/public/models/`: `ladder.glb`, `stairs-small.glb`, `floor-square.glb`, `wall-low.glb`, `pipe.glb`.
+  - [x] Update `doc/ASSETS.md` asset mapping table with footprints and mechanical roles.
+- [x] Unit tests for 3D elevation geometry and line of sight.
 
 ### Sub-phase 11C: HUD Traversal Controls, Hazard Modals & 3D Visual Rendering (`client/`)
 - [ ] HUD movement confirmation bar shows Jump Test risk warning (Quality target) when moving across horizontal gaps $> 1.0″$.
