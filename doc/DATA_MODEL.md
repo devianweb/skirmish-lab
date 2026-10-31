@@ -153,6 +153,8 @@ interface Model {
   wounds: number;
   maxWounds: number;
   isDestroyed: boolean;
+  position?: Vector3;
+  rotation?: Vector3;
 }
 
 interface Vector3 {

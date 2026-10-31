@@ -1,6 +1,7 @@
 import { resolveWeapons } from './weapons';
 import { Unit, UnitStatus } from '../gameTypes';
 import { Vector3 } from '../types';
+import { createSquadPositions } from '../engine/spatial';
 
 /**
  * Fighter definitions for the two v1 armies — original, generic names and
@@ -19,6 +20,8 @@ export interface FighterDefinition {
   speed: number;          // Movement in board units (inches)
   /** Unit type used by the renderer for model selection. */
   modelType: 'leader' | 'trooper' | 'specialist' | 'heavy';
+  /** Number of models in the unit/squad (defaults to 1). */
+  modelCount?: number;
   weapons: string[];      // Weapon profile IDs
   specialRules: string[];
 }
@@ -208,14 +211,18 @@ export function createUnitFromFighter(
     maxWounds: definition.wounds,
     isActivated: false,
     isDestroyed: false,
-    models: [
-      {
-        id: `${unitId}-model-1`,
+    models: (() => {
+      const count = definition.modelCount ?? 1;
+      const positions = createSquadPositions(position, count);
+      return positions.map((pos, idx) => ({
+        id: `${unitId}-model-${idx + 1}`,
         wounds: definition.wounds,
         maxWounds: definition.wounds,
         isDestroyed: false,
-      },
-    ],
+        position: { ...pos },
+        rotation: { x: 0, y: 0, z: 0 },
+      }));
+    })(),
     weapons: resolveWeapons(definition.weapons),
     specialRules: [...definition.specialRules],
     hasMoved: false,

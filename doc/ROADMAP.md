@@ -366,10 +366,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > - **Sub-phase 9C (3D Multi-Mesh Rendering & Centroid Markers — `client/src/scene`):** Three.js `UnitRenderer` multi-mesh lifecycle and squad centroid status tracking.
 
 ### Sub-phase 9A: Spatial Schema & Coherency Engine (`shared/`)
-- [ ] Update `Model` interface to track individual `position: Vector3` and `rotation: Vector3`.
-- [ ] Coherency validation pure functions: every model must remain within **1"** of at least one other squad member, and all squad models within **6"** of the entire squad.
-- [ ] Path movement validation ensuring entire formation maintains coherency at destination.
-- [ ] Unit tests for coherency geometry in `shared/tests/engine/spatial.test.ts`.
+- [x] Update `Model` interface to track individual `position: Vector3` and `rotation: Vector3`.
+- [x] Coherency validation pure functions: every model must remain within **1"** of at least one other squad member, and all squad models within **6"** of the entire squad.
+- [x] Path movement validation ensuring entire formation maintains coherency at destination.
+- [x] Unit tests for coherency geometry in `shared/tests/engine/spatial.test.ts`.
 
 ### Sub-phase 9B: Casualty Cascade & Melee Consolidation (`shared/`)
 - [ ] Unsaved wounds eliminate individual squad models outright without rolling wound effects.
