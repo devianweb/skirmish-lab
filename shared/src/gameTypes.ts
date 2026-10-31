@@ -57,6 +57,8 @@ export interface Model {
   wounds: number;
   maxWounds: number;
   isDestroyed: boolean;
+  position?: Vector3;
+  rotation?: Vector3;
 }
 
 export interface WeaponProfile {
@@ -176,8 +178,8 @@ export type ActionType =
 
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3 }
+  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[] }
+  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[] }
   | {
       type: 'shoot';
       attackerId: string;

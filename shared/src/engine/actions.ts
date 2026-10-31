@@ -31,9 +31,11 @@ import {
 } from './combat';
 import {
   computePushBackPosition,
+  computeSquadCentroid,
   findMoveBlocker,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  validateSquadCoherency,
 } from './spatial';
 import { getTraitValue, hasTrait } from '../rules/traits';
 
@@ -195,10 +197,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
+        modelPositions?: Vector3[];
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
@@ -234,6 +237,26 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const blocker = findMoveBlocker(state, unit.result, path);
       if (blocker.blocked) {
         return { valid: false, reason: blocker.reason };
+      }
+      if (modelPositions && modelPositions.length > 0) {
+        const activeCount = unit.result.models
+          ? unit.result.models.filter((m) => !m.isDestroyed).length
+          : 1;
+        if (modelPositions.length !== activeCount && activeCount > 1) {
+          return {
+            valid: false,
+            reason: `Model positions count mismatch (${modelPositions.length} vs ${activeCount} active models)`,
+          };
+        }
+        const coherency = validateSquadCoherency(modelPositions);
+        if (!coherency.coherent) {
+          return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+        }
+        for (const pos of modelPositions) {
+          if (!isWithinBoard(state, pos)) {
+            return { valid: false, reason: 'Squad model position leaves the board' };
+          }
+        }
       }
       return { valid: true };
     }
@@ -345,10 +368,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
+        modelPositions?: Vector3[];
       };
       const actor = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in actor) return actor;
@@ -395,6 +419,26 @@ export function validateAction(state: GameState, action: GameAction): Validation
           valid: false,
           reason: 'Rush cannot end in melee contact (use Charge instead)',
         };
+      }
+      if (modelPositions && modelPositions.length > 0) {
+        const activeCount = unit.models
+          ? unit.models.filter((m) => !m.isDestroyed).length
+          : 1;
+        if (modelPositions.length !== activeCount && activeCount > 1) {
+          return {
+            valid: false,
+            reason: `Model positions count mismatch (${modelPositions.length} vs ${activeCount} active models)`,
+          };
+        }
+        const coherency = validateSquadCoherency(modelPositions);
+        if (!coherency.coherent) {
+          return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+        }
+        for (const pos of modelPositions) {
+          if (!isWithinBoard(state, pos)) {
+            return { valid: false, reason: 'Squad model position leaves the board' };
+          }
+        }
       }
       return { valid: true };
     }
@@ -633,13 +677,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
+        modelPositions?: Vector3[];
       };
       const unit = getUnit(newState, unitId)!;
-      const distance = pathLength(path);
       if (path.length >= 2) {
         const lastStep = path[path.length - 1];
         const prevStep = path[path.length - 2];
@@ -649,7 +693,35 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
         }
       }
-      unit.position = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
+      const targetPos = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
+      const deltaX = targetPos.x - unit.position.x;
+      const deltaZ = targetPos.z - unit.position.z;
+
+      if (modelPositions && modelPositions.length > 0) {
+        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          activeModels[i].position = { ...modelPositions[i] };
+        }
+        unit.position = computeSquadCentroid(modelPositions);
+      } else if (unit.models && unit.models.length > 0) {
+        for (const m of unit.models) {
+          if (!m.isDestroyed) {
+            if (m.position) {
+              m.position = {
+                x: Math.round((m.position.x + deltaX) * 100) / 100,
+                y: targetPos.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + deltaZ) * 100) / 100,
+              };
+            } else {
+              m.position = { ...targetPos };
+            }
+          }
+        }
+        unit.position = targetPos;
+      } else {
+        unit.position = targetPos;
+      }
+
       unit.hasMoved = true;
       unit.remainingMovement = 0;
       logEntry = acceptedEntry(action);
@@ -943,15 +1015,43 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'rush': {
-      const { unitId, path } = action.payload as { unitId: string; path: Vector3[] };
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
+        unitId: string;
+        path: Vector3[];
+        finalPosition?: Vector3;
+        modelPositions?: Vector3[];
+      };
       const unit = getUnit(newState, unitId)!;
-      const end = path[path.length - 1];
+      const end = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
       const dx = end.x - unit.position.x;
       const dz = end.z - unit.position.z;
       if (Math.hypot(dx, dz) > 1e-4) {
         unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
       }
-      unit.position = { ...end };
+      if (modelPositions && modelPositions.length > 0) {
+        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          activeModels[i].position = { ...modelPositions[i] };
+        }
+        unit.position = computeSquadCentroid(modelPositions);
+      } else if (unit.models && unit.models.length > 0) {
+        for (const m of unit.models) {
+          if (!m.isDestroyed) {
+            if (m.position) {
+              m.position = {
+                x: Math.round((m.position.x + dx) * 100) / 100,
+                y: end.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + dz) * 100) / 100,
+              };
+            } else {
+              m.position = { ...end };
+            }
+          }
+        }
+        unit.position = { ...end };
+      } else {
+        unit.position = { ...end };
+      }
       unit.hasMoved = true;
       unit.hasAttacked = true;
       unit.remainingMovement = 0;
@@ -969,7 +1069,25 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       };
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
-      attacker.position = { ...path[path.length - 1] };
+      const end = path[path.length - 1];
+      const deltaX = end.x - attacker.position.x;
+      const deltaZ = end.z - attacker.position.z;
+      if (attacker.models && attacker.models.length > 0) {
+        for (const m of attacker.models) {
+          if (!m.isDestroyed) {
+            if (m.position) {
+              m.position = {
+                x: Math.round((m.position.x + deltaX) * 100) / 100,
+                y: end.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + deltaZ) * 100) / 100,
+              };
+            } else {
+              m.position = { ...end };
+            }
+          }
+        }
+      }
+      attacker.position = { ...end };
       attacker.hasMoved = true;
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;

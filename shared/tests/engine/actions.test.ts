@@ -300,6 +300,76 @@ describe('applyAction: move-unit', () => {
     const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
     expect(moved.rotation.y).toBeCloseTo(Math.PI / 2);
   });
+
+  it('translates all squad models rigidly when modelPositions is omitted', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4 }],
+      finalPosition: { x: 0, y: 0, z: 4 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(moved.position).toEqual({ x: 0, y: 0, z: 4 });
+    expect(moved.models[0].position).toEqual({ x: 0, y: 0, z: 4 });
+    expect(moved.models[1].position).toEqual({ x: 0.8, y: 0, z: 4 });
+  });
+
+  it('applies explicit coherent modelPositions and sets centroid', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    const explicitPositions: Vector3[] = [
+      { x: 0, y: 0, z: 3 },
+      { x: 0, y: 0, z: 3.7 },
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.35 }],
+      finalPosition: { x: 0, y: 0, z: 3.35 },
+      modelPositions: explicitPositions,
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(moved.position).toEqual({ x: 0, y: 0, z: 3.35 });
+    expect(moved.models[0].position).toEqual({ x: 0, y: 0, z: 3 });
+    expect(moved.models[1].position).toEqual({ x: 0, y: 0, z: 3.7 });
+  });
+
+  it('rejects move-unit when explicit modelPositions violate coherency', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    const incoherentPositions: Vector3[] = [
+      { x: 0, y: 0, z: 3 },
+      { x: 2.5, y: 0, z: 3 }, // 2.5" apart > 1.0"
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 1.25, y: 0, z: 3 }],
+      finalPosition: { x: 1.25, y: 0, z: 3 },
+      modelPositions: incoherentPositions,
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('exceeds 1" limit');
+  });
 });
 
 describe('applyAction: shoot', () => {
