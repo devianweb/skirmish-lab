@@ -478,32 +478,32 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       expect(res.maxDistanceToNearestMember).toBeCloseTo(0.8, 2);
     });
 
-    it('rejects 2 models exceeding 1" separation', () => {
+    it('rejects 2 models exceeding coherency separation', () => {
       const res = validateSquadCoherency([
         { x: 0, y: 0, z: 0 },
-        { x: 1.5, y: 0, z: 0 },
+        { x: 2.5, y: 0, z: 0 },
       ]);
       expect(res.coherent).toBe(false);
-      expect(res.reason).toContain('exceeds 1" limit');
+      expect(res.reason).toContain('exceeds 2" limit');
     });
 
-    it('validates 3 models in triangle formation where all pairs are within 1"', () => {
-      const positions = createSquadPositions({ x: 0, y: 0, z: 0 }, 3, 0.8);
+    it('validates 3 models in triangle formation where all pairs are within coherency', () => {
+      const positions = createSquadPositions({ x: 0, y: 0, z: 0 }, 3, 1.4);
       const res = validateSquadCoherency(positions);
       expect(res.coherent).toBe(true);
-      expect(res.maxDistanceBetweenModels).toBeLessThanOrEqual(1.0);
+      expect(res.maxDistanceBetweenModels).toBeLessThanOrEqual(2.0);
     });
 
     it('rejects formation when a model is isolated from the squad', () => {
       const positions: Vector3[] = [
         { x: 0, y: 0, z: 0 },
-        { x: 0.6, y: 0, z: 0 },
-        { x: 2.5, y: 0, z: 0 }, // 1.9" away from nearest member
+        { x: 1.4, y: 0, z: 0 },
+        { x: 4.0, y: 0, z: 0 }, // 2.6" away from nearest member (> 2.0")
       ];
       const res = validateSquadCoherency(positions);
       expect(res.coherent).toBe(false);
       expect(res.reason).toContain('Model 3');
-      expect(res.reason).toContain('exceeds 1" limit');
+      expect(res.reason).toContain('exceeds 2" limit');
     });
 
     it('rejects formation split into 2 disconnected groups even when under 6" spread', () => {
@@ -568,13 +568,18 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
   });
 
   describe('createSquadPositions', () => {
-    it('generates coherent positions for 1, 2, 3, and 5 model formations', () => {
+    it('generates coherent positions with clear base separation for 1, 2, 3, and 5 model formations', () => {
       for (const count of [1, 2, 3, 5]) {
         const center = { x: 4, y: 0, z: -2 };
-        const positions = createSquadPositions(center, count, 0.8);
+        const positions = createSquadPositions(center, count);
         expect(positions).toHaveLength(count);
         const coherency = validateSquadCoherency(positions);
         expect(coherency.coherent).toBe(true);
+        if (count > 1) {
+          // Verify models have at least 0.3" edge-to-edge gap (bases with diameter 1.0" do not intersect)
+          expect(coherency.maxDistanceToNearestMember).toBeGreaterThanOrEqual(1.2);
+          expect(coherency.maxDistanceToNearestMember).toBeLessThanOrEqual(2.0);
+        }
       }
     });
   });
@@ -609,7 +614,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       ];
       const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 3 }, incoherent);
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('exceeds 1" limit');
+      expect(result.reason).toContain('exceeds 2" limit');
     });
 
     it('rejects formation move if a model ends outside the battlefield', () => {
@@ -739,6 +744,137 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       };
       const stateBlocked = makeState([highAttacker, groundTarget], [tallWall]);
       expect(hasLineOfSight(stateBlocked, highAttacker, groundTarget)).toBe(false);
+    });
+  });
+
+  describe('3D Movement, Traversal & Obstacle Navigation (Phase 11)', () => {
+    it('allows movement along an elevated platform when a ground obstacle crate is below', () => {
+      const platform: TerrainPiece = {
+        id: 'platform-1',
+        terrainType: 'platform',
+        position: { x: 0, y: 2.5, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 6, y: 0.3, z: 6 },
+        elevation: 2.5,
+        isWalkable: true,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+      const groundCrate: TerrainPiece = {
+        id: 'crate-ground',
+        terrainType: 'crate',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const unit = makeUnit('u1', HOST, { x: -2, y: 2.5, z: 0 });
+      const state = makeState([unit], [platform, groundCrate]);
+
+      const path = [
+        { x: -2, y: 2.5, z: 0 },
+        { x: 2, y: 2.5, z: 0 },
+      ];
+      const blocker = findMoveBlocker(state, unit, path);
+      expect(blocker.blocked).toBe(false);
+    });
+
+    it('allows movement across walkable elevated surfaces even if marked as obstacle', () => {
+      const solidBuilding: TerrainPiece = {
+        id: 'building-1',
+        terrainType: 'platform',
+        position: { x: 0, y: 2.5, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2.5, z: 4 },
+        elevation: 2.5,
+        isWalkable: true,
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const unit = makeUnit('u1', HOST, { x: -1, y: 2.5, z: 0 });
+      const state = makeState([unit], [solidBuilding]);
+
+      const path = [
+        { x: -1, y: 2.5, z: 0 },
+        { x: 1, y: 2.5, z: 0 },
+      ];
+      const blocker = findMoveBlocker(state, unit, path);
+      expect(blocker.blocked).toBe(false);
+    });
+
+    it('allows movement when fighters are on different elevation tiers', () => {
+      const platform: TerrainPiece = {
+        id: 'platform-1',
+        terrainType: 'platform',
+        position: { x: 0, y: 2.5, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 6, y: 0.3, z: 6 },
+        elevation: 2.5,
+        isWalkable: true,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+      const groundFighter = makeUnit('ground-u', GUEST, { x: 0, y: 0, z: 0 });
+      const roofFighter = makeUnit('roof-u', HOST, { x: -2, y: 2.5, z: 0 });
+      const state = makeState([roofFighter, groundFighter], [platform]);
+
+      // Roof fighter walks across (x: -2 -> 2) passing directly over ground fighter (x: 0, y: 0)
+      const path = [
+        { x: -2, y: 2.5, z: 0 },
+        { x: 2, y: 2.5, z: 0 },
+      ];
+      const blocker = findMoveBlocker(state, roofFighter, path);
+      expect(blocker.blocked).toBe(false);
+    });
+
+    it('clampMoveDestinationWithObstacles preserves elevation on walkable platforms', () => {
+      const platform: TerrainPiece = {
+        id: 'platform-1',
+        terrainType: 'platform',
+        position: { x: 0, y: 2.5, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 8, y: 0.3, z: 8 },
+        elevation: 2.5,
+        isWalkable: true,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+      const unit = makeUnit('u1', HOST, { x: 0, y: 2.5, z: 0 });
+      unit.remainingMovement = 4.0;
+      const state = makeState([unit], [platform]);
+
+      // Request move 6" away (exceeding 4.0" speed)
+      const dest = clampMoveDestinationWithObstacles(state, unit, { x: 6, y: 2.5, z: 0 }, 4.0);
+      expect(dest.x).toBeCloseTo(4.0, 1);
+      expect(dest.y).toBe(2.5);
+    });
+
+    it('findNavPath preserves 3D platform elevation along path', () => {
+      const platform: TerrainPiece = {
+        id: 'platform-1',
+        terrainType: 'platform',
+        position: { x: 0, y: 2.5, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 8, y: 0.3, z: 8 },
+        elevation: 2.5,
+        isWalkable: true,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+      const unit = makeUnit('u1', HOST, { x: -2, y: 2.5, z: 0 });
+      const state = makeState([unit], [platform]);
+
+      const path = findNavPath(state, unit, { x: 2, y: 2.5, z: 0 }, 6.0);
+      expect(path.length).toBeGreaterThanOrEqual(2);
+      expect(path[0].y).toBe(2.5);
+      expect(path[path.length - 1].y).toBe(2.5);
     });
   });
 });

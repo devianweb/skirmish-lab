@@ -26,10 +26,10 @@ export function pathLength3D(path: Vector3[]): number {
 }
 
 /**
- * Maximum vertical height difference for melee engagement without being on the same platform surface.
- * Ground models cannot strike targets on ledges > 1.0" tall without climbing up.
+ * Maximum vertical height difference for melee engagement.
+ * Core rules: Models must strike enemies within 2" horizontally and 4" vertically.
  */
-export const MELEE_MAX_VERTICAL_REACH = 1.05;
+export const MELEE_MAX_VERTICAL_REACH = 4.05;
 
 /** Validates whether two models can engage in Close Quarters Combat vertically. */
 export function validateMeleeVerticalReach(a: Vector3, b: Vector3): boolean {
@@ -121,7 +121,10 @@ export function isPathDangerous(
  * Scans a path for vertical downward drops.
  * Returns the maximum downward drop across any segment.
  */
-export function detectPathFall(path: Vector3[]): {
+export function detectPathFall(
+  path: Vector3[],
+  state?: GameState | null
+): {
   maxDrop: number;
   dropStartIndex: number;
 } {
@@ -129,10 +132,25 @@ export function detectPathFall(path: Vector3[]): {
   let dropStartIndex = -1;
 
   for (let i = 1; i < path.length; i++) {
-    const prevY = path[i - 1].y ?? 0;
-    const currY = path[i].y ?? 0;
+    const prev = path[i - 1];
+    const curr = path[i];
+    const prevY = prev.y ?? 0;
+    const currY = curr.y ?? 0;
     const drop = prevY - currY;
     if (drop > maxDrop) {
+      if (state) {
+        const piece = findTerrainAtPosition(state, curr) || findTerrainAtPosition(state, prev);
+        const isStairsOrLadder =
+          piece &&
+          (piece.terrainType === 'stairs' ||
+            piece.terrainType === 'ladder' ||
+            piece.climbType === 'stairs' ||
+            piece.climbType === 'ladder' ||
+            piece.climbType === 'ramp');
+        if (isStairsOrLadder) {
+          continue;
+        }
+      }
       maxDrop = drop;
       dropStartIndex = i - 1;
     }

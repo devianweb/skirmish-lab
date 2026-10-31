@@ -423,7 +423,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!validateMeleeVerticalReach(end, target.result.position)) {
         return {
           valid: false,
-          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+          reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
         };
       }
       const weapon = weaponId
@@ -484,7 +484,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
         (u) =>
           !u.isDestroyed &&
           u.ownerId !== action.actorId &&
-          boardDistance(end, u.position) <= ENGAGEMENT_RANGE
+          boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+          Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
       );
       if (wouldEngage) {
         return {
@@ -538,7 +539,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!validateMeleeVerticalReach(attacker.result.position, target.result.position)) {
         return {
           valid: false,
-          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+          reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
         };
       }
       const weapon = getWeapon(attacker.result, weaponId ?? '');
@@ -616,7 +617,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
         specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
-      const fall = detectPathFall(path);
+      const fall = detectPathFall(path, state);
       if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
         specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         specs.push({ count: 1, sides: 6, purpose: 'trauma' });
@@ -752,7 +753,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
         traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
-      const fall = detectPathFall(chargePayload.path);
+      const fall = detectPathFall(chargePayload.path, state);
       if (fall.maxDrop > 3.05 && !hasTrait(attacker.specialRules, 'airborne')) {
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
@@ -830,7 +831,7 @@ function applyTraversalHazardsAndFalls(
   }
 
   // 3. Falling damage for drops > 3.0"
-  const fall = detectPathFall(path);
+  const fall = detectPathFall(path, state);
   if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
     const defRoll =
       dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
@@ -1412,10 +1413,25 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         let pushBackPos: Vector3 | undefined;
 
         if (target.isDestroyed) {
+          // If defender is destroyed, charger may consolidate up to 3"
+          consolidateSquadToward(newState, attacker, target.position, 3.0);
           refreshEngagements(newState);
         } else if (!defenderMelee) {
           pushBackPos = computePushBackPosition(newState, attacker, target, 2.0);
+          const deltaX = pushBackPos.x - attacker.position.x;
+          const deltaZ = pushBackPos.z - attacker.position.z;
           attacker.position = { ...pushBackPos };
+          if (attacker.models && attacker.models.length > 0) {
+            for (const m of attacker.models) {
+              if (!m.isDestroyed && m.position) {
+                m.position = {
+                  x: Math.round((m.position.x + deltaX) * 100) / 100,
+                  y: pushBackPos.y ?? m.position.y ?? 0,
+                  z: Math.round((m.position.z + deltaZ) * 100) / 100,
+                };
+              }
+            }
+          }
           pushedBack = true;
           attacker.status = attacker.status.filter((s) => s !== 'engaged');
           target.status = target.status.filter((s) => s !== 'engaged');
@@ -1574,13 +1590,29 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let pushBackPos: Vector3 | undefined;
       if (!charger.isDestroyed && !defender.isDestroyed) {
         pushBackPos = computePushBackPosition(newState, charger, defender, 2.0);
+        const deltaX = pushBackPos.x - charger.position.x;
+        const deltaZ = pushBackPos.z - charger.position.z;
         charger.position = { ...pushBackPos };
+        if (charger.models && charger.models.length > 0) {
+          for (const m of charger.models) {
+            if (!m.isDestroyed && m.position) {
+              m.position = {
+                x: Math.round((m.position.x + deltaX) * 100) / 100,
+                y: pushBackPos.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + deltaZ) * 100) / 100,
+              };
+            }
+          }
+        }
         pushedBack = true;
         charger.status = charger.status.filter((s) => s !== 'engaged');
         defender.status = defender.status.filter((s) => s !== 'engaged');
       } else if (charger.isDestroyed && !defender.isDestroyed) {
         // Defender consolidates up to 3" upon wiping out charger in melee retaliation
         consolidateSquadToward(newState, defender, charger.position, 3.0);
+      } else if (!charger.isDestroyed && defender.isDestroyed) {
+        // Charger consolidates up to 3" upon wiping out defender in melee
+        consolidateSquadToward(newState, charger, defender.position, 3.0);
       }
 
       newState.turnState.pendingReaction = null;
@@ -1851,6 +1883,7 @@ function refreshEngagements(state: GameState): void {
         !other.isDestroyed &&
         other.ownerId !== unit.ownerId &&
         boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01 &&
+        Math.abs((unit.position.y ?? 0) - (other.position.y ?? 0)) <= 1.5 &&
         (other.weapons.some((w) => w.isEquipped && w.profile.type === 'melee') ||
          unit.weapons.some((w) => w.isEquipped && w.profile.type === 'melee'))
     );

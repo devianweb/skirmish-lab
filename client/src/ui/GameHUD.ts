@@ -22,6 +22,7 @@ import {
   isPathDangerous,
   isPathDifficult,
   Objective,
+  OBJECTIVE_CONTROL_RADIUS,
   pathLength,
   pathLength3D,
   ShootingRayDebugInfo,
@@ -409,12 +410,13 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
-        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0")
+        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0" horizontal, <= 1.5" vertical)
         if (this.movePreview) {
           const enemy = this.enemyUnits.find(
             (e) =>
               !e.isDestroyed &&
-              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0
+              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0 &&
+              Math.abs((e.position.y ?? 0) - (this.movePreview!.y ?? 0)) <= 1.5
           );
           this.hoveredEngagedTargetId = enemy ? enemy.id : null;
         } else {
@@ -444,9 +446,9 @@ export class GameHUD {
         const dz = active.position.z - enemy.position.z;
         const len = Math.hypot(dx, dz) || 1;
         const contactTarget = {
-          x: Math.round((enemy.position.x + (dx / len) * 0.9) * 100) / 100,
-          y: 0,
-          z: Math.round((enemy.position.z + (dz / len) * 0.9) * 100) / 100,
+          x: Math.round((enemy.position.x + (dx / len) * 1.0) * 100) / 100,
+          y: active.position.y ?? 0,
+          z: Math.round((enemy.position.z + (dz / len) * 1.0) * 100) / 100,
         };
         const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
           ignoreUnitId: enemy.id,
@@ -637,7 +639,7 @@ export class GameHUD {
     if (isDifficult) {
       summary += ' · [Difficult Terrain: 6.0" speed cap]';
     }
-    const fall = detectPathFall(path);
+    const fall = detectPathFall(path, this.state);
     if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
       summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
     }
@@ -690,7 +692,10 @@ export class GameHUD {
     }
 
     const wouldEngage = this.enemyUnits.some(
-      (e) => !e.isDestroyed && Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0
+      (e) =>
+        !e.isDestroyed &&
+        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
     );
     if (wouldEngage) {
       this.showToast('Rush cannot end in melee contact — use Charge instead');
@@ -702,7 +707,7 @@ export class GameHUD {
     if (isDifficult) {
       summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
     }
-    const fall = detectPathFall(path);
+    const fall = detectPathFall(path, this.state);
     if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
       summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
     }
@@ -826,14 +831,14 @@ export class GameHUD {
         return;
       }
 
-      // Charge ends at 0.9" engagement distance of the target.
+      // Charge ends at true base contact (1.0" center-to-center for 0.5" radius bases).
       const dx = active.position.x - target.position.x;
       const dz = active.position.z - target.position.z;
       const len = Math.hypot(dx, dz) || 1;
       const contactTarget = {
-        x: Math.round((target.position.x + (dx / len) * 0.9) * 100) / 100,
-        y: 0,
-        z: Math.round((target.position.z + (dz / len) * 0.9) * 100) / 100,
+        x: Math.round((target.position.x + (dx / len) * 1.0) * 100) / 100,
+        y: active.position.y ?? 0,
+        z: Math.round((target.position.z + (dz / len) * 1.0) * 100) / 100,
       };
 
       const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
@@ -846,7 +851,7 @@ export class GameHUD {
         return;
       }
       if (!validateMeleeVerticalReach(end, target.position)) {
-        this.showToast('Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)');
+        this.showToast('Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)');
         return;
       }
       const isDifficult = isPathDifficult(this.state!, path, active);
@@ -865,7 +870,7 @@ export class GameHUD {
       if (isDifficult) {
         traversalNotes += ' · [Difficult Terrain 6.0" cap]';
       }
-      const fall = detectPathFall(path);
+      const fall = detectPathFall(path, this.state);
       if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
         traversalNotes += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1)`;
       }
@@ -914,7 +919,7 @@ export class GameHUD {
           weaponId: weapon.id,
           ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
         }),
-        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
+        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into base contact) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
       return;
     }
@@ -1818,6 +1823,21 @@ export class GameHUD {
       ? '#ef5350'
       : '#ffd54f';
 
+    const hostCount = (this.state?.units ?? []).filter(
+      (u) =>
+        u.ownerId === this.state?.hostId &&
+        !u.isDestroyed &&
+        !u.status.includes('shaken') &&
+        Math.hypot(u.position.x - obj.position.x, u.position.z - obj.position.z) <= OBJECTIVE_CONTROL_RADIUS
+    ).length;
+    const guestCount = (this.state?.units ?? []).filter(
+      (u) =>
+        u.ownerId === this.state?.guestId &&
+        !u.isDestroyed &&
+        !u.status.includes('shaken') &&
+        Math.hypot(u.position.x - obj.position.x, u.position.z - obj.position.z) <= OBJECTIVE_CONTROL_RADIUS
+    ).length;
+
     return `
       <div class="sl-hud-datacard ${teamClass}">
         <div class="sl-hud-datacard-header">
@@ -1825,7 +1845,10 @@ export class GameHUD {
           <span class="sl-hud-datacard-meta">Objective (3.0" control radius)</span>
           <span class="sl-hud-datacard-tags" style="color: ${statusColor}; font-weight: 700;">${statusText}</span>
         </div>
-        <div style="font-size: 11px; color: #b0bec5;">
+        <div style="font-size: 12px; margin-top: 4px; font-weight: 600; color: #eceff1;">
+          Unit Presence: <span style="color: #29b6f6;">Host: ${hostCount}</span> · <span style="color: #ef5350;">Guest: ${guestCount}</span>
+        </div>
+        <div style="font-size: 11px; color: #b0bec5; margin-top: 2px;">
           End-of-round control: friendly unit in 3", zero enemy units in 3". Persistent until seized or contested.
         </div>
       </div>`;
@@ -1833,10 +1856,13 @@ export class GameHUD {
 
   private renderDataCard(): string {
     const terrainHtml = this.renderTerrainDebugCard();
+    // Hovering an objective beacon takes precedence for inspection
+    const hoveredObj = this.inspectedObjective;
+    if (hoveredObj) {
+      return `${terrainHtml}${this.renderObjectiveCard(hoveredObj)}`;
+    }
     const unit = this.inspectedUnit;
     if (!unit) {
-      const obj = this.inspectedObjective;
-      if (obj) return this.renderObjectiveCard(obj);
       return terrainHtml;
     }
 
