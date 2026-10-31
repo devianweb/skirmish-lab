@@ -23,6 +23,8 @@ import {
   isPathDifficult,
   isUnitInObjectiveRange,
   Objective,
+  OBJECTIVE_CONTROL_MAX_VERTICAL,
+  OBJECTIVE_CONTROL_RADIUS,
   pathLength,
   pathLength3D,
   ShootingRayDebugInfo,
@@ -441,6 +443,9 @@ export class GameHUD {
       pendingReaction.type === 'melee-consolidation' &&
       pendingReaction.promptingPlayerId === this.localPlayerId
     ) {
+      if (this.flow.mode === 'confirming') {
+        return;
+      }
       const victorId = pendingReaction.data?.unitId;
       const victor = this.state.units.find((u) => u.id === victorId);
       if (victor && target?.kind === 'position') {
@@ -1723,7 +1728,7 @@ export class GameHUD {
         const warningHtml = pendingReaction.warning
           ? `<div class="sl-hud-reaction-warning">${pendingReaction.warning}</div>`
           : '';
-        const optionsHtml = pendingReaction.options
+        const optionsHtml = (pendingReaction.options ?? [])
           .map((opt) => {
             const btnClass = opt.style === 'primary' ? 'primary' : opt.style === 'danger' ? 'danger' : '';
             return `<button class="sl-hud-btn ${btnClass}" data-reaction-choice="${opt.id}" data-reaction-id="${pendingReaction.id}">${opt.label}</button>`;
@@ -1842,13 +1847,14 @@ export class GameHUD {
     return null;
   }
 
-  /** Objective shown in the RTS data card when hovering within its 3" control radius. */
+  /** Objective shown in the RTS data card when hovering within its 3" horizontal and 3" vertical control volume. */
   private get inspectedObjective(): Objective | null {
     if (!this.state?.objectives || !this.hoveredGroundPosition) return null;
     const pos = this.hoveredGroundPosition;
     for (const obj of this.state.objectives) {
       const dist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
-      if (dist <= 3.0) return obj;
+      const dy = Math.abs((pos.y ?? 0) - (obj.position.y ?? 0));
+      if (dist <= OBJECTIVE_CONTROL_RADIUS && dy <= OBJECTIVE_CONTROL_MAX_VERTICAL) return obj;
     }
     return null;
   }
@@ -1889,7 +1895,7 @@ export class GameHUD {
       <div class="sl-hud-datacard ${teamClass}">
         <div class="sl-hud-datacard-header">
           <span class="sl-hud-datacard-name">🎯 ${obj.name}</span>
-          <span class="sl-hud-datacard-meta">Objective (3.0" control radius)</span>
+          <span class="sl-hud-datacard-meta">Objective (${OBJECTIVE_CONTROL_RADIUS.toFixed(1)}" control radius, ±${OBJECTIVE_CONTROL_MAX_VERTICAL.toFixed(1)}" vertical)</span>
           <span class="sl-hud-datacard-tags" style="color: ${statusColor}; font-weight: 700;">${statusText}</span>
         </div>
         <div style="font-size: 12px; margin-top: 4px; font-weight: 600; color: #eceff1;">

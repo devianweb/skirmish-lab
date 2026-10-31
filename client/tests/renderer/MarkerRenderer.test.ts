@@ -120,6 +120,23 @@ describe('MarkerRenderer', () => {
     expect(renderer.getRenderedMarkerNames()).toContain('marker-units-debug');
   });
 
+  it('renders objective debug wireframes (3D cylinder bounds) when objectives are provided', () => {
+    const renderer = makeRenderer();
+    renderer.setObjectivesDebug([
+      {
+        id: 'obj-1',
+        name: 'Objective Alpha',
+        position: { x: 0, y: 0, z: 0 },
+        controllingPlayerId: null,
+        isContested: false,
+      },
+    ]);
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-objectives-debug');
+
+    renderer.setObjectivesDebug(null);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-objectives-debug');
+  });
+
   it('clears everything on clearAll', () => {
     const renderer = makeRenderer();
     renderer.setSelection({ id: 'u1', position: { x: 0, y: 0, z: 0 } });

@@ -126,20 +126,6 @@ export class ObjectiveRenderer {
     }
     group.add(baseGroup);
 
-    // 4. Floating diamond / crystal marker
-    const gemGeo = new THREE.OctahedronGeometry(0.24, 0);
-    const gemMat = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.2,
-      metalness: 0.8,
-      emissive: color,
-      emissiveIntensity: 0.35,
-    });
-    const gemMesh = new THREE.Mesh(gemGeo, gemMat);
-    gemMesh.name = `objective-${obj.id}-gem`;
-    gemMesh.position.y = 0.9;
-    group.add(gemMesh);
-
     return group;
   }
 

@@ -13,43 +13,52 @@
 ---
 
 ## 1. Objective Base Visuals & Kenney Crate Model
-- [ ] Inspect the scenario objective markers on the battlefield (Alpha, Bravo, Charlie, Delta).
-- [ ] Verify each objective base uses the Kenney blaster-kit `crate-medium.glb` model.
-- [ ] Verify the floating crystal diamond marker floats cleanly above the crate.
-- [ ] Verify the outer 3.0″ ground ring renders with softened opacity (`0.45`) and team-reactive colors (Blue for Host, Red for Guest, Orange for Contested, Gold for Neutral).
+- [x] Inspect the scenario objective markers on the battlefield (Alpha, Bravo, Charlie, Delta).
+- [x] Verify each objective base uses the Kenney blaster-kit `crate-medium.glb` model.
+- [x] Verify the outer 3.0″ ground ring renders with softened opacity (`0.45`) and team-reactive colors (Blue for Host, Red for Guest, Orange for Contested, Gold for Neutral).
+- [ ] Verify the floating crystal diamond marker has been completely removed, leaving a clean grounded crate.
+
+Notes:
+- Crystal diamond marker removed per playtest feedback.
 
 ---
 
-## 2. Objective 3.0″ Vertical Cylinder Constraint
+## 2. Objective 3.0″ Vertical Cylinder Constraint & F9 Debugger Bounds
+- [ ] **F9 3D Volume Bounds Visualization:**
+  - [ ] Press **F9** to toggle the debug overlay.
+  - [ ] Verify a 3D wireframe cylinder (radius 3.0″, height 6.0″ extending $\pm 3.0″$ vertically) renders around each objective in warm amber/gold.
+  - [ ] Verify rings render at top ($+3.0″$), middle ($0″$), and bottom ($-3.0″$) with vertical connector struts.
 - [ ] **Ground-Level Presence:**
   - [ ] Move a friendly ground unit within 3.0″ horizontally of an objective crate at $y = 0″$.
-  - [ ] Hover cursor over the objective crate: DataCard confirms `Unit Presence: Host: 1 · Guest: 0` (or `Guest: 1`).
+  - [ ] Hover cursor over the objective crate: DataCard confirms `Unit Presence: Host: 1 · Guest: 0` (or `Guest: 1`) and shows `Objective (3.0" control radius, ±3.0" vertical)`.
 - [ ] **High Vertical Rooftop Exclusion (> 3.0″):**
   - [ ] Move a fighter onto a rooftop $> 3.0″$ vertically above a ground objective (e.g., $y \ge 3.5″$).
+  - [ ] Visually verify against the F9 wireframe cylinder that the rooftop fighter sits above the top ring.
   - [ ] Hover cursor over the ground objective: Verify the elevated fighter does **NOT** count toward unit presence (`Unit Presence: 0`).
   - [ ] At round end, verify the high-rooftop unit cannot seize or contest the ground objective.
 - [ ] **Low Elevation Tier Inclusion (≤ 3.0″):**
-  - [ ] Move a fighter onto a low platform or stairs at $y = 2.5″$ within 3.0″ horizontally of the objective.
+  - [ ] Move a fighter onto a low platform or stairs at $y = 2.5″$ within 3.0″ horizontally of the objective (inside the F9 wireframe cylinder).
   - [ ] Hover cursor over the objective: Verify the fighter **DOES** count toward unit presence because vertical separation is $\le 3.0″$.
 
 ---
 
 ## 3. Interactive Melee Consolidation Move (Wipeout)
-- [ ] **Consolidation Prompt Trigger:**
-  - [ ] Initiate melee combat (via **Charge**, **Fight**, or **Melee Retaliation**) and completely destroy the defender/opponent unit.
-  - [ ] Verify the victorious unit is **NOT** pushed back and does **NOT** freeze in place.
-  - [ ] Verify an interactive prompt appears at the bottom of the screen:
+- [x] **Consolidation Prompt Trigger:**
+  - [x] Initiate melee combat (via **Charge**, **Fight**, or **Melee Retaliation**) and completely destroy the defender/opponent unit.
+  - [x] Verify the victorious unit is **NOT** pushed back and does **NOT** freeze in place.
+  - [x] Verify an interactive prompt appears at the bottom of the screen:
     - **Header:** `Victory Consolidation` with a 15-second countdown timer.
     - **Description:** `[Unit Name] wiped out [Enemy Name]! Move up to 3.0" in any direction, or stay put.`
     - **Action Button:** `Stay Put`.
-- [ ] **Interactive 3.0″ Repositioning:**
-  - [ ] With the consolidation prompt active, move your mouse over the board.
-  - [ ] Verify a 3.0″ maximum range ring and live path preview appear centered on the victorious fighter.
-  - [ ] Click a valid destination on the board within 3.0″ (toward an objective, into cover, or advancing toward another enemy).
-  - [ ] Verify the confirmation bar appears: `Consolidate [Unit Name] X.X" (max 3.0")` with **Confirm** and **Cancel** buttons.
-  - [ ] Click **Confirm**:
-    - [ ] The victorious unit (and constituent models if a squad) moves smoothly to the chosen destination.
-    - [ ] The consolidation prompt closes and combat completes cleanly.
-- [ ] **Stay Put Option:**
-  - [ ] In another melee wipeout, click **Stay Put** (or let the 15-second timer expire).
-  - [ ] Verify the consolidation prompt dismisses and the unit remains in place without moving.
+- [ ] **Interactive 3.0″ Repositioning & Confirmation Lock:**
+  - [x] With the consolidation prompt active, move your mouse over the board.
+  - [x] Verify a 3.0″ maximum range ring and live path preview appear centered on the victorious fighter.
+  - [x] Click a valid destination on the board within 3.0″ (toward an objective, into cover, or advancing toward another enemy).
+  - [x] Verify the confirmation bar appears: `Consolidate [Unit Name] X.X" (max 3.0")` with **Confirm** and **Cancel** buttons.
+  - [ ] Move mouse across the screen toward the **Confirm** button: Verify the path preview line **stays pinned** to the clicked destination rather than following the mouse cursor.
+  - [x] Click **Confirm**:
+    - [x] The victorious unit (and constituent models if a squad) moves smoothly to the chosen destination.
+    - [x] The consolidation prompt closes and combat completes cleanly.
+- [x] **Stay Put Option:**
+  - [x] In another melee wipeout, click **Stay Put** (or let the 15-second timer expire).
+  - [x] Verify the consolidation prompt dismisses and the unit remains in place without moving.

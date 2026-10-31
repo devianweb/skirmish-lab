@@ -308,6 +308,17 @@ describe('GameView', () => {
       gameView.setTerrainDebugMarker([makeTerrain()], { hoveredPieceId: 'terrain-1' });
       expect(scene.getObjectByName('marker-terrain-debug')).toBeDefined();
 
+      gameView.setObjectivesDebugMarker([
+        {
+          id: 'obj-1',
+          name: 'Objective Alpha',
+          position: { x: 0, y: 0, z: 0 },
+          controllingPlayerId: null,
+          isContested: false,
+        },
+      ]);
+      expect(scene.getObjectByName('marker-objectives-debug')).toBeDefined();
+
       gameView.setShootingDebugRayMarker({
         attackerId: 'u1',
         from: { x: 0, y: 0.45, z: 0 },
@@ -321,6 +332,7 @@ describe('GameView', () => {
 
       gameView.clearMarkers();
       expect(scene.getObjectByName('marker-terrain-debug')).toBeUndefined();
+      expect(scene.getObjectByName('marker-objectives-debug')).toBeUndefined();
       expect(scene.getObjectByName('marker-shooting-debug')).toBeUndefined();
     });
   });
