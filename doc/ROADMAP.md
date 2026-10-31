@@ -469,21 +469,38 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 12: Reconnection & Network Resilience
 **Goal:** Handle disconnections, socket recoveries, and snapshot re-syncing without dropping matches.
 
-> **Recommended AI Model:** **4.0** *(WebRTC socket recovery, IndexedDB state caching, and distributed desync prevention)*
+> **Specification:** See **[phase-12-spec.md](../.gemini/antigravity-cli/brain/af5e2845-3bb4-4667-aef8-633145239fb8/phase-12-spec.md)**.
+>
+> **Atomic Sub-Phases:**
+> - **Sub-phase 12A (DataChannel Heartbeats, P2P Ping/Pong & Timer Suspension — `client/`):** P2P heartbeat ping every 3s over WebRTC DataChannel, 6s timeout threshold detecting peer silence, top-banner disconnect warnings, and pausing/resuming reaction and turn timers while disconnected.
+> - **Sub-phase 12B (Snapshot Persistence, Storage Management & Cleanup — `client/`):** `SessionStore` utility managing `localStorage` for `skirmish_lab_active_session` and `skirmish_lab_snapshot_{roomCode}`, auto-saving confirmed `GameState` after every action, corruption safety checks, and auto-cleanup on Game Over or match abandon.
+> - **Sub-phase 12C (Reconnection Handshake, Peer Fallback State Sync & Lobby Resume UI — `client/` & `server/`):** Reconnection flow during the 5-minute grace window, Host-authoritative `state-sync` broadcast, peer fallback (`request-state-sync` if Host storage was wiped), URL query parameters (`?room=XXX-XXX`), and Lobby "Resume Match" banner.
 
-### Tasks
-- [ ] Heartbeat timeout detection across WebRTC data channel and signaling WebSocket.
-- [x] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling drops).
-- [ ] Snapshot storage and retrieval in IndexedDB / local storage.
-- [ ] Guest snapshot caching for potential host rehosting.
-- [ ] Reconnection flow: rejoin active room during the 5-minute grace window.
-- [ ] State re-sync on reconnection (host broadcasts authoritative state to rejoined guest).
-- [ ] Handle host reconnection and socket recovery.
+### Sub-phase 12A: DataChannel Heartbeat & Timer Suspension (`client/`)
+- [ ] Application-level P2P heartbeat ping/pong protocol over WebRTC DataChannel (3s ping interval, 6s silence timeout).
+- [ ] Top-banner disconnect notification when peer connection is unstable or lost (`"⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)"`).
+- [ ] Pause reaction countdown timers (e.g. Overwatch, Counter-charge) and turn timers while disconnected; resume smoothly once reconnected.
+- [ ] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
+
+### Sub-phase 12B: Snapshot Persistence & SessionStore Management (`client/`)
+- [ ] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.
+- [ ] Save active session metadata (`roomCode`, `role`, `playerId`, `playerName`, `armyId`, timestamp) and latest confirmed `GameState`.
+- [ ] Auto-save state on both Host and Guest after every confirmed action execution.
+- [ ] Auto-cleanup session data when game reaches `status: 'game-over'` or when player clicks "Leave Room".
+- [ ] Unit tests for storage operations, versioning, error handling, and quota safety.
+
+### Sub-phase 12C: Reconnection Handshake, Peer Fallback & Lobby Resume UI (`client/` & `server/`)
+- [ ] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.
+- [ ] Lobby "Resume Match" banner when an active unexpired room session is detected.
+- [ ] Reconnection handshake: Host broadcasts authoritative `state-sync` to reconnected Guest.
+- [ ] Peer fallback: If Host reconnects with empty storage, Host requests snapshot from Guest (`request-state-sync`), verifies it, and resumes authority.
+- [ ] End-to-end integration tests verifying reconnection and state restoration across drops.
 
 ### Acceptance Criteria
-- [ ] Disconnect detected via heartbeat timeout.
-- [ ] Guest has cached snapshot.
-- [ ] Host can reconnect to the same room during grace window.
+- [ ] Disconnect detected via DataChannel heartbeat timeout (6s silence) or ICE disconnect.
+- [ ] Reaction and turn timers freeze while disconnected and resume upon reconnection.
+- [ ] Both Host and Guest maintain cached snapshots in `localStorage`.
+- [ ] Host and Guest can reconnect to the same room during the 5-minute grace window.
 - [ ] Game state re-synced after reconnection without state corruption.
 - [ ] Play resumes seamlessly from the last confirmed state.
 
