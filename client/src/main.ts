@@ -121,6 +121,7 @@ const lobby = new Lobby(lobbyContainer, {
         onExit: () => {
           mapEditor?.hide();
           lobby.show();
+          (lobby as any).render?.();
           gameView.clear();
         },
         onSave: (map) => {
@@ -144,6 +145,8 @@ const lobby = new Lobby(lobbyContainer, {
     guestArmyId,
     useDeploymentPhase,
     isCreatedRoom,
+    mapId,
+    customMap,
   }) => {
     gameView.setupCameraForRole(role);
     const isHost = role === 'host';
@@ -240,7 +243,8 @@ const lobby = new Lobby(lobbyContainer, {
           hostArmyId,
           guestArmyId,
           useDeploymentPhase,
-          customMap: activeCustomMap ?? undefined,
+          mapId,
+          customMap: customMap ?? activeCustomMap ?? undefined,
         });
       }
     } else if (initialState) {

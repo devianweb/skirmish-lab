@@ -251,4 +251,107 @@ describe('MapEditor 3D Battlefield Builder', () => {
     exitBtn.click();
     expect(onExitSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('nudges selected piece and objective positions', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+
+    const piece = editor.placePieceAt('building-a', { x: 0, y: 0, z: 0 });
+    expect(piece).toBeDefined();
+
+    editor.selectPiece(piece!.id);
+    editor.nudgeSelected(1.0, -1.0);
+
+    const updatedPiece = editor.getMap().terrain.find((t) => t.id === piece!.id);
+    expect(updatedPiece?.position.x).toBe(1.0);
+    expect(updatedPiece?.position.z).toBe(-1.0);
+
+    // Test objective nudge
+    const obj = editor.placeObjectiveAt({ x: 2, y: 0, z: 2 });
+    editor.selectObjective(obj.id);
+    editor.nudgeSelected(-1.0, 1.0);
+
+    const updatedObj = editor.getMap().objectives?.find((o) => o.id === obj.id);
+    expect(updatedObj?.position.x).toBe(1.0);
+    expect(updatedObj?.position.z).toBe(3.0);
+  });
+
+  it('handles inspector buttons for rotation, elevation, duplicate, and nudge', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+
+    const piece = editor.placePieceAt('building-a', { x: 0, y: 0, z: 0 });
+    editor.selectPiece(piece!.id);
+
+    // Test nudge buttons
+    const nudgeRightBtn = container.querySelector('#nudgeRightBtn') as HTMLButtonElement;
+    expect(nudgeRightBtn).toBeTruthy();
+    nudgeRightBtn.click();
+    expect(editor.getMap().terrain.find((t) => t.id === piece!.id)?.position.x).toBe(1.0);
+
+    // Test rotate button
+    const rotBtn = container.querySelector('#inspectRotateBtn') as HTMLButtonElement;
+    expect(rotBtn).toBeTruthy();
+    rotBtn.click();
+    expect(editor.getMap().terrain.find((t) => t.id === piece!.id)?.rotation.y).toBeCloseTo(Math.PI / 2);
+
+    // Test elevation buttons
+    const elevateBtn = container.querySelector('#inspectElevateBtn') as HTMLButtonElement;
+    elevateBtn.click();
+    expect(editor.getMap().terrain.find((t) => t.id === piece!.id)?.position.y).toBe(0.5);
+
+    const lowerBtn = container.querySelector('#inspectLowerBtn') as HTMLButtonElement;
+    lowerBtn.click();
+    expect(editor.getMap().terrain.find((t) => t.id === piece!.id)?.position.y).toBe(0.0);
+
+    // Test duplicate button
+    const dupBtn = container.querySelector('#inspectDuplicateBtn') as HTMLButtonElement;
+    dupBtn.click();
+    expect(editor.getMap().terrain.length).toBeGreaterThan(1);
+  });
+
+  it('exports and imports custom map JSON definitions', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+
+    const json = editor.exportJson();
+    expect(typeof json).toBe('string');
+    expect(json).toContain('Frontier Outpost');
+
+    const customJson = JSON.stringify({
+      id: 'custom-export-test',
+      name: 'Custom Refinery Zone',
+      terrain: [
+        {
+          id: 'test-piece-1',
+          type: 'building-c',
+          position: { x: -5, y: 1.5, z: 2 },
+          scale: { x: 5, y: 3, z: 5 },
+          rotation: 0,
+        },
+      ],
+      objectives: [],
+    });
+
+    const imported = editor.importJson(customJson);
+    expect(imported.id).toBe('custom-export-test');
+    expect(imported.name).toBe('Custom Refinery Zone');
+    expect(editor.getMap().terrain).toHaveLength(1);
+  });
+
+  it('loads map presets and stored maps via loadMap', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+
+    // Load Industrial Refinery Preset
+    expect(editor.loadMap('preset:industrial-refinery')).toBe(true);
+    expect(editor.getMap().name).toBe('Industrial Refinery');
+
+    // Load Sector 7 Catwalks Preset
+    expect(editor.loadMap('preset:sector-7-catwalks')).toBe(true);
+    expect(editor.getMap().name).toBe('Sector 7 Catwalks');
+
+    // Non-existent preset returns false
+    expect(editor.loadMap('preset:invalid')).toBe(false);
+  });
 });

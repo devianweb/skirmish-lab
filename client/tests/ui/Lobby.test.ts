@@ -226,4 +226,30 @@ describe('Lobby UI', () => {
 
     expect(onOpenMapEditorSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('renders battlefield map dropdown and passes selected map to onPeerReady', () => {
+    let capturedContext: PeerReadyContext | null = null;
+    const lobby = new Lobby(container, {
+      onPeerReady: (ctx) => {
+        capturedContext = ctx;
+      },
+    });
+    (lobby as any).render();
+
+    const mapSelect = container.querySelector('#mapSelect') as HTMLSelectElement;
+    expect(mapSelect).toBeTruthy();
+    expect(mapSelect.value).toBe('preset:frontier-outpost');
+
+    // Change to Industrial Refinery
+    mapSelect.value = 'preset:industrial-refinery';
+    mapSelect.dispatchEvent(new Event('change'));
+
+    (lobby as any).roomCode = 'MAP-123';
+    (lobby as any).role = 'host';
+    (lobby as any).webrtcClient = { isConnected: () => true, close: vi.fn() };
+    (lobby as any).maybeFirePeerReady();
+
+    expect(capturedContext).toBeTruthy();
+    expect(capturedContext?.mapId).toBe('industrial-refinery');
+  });
 });
