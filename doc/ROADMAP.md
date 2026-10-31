@@ -402,10 +402,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Special rules data attributes: `vanguard` and `drop-reserve`.
 
 ### Sub-phase 10B: Pre-Match Deployment Engine (`shared/`)
-- [ ] Deployment phase state machine (`TurnPhase = 'deployment'`).
-- [ ] Pre-game roll-off for deployment initiative.
-- [ ] Alternating placement validation: units placed within friendly 12" zone, outside obstacles, > 1" from enemy models.
-- [ ] Special deployment handling: `vanguard` places after standard units; `drop-reserve` held for Round 2+.
+- [x] Deployment phase state machine (`TurnPhase = 'deployment'`).
+- [x] Pre-game roll-off for deployment initiative.
+- [x] Alternating placement validation: units placed within friendly 12" zone, outside obstacles, > 1" from enemy models.
+- [x] Special deployment handling: `vanguard` places after standard units; `drop-reserve` held for Round 2+.
 
 ### Sub-phase 10C: Deployment HUD & Lobby Selection (`client/`)
 - [ ] Lobby UI army selector allowing players to pick their faction force before connecting.

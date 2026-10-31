@@ -14,10 +14,12 @@ import {
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
   advanceActivation,
+  advanceDeployment,
   applyRoundEndMorale,
   endRound,
   getUnitsRequiringRoundMorale,
   isRoundComplete,
+  validateDeploymentPosition,
 } from './activation';
 import {
   CombatOutcome,
@@ -33,6 +35,7 @@ import {
   computePushBackPosition,
   computeSquadCentroid,
   consolidateSquadToward,
+  createSquadPositions,
   findMoveBlocker,
   hasCoverAgainstAttack,
   hasLineOfSight,
@@ -193,6 +196,35 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       if (unit.isActivated || state.turnState.unitsActivatedThisRound.includes(unitId)) {
         return { valid: false, reason: 'Unit already activated this round' };
+      }
+      return { valid: true };
+    }
+
+    case 'deploy-unit': {
+      if (state.turnState.phase !== 'deployment') {
+        return { valid: false, reason: 'Units can only be deployed during the deployment phase' };
+      }
+      const { unitId, position } = action.payload as {
+        unitId: string;
+        position: Vector3;
+        rotation?: Vector3;
+      };
+      if (action.actorId !== state.turnState.currentPlayerId) {
+        return { valid: false, reason: 'Not your turn to deploy' };
+      }
+      const unit = getUnit(state, unitId);
+      if (!unit) {
+        return { valid: false, reason: 'Unit not found' };
+      }
+      if (unit.ownerId !== action.actorId) {
+        return { valid: false, reason: 'Cannot deploy opponent unit' };
+      }
+      if (unit.isDeployed !== false) {
+        return { valid: false, reason: 'Unit is already deployed' };
+      }
+      const val = validateDeploymentPosition(state, unit, position);
+      if (!val.valid) {
+        return { valid: false, reason: val.reason };
       }
       return { valid: true };
     }
@@ -673,6 +705,34 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
       // A hold ends the unit's activation immediately without moving or acting.
       finishActivation(newState, dice);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
+    case 'deploy-unit': {
+      const { unitId, position, rotation } = action.payload as {
+        unitId: string;
+        position: Vector3;
+        rotation?: Vector3;
+      };
+      const unit = getUnit(newState, unitId)!;
+      unit.isDeployed = true;
+      unit.position = { ...position };
+      if (rotation) {
+        unit.rotation = { ...rotation };
+      } else {
+        const facing = unit.ownerId === newState.hostId ? 0 : Math.PI;
+        unit.rotation = { x: 0, y: facing, z: 0 };
+      }
+      if (unit.models && unit.models.length > 0) {
+        const count = unit.models.length;
+        const positions = createSquadPositions(position, count);
+        for (let i = 0; i < count; i++) {
+          unit.models[i].position = { ...positions[i] };
+          unit.models[i].rotation = { ...unit.rotation };
+        }
+      }
+      advanceDeployment(newState);
       logEntry = acceptedEntry(action);
       break;
     }
