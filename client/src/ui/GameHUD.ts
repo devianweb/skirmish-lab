@@ -1,4 +1,5 @@
 import {
+  CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
   createAction,
@@ -18,6 +19,7 @@ import {
   ShootingRayDebugInfo,
   Unit,
   Vector3,
+  Weapon,
 } from '@skirmish-lab/shared';
 import { soundFx } from '../audio/SoundFx';
 import { MovePathMarker } from '../renderer/MarkerRenderer';
@@ -615,53 +617,70 @@ export class GameHUD {
     );
 
     if (this.flow.action === 'shoot') {
-      const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
-      if (!weapon) {
+      const rangedWeapons = active.weapons.filter(
+        (w) => w.isEquipped && w.profile.type === 'ranged'
+      );
+      if (rangedWeapons.length === 0) {
         this.showToast('No ranged weapon');
         return;
       }
-      if (distance > weapon.profile.range + 0.01) {
-        this.showToast(`Out of range: ${distance.toFixed(1)}" vs ${weapon.profile.range}"`);
+
+      // Find all equipped ranged weapons eligible to target this unit
+      const validAllocations: Array<{ weapon: Weapon; mods: CombatModifierBreakdown; diceText: string }> = [];
+      for (const weapon of rangedWeapons) {
+        if (distance > weapon.profile.range + 0.01) continue;
+        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) continue;
+        const inCover =
+          this.state &&
+          !hasTrait(weapon.profile.specialRules, 'blast') &&
+          (target.status.includes('in-cover') ||
+            (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
+        const attacks = weapon.profile.attacks;
+        const mods = computeCombatModifiers(
+          {
+            quality: active.quality,
+            specialRules: active.specialRules,
+            weaponRules: weapon.profile.specialRules,
+            isMelee: false,
+            distance,
+            hasMoved: active.hasMoved,
+          },
+          {
+            defense: target.defense,
+            inCover: !!inCover,
+            specialRules: target.specialRules,
+            hasMoved: target.hasMoved,
+          }
+        );
+        const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+        const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+        const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+        validAllocations.push({ weapon, mods, diceText });
+      }
+
+      if (validAllocations.length === 0) {
+        this.showToast(`Out of range or no line of sight to ${target.name}`);
         return;
       }
-      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-      if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
-        this.showToast('No line of sight to target');
-        return;
-      }
-      const inCover =
-        this.state &&
-        !hasTrait(weapon.profile.specialRules, 'blast') &&
-        (target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
-      const attacks = weapon.profile.attacks;
-      const mods = computeCombatModifiers(
-        {
-          quality: active.quality,
-          specialRules: active.specialRules,
-          weaponRules: weapon.profile.specialRules,
-          isMelee: false,
-          distance,
-          hasMoved: active.hasMoved,
-        },
-        {
-          defense: target.defense,
-          inCover: !!inCover,
-          specialRules: target.specialRules,
-          hasMoved: target.hasMoved,
-        }
-      );
-      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
-      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+
+      const allocations = validAllocations.map((v) => ({
+        weaponId: v.weapon.id,
+        targetId: target.id,
+      }));
+
+      const weaponNames = validAllocations.map((v) => v.weapon.name).join(' & ');
+      const diceSummaries = validAllocations.map((v) => `${v.weapon.name}: ${v.diceText}`).join(' | ');
+
       this.beginConfirmation(
         createAction(this.localPlayerId, 'shoot', {
           type: 'shoot',
           attackerId: active.id,
           targetId: target.id,
-          weaponId: weapon.id,
+          weaponId: validAllocations[0].weapon.id,
+          allocations,
         }),
-        `${active.name} fires ${weapon.name} at ${target.name} (${distance.toFixed(1)}") · ${diceText}`
+        `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`
       );
       return;
     }
@@ -1068,6 +1087,70 @@ export class GameHUD {
               <div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — Defender declined retaliation (no Fatigue)</div>
             </div>`;
         }
+      }
+
+      if (outcome.allocations && outcome.allocations.length > 1) {
+        const allocsHtml = outcome.allocations
+          .map((alloc, idx) => {
+            const allocToHit = entry.dice!.results.find((r) => r.purpose === `alloc_${idx}_to-hit`) ?? toHit;
+            const allocDef = entry.dice!.results.find((r) => r.purpose === `alloc_${idx}_defense`) ?? defense;
+            const aHitDice = allocToHit
+              ? allocToHit.rolls
+                  .map((r) => {
+                    const isHit = r > 1 && (r >= 6 || r >= (alloc.effectiveQuality ?? 4));
+                    return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}">${r}</span>`;
+                  })
+                  .join('')
+              : '';
+            const usedDef = allocDef ? allocDef.rolls.slice(0, alloc.hitCount) : [];
+            const aDefDice =
+              usedDef.length > 0
+                ? usedDef
+                    .map((r, di) => {
+                      const isBlocked = alloc.blockedRolls
+                        ? (alloc.blockedRolls[di] ?? false)
+                        : r > 1 && r >= (alloc.effectiveDefense ?? 5);
+                      return `<span class="sl-die ${isBlocked ? 'def-pass' : 'def-fail'}">${r}</span>`;
+                    })
+                    .join('')
+                : '<span class="sl-hud-dice-empty">no hits</span>';
+
+            const allocTraumaHtml =
+              alloc.traumaRoll !== undefined
+                ? `<div class="sl-hud-dice-label" style="font-size:10px;">Wound Effect (roll ${alloc.traumaRoll} + ${alloc.traumaTokens ?? 0} WT = ${alloc.traumaTotal}):</div>
+                   <div class="sl-hud-dice-row">
+                     <span class="sl-die ${alloc.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${alloc.traumaRoll}</span>
+                     <span class="sl-hud-dice-summary">${alloc.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'}</span>
+                   </div>`
+                : '';
+
+            return `
+              <div class="sl-hud-alloc-block" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">
+                <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold; font-size: 11px;">
+                  ${alloc.weaponName ?? alloc.weaponId} → ${alloc.targetName ?? alloc.targetId}
+                </div>
+                <div class="sl-hud-dice-row">
+                  <span class="sl-hud-dice-sublabel" style="font-size:10px; margin-right:4px;">Hit (Q${alloc.effectiveQuality ?? 4}+):</span> ${aHitDice}
+                  <span class="sl-hud-dice-sublabel" style="font-size:10px; margin: 0 4px 0 8px;">Def (D${alloc.effectiveDefense ?? 5}+):</span> ${aDefDice}
+                </div>
+                ${allocTraumaHtml}
+                <div class="sl-hud-dice-summary" style="font-size: 10px; margin-top: 2px;">
+                  ${alloc.hitCount} hit${alloc.hitCount === 1 ? '' : 's'} · ${alloc.blockedCount} blocked ·
+                  <strong>${alloc.wounds} wound${alloc.wounds === 1 ? '' : 's'}</strong>
+                  ${alloc.targetDestroyed ? ' · target down' : alloc.targetShaken ? ' · shaken' : ''}
+                </div>
+              </div>`;
+          })
+          .join('');
+
+        return `
+          <div class="sl-hud-dice">
+            <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} Salvo (${outcome.allocations.length} weapons)</div>
+            ${allocsHtml}
+            <div class="sl-hud-dice-summary" style="margin-top: 6px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 4px;">
+              Total: ${outcome.hitCount} hits · ${outcome.blockedCount} blocked · ${outcome.wounds} unsaved wounds
+            </div>
+          </div>`;
       }
 
       const hitDiceHtml = toHit

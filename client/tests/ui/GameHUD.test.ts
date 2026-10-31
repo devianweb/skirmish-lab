@@ -221,7 +221,41 @@ describe('GameHUD', () => {
       attackerId: attacker.id,
       targetId: target.id,
       weaponId: 'rifle',
+      allocations: [{ weaponId: 'rifle', targetId: target.id }],
     });
+  });
+
+  it('shoot flow: fires multiple equipped ranged weapons in range', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged')
+    )!;
+    // Add second ranged weapon
+    attacker.weapons.push({
+      id: 'pistol-sidearm',
+      weaponType: 'pistol',
+      name: 'Sidearm',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 2, specialRules: [] },
+    });
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 }; // within range 12 of both weapons
+
+    activateUnit(state, HOST, attacker.id);
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Shoot');
+    hud.handleBoardPick({ kind: 'unit', unitId: target.id });
+
+    expect(container.textContent).toContain('fires Hand Cannon & Sidearm');
+    clickByText(container, 'Confirm');
+
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('shoot');
+    expect(action.payload.allocations).toEqual([
+      { weaponId: 'handcannon', targetId: target.id },
+      { weaponId: 'pistol-sidearm', targetId: target.id },
+    ]);
   });
 
   it('shoot flow: out-of-range target is refused locally', () => {
