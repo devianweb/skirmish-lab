@@ -331,7 +331,7 @@ export class GameHUD {
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
-        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.remainingMovement;
+        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
         const path = findNavPath(this.state, active, target.position, maxDist);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -540,7 +540,7 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const path = findNavPath(this.state, active, rawDestination, active.remainingMovement);
+    const path = findNavPath(this.state, active, rawDestination, active.speed);
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -1982,7 +1982,7 @@ export class GameHUD {
       markers.movementRangeUnitId = this.activeUnit.id;
       markers.movementRangeRadius = isRushMode
         ? this.activeUnit.speed * 2
-        : this.activeUnit.remainingMovement;
+        : this.activeUnit.speed;
       if (this.movePathPreview && this.movePathPreview.length >= 2) {
         markers.movePath = {
           from: this.movePathPreview[0],
