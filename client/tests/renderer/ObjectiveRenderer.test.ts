@@ -64,18 +64,18 @@ describe('ObjectiveRenderer', () => {
     expect(alphaGroup.position.x).toBe(-5);
     expect(alphaGroup.position.z).toBe(2);
 
-    // Each objective group has: ring, disc, base, gem (no vertical beam)
+    // Each objective group has: ring, disc, base (no vertical beam, no floating gem)
     const ring = alphaGroup.children.find((c) => c.name === 'objective-alpha-ring') as THREE.Mesh;
     const disc = alphaGroup.children.find((c) => c.name === 'objective-alpha-disc') as THREE.Mesh;
     const base = alphaGroup.children.find((c) => c.name === 'objective-alpha-base');
     const beam = alphaGroup.children.find((c) => c.name === 'objective-alpha-beam');
-    const gem = alphaGroup.children.find((c) => c.name === 'objective-alpha-gem') as THREE.Mesh;
+    const gem = alphaGroup.children.find((c) => c.name === 'objective-alpha-gem');
 
     expect(ring).toBeDefined();
     expect(disc).toBeDefined();
     expect(base).toBeDefined();
     expect(beam).toBeUndefined();
-    expect(gem).toBeDefined();
+    expect(gem).toBeUndefined();
 
     // Verify ring geometry outer radius is 3.0"
     const ringGeo = ring.geometry as THREE.RingGeometry;
