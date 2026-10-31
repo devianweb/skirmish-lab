@@ -154,6 +154,7 @@ export interface Objective {
 
 export const MAX_ROUNDS = 4;
 export const OBJECTIVE_CONTROL_RADIUS = 3.0;
+export const OBJECTIVE_CONTROL_MAX_VERTICAL = 3.0;
 
 export interface Board {
   width: number;
@@ -187,6 +188,7 @@ export type ActionType =
   | 'use-ability'
   | 'hold'
   | 'respond-reaction'
+  | 'consolidate-move'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round';       // Finish the round (cleanup/morale)
 
@@ -207,6 +209,7 @@ export type ActionPayload =
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
+  | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3 }
   | { type: 'end-activation' }
   | { type: 'end-round' };
 

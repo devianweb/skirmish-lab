@@ -109,8 +109,8 @@ export class ObjectiveRenderer {
     const baseGroup = new THREE.Group();
     baseGroup.name = `objective-${obj.id}-base`;
     if (this.modelLoader) {
-      const crateMesh = this.modelLoader.createTerrainMesh('crate');
-      crateMesh.scale.set(0.7, 0.7, 0.7);
+      const crateMesh = this.modelLoader.createTerrainMesh('crate-medium');
+      crateMesh.scale.set(1.0, 1.0, 1.0);
       crateMesh.position.y = 0;
       baseGroup.add(crateMesh);
     } else {

@@ -543,6 +543,49 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Maps save to browser storage and export/import cleanly to JSON.
 - [x] Host can choose a custom map in the Lobby, and Guest receives and renders identical battlefield terrain.
 
+## Phase 13.5: Tactical Combat & Movement Refinements
+**Goal:** Address tabletop fidelity, 3D verticality pathfinding, multi-weapon split targeting, multi-model squad control, and core rule alignments in atomic sub-phases.
+
+> **Recommended AI Model:** **4.0** *(3D pathfinding geometry, sequential squad movement state machines, multi-target combat allocations)*
+
+### Sub-phase 13.5A: Core Rules Alignment, Melee Consolidation & Objectives
+- [x] Fix melee consolidation bug: when an enemy unit is completely destroyed in melee, prompt the victorious player for an interactive 3.0″ move in any valid direction (advance toward next enemy, take cover, or seize an objective).
+- [x] Enforce 3.0″ vertical cylinder constraint for objective presence and control ($|\Delta y| \le 3.0″$ and horizontal distance $\le 3.0″$) across rules engine (`activation.ts`) and HUD inspection (`GameHUD.ts`).
+- [x] Asset correction: replace objective crate with the Kenney blaster-kit asset (`assets-src/kenney_blaster-kit_2.1/Models/GLB format/crate-medium.glb`) at `client/public/models/crate-medium.glb`, wired into `assetManifest.ts` and `ObjectiveRenderer.ts`.
+- [x] Unit tests for 3.0″ vertical objective control bounds and interactive post-melee consolidation moves.
+
+### Sub-phase 13.5B: Ranged Combat & Split-Fire System
+- [ ] Concentric weapon range indicators: render soft range rings for each equipped ranged weapon on the battlefield in `MarkerRenderer.ts` (e.g. 9″ sidearm ring, 24″ rifle ring) overlaid on the LoS shadow fan.
+- [ ] Interactive weapon targeting chips in HUD: display per-weapon chips in the bottom bar during Shoot mode, allowing players to assign each weapon independently to different enemy targets.
+- [ ] Split-fire engine resolution: execute multi-target shoot action in `actions.ts`, rolling combat tests per target and applying separate defense tests and wounds.
+- [ ] Unit and UI tests for split-targeting allocations and range ring rendering.
+
+### Sub-phase 13.5C: 3D Surface-Constrained Navigation & Stair Traversal
+- [ ] Surface-constrained 3D pathfinding: prohibit non-airborne models from flying diagonally through open air.
+- [ ] Intelligent stair & ladder routing: generate accurate ground-foot entrance and platform-head exit waypoints so units cleanly climb stairs/ladders at 1:1 speed.
+- [ ] Wall-base ascent fallback: if no stair/ladder is reachable, units navigate along the ground to the wall base and scale vertically as Difficult Terrain (6.0″ speed cap).
+- [ ] Unit tests verifying ground units route via stairs/ladders when available and climb sheer walls at the base only when necessary.
+
+### Sub-phase 13.5D: Multi-Model Squad Sequential Movement & UI
+- [ ] Squad model count indicators: display active and total model counts in the HUD roster list and DataCard header/tables (e.g., `Models: 2/2` or `1/2 (1 casualty)`).
+- [ ] Model-by-model sequential move interaction: clicking Move activates Model 1; clicking places Model 1 within movement range; Model 2 is then activated with a visible 2.0″ coherency circle relative to Model 1; confirm entire squad movement once all living models are placed.
+- [ ] Squad casualty visual cleanup: eliminate constituent model meshes one-by-one upon taking fatal damage while preserving survivor positions.
+- [ ] Unit and UI tests for sequential model placement and coherency validation.
+
+### Sub-phase 13.5E: Consolidated Verification Checklist & End-to-End Validation
+- [ ] Update `doc/manual-testing/PLAYTEST_VERIFICATION_CHECKLIST.md` with accurate force names (*Frontier Wardens* and *Rust Raiders*) and actual unit rosters.
+- [ ] Create streamlined, step-by-step test cases for each 13.5 sub-phase mechanic (interactive consolidation, 3D objective cylinder, split fire, stair pathfinding, sequential squad movement).
+- [ ] Verify test suite passes locally across all workspaces.
+
+### Acceptance Criteria
+- [ ] Wiping out an enemy in melee triggers an interactive 3.0″ consolidation move.
+- [ ] Ground crates cannot be seized by models on rooftops $> 3.0″$ vertically above them.
+- [ ] Objective marker uses Kenney `crate-medium.glb`.
+- [ ] Units with multiple ranged weapons can allocate weapons to different enemy targets with concentric range rings rendered.
+- [ ] Pathfinding to elevated platforms routes non-airborne units up stairs/ladders at 1:1 cost without sheer air climbs.
+- [ ] Multi-model squads can be moved model-by-model with visible 2.0″ coherency circles, and model count is shown in the HUD.
+- [ ] Consolidated verification checklist accurately reflects actual armies and verified mechanics.
+
 ## Phase 14: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
 
@@ -576,7 +619,9 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 | **Phase 10: Interactive Deployment & Pre-Canned Starter Armies** | **3.8** | Pre-canned data packs & deployment boundary checks | Writing point-balanced starter rosters is pure data; deployment is straightforward 2D boundary validation. |
 | **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
 | **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
-| **Phase 13: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
+| **Phase 13: Custom Map Editor & Presets** | **3.8** | Visual 3D scene editing, snap tools, localStorage | Drag-and-drop 3D asset placement, elevation stepping, and map schema serialization. |
+| **Phase 13.5: Tactical Combat & Movement Refinements** | **4.0** | 3D surface pathfinding, sequential squad state machine, split-targeting UI | Requires 3D spatial geometry for stairs/ramps, sequential model movement UX, and multi-weapon target allocation. |
+| **Phase 14: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
 
 > [!TIP]
 > **Hybrid Workflow within a Phase:** For 4.0 phases (such as Phase 6.5 and Phase 9), kick off with 4.0 to design the shared state schema and core engine functions in `shared/`, then switch to 3.8 to build the Three.js visual rendering, HTML/CSS HUD components, and supplementary unit tests.

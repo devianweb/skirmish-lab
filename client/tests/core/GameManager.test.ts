@@ -545,6 +545,19 @@ describe('GameManager', () => {
       );
       expect(afterFight.actionLog[afterFight.actionLog.length - 1].dice!.outcome.wounds).toBe(2);
 
+      // Target destroyed triggers interactive consolidation prompt for host victor.
+      if (afterFight.turnState.pendingReaction) {
+        expect(afterFight.turnState.pendingReaction.type).toBe('melee-consolidation');
+        host.sendAction(
+          createAction(HOST_PLAYER_ID, 'respond-reaction', {
+            type: 'respond-reaction',
+            reactionId: afterFight.turnState.pendingReaction.id,
+            choiceId: 'stay',
+          })
+        );
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
       // Host ends activation → Guest's turn.
       host.sendAction(
         createAction(HOST_PLAYER_ID, 'end-activation', { type: 'end-activation' })
@@ -1033,9 +1046,19 @@ describe('GameManager', () => {
       patched.turnState.roundNumber = 4;
       // Host unit at Objective Alpha (-10, 0, -4)
       patched.units[0].position = { x: -10, y: 0, z: -4 };
+      if (patched.units[0].models) {
+        for (const m of patched.units[0].models) {
+          m.position = { x: -10, y: 0, z: -4 };
+        }
+      }
       // Move all other units far away
       for (let i = 1; i < patched.units.length; i++) {
         patched.units[i].position = { x: 50 + i * 2, y: 0, z: 50 };
+        if (patched.units[i].models) {
+          for (const m of patched.units[i].models) {
+            m.position = { x: 50 + i * 2, y: 0, z: 50 };
+          }
+        }
       }
       (host as any).gameState = patched;
 

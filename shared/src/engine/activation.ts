@@ -1,4 +1,11 @@
-import { GameState, MAX_ROUNDS, OBJECTIVE_CONTROL_RADIUS, Unit } from '../gameTypes';
+import {
+  GameState,
+  MAX_ROUNDS,
+  Objective,
+  OBJECTIVE_CONTROL_MAX_VERTICAL,
+  OBJECTIVE_CONTROL_RADIUS,
+  Unit,
+} from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
@@ -67,7 +74,7 @@ export function advanceActivation(state: GameState): void {
  * Evaluate objective control at the end of a round per OPR skirmish rules.
  *
  * Rules:
- *   1. 3" horizontal radius around each objective marker.
+ *   1. 3" horizontal radius and 3" vertical cylinder bounds (|Δy| <= 3.0") around each marker.
  *   2. Only living, non-routed, non-shaken units can seize or contest objectives.
  *   3. If only friendly models are within 3", the friendly player controls it.
  *   4. If opposing models are simultaneously within 3", the objective becomes
@@ -75,17 +82,41 @@ export function advanceActivation(state: GameState): void {
  *   5. Persistent control: markers remain controlled if units move away, until an
  *      enemy seizes or contests them.
  */
+export function isUnitInObjectiveRange(unit: Unit, obj: Objective): boolean {
+  if (unit.isDestroyed || unit.status.includes('routed') || unit.status.includes('shaken')) {
+    return false;
+  }
+  const objY = obj.position.y ?? 0;
+  // If unit position is within range, it counts
+  const uDist = Math.hypot(unit.position.x - obj.position.x, unit.position.z - obj.position.z);
+  const uDelta = Math.abs((unit.position.y ?? 0) - objY);
+  if (
+    uDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
+    uDelta <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001
+  ) {
+    return true;
+  }
+  // Also check if any constituent model in a multi-model squad is within range
+  if (unit.models && unit.models.length > 1) {
+    const livingModels = unit.models.filter((m) => !m.isDestroyed);
+    return livingModels.some((m) => {
+      const pos = m.position ?? unit.position;
+      const hDist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
+      const vDelta = Math.abs((pos.y ?? 0) - objY);
+      return (
+        hDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
+        vDelta <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001
+      );
+    });
+  }
+  return false;
+}
+
 export function evaluateObjectives(state: GameState): void {
   if (!state.objectives || state.objectives.length === 0) return;
 
   for (const obj of state.objectives) {
-    const eligibleUnitsInRange = state.units.filter((unit) => {
-      if (unit.isDestroyed || unit.status.includes('routed') || unit.status.includes('shaken')) {
-        return false;
-      }
-      const dist = Math.hypot(unit.position.x - obj.position.x, unit.position.z - obj.position.z);
-      return dist <= OBJECTIVE_CONTROL_RADIUS + 0.001;
-    });
+    const eligibleUnitsInRange = state.units.filter((unit) => isUnitInObjectiveRange(unit, obj));
 
     const hostPresent = eligibleUnitsInRange.some((u) => u.ownerId === state.hostId);
     const guestPresent = eligibleUnitsInRange.some((u) => u.ownerId === state.guestId);

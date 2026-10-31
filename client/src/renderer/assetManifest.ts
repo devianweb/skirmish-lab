@@ -45,7 +45,8 @@ export const TERRAIN_ASSETS: Record<string, AssetDefinition> = {
     scaleVector: { x: 1 / 0.3, y: 1, z: 1 },
     rotationY: Math.PI / 2,
   },
-  crate: model('crate.glb', 1.0),
+  crate: model('crate-medium.glb', 1.0),
+  'crate-medium': model('crate-medium.glb', 1.0),
   column: {
     url: `${MODELS_BASE}column.glb`,
     scaleVector: { x: 2.5, y: 1, z: 2.5 },
