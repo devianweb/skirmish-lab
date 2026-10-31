@@ -11,11 +11,13 @@ import {
 } from '@skirmish-lab/shared';
 import { GameView, PickTarget } from '../renderer/GameView';
 import { ModelLoader } from '../renderer/ModelLoader';
+import { defaultMapStore, MapStore } from '../storage/MapStore';
 
 export interface MapEditorOptions {
   gameView?: GameView;
   modelLoader?: ModelLoader;
   initialMap?: CustomMapDefinition;
+  mapStore?: MapStore;
   onExit?: () => void;
   onSave?: (map: CustomMapDefinition) => void;
   onPlay?: (map: CustomMapDefinition) => void;
@@ -33,6 +35,7 @@ export class MapEditor {
   private rootElement: HTMLElement;
   private options: MapEditorOptions;
   private gameView?: GameView;
+  private mapStore: MapStore;
 
   private currentMap: CustomMapDefinition;
   private selectedPieceId: string | null = null;
@@ -53,6 +56,7 @@ export class MapEditor {
     this.container = container;
     this.options = options;
     this.gameView = options.gameView;
+    this.mapStore = options.mapStore ?? defaultMapStore;
 
     this.currentMap = options.initialMap
       ? JSON.parse(JSON.stringify(options.initialMap))
@@ -328,6 +332,82 @@ export class MapEditor {
     }
   }
 
+  nudgeSelected(deltaX: number, deltaZ: number): void {
+    if (this.selectedPieceId) {
+      const piece = this.currentMap.terrain.find((t) => t.id === this.selectedPieceId);
+      if (piece) {
+        piece.position.x = this.snapCoord(piece.position.x + deltaX);
+        piece.position.z = this.snapCoord(piece.position.z + deltaZ);
+        this.validateCurrentMap();
+        this.syncGameView();
+        this.render();
+      }
+    } else if (this.selectedObjectiveId) {
+      const obj = (this.currentMap.objectives ?? []).find((o) => o.id === this.selectedObjectiveId);
+      if (obj) {
+        obj.position.x = this.snapCoord(obj.position.x + deltaX);
+        obj.position.z = this.snapCoord(obj.position.z + deltaZ);
+        this.validateCurrentMap();
+        this.syncGameView();
+        this.render();
+      }
+    }
+  }
+
+  exportJson(): string {
+    return this.mapStore.exportMapJson(this.currentMap);
+  }
+
+  importJson(jsonString: string): CustomMapDefinition {
+    const imported = this.mapStore.importMapJson(jsonString);
+    this.setMap(imported);
+    return imported;
+  }
+
+  downloadMapJson(): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const jsonStr = this.exportJson();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = (this.currentMap.name || 'custom-map')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .toLowerCase();
+    a.download = `${safeName}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  loadMap(idOrPreset: string): boolean {
+    if (!idOrPreset) return false;
+    if (idOrPreset.startsWith('preset:')) {
+      const presetKey = idOrPreset.replace('preset:', '');
+      const preset = STANDARD_MAP_PRESETS[presetKey];
+      if (preset) {
+        this.setMap(preset);
+        return true;
+      }
+    } else {
+      const customId = idOrPreset.startsWith('custom:')
+        ? idOrPreset.replace('custom:', '')
+        : idOrPreset;
+      const custom = this.mapStore.getMap(customId);
+      if (custom) {
+        this.setMap(custom);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  saveToStore(): void {
+    this.mapStore.saveMap(this.currentMap);
+    this.options.onSave?.(this.getMap());
+  }
+
   // --- Keyboard & 3D Canvas Pick Listeners ----------------------------------
 
   private setupKeyboardListeners(): void {
@@ -527,13 +607,25 @@ export class MapEditor {
 
     let inspectorHtml = '';
     if (selectedPiece) {
+      const pieceMeta = TERRAIN_PALETTE_CATALOG[selectedPiece.terrainType];
+      const displayName = pieceMeta?.displayName ?? selectedPiece.terrainType;
       inspectorHtml = `
-        <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 8px; padding: 14px; width: 260px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
-          <div style="font-size: 13px; font-weight: bold; color: #90caf9; margin-bottom: 8px; text-transform: uppercase;">
-            Inspector: ${selectedPiece.terrainType}
+        <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 8px; padding: 14px; width: 280px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
+          <div style="font-size: 13px; font-weight: bold; color: #90caf9; margin-bottom: 4px; text-transform: uppercase;">
+            ${displayName}
           </div>
-          <div style="font-size: 12px; margin-bottom: 6px;">Pos: (${selectedPiece.position.x.toFixed(1)}, ${selectedPiece.position.y.toFixed(1)}, ${selectedPiece.position.z.toFixed(1)})</div>
-          <div style="font-size: 12px; margin-bottom: 10px;">Rot: ${Math.round((selectedPiece.rotation.y * 180) / Math.PI)}°</div>
+          <div style="font-size: 11px; color: #78909c; margin-bottom: 8px;">ID: ${selectedPiece.id} (${selectedPiece.terrainType})</div>
+          <div style="font-size: 12px; margin-bottom: 4px;">Pos: (${selectedPiece.position.x.toFixed(1)}, ${selectedPiece.position.y.toFixed(1)}, ${selectedPiece.position.z.toFixed(1)})</div>
+          
+          <div style="display: flex; gap: 4px; margin-bottom: 8px; align-items: center;">
+            <span style="font-size: 11px; color: #90caf9; width: 44px;">Nudge:</span>
+            <button id="nudgeLeftBtn" title="Move -X" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">← X-</button>
+            <button id="nudgeRightBtn" title="Move +X" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">→ X+</button>
+            <button id="nudgeUpBtn" title="Move -Z" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">↑ Z-</button>
+            <button id="nudgeDownBtn" title="Move +Z" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">↓ Z+</button>
+          </div>
+
+          <div style="font-size: 12px; margin-bottom: 8px;">Rot: ${Math.round((selectedPiece.rotation.y * 180) / Math.PI)}°</div>
 
           <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-bottom: 12px;">
             <label><input type="checkbox" id="inspectCover" ${selectedPiece.providesCover ? 'checked' : ''} /> Provides Cover (+1 Def)</label>
@@ -542,49 +634,84 @@ export class MapEditor {
             <label><input type="checkbox" id="inspectWalkable" ${selectedPiece.isWalkable ? 'checked' : ''} /> Walkable Surface</label>
           </div>
 
-          <div style="display: flex; gap: 6px;">
+          <div style="display: flex; gap: 4px; margin-bottom: 6px;">
             <button id="inspectRotateBtn" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Rotate (R)</button>
-            <button id="inspectElevateBtn" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">+Height (E)</button>
+            <button id="inspectDuplicateBtn" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 600; background: #37474f; color: #ffd54f; border: none; border-radius: 4px; cursor: pointer;">Duplicate (Ctrl+D)</button>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button id="inspectLowerBtn" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">-H (Q)</button>
+            <button id="inspectElevateBtn" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">+H (E)</button>
             <button id="inspectDeleteBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #c62828; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Delete</button>
           </div>
         </div>
       `;
     } else if (selectedObjective) {
       inspectorHtml = `
-        <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px; padding: 14px; width: 260px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
+        <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px; padding: 14px; width: 280px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
           <div style="font-size: 13px; font-weight: bold; color: #ffd54f; margin-bottom: 8px; text-transform: uppercase;">
             ${selectedObjective.name}
           </div>
-          <div style="font-size: 12px; margin-bottom: 6px;">Pos: (${selectedObjective.position.x.toFixed(1)}, ${selectedObjective.position.y.toFixed(1)}, ${selectedObjective.position.z.toFixed(1)})</div>
+          <div style="font-size: 12px; margin-bottom: 4px;">Pos: (${selectedObjective.position.x.toFixed(1)}, ${selectedObjective.position.y.toFixed(1)}, ${selectedObjective.position.z.toFixed(1)})</div>
+          
+          <div style="display: flex; gap: 4px; margin-bottom: 8px; align-items: center;">
+            <span style="font-size: 11px; color: #ffd54f; width: 44px;">Nudge:</span>
+            <button id="nudgeObjLeftBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">← X-</button>
+            <button id="nudgeObjRightBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">→ X+</button>
+            <button id="nudgeObjUpBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">↑ Z-</button>
+            <button id="nudgeObjDownBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">↓ Z+</button>
+          </div>
+
           <div style="font-size: 12px; margin-bottom: 12px; color: #b0bec5;">Control radius: 3.0"</div>
           <button id="inspectDeleteObjBtn" style="width: 100%; padding: 6px; font-size: 11px; font-weight: 600; background: #c62828; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Remove Objective</button>
         </div>
       `;
     }
 
+    const customMaps = this.mapStore.getMaps();
+    const savedMapsGroupHtml =
+      customMaps.length > 0
+        ? `
+          <optgroup label="Saved Custom Maps">
+            ${customMaps.map((m) => `<option value="custom:${m.id}">${m.name} (${m.terrain?.length ?? 0} pieces)</option>`).join('')}
+          </optgroup>
+        `
+        : '';
+
     this.rootElement.innerHTML = `
       <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; pointer-events: none; font-family: Arial, sans-serif;">
         <!-- Top Toolbar -->
         <div style="pointer-events: auto; background: rgba(18, 22, 28, 0.95); border-bottom: 1px solid #37474f; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-          <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-weight: bold; font-size: 16px; color: #ffd54f;">Map Builder</span>
-            <input id="mapNameInput" value="${this.currentMap.name}" placeholder="Map Name" style="padding: 6px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px; width: 200px;" />
+            <input id="mapNameInput" value="${this.currentMap.name}" placeholder="Map Name" style="padding: 6px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px; width: 170px;" />
             <div style="display: flex; align-items: center; background: #263238; border-radius: 4px; padding: 2px;">
-              <span style="font-size: 11px; color: #90caf9; padding: 0 8px;">Snap:</span>
-              <button id="snap1Btn" style="padding: 4px 8px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 1.0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 1.0 ? '#12161c' : '#cfd8dc'};">1.0"</button>
-              <button id="snap05Btn" style="padding: 4px 8px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0.5 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0.5 ? '#12161c' : '#cfd8dc'};">0.5"</button>
-              <button id="snapFreeBtn" style="padding: 4px 8px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0 ? '#12161c' : '#cfd8dc'};">Free</button>
+              <span style="font-size: 11px; color: #90caf9; padding: 0 6px;">Snap:</span>
+              <button id="snap1Btn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 1.0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 1.0 ? '#12161c' : '#cfd8dc'};">1.0"</button>
+              <button id="snap05Btn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0.5 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0.5 ? '#12161c' : '#cfd8dc'};">0.5"</button>
+              <button id="snapFreeBtn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0 ? '#12161c' : '#cfd8dc'};">Free</button>
             </div>
-            <button id="validationBadgeBtn" style="padding: 5px 10px; font-size: 12px; font-weight: bold; background: ${warningBadgeColor}; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
+            <select id="loadMapSelect" style="padding: 6px 8px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 12px;">
+              <option value="">Load Map / Preset...</option>
+              <optgroup label="Standard Presets">
+                <option value="preset:frontier-outpost">Frontier Outpost</option>
+                <option value="preset:industrial-refinery">Industrial Refinery</option>
+                <option value="preset:sector-7-catwalks">Sector 7 Catwalks</option>
+              </optgroup>
+              ${savedMapsGroupHtml}
+            </select>
+            <button id="validationBadgeBtn" style="padding: 5px 8px; font-size: 11px; font-weight: bold; background: ${warningBadgeColor}; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
               ${warningBadgeText}
             </button>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button id="autoObjBtn" style="padding: 6px 12px; font-size: 12px; font-weight: 600; background: #37474f; color: #ffd54f; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Auto Objectives</button>
-            <button id="clearBtn" style="padding: 6px 12px; font-size: 12px; font-weight: 600; background: #37474f; color: #ef5350; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Clear Board</button>
-            <button id="saveMapBtn" style="padding: 6px 14px; font-size: 12px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">Save Map</button>
-            <button id="exitEditorBtn" style="padding: 6px 14px; font-size: 12px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Exit to Lobby</button>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button id="importJsonBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Import JSON</button>
+            <input type="file" id="importJsonFileInput" accept=".json" style="display: none;" />
+            <button id="exportJsonBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Export JSON</button>
+            <button id="autoObjBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #ffd54f; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Auto Obj</button>
+            <button id="clearBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #ef5350; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Clear</button>
+            <button id="saveMapBtn" style="padding: 6px 12px; font-size: 11px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">Save Map</button>
+            <button id="exitEditorBtn" style="padding: 6px 12px; font-size: 11px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Exit</button>
           </div>
         </div>
 
@@ -633,6 +760,40 @@ export class MapEditor {
     this.rootElement.querySelector('#snap05Btn')?.addEventListener('click', () => this.setGridSnap(0.5));
     this.rootElement.querySelector('#snapFreeBtn')?.addEventListener('click', () => this.setGridSnap(0));
 
+    // Load map dropdown
+    const loadSelect = this.rootElement.querySelector<HTMLSelectElement>('#loadMapSelect');
+    loadSelect?.addEventListener('change', () => {
+      if (loadSelect.value) {
+        this.loadMap(loadSelect.value);
+      }
+    });
+
+    // Import / Export JSON
+    const fileInput = this.rootElement.querySelector<HTMLInputElement>('#importJsonFileInput');
+    this.rootElement.querySelector('#importJsonBtn')?.addEventListener('click', () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const content = e.target?.result as string;
+            this.importJson(content);
+          } catch (err: any) {
+            alert(`Failed to import map: ${err.message}`);
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    this.rootElement.querySelector('#exportJsonBtn')?.addEventListener('click', () => {
+      this.downloadMapJson();
+    });
+
     // Category buttons
     this.rootElement.querySelectorAll<HTMLButtonElement>('.editor-cat-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -658,7 +819,7 @@ export class MapEditor {
     this.rootElement.querySelector('#autoObjBtn')?.addEventListener('click', () => this.autoDistributeObjectives());
     this.rootElement.querySelector('#clearBtn')?.addEventListener('click', () => this.clearBoard());
     this.rootElement.querySelector('#saveMapBtn')?.addEventListener('click', () => {
-      this.options.onSave?.(this.getMap());
+      this.saveToStore();
     });
     this.rootElement.querySelector('#exitEditorBtn')?.addEventListener('click', () => {
       this.options.onExit?.();
@@ -674,7 +835,7 @@ export class MapEditor {
       }
     });
 
-    // Inspector handlers
+    // Inspector piece handlers
     const coverCheck = this.rootElement.querySelector<HTMLInputElement>('#inspectCover');
     coverCheck?.addEventListener('change', () => {
       if (this.selectedPieceId) {
@@ -712,9 +873,22 @@ export class MapEditor {
       }
     });
 
+    this.rootElement.querySelector('#nudgeLeftBtn')?.addEventListener('click', () => this.nudgeSelected(-this.gridSnap || -0.5, 0));
+    this.rootElement.querySelector('#nudgeRightBtn')?.addEventListener('click', () => this.nudgeSelected(this.gridSnap || 0.5, 0));
+    this.rootElement.querySelector('#nudgeUpBtn')?.addEventListener('click', () => this.nudgeSelected(0, -this.gridSnap || -0.5));
+    this.rootElement.querySelector('#nudgeDownBtn')?.addEventListener('click', () => this.nudgeSelected(0, this.gridSnap || 0.5));
+
     this.rootElement.querySelector('#inspectRotateBtn')?.addEventListener('click', () => this.rotateSelected());
+    this.rootElement.querySelector('#inspectDuplicateBtn')?.addEventListener('click', () => this.duplicateSelected());
+    this.rootElement.querySelector('#inspectLowerBtn')?.addEventListener('click', () => this.adjustElevation(-0.5));
     this.rootElement.querySelector('#inspectElevateBtn')?.addEventListener('click', () => this.adjustElevation(0.5));
     this.rootElement.querySelector('#inspectDeleteBtn')?.addEventListener('click', () => this.deleteSelected());
+
+    // Inspector objective handlers
+    this.rootElement.querySelector('#nudgeObjLeftBtn')?.addEventListener('click', () => this.nudgeSelected(-this.gridSnap || -0.5, 0));
+    this.rootElement.querySelector('#nudgeObjRightBtn')?.addEventListener('click', () => this.nudgeSelected(this.gridSnap || 0.5, 0));
+    this.rootElement.querySelector('#nudgeObjUpBtn')?.addEventListener('click', () => this.nudgeSelected(0, -this.gridSnap || -0.5));
+    this.rootElement.querySelector('#nudgeObjDownBtn')?.addEventListener('click', () => this.nudgeSelected(0, this.gridSnap || 0.5));
     this.rootElement.querySelector('#inspectDeleteObjBtn')?.addEventListener('click', () => this.deleteSelected());
   }
 

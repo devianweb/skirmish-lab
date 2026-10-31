@@ -522,26 +522,26 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests in `shared/tests/data/scenario.test.ts` for schema, presets, and validation rules.
 
 ### Sub-phase 13B: Editor View, Palette & Grid Snapping (`client/`)
-- [ ] Dedicated `MapEditor` overlay mode accessible from Lobby with return controls.
-- [ ] Interactive 3D scene with 44" x 30" battlefield grid and OrbitControls.
-- [ ] Category palette toolbar (Structures, Walls, Platforms, Stairs/Ladders, Scatter).
-- [ ] Ghost preview placement with 0.5" and 1.0" grid snapping.
-- [ ] Raycast surface auto-stacking on elevated platforms and rooftops.
-- [ ] Hotkeys: `R` (rotate 90°), `Q`/`E` (elevation adjust), `Delete`/`Backspace` (remove), `Ctrl+D` (duplicate).
+- [x] Dedicated `MapEditor` overlay mode accessible from Lobby with return controls.
+- [x] Interactive 3D scene with 44" x 30" battlefield grid and OrbitControls.
+- [x] Category palette toolbar (Structures, Walls, Platforms, Stairs/Ladders, Scatter).
+- [x] Ghost preview placement with 0.5" and 1.0" grid snapping.
+- [x] Raycast surface auto-stacking on elevated platforms and rooftops.
+- [x] Hotkeys: `R` (rotate 90°), `Q`/`E` (elevation adjust), `Delete`/`Backspace` (remove), `Ctrl+D` (duplicate).
 
 ### Sub-phase 13C: Inspector, Map Storage & Lobby Integration (`client/`)
-- [ ] Property inspector panel displaying selected piece traits and elevation with manual overrides.
-- [ ] Objective marker placement and 3.0" control radius preview rings with auto-distribute fallback.
-- [ ] Persistent map library in `localStorage` with JSON export/import.
-- [ ] Lobby map selector dropdown allowing Host to pick presets or custom maps.
-- [ ] P2P synchronization of custom terrain and objectives across WebRTC data channel.
+- [x] Property inspector panel displaying selected piece traits and elevation with manual overrides.
+- [x] Objective marker placement and 3.0" control radius preview rings with auto-distribute fallback.
+- [x] Persistent map library in `localStorage` with JSON export/import.
+- [x] Lobby map selector dropdown allowing Host to pick presets or custom maps.
+- [x] P2P synchronization of custom terrain and objectives across WebRTC data channel.
 
 ### Acceptance Criteria
 - [x] Map schema supports serializable terrain layouts and objective positions.
 - [x] Curated terrain assets load cleanly in Three.js with correct scales and materials.
-- [ ] Creators can visually place, snap, rotate, and elevate terrain pieces in a 3D editor.
-- [ ] Maps save to browser storage and export/import cleanly to JSON.
-- [ ] Host can choose a custom map in the Lobby, and Guest receives and renders identical battlefield terrain.
+- [x] Creators can visually place, snap, rotate, and elevate terrain pieces in a 3D editor.
+- [x] Maps save to browser storage and export/import cleanly to JSON.
+- [x] Host can choose a custom map in the Lobby, and Guest receives and renders identical battlefield terrain.
 
 ## Phase 14: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.

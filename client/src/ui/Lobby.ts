@@ -1,5 +1,7 @@
+import { CustomMapDefinition } from '@skirmish-lab/shared';
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
+import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 
 /** Fired once the P2P data channel is alive (first heartbeat round-trip). */
@@ -13,6 +15,8 @@ export interface PeerReadyContext {
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
   isCreatedRoom?: boolean;
+  mapId?: string;
+  customMap?: CustomMapDefinition;
 }
 
 export interface LobbyOptions {
@@ -20,6 +24,7 @@ export interface LobbyOptions {
   onRoleAssigned?: (role: 'host' | 'guest') => void;
   onOpenMapEditor?: () => void;
   sessionStore?: SessionStore;
+  mapStore?: MapStore;
 }
 
 /**
@@ -39,6 +44,8 @@ export class Lobby {
   private guestArmyId: string = 'rust-raiders-starter';
   private useDeploymentPhase: boolean = true;
   private sessionStore: SessionStore;
+  private mapStore: MapStore;
+  private selectedMapSelection: string = 'preset:frontier-outpost';
   private initialRoomCode: string | null = null;
   private isCreatedRoom: boolean = false;
 
@@ -46,6 +53,7 @@ export class Lobby {
     this.container = container;
     this.options = options;
     this.sessionStore = options.sessionStore ?? defaultSessionStore;
+    this.mapStore = options.mapStore ?? defaultMapStore;
     this.signalingClient = new SignalingClient();
     this.setupSignalingHandlers();
   }
@@ -221,6 +229,18 @@ export class Lobby {
     this.signalingClient.sendAnswer(answer);
   }
 
+  private getMapDisplayName(selection: string): string {
+    if (selection === 'preset:frontier-outpost') return 'Frontier Outpost (Preset)';
+    if (selection === 'preset:industrial-refinery') return 'Industrial Refinery (Preset)';
+    if (selection === 'preset:sector-7-catwalks') return 'Sector 7 Catwalks (Preset)';
+    if (selection.startsWith('custom:')) {
+      const customId = selection.replace('custom:', '');
+      const map = this.mapStore.getMap(customId);
+      return map ? `Custom: ${map.name}` : 'Custom Map';
+    }
+    return selection;
+  }
+
   /**
    * The first heartbeat ping from the peer proves the data channel is open
    * in both directions — hand the connection to the app exactly once.
@@ -229,6 +249,18 @@ export class Lobby {
     if (this.peerReadyFired || !this.webrtcClient || !this.role || !this.roomCode) return;
     if (!this.webrtcClient.isConnected()) return;
     this.peerReadyFired = true;
+
+    let mapId: string | undefined;
+    let customMap: CustomMapDefinition | undefined;
+
+    if (this.selectedMapSelection.startsWith('preset:')) {
+      mapId = this.selectedMapSelection.replace('preset:', '');
+    } else if (this.selectedMapSelection.startsWith('custom:')) {
+      const customId = this.selectedMapSelection.replace('custom:', '');
+      customMap = this.mapStore.getMap(customId) ?? undefined;
+      mapId = customId;
+    }
+
     this.options.onPeerReady?.({
       webrtcClient: this.webrtcClient,
       signalingClient: this.signalingClient,
@@ -239,6 +271,8 @@ export class Lobby {
       guestArmyId: this.guestArmyId,
       useDeploymentPhase: this.useDeploymentPhase,
       isCreatedRoom: this.isCreatedRoom,
+      mapId,
+      customMap,
     });
   }
 
@@ -249,6 +283,7 @@ export class Lobby {
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
           <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${this.roomCode}</h2>
           <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${this.role.toUpperCase()}</strong></p>
+          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${this.getMapDisplayName(this.selectedMapSelection)}</strong></p>
           <p id="status" style="font-size: 14px; color: #ffd54f;">Waiting for peer...</p>
         </div>
       `;
@@ -276,6 +311,15 @@ export class Lobby {
         </div>
       ` : '';
 
+      const customMaps = this.mapStore.getMaps();
+      const customOptionsHtml = customMaps.length > 0
+        ? `
+          <optgroup label="Custom Maps">
+            ${customMaps.map((m) => `<option value="custom:${m.id}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${m.name} (${m.terrain?.length ?? 0} pieces)</option>`).join('')}
+          </optgroup>
+        `
+        : '';
+
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
@@ -284,7 +328,20 @@ export class Lobby {
           ${resumeBannerHtml}
 
           <div style="margin-bottom: 24px; text-align: left; background: rgba(26, 31, 41, 0.7); padding: 16px; border-radius: 8px; border: 1px solid #2a3442;">
-            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; color: #90caf9; text-transform: uppercase; letter-spacing: 0.5px;">Match Forces (Starter Armies)</h3>
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; color: #90caf9; text-transform: uppercase; letter-spacing: 0.5px;">Battlefield & Forces</h3>
+            
+            <div style="margin-bottom: 14px;">
+              <label style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Battlefield Map:</label>
+              <select id="mapSelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
+                <optgroup label="Standard Presets">
+                  <option value="preset:frontier-outpost" ${this.selectedMapSelection === 'preset:frontier-outpost' ? 'selected' : ''}>Frontier Outpost (Preset - 44"x30")</option>
+                  <option value="preset:industrial-refinery" ${this.selectedMapSelection === 'preset:industrial-refinery' ? 'selected' : ''}>Industrial Refinery (Preset - 44"x30")</option>
+                  <option value="preset:sector-7-catwalks" ${this.selectedMapSelection === 'preset:sector-7-catwalks' ? 'selected' : ''}>Sector 7 Catwalks (Preset - 44"x30")</option>
+                </optgroup>
+                ${customOptionsHtml}
+              </select>
+            </div>
+
             <div style="margin-bottom: 12px;">
               <label style="display: block; font-size: 12px; color: #29b6f6; margin-bottom: 4px; font-weight: 600;">Host Force (South):</label>
               <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
@@ -330,6 +387,11 @@ export class Lobby {
           this.render();
         });
       }
+
+      const mapSelect = this.container.querySelector<HTMLSelectElement>('#mapSelect');
+      mapSelect?.addEventListener('change', () => {
+        this.selectedMapSelection = mapSelect.value;
+      });
 
       const hostSelect = this.container.querySelector<HTMLSelectElement>('#hostArmySelect');
       hostSelect?.addEventListener('change', () => {
