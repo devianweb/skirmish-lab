@@ -412,6 +412,9 @@ describe('GameManager', () => {
         disconnectGuest: () => {
           for (const h of hostConnHandlers) h('disconnected');
         },
+        reconnectGuest: () => {
+          for (const h of hostConnHandlers) h('connected');
+        },
       };
     }
 
@@ -851,8 +854,8 @@ describe('GameManager', () => {
       expect((lastEntry.action.payload as any).choiceId).toBe('strike-back');
     });
 
-    it('peer disconnect auto-resolves pending reaction immediately with default choice', async () => {
-      const { hostWebRTC, guestWebRTC, disconnectGuest } = makeChannelPair();
+    it('peer disconnect pauses pending reaction timer and resumes it when peer reconnects', async () => {
+      const { hostWebRTC, guestWebRTC, disconnectGuest, reconnectGuest } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true, {
         diceProvider: {
           requestRoll: async () => [
@@ -909,10 +912,19 @@ describe('GameManager', () => {
       disconnectGuest();
       await new Promise((r) => setTimeout(r, 0));
 
-      // Host immediately auto-resolves reaction so game does not deadlock
-      expect(host.getGameState()!.turnState.pendingReaction).toBeNull();
-      const lastEntry = host.getGameState()!.actionLog[host.getGameState()!.actionLog.length - 1];
-      expect(lastEntry.action.type).toBe('respond-reaction');
+      // Reaction is paused (not deadlocked, not auto-resolved immediately)
+      expect(host.getGameState()!.turnState.pendingReaction).toBeDefined();
+      expect((host as any).pausedReactionRemainingMs).toBeGreaterThan(0);
+      expect((host as any).reactionTimeoutTimer).toBeNull();
+
+      // Guest reconnects!
+      reconnectGuest();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Reaction timer resumes seamlessly
+      expect(host.getGameState()!.turnState.pendingReaction).toBeDefined();
+      expect((host as any).pausedReactionRemainingMs).toBeNull();
+      expect((host as any).reactionTimeoutTimer).not.toBeNull();
     });
 
     it('rebinds host GameManager and re-broadcasts state when a guest rejoins over a new channel', async () => {

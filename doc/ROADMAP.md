@@ -477,10 +477,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > - **Sub-phase 12C (Reconnection Handshake, Peer Fallback State Sync & Lobby Resume UI — `client/` & `server/`):** Reconnection flow during the 5-minute grace window, Host-authoritative `state-sync` broadcast, peer fallback (`request-state-sync` if Host storage was wiped), URL query parameters (`?room=XXX-XXX`), and Lobby "Resume Match" banner.
 
 ### Sub-phase 12A: DataChannel Heartbeat & Timer Suspension (`client/`)
-- [ ] Application-level P2P heartbeat ping/pong protocol over WebRTC DataChannel (3s ping interval, 6s silence timeout).
-- [ ] Top-banner disconnect notification when peer connection is unstable or lost (`"⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)"`).
-- [ ] Pause reaction countdown timers (e.g. Overwatch, Counter-charge) and turn timers while disconnected; resume smoothly once reconnected.
-- [ ] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
+- [x] Application-level P2P heartbeat ping/pong protocol over WebRTC DataChannel (3s ping interval, 6s silence timeout).
+- [x] Top-banner disconnect notification when peer connection is unstable or lost (`"⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)"`).
+- [x] Pause reaction countdown timers (e.g. Overwatch, Counter-charge) and turn timers while disconnected; resume smoothly once reconnected.
+- [x] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
 
 ### Sub-phase 12B: Snapshot Persistence & SessionStore Management (`client/`)
 - [ ] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.

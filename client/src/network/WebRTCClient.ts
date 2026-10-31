@@ -11,6 +11,11 @@ export type GameMessage =
 
 type GameMessageHandler = (message: GameMessage) => void;
 
+export interface WebRTCClientOptions {
+  heartbeatInterval?: number;
+  heartbeatTimeout?: number;
+}
+
 export class WebRTCClient {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
@@ -18,7 +23,8 @@ export class WebRTCClient {
   private stateChangeHandlers: Array<(state: 'connected' | 'disconnected') => void> = [];
   private heartbeatInterval: number | null = null;
   private lastPongTime: number = Date.now();
-  private heartbeatTimeout: number = 10000;
+  private heartbeatIntervalMs: number = 3000;
+  private heartbeatTimeout: number = 6000;
   private currentConnectionState: 'connected' | 'disconnected' = 'disconnected';
 
   private rtcConfig = {
@@ -28,7 +34,13 @@ export class WebRTCClient {
     ],
   };
 
-  constructor() {
+  constructor(options?: WebRTCClientOptions) {
+    if (options?.heartbeatInterval !== undefined) {
+      this.heartbeatIntervalMs = options.heartbeatInterval;
+    }
+    if (options?.heartbeatTimeout !== undefined) {
+      this.heartbeatTimeout = options.heartbeatTimeout;
+    }
   }
 
   async createPeerConnection(): Promise<RTCPeerConnection> {
@@ -86,6 +98,11 @@ export class WebRTCClient {
     this.dataChannel.onmessage = (event) => {
       try {
         const message: GameMessage = JSON.parse(event.data);
+        this.lastPongTime = Date.now();
+        if (this.currentConnectionState === 'disconnected') {
+          this.setConnectionState('connected');
+        }
+
         this.handleMessage(message);
         
         if (message.type === 'heartbeat-ping') {
@@ -166,11 +183,19 @@ export class WebRTCClient {
     this.lastPongTime = Date.now();
     this.heartbeatInterval = window.setInterval(() => {
       this.send({ type: 'heartbeat-ping', timestamp: Date.now() });
-      if (Date.now() - this.lastPongTime > this.heartbeatTimeout) {
-        console.warn('Heartbeat timeout - connection may be lost');
-        this.setConnectionState('disconnected');
-      }
-    }, 3000);
+      this.checkHeartbeat();
+    }, this.heartbeatIntervalMs);
+  }
+
+  /**
+   * Evaluates if peer silence exceeds the heartbeat timeout (6,000ms),
+   * triggering a disconnected state transition.
+   */
+  checkHeartbeat(): void {
+    if (Date.now() - this.lastPongTime > this.heartbeatTimeout) {
+      console.warn('Heartbeat timeout - connection may be lost');
+      this.setConnectionState('disconnected');
+    }
   }
 
   onConnectionState(callback: (state: 'connected' | 'disconnected') => void): void {
