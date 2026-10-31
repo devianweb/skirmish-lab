@@ -549,10 +549,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > **Recommended AI Model:** **4.0** *(3D pathfinding geometry, sequential squad movement state machines, multi-target combat allocations)*
 
 ### Sub-phase 13.5A: Core Rules Alignment, Melee Consolidation & Objectives
-- [ ] Fix melee consolidation bug: when an enemy unit is completely destroyed in melee, prompt the victorious player for an interactive 3.0″ move in any valid direction (advance toward next enemy, take cover, or seize an objective).
-- [ ] Enforce 3.0″ vertical cylinder constraint for objective presence and control ($|\Delta y| \le 3.0″$ and horizontal distance $\le 3.0″$) across rules engine (`activation.ts`) and HUD inspection (`GameHUD.ts`).
-- [ ] Asset correction: replace objective crate with the Kenney blaster-kit asset (`assets-src/kenney_blaster-kit_2.1/Models/GLB format/crate-medium.glb`) at `client/public/models/crate-medium.glb`, wired into `assetManifest.ts` and `ObjectiveRenderer.ts`.
-- [ ] Unit tests for 3.0″ vertical objective control bounds and interactive post-melee consolidation moves.
+- [x] Fix melee consolidation bug: when an enemy unit is completely destroyed in melee, prompt the victorious player for an interactive 3.0″ move in any valid direction (advance toward next enemy, take cover, or seize an objective).
+- [x] Enforce 3.0″ vertical cylinder constraint for objective presence and control ($|\Delta y| \le 3.0″$ and horizontal distance $\le 3.0″$) across rules engine (`activation.ts`) and HUD inspection (`GameHUD.ts`).
+- [x] Asset correction: replace objective crate with the Kenney blaster-kit asset (`assets-src/kenney_blaster-kit_2.1/Models/GLB format/crate-medium.glb`) at `client/public/models/crate-medium.glb`, wired into `assetManifest.ts` and `ObjectiveRenderer.ts`.
+- [x] Unit tests for 3.0″ vertical objective control bounds and interactive post-melee consolidation moves.
 
 ### Sub-phase 13.5B: Ranged Combat & Split-Fire System
 - [ ] Concentric weapon range indicators: render soft range rings for each equipped ranged weapon on the battlefield in `MarkerRenderer.ts` (e.g. 9″ sidearm ring, 24″ rifle ring) overlaid on the LoS shadow fan.

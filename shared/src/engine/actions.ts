@@ -5,6 +5,7 @@ import {
   GameAction,
   GameState,
   Model,
+  PendingReaction,
   RetaliationOutcome,
   Unit,
   Weapon,
@@ -151,7 +152,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
     return { valid: false, reason: 'Game is over' };
   }
   if (state.turnState.pendingReaction) {
-    if (action.type !== 'respond-reaction') {
+    if (action.type !== 'respond-reaction' && action.type !== 'consolidate-move') {
       return { valid: false, reason: 'A reaction is pending — waiting for opponent' };
     }
     if (action.actorId !== state.turnState.pendingReaction.promptingPlayerId) {
@@ -565,6 +566,40 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return { valid: true };
     }
 
+    case 'consolidate-move': {
+      const { unitId, path } = action.payload as {
+        unitId: string;
+        path: Vector3[];
+      };
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'melee-consolidation') {
+        return { valid: false, reason: 'No pending consolidation move' };
+      }
+      if (pending.promptingPlayerId !== action.actorId) {
+        return { valid: false, reason: 'Not your consolidation turn' };
+      }
+      if (pending.data?.unitId !== unitId) {
+        return { valid: false, reason: 'Unit does not match consolidation' };
+      }
+      const unit = getUnit(state, unitId);
+      if (!unit || unit.isDestroyed) {
+        return { valid: false, reason: 'Consolidating unit is destroyed or missing' };
+      }
+      if (!path || path.length < 2) {
+        return { valid: false, reason: 'Consolidation path is empty' };
+      }
+      const distance = pathLength3D(path);
+      const maxDistance = pending.data?.maxDistance ?? 3.0;
+      if (distance > maxDistance + 0.05) {
+        return { valid: false, reason: `Consolidation move exceeds max distance (${maxDistance}")` };
+      }
+      const blocker = findMoveBlocker(state, unit, path);
+      if (blocker.blocked) {
+        return { valid: false, reason: blocker.reason };
+      }
+      return { valid: true };
+    }
+
     case 'end-activation': {
       if (!state.turnState.activeUnitId) {
         return { valid: false, reason: 'No unit is activating' };
@@ -848,6 +883,36 @@ function applyTraversalHazardsAndFalls(
   }
 
   return { terminated: false, wounds: 0 };
+}
+
+export function createConsolidationReaction(
+  actionId: string,
+  victor: Unit,
+  defeatedName: string
+): PendingReaction {
+  return {
+    id: `${actionId}-consolidation`,
+    type: 'melee-consolidation',
+    promptingPlayerId: victor.ownerId,
+    sourceUnitId: victor.id,
+    targetUnitId: victor.id,
+    title: 'Victory Consolidation',
+    description: `${victor.name} wiped out ${defeatedName}! Move up to 3.0" in any direction, or stay put.`,
+    options: [
+      {
+        id: 'stay',
+        label: 'Stay Put',
+        isDefault: true,
+        style: 'secondary',
+      },
+    ],
+    expiresAt: Date.now() + 15000,
+    durationMs: 15000,
+    data: {
+      unitId: victor.id,
+      maxDistance: 3.0,
+    },
+  };
 }
 
 /**
@@ -1219,6 +1284,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         dreadBonus,
         lethalValue
       );
+      if (target.isDestroyed) {
+        newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
+      }
       refreshEngagements(newState);
 
       diceResolution = {
@@ -1363,7 +1431,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
       // Defending squad models consolidate up to 3" into contact with chargers
-      consolidateSquadToward(newState, target, attacker.position, 3.0);
+      consolidateSquadToward(newState, target, attacker.position, 3.0, { intoContact: true });
 
       const weapon = weaponId
         ? getWeapon(attacker, weaponId)
@@ -1413,8 +1481,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         let pushBackPos: Vector3 | undefined;
 
         if (target.isDestroyed) {
-          // If defender is destroyed, charger may consolidate up to 3"
-          consolidateSquadToward(newState, attacker, target.position, 3.0);
+          // If defender is destroyed, victor may consolidate up to 3"
+          newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
           refreshEngagements(newState);
         } else if (!defenderMelee) {
           pushBackPos = computePushBackPosition(newState, attacker, target, 2.0);
@@ -1528,6 +1596,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         choiceId: string;
       };
       const pending = newState.turnState.pendingReaction!;
+      if (pending.type === 'melee-consolidation') {
+        newState.turnState.pendingReaction = null;
+        refreshEngagements(newState);
+        logEntry = acceptedEntry(action);
+        break;
+      }
       const defender = getUnit(newState, pending.targetUnitId)!;
       const charger = getUnit(newState, pending.sourceUnitId)!;
       const defenderMelee = pending.data?.weaponId
@@ -1607,15 +1681,17 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         pushedBack = true;
         charger.status = charger.status.filter((s) => s !== 'engaged');
         defender.status = defender.status.filter((s) => s !== 'engaged');
-      } else if (charger.isDestroyed && !defender.isDestroyed) {
-        // Defender consolidates up to 3" upon wiping out charger in melee retaliation
-        consolidateSquadToward(newState, defender, charger.position, 3.0);
-      } else if (!charger.isDestroyed && defender.isDestroyed) {
-        // Charger consolidates up to 3" upon wiping out defender in melee
-        consolidateSquadToward(newState, charger, defender.position, 3.0);
       }
 
-      newState.turnState.pendingReaction = null;
+      if (charger.isDestroyed && !defender.isDestroyed) {
+        // Defender consolidates up to 3" upon wiping out charger in melee retaliation
+        newState.turnState.pendingReaction = createConsolidationReaction(action.id, defender, charger.name);
+      } else if (!charger.isDestroyed && defender.isDestroyed) {
+        // Charger consolidates up to 3" upon wiping out defender in melee
+        newState.turnState.pendingReaction = createConsolidationReaction(action.id, charger, defender.name);
+      } else {
+        newState.turnState.pendingReaction = null;
+      }
       refreshEngagements(newState);
 
       let diceResolution: DiceResolution | undefined;
@@ -1680,6 +1756,36 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       logEntry = acceptedEntry(action, diceResolution);
+      break;
+    }
+
+    case 'consolidate-move': {
+      const { unitId, path } = action.payload as {
+        unitId: string;
+        path: Vector3[];
+      };
+      const unit = getUnit(newState, unitId)!;
+      const end = path[path.length - 1];
+      const deltaX = end.x - unit.position.x;
+      const deltaZ = end.z - unit.position.z;
+      if (Math.hypot(deltaX, deltaZ) > 1e-4) {
+        unit.rotation = { ...unit.rotation, y: Math.atan2(deltaX, deltaZ) };
+      }
+      unit.position = { ...end };
+      if (unit.models && unit.models.length > 0) {
+        for (const m of unit.models) {
+          if (!m.isDestroyed && m.position) {
+            m.position = {
+              x: Math.round((m.position.x + deltaX) * 100) / 100,
+              y: end.y ?? m.position.y ?? 0,
+              z: Math.round((m.position.z + deltaZ) * 100) / 100,
+            };
+          }
+        }
+      }
+      newState.turnState.pendingReaction = null;
+      refreshEngagements(newState);
+      logEntry = acceptedEntry(action);
       break;
     }
 
@@ -1906,6 +2012,7 @@ function checkGameEnd(state: GameState): void {
 
   state.status = 'game-over';
   state.turnState.phase = 'game-over';
+  state.turnState.pendingReaction = null;
   if (hostAlive) {
     state.winner = state.hostId;
     state.endReason = 'Opponent eliminated';

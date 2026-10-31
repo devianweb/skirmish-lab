@@ -983,6 +983,8 @@ describe('applyAction: charge', () => {
   it('charge destroying target: no retaliation and no push-back', () => {
     const state = chargeState();
     state.units[1].weapons = [weapon('blade')];
+    // Keep another enemy alive so match does not end immediately with game-over
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 10, y: 0, z: 10 } }));
 
     const action = createAction(HOST, 'charge', {
       type: 'charge',
@@ -1010,7 +1012,35 @@ describe('applyAction: charge', () => {
     expect(target.isDestroyed).toBe(true);
     expect(attacker.position.z).toBe(4); // Did not push back
     expect(attacker.status).toContain('fatigued');
-    expect(outcome.state!.turnState.pendingReaction).toBeUndefined();
+    // Prompts victor for interactive 3.0" victory consolidation move
+    expect(outcome.state!.turnState.pendingReaction).toBeDefined();
+    expect(outcome.state!.turnState.pendingReaction?.type).toBe('melee-consolidation');
+    expect(outcome.state!.turnState.pendingReaction?.promptingPlayerId).toBe(HOST);
+
+    // Victor can consolidate up to 3.0" in any valid direction
+    const consolidateAction = createAction(HOST, 'consolidate-move', {
+      type: 'consolidate-move',
+      unitId: attacker.id,
+      path: [
+        { x: 0, y: 0, z: 4 },
+        { x: 0, y: 0, z: 6.5 },
+      ],
+    });
+    const consOutcome = applyAction(outcome.state!, consolidateAction);
+    expect(consOutcome.ok).toBe(true);
+    expect(consOutcome.state!.units.find((u) => u.id === 'h1')!.position.z).toBeCloseTo(6.5, 1);
+    expect(consOutcome.state!.turnState.pendingReaction).toBeNull();
+
+    // Alternatively, victor can decline and stay put
+    const stayAction = createAction(HOST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: outcome.state!.turnState.pendingReaction!.id,
+      choiceId: 'stay',
+    });
+    const stayOutcome = applyAction(outcome.state!, stayAction);
+    expect(stayOutcome.ok).toBe(true);
+    expect(stayOutcome.state!.units.find((u) => u.id === 'h1')!.position.z).toBe(4);
+    expect(stayOutcome.state!.turnState.pendingReaction).toBeNull();
   });
 
   it('allows charging around an obstacle when there is no direct Line of Sight', () => {
