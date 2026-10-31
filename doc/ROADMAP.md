@@ -490,19 +490,19 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests for storage operations, versioning, error handling, and quota safety.
 
 ### Sub-phase 12C: Reconnection Handshake, Peer Fallback & Lobby Resume UI (`client/` & `server/`)
-- [ ] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.
-- [ ] Lobby "Resume Match" banner when an active unexpired room session is detected.
-- [ ] Reconnection handshake: Host broadcasts authoritative `state-sync` to reconnected Guest.
-- [ ] Peer fallback: If Host reconnects with empty storage, Host requests snapshot from Guest (`request-state-sync`), verifies it, and resumes authority.
-- [ ] End-to-end integration tests verifying reconnection and state restoration across drops.
+- [x] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.
+- [x] Lobby "Resume Match" banner when an active unexpired room session is detected.
+- [x] Reconnection handshake: Host broadcasts authoritative `state-sync` to reconnected Guest.
+- [x] Peer fallback: If Host reconnects with empty storage, Host requests snapshot from Guest (`request-state-sync`), verifies it, and resumes authority.
+- [x] End-to-end integration tests verifying reconnection and state restoration across drops.
 
 ### Acceptance Criteria
-- [ ] Disconnect detected via DataChannel heartbeat timeout (6s silence) or ICE disconnect.
-- [ ] Reaction and turn timers freeze while disconnected and resume upon reconnection.
-- [ ] Both Host and Guest maintain cached snapshots in `localStorage`.
-- [ ] Host and Guest can reconnect to the same room during the 5-minute grace window.
-- [ ] Game state re-synced after reconnection without state corruption.
-- [ ] Play resumes seamlessly from the last confirmed state.
+- [x] Disconnect detected via DataChannel heartbeat timeout (6s silence) or ICE disconnect.
+- [x] Reaction and turn timers freeze while disconnected and resume upon reconnection.
+- [x] Both Host and Guest maintain cached snapshots in `localStorage`.
+- [x] Host and Guest can reconnect to the same room during the 5-minute grace window.
+- [x] Game state re-synced after reconnection without state corruption.
+- [x] Play resumes seamlessly from the last confirmed state.
 
 ## Phase 13: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
