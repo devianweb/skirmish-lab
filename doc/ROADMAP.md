@@ -397,9 +397,9 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > - **Sub-phase 10C (Deployment HUD & Lobby Picker — `client/src/ui`):** Lobby army selection and 3D deployment zone placement interaction.
 
 ### Sub-phase 10A: Pre-Canned Quickplay Starter Armies (`shared/data`)
-- [ ] 1-click ready-to-play, point-balanced starter forces for each faction in `shared/data/armies.ts`.
-- [ ] Balanced unit composition (e.g. 250pts / 300pts for Frontier Wardens and Rust Raiders).
-- [ ] Special rules data attributes: `vanguard` and `drop-reserve`.
+- [x] 1-click ready-to-play, point-balanced starter forces for each faction in `shared/data/armies.ts`.
+- [x] Balanced unit composition (e.g. 250pts / 300pts for Frontier Wardens and Rust Raiders).
+- [x] Special rules data attributes: `vanguard` and `drop-reserve`.
 
 ### Sub-phase 10B: Pre-Match Deployment Engine (`shared/`)
 - [ ] Deployment phase state machine (`TurnPhase = 'deployment'`).
