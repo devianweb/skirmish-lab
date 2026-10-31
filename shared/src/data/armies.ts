@@ -74,7 +74,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       wounds: 1,
       speed: 6,
       modelType: 'specialist',
-      weapons: ['carbine'],
+      weapons: ['rifle', 'sidearm'],
       specialRules: ['steadfast', 'marksman', 'camouflaged'],
     },
     {
@@ -87,7 +87,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       wounds: 1,
       speed: 6,
       modelType: 'specialist',
-      weapons: ['scattergun', 'fists'],
+      weapons: ['scattergun', 'sidearm', 'fists'],
       specialRules: ['steadfast', 'sustained'],
     },
     {
@@ -147,7 +147,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       wounds: 1,
       speed: 6,
       modelType: 'specialist',
-      weapons: ['carbine'],
+      weapons: ['rifle', 'sidearm'],
       specialRules: ['marksman', 'camouflaged'],
     },
     {
@@ -160,7 +160,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       wounds: 1,
       speed: 6,
       modelType: 'specialist',
-      weapons: ['scattergun', 'fists'],
+      weapons: ['scattergun', 'sidearm', 'fists'],
       specialRules: ['sustained'],
     },
     {
@@ -263,7 +263,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         wounds: 3,
         speed: 6,
         modelType: 'leader',
-        weapons: ['handcannon', 'blade'],
+        weapons: ['rifle', 'handcannon', 'blade'],
         specialRules: ['commander', 'steadfast', 'resilient(3)'],
       },
       {
@@ -276,7 +276,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         wounds: 1,
         speed: 6,
         modelType: 'specialist',
-        weapons: ['carbine'],
+        weapons: ['carbine', 'sidearm'],
         specialRules: ['steadfast', 'marksman', 'camouflaged', 'vanguard'],
       },
       {
@@ -325,7 +325,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         wounds: 3,
         speed: 6,
         modelType: 'leader',
-        weapons: ['handcannon', 'blade'],
+        weapons: ['rifle', 'handcannon', 'blade'],
         specialRules: ['commander', 'frenzy', 'resilient(3)'],
       },
       {
@@ -338,7 +338,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         wounds: 1,
         speed: 6,
         modelType: 'specialist',
-        weapons: ['carbine'],
+        weapons: ['carbine', 'sidearm'],
         specialRules: ['frenzy', 'marksman', 'camouflaged', 'vanguard'],
       },
       {

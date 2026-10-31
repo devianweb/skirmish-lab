@@ -4,11 +4,11 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 1. Objective 3D Beacon Visuals & Board Placement
 
-- [ ] **Objective Markers Render on Board:**
+- [x] **Objective Markers Render on Board:**
   - Launch a new game and connect Host and Guest tabs.
   - **Verify:** 4 distinct objective beacons (Alpha, Bravo, Charlie, Delta) are visible on the battlefield.
   - **Verify:** All 4 markers are placed in open areas outside both deployment zones (between $z = -12$ and $z = 12$) and spaced well apart (> 9″ from one another).
-- [ ] **3D Beacon Visual Elements:**
+- [x] **3D Beacon Visual Elements:**
   - Zoom in on any objective marker.
   - **Verify:** Each objective consists of:
     - A sharp 3.0″ radius circular ground boundary ring (`RingGeometry`).
@@ -18,11 +18,13 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
     - A hovering diamond crystal (`OctahedronGeometry`) suspended in the beam.
   - **Verify:** All markers initially glow in Neutral Gold (`#ffd54f`).
 
+  - I don't really like the vertical beam but everything else looks good. Can we swap the disc to a crate-medium from the kenney blaster kit? Remove hard edge highlight.
+
 ---
 
 ### 2. Objective Hover & RTS Data Card Inspection
 
-- [ ] **Hovering Objective Beacon:**
+- [x] **Hovering Objective Beacon:**
   - Move the mouse cursor directly over an objective beacon or within its 3.0″ radius on the ground.
   - **Verify:** The bottom-left HUD data card slot immediately switches to display the **Objective Data Card**.
   - **Verify:** The card displays:
@@ -30,20 +32,25 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
     - Status badge (initially `NEUTRAL` in gold).
     - `3.0" Control Radius` specification.
     - Unit presence counter: `Host: 0 | Guest: 0`.
-- [ ] **Moving Cursor Away:**
+- [x] **Moving Cursor Away:**
   - Move the cursor to empty terrain far away from any objective or unit.
   - **Verify:** The objective data card closes cleanly.
+
+- Doesn't work when you have a unit activated.
 
 ---
 
 ### 3. Round-End Control Evaluation (Friendly Capture)
 
-- [ ] **Moving into 3.0″ Capture Radius:**
+- [x] **Moving into 3.0″ Capture Radius:**
   - Host activates a unit (e.g., Warden Scout) and moves it inside the 3.0″ ground boundary ring of Objective Alpha.
   - Guest activates a unit elsewhere, keeping all Guest units > 3.0″ away from Objective Alpha.
   - Hover over Objective Alpha.
   - **Verify:** The objective data card now reflects `Host: 1 | Guest: 0`, but the status badge remains `NEUTRAL` (control resolves at round end, not mid-round).
-- [ ] **Round End Seizure:**
+
+  - does not appear to show anything like host or guest (outside of who controls it)
+
+- [x] **Round End Seizure:**
   - Complete all unit activations for Round 1 to trigger the round-end evaluation.
   - **Verify:**
     - Objective Alpha transitions to Host control.
@@ -55,7 +62,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 4. Persistent Objective Control (Leaving the Objective)
 
-- [ ] **Vacating the Controlled Objective:**
+- [x] **Vacating the Controlled Objective:**
   - In Round 2, activate the Host unit that captured Objective Alpha and move/rush it completely outside the 3.0″ boundary ring.
   - Ensure no Guest models enter within 3.0″ of Objective Alpha during Round 2.
   - Complete all unit activations to end Round 2.
@@ -68,7 +75,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 5. Contested Objectives (Simultaneous Enemy Presence)
 
-- [ ] **Opposing Forces Within 3.0″:**
+- [x] **Opposing Forces Within 3.0″:**
   - Move a Host model within 3.0″ of Objective Bravo.
   - Move a Guest model within 3.0″ of Objective Bravo.
   - Complete remaining activations to trigger round end.
@@ -82,7 +89,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 6. Hostile Recapture
 
-- [ ] **Flipping an Enemy-Held Objective:**
+- [x] **Flipping an Enemy-Held Objective:**
   - Move a Guest model within 3.0″ of Host-controlled Objective Alpha.
   - Ensure all Host models are > 3.0″ away from Objective Alpha.
   - End the round.
@@ -95,7 +102,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 7. Shaken Units Cannot Capture or Contest
 
-- [ ] **Shaken Unit Exclusion:**
+- [x] **Shaken Unit Exclusion:**
   - Shoot or wound an enemy model until it is **Shaken** (fails morale test, pinned/shaken status).
   - Move the Shaken enemy model within 3.0″ of an objective.
   - Have a friendly non-shaken model within 3.0″ of the same objective.
@@ -108,10 +115,10 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 8. 4-Round Match Clock & Automatic Game Over
 
-- [ ] **Round Counter Display:**
+- [x] **Round Counter Display:**
   - Observe the top HUD header throughout the game.
   - **Verify:** The header displays the match progression: `Round 1 / 4`, `Round 2 / 4`, `Round 3 / 4`, and `Round 4 / 4`.
-- [ ] **Match Termination at End of Round 4:**
+- [x] **Match Termination at End of Round 4:**
   - Play through activations in Round 4 until the final model activates and Round 4 concludes.
   - **Verify:**
     - Game status transitions to `game-over`.
@@ -125,7 +132,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 9. Immediate Army Elimination Fallback
 
-- [ ] **Total Army Elimination Before Round 4:**
+- [x] **Total Army Elimination Before Round 4:**
   - In Round 1, 2, or 3, completely eliminate all opposing fighters with ranged or melee attacks before Round 4 ends.
   - **Verify:**
     - Game ends immediately upon the destruction of the final enemy unit.
