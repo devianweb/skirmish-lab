@@ -4,6 +4,7 @@ import {
   calculateFallingDamage,
   calculateLedgeKnockback,
   detectPathFall,
+  detectPathGapJump,
   distance3D,
   distanceHorizontal,
   getEffectiveMaxMovement,
@@ -241,6 +242,55 @@ describe('Phase 11A: Shared Traversal Engine', () => {
 
       const failOnOne = resolveGapJump(3.0, scout, 1);
       expect(failOnOne.passed).toBe(false);
+    });
+
+    it('detects gap jumps along a path between distinct elevated platforms', () => {
+      const state = createInitialGameState('h', 'g');
+      state.terrain = [
+        {
+          id: 'plat1',
+          type: 'building',
+          name: 'Platform 1',
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 2, y: 2.5, z: 2 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+        {
+          id: 'plat2',
+          type: 'building',
+          name: 'Platform 2',
+          position: { x: 4, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 2, y: 2.5, z: 2 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+      ];
+
+      const jumpPath = [
+        { x: 0, y: 2.5, z: 0 },
+        { x: 4, y: 2.5, z: 0 },
+      ];
+      const res = detectPathGapJump(state, jumpPath, dummyUnit);
+      expect(res.isGapJump).toBe(true);
+      expect(res.gapDistance).toBe(4);
+      expect(res.targetQuality).toBe(dummyUnit.quality);
+
+      const samePlatPath = [
+        { x: 0, y: 2.5, z: 0 },
+        { x: 0.5, y: 2.5, z: 0 },
+      ];
+      const sameRes = detectPathGapJump(state, samePlatPath, dummyUnit);
+      expect(sameRes.isGapJump).toBe(false);
+
+      const groundPath = [
+        { x: 0, y: 0, z: 0 },
+        { x: 4, y: 0, z: 0 },
+      ];
+      const groundRes = detectPathGapJump(state, groundPath, dummyUnit);
+      expect(groundRes.isGapJump).toBe(false);
     });
   });
 

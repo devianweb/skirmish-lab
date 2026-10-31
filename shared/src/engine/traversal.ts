@@ -258,6 +258,48 @@ export function resolveFallingDamage(
 }
 
 /**
+ * Scans a path to see if it traverses an elevated gap between elevated surfaces.
+ * A gap jump occurs when moving between elevated platforms/surfaces (y >= 1.0"),
+ * where the horizontal span across open space is > 1.0" (and <= 6.0").
+ */
+export function detectPathGapJump(
+  state: GameState,
+  path: Vector3[],
+  unit: Unit
+): {
+  isGapJump: boolean;
+  gapDistance: number;
+  targetQuality: number;
+} {
+  if (path.length < 2) {
+    return { isGapJump: false, gapDistance: 0, targetQuality: unit.quality };
+  }
+
+  const startPt = path[0];
+  const endPt = path[path.length - 1];
+  const startY = startPt.y ?? 0;
+  const endY = endPt.y ?? 0;
+
+  if (startY >= 1.0 && endY >= 1.0) {
+    const startPiece = findTerrainAtPosition(state, startPt);
+    const endPiece = findTerrainAtPosition(state, endPt);
+    if (startPiece && endPiece && startPiece.id !== endPiece.id) {
+      const horizDist = distanceHorizontal(startPt, endPt);
+      if (horizDist > 1.05 && horizDist <= 6.0) {
+        const targetQuality = hasTrait(unit.specialRules, 'pathfinder') ? 2 : unit.quality;
+        return {
+          isGapJump: true,
+          gapDistance: Math.round(horizDist * 10) / 10,
+          targetQuality,
+        };
+      }
+    }
+  }
+
+  return { isGapJump: false, gapDistance: 0, targetQuality: unit.quality };
+}
+
+/**
  * Resolves a horizontal gap jump between elevated surfaces.
  * Gaps <= 1.0" are stepped across freely.
  * Gaps > 1.0" up to 6.0" require a Quality test (Airborne auto-passes; Pathfinder passes on 2+).

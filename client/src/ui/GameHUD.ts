@@ -5,6 +5,8 @@ import {
   createAction,
   describeTerrainPiece,
   describeTrait,
+  detectPathFall,
+  detectPathGapJump,
   findNavPath,
   findTerrainAtPosition,
   formatTraitLabel,
@@ -12,15 +14,20 @@ import {
   GameAction,
   getDeployableUnits,
   getDeploymentZoneBounds,
+  getEffectiveMaxMovement,
   getUnitTough,
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
+  isPathDangerous,
+  isPathDifficult,
   Objective,
   pathLength,
+  pathLength3D,
   ShootingRayDebugInfo,
   Unit,
   validateDeploymentPosition,
+  validateMeleeVerticalReach,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
@@ -118,6 +125,8 @@ export class GameHUD {
   private movePathPreview: Vector3[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
   private hoveredEngagedTargetId: string | null = null;
+  /** Designated model in a multi-model squad to allocate hazard casualties to. */
+  private selectedCasualtyModelId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -591,17 +600,46 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const path = findNavPath(this.state, active, rawDestination, active.speed);
+    const isDifficultDirect = isPathDifficult(this.state, [active.position, rawDestination], active);
+    const maxAllowance = isDifficultDirect ? Math.min(active.speed, 6.0) : active.speed;
+    const path = findNavPath(this.state, active, rawDestination, maxAllowance);
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength(path);
+    const isDifficult = isPathDifficult(this.state, path, active);
+    const maxMove = Math.min(
+      getEffectiveMaxMovement(active, 'move', isDifficult),
+      Math.max(active.speed, active.remainingMovement)
+    );
+    const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
+
+    const maxMoveStr = Number.isInteger(maxMove) ? `${maxMove}` : maxMove.toFixed(1);
+    let summary = `Move ${active.name} ${distance.toFixed(1)}" (max ${maxMoveStr}") · can shoot after moving`;
+    if (isDifficult) {
+      summary += ' · [Difficult Terrain: 6.0" speed cap]';
+    }
+    const fall = detectPathFall(path);
+    if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+      summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    }
+    if (isPathDangerous(this.state, path, active)) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+    const gapJump = detectPathGapJump(this.state, path, active);
+    if (gapJump.isGapJump) {
+      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required or fall!`;
+    }
+
+    this.selectedCasualtyModelId =
+      active.models && active.models.length > 1
+        ? active.models.find((m) => !m.isDestroyed)?.id ?? null
+        : null;
 
     this.movePreview = destination;
     this.movePathPreview = path;
@@ -611,8 +649,10 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
+        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
+        ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
       }),
-      `Move ${active.name} ${distance.toFixed(1)}" (max ${active.speed}") · can shoot after moving`
+      summary
     );
   }
 
@@ -620,13 +660,17 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const path = findNavPath(this.state, active, rawDestination, active.speed * 2);
+    const isDifficultDirect = isPathDifficult(this.state, [active.position, rawDestination], active);
+    const maxAllowance = isDifficultDirect ? 6.0 : active.speed * 2;
+    const path = findNavPath(this.state, active, rawDestination, maxAllowance);
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength(path);
+    const isDifficult = isPathDifficult(this.state, path, active);
+    const maxRush = getEffectiveMaxMovement(active, 'rush', isDifficult);
+    const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -640,6 +684,28 @@ export class GameHUD {
       return;
     }
 
+    const maxRushStr = Number.isInteger(maxRush) ? `${maxRush}` : maxRush.toFixed(1);
+    let summary = `Rush ${active.name} ${distance.toFixed(1)}" (max ${maxRushStr}") · double move (activation ends)`;
+    if (isDifficult) {
+      summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
+    }
+    const fall = detectPathFall(path);
+    if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+      summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    }
+    if (isPathDangerous(this.state, path, active)) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+    const gapJump = detectPathGapJump(this.state, path, active);
+    if (gapJump.isGapJump) {
+      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required or fall!`;
+    }
+
+    this.selectedCasualtyModelId =
+      active.models && active.models.length > 1
+        ? active.models.find((m) => !m.isDestroyed)?.id ?? null
+        : null;
+
     this.movePreview = destination;
     this.movePathPreview = path;
     this.beginConfirmation(
@@ -648,8 +714,10 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
+        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
+        ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
       }),
-      `Rush ${active.name} ${distance.toFixed(1)}" (max ${(active.speed * 2).toFixed(1)}") · double move (activation ends)`
+      summary
     );
   }
 
@@ -764,12 +832,36 @@ export class GameHUD {
         this.showToast('Cannot reach engagement range of target');
         return;
       }
-      const chargeDistance = pathLength(path);
-      if (chargeDistance > active.speed * 2 + 0.01) {
+      if (!validateMeleeVerticalReach(end, target.position)) {
+        this.showToast('Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)');
+        return;
+      }
+      const isDifficult = isPathDifficult(this.state!, path, active);
+      const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
+      const chargeDistance = pathLength3D(path);
+      if (chargeDistance > maxCharge + 0.01) {
         this.showToast(
-          `Too far to charge: ${chargeDistance.toFixed(1)}" vs charge speed ${(active.speed * 2).toFixed(1)}"`
+          isDifficult
+            ? `Charge in Difficult Terrain is capped at 6.0" (${chargeDistance.toFixed(1)}" exceeds 6.0")`
+            : `Too far to charge: ${chargeDistance.toFixed(1)}" vs charge speed ${maxCharge.toFixed(1)}"`
         );
         return;
+      }
+
+      let traversalNotes = '';
+      if (isDifficult) {
+        traversalNotes += ' · [Difficult Terrain 6.0" cap]';
+      }
+      const fall = detectPathFall(path);
+      if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+        traversalNotes += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1)`;
+      }
+      if (isPathDangerous(this.state!, path, active)) {
+        traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
+      }
+      const gapJump = detectPathGapJump(this.state!, path, active);
+      if (gapJump.isGapJump) {
+        traversalNotes += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required`;
       }
 
       const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
@@ -807,6 +899,7 @@ export class GameHUD {
           targetId: target.id,
           path,
           weaponId: weapon.id,
+          ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
         }),
         `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
@@ -1475,13 +1568,45 @@ export class GameHUD {
     const dataCardSlot = `<div class="sl-hud-datacard-slot">${this.renderDataCard()}</div>`;
 
     if (this.flow.mode === 'confirming') {
+      let casualtySelectorHtml = '';
+      if (
+        this.state &&
+        active &&
+        active.models &&
+        active.models.filter((m) => !m.isDestroyed).length > 1
+      ) {
+        const path = (this.flow.action.payload as any)?.path;
+        if (path && isPathDangerous(this.state, path, active)) {
+          const livingModels = active.models.filter((m) => !m.isDestroyed);
+          casualtySelectorHtml = `
+            <div class="sl-hud-casualty-selector" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #ffd54f;">
+              <span>Hazard Casualty Priority:</span>
+              <div style="display: flex; gap: 6px;">
+                ${livingModels
+                  .map(
+                    (m, idx) => `
+                  <button class="sl-hud-btn sl-hud-chip ${
+                    (this.selectedCasualtyModelId ?? livingModels[0].id) === m.id ? 'primary' : ''
+                  }" data-casualty-model-id="${m.id}" style="padding: 2px 8px; font-size: 11px;">
+                    ${m.name ?? `Model ${idx + 1}`} (${m.wounds}W)
+                  </button>`
+                  )
+                  .join('')}
+              </div>
+            </div>`;
+        }
+      }
+
       return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
-          <div class="sl-hud-bottom sl-hud-confirm">
-            <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
-            <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
-            <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+          <div class="sl-hud-bottom sl-hud-confirm" style="display: flex; flex-direction: column; align-items: center;">
+            ${casualtySelectorHtml}
+            <div style="display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center;">
+              <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
+              <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
+              <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+            </div>
           </div>
         </div>`;
     }
@@ -2067,6 +2192,19 @@ export class GameHUD {
               choiceId,
             })
           );
+        }
+      });
+    }
+
+    const casualtyBtns = this.root.querySelectorAll<HTMLButtonElement>('[data-casualty-model-id]');
+    for (const btn of casualtyBtns) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const modelId = btn.dataset.casualtyModelId;
+        if (modelId && this.flow.mode === 'confirming') {
+          this.selectedCasualtyModelId = modelId;
+          (this.flow.action.payload as any).casualtyModelIds = [modelId];
+          this.render();
         }
       });
     }

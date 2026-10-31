@@ -54,6 +54,7 @@ export type UnitStatus =
 
 export interface Model {
   id: string;
+  name?: string;
   wounds: number;
   maxWounds: number;
   isDestroyed: boolean;
