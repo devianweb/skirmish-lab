@@ -8,6 +8,8 @@ import {
   RetaliationOutcome,
   Unit,
   Weapon,
+  WeaponAllocation,
+  WeaponAttackOutcome,
 } from '../gameTypes';
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
@@ -19,6 +21,7 @@ import {
 } from './activation';
 import {
   CombatOutcome,
+  extractAllocationRolls,
   extractAttackRolls,
   extractRetaliationRolls,
   getAttackDiceSpecs,
@@ -82,8 +85,19 @@ interface PayloadWithUnitId {
 }
 interface PayloadWithAttacker {
   attackerId: string;
-  targetId: string;
+  targetId?: string;
   weaponId?: string;
+  allocations?: WeaponAllocation[];
+}
+
+export function getShootAllocations(payload: PayloadWithAttacker): WeaponAllocation[] {
+  if (payload.allocations && payload.allocations.length > 0) {
+    return payload.allocations;
+  }
+  if (payload.weaponId && payload.targetId) {
+    return [{ weaponId: payload.weaponId, targetId: payload.targetId }];
+  }
+  return [];
 }
 
 function getUnit(state: GameState, unitId: string): Unit | undefined {
@@ -225,31 +239,57 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'shoot': {
-      const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
+      const payload = action.payload as PayloadWithAttacker;
+      const { attackerId } = payload;
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
       if (attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already attacked this activation' };
       }
-      const target = requireTarget(state, action.actorId, targetId);
-      if ('reason' in target) return target;
-      const weapon = getWeapon(attacker.result, weaponId ?? '');
-      if (!weapon || weapon.profile.type !== 'ranged') {
-        return { valid: false, reason: 'Unit has no such ranged weapon' };
-      }
       if (isEngaged(attacker.result)) {
         return { valid: false, reason: 'Engaged units must fight instead of shooting' };
       }
-      const distance = boardDistance(attacker.result.position, target.result.position);
-      if (distance > weapon.profile.range + 0.01) {
-        return { valid: false, reason: 'Target out of range' };
+
+      const allocations = getShootAllocations(payload);
+      if (allocations.length === 0) {
+        return { valid: false, reason: 'No weapon allocations specified for shooting' };
       }
-      if (
-        !hasTrait(weapon.profile.specialRules, 'lobbed') &&
-        !hasLineOfSight(state, attacker.result, target.result)
-      ) {
-        return { valid: false, reason: 'No line of sight to target' };
+
+      const weaponIds = new Set<string>();
+      const targetIds = new Set<string>();
+
+      for (const alloc of allocations) {
+        if (weaponIds.has(alloc.weaponId)) {
+          return { valid: false, reason: 'A weapon cannot be fired multiple times' };
+        }
+        weaponIds.add(alloc.weaponId);
+        targetIds.add(alloc.targetId);
+
+        const weapon = getWeapon(attacker.result, alloc.weaponId);
+        if (!weapon || weapon.profile.type !== 'ranged') {
+          return { valid: false, reason: `Unit has no such ranged weapon (${alloc.weaponId})` };
+        }
+
+        const target = requireTarget(state, action.actorId, alloc.targetId);
+        if ('reason' in target) return target;
+
+        const distance = boardDistance(attacker.result.position, target.result.position);
+        if (distance > weapon.profile.range + 0.01) {
+          return { valid: false, reason: 'Target out of range' };
+        }
+        if (
+          !hasTrait(weapon.profile.specialRules, 'lobbed') &&
+          !hasLineOfSight(state, attacker.result, target.result)
+        ) {
+          return { valid: false, reason: 'No line of sight to target' };
+        }
       }
+
+      // Split fire constraint: maximum 2 distinct targets
+      if (targetIds.size > 2) {
+        return { valid: false, reason: 'Cannot split fire across more than 2 distinct targets' };
+      }
+
       return { valid: true };
     }
 
@@ -360,7 +400,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'fight': {
-      const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
+      const { attackerId, targetId, weaponId } = action.payload as {
+        attackerId: string;
+        targetId: string;
+        weaponId: string;
+      };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
       if (attacker.result.hasAttacked) {
@@ -463,7 +507,52 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     });
   }
 
-  if (action.type !== 'shoot' && action.type !== 'fight' && action.type !== 'charge') return null;
+  if (action.type === 'shoot') {
+    const payload = action.payload as PayloadWithAttacker;
+    const attacker = getUnit(state, payload.attackerId);
+    if (!attacker) return null;
+    const allocations = getShootAllocations(payload);
+    if (allocations.length === 0) return null;
+
+    const isSingle = allocations.length === 1;
+    const allSpecs: DiceSpec[] = [];
+
+    allocations.forEach((alloc, index) => {
+      const weapon = getWeapon(attacker, alloc.weaponId);
+      const target = getUnit(state, alloc.targetId);
+      if (!weapon || !target) return;
+      const attacks = weapon.profile.attacks;
+      if (typeof attacks !== 'number' || attacks < 1) return;
+
+      const distance = boardDistance(attacker.position, target.position);
+      const aliveModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const specs = getAttackDiceSpecs(attacks, {
+        attackerRules: attacker.specialRules,
+        weaponRules: weapon.profile.specialRules,
+        defenderRules: target.specialRules ?? [],
+        defenderModelCount: aliveModels,
+        isMelee: false,
+        isCharging: false,
+        distance,
+        includeTrauma: true,
+      });
+
+      if (isSingle) {
+        allSpecs.push(...specs);
+      } else {
+        allSpecs.push(
+          ...specs.map((s) => ({
+            ...s,
+            purpose: `alloc_${index}_${s.purpose}`,
+          }))
+        );
+      }
+    });
+
+    return allSpecs.length > 0 ? allSpecs : null;
+  }
+
+  if (action.type !== 'fight' && action.type !== 'charge') return null;
 
   const payload = action.payload as { attackerId: string; targetId: string; weaponId?: string };
   const attacker = getUnit(state, payload.attackerId);
@@ -567,22 +656,191 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
-    case 'shoot':
+    case 'shoot': {
+      const payload = action.payload as PayloadWithAttacker;
+      const attacker = getUnit(newState, payload.attackerId)!;
+      const allocations = getShootAllocations(payload);
+
+      if (!dice) {
+        return { ok: false, reason: 'Dice results required' };
+      }
+
+      const isSingle = allocations.length === 1;
+      const allocationOutcomes: WeaponAttackOutcome[] = [];
+
+      let totalAttackCount = 0;
+      let totalHitCount = 0;
+      let totalBonusHits = 0;
+      let totalBlockedCount = 0;
+      const allBlockedRolls: boolean[] = [];
+      let totalWardSavedCount = 0;
+      let totalWounds = 0;
+      let primaryTargetDestroyed = false;
+      let primaryTargetShaken = false;
+
+      // Turn attacker to face the primary target
+      const primaryTarget = getUnit(newState, allocations[0].targetId);
+      if (primaryTarget) {
+        const adx = primaryTarget.position.x - attacker.position.x;
+        const adz = primaryTarget.position.z - attacker.position.z;
+        if (Math.hypot(adx, adz) > 1e-4) {
+          attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
+        }
+      }
+
+      for (let i = 0; i < allocations.length; i++) {
+        const alloc = allocations[i];
+        const weapon = getWeapon(attacker, alloc.weaponId)!;
+        const target = getUnit(newState, alloc.targetId)!;
+        const distance = boardDistance(attacker.position, target.position);
+        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        const inCover =
+          target.status.includes('in-cover') ||
+          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target));
+        const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
+
+        let outcome: CombatOutcome;
+        let traumaRolls: number[] | undefined;
+        try {
+          const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
+          traumaRolls = rolls.trauma;
+          outcome = resolveAttack(
+            {
+              quality: attacker.quality,
+              specialRules: attacker.specialRules,
+              weaponRules: weapon.profile.specialRules,
+              isMelee: false,
+              isCharging: false,
+              hasMoved: attacker.hasMoved,
+              isFatigued: false,
+              distance,
+            },
+            {
+              defense: target.defense,
+              inCover,
+              specialRules: target.specialRules,
+              modelCount: aliveModels,
+              hasMoved: target.hasMoved,
+            },
+            weapon.profile.attacks as number,
+            rolls
+          );
+        } catch (error) {
+          return { ok: false, reason: (error as Error).message };
+        }
+
+        if (hasTrait(weapon.profile.specialRules, 'expendable')) {
+          weapon.isEquipped = false;
+        }
+
+        const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+        const trauma = applyWounds(target, outcome.wounds, traumaRolls, 0, lethalValue);
+
+        totalAttackCount += outcome.attackCount;
+        totalHitCount += outcome.hitCount;
+        totalBonusHits += outcome.bonusHits;
+        totalBlockedCount += outcome.blockedCount;
+        allBlockedRolls.push(...outcome.blockedRolls);
+        totalWardSavedCount += outcome.wardSavedCount;
+        totalWounds += outcome.wounds;
+        if (i === 0) {
+          primaryTargetDestroyed = target.isDestroyed;
+          primaryTargetShaken = target.status.includes('shaken');
+        }
+
+        allocationOutcomes.push({
+          weaponId: weapon.id,
+          weaponName: weapon.name,
+          targetId: target.id,
+          targetName: target.name,
+          attackCount: outcome.attackCount,
+          hitCount: outcome.hitCount,
+          bonusHits: outcome.bonusHits,
+          blockedCount: outcome.blockedCount,
+          blockedRolls: outcome.blockedRolls,
+          wardSavedCount: outcome.wardSavedCount,
+          wounds: outcome.wounds,
+          targetDestroyed: target.isDestroyed,
+          targetShaken: target.status.includes('shaken'),
+          effectiveQuality: outcome.effectiveQuality,
+          effectiveDefense: outcome.effectiveDefense,
+          baseQuality: outcome.baseQuality,
+          hitModifiers: outcome.hitModifiers,
+          baseDefense: outcome.baseDefense,
+          defenseModifiers: outcome.defenseModifiers,
+          coverApplied: outcome.coverApplied,
+          apApplied: outcome.apApplied,
+          ...(trauma
+            ? {
+                traumaRoll: trauma.roll,
+                traumaTokens: trauma.tokens,
+                traumaDreadBonus: trauma.dreadBonus,
+                traumaTotal: trauma.total,
+                traumaOutcome: trauma.outcome,
+              }
+            : {}),
+        });
+      }
+
+      attacker.hasAttacked = true;
+      refreshEngagements(newState);
+
+      const firstAlloc = allocationOutcomes[0];
+      diceResolution = {
+        rollId: action.id,
+        specs: getDiceSpecs(state, action) ?? [],
+        results: dice,
+        context: {
+          attackerId: attacker.id,
+          targetId: allocations[0].targetId,
+          weaponId: allocations[0].weaponId,
+          actionId: action.id,
+        },
+        outcome: {
+          attackCount: totalAttackCount,
+          hitCount: totalHitCount,
+          bonusHits: totalBonusHits,
+          blockedCount: totalBlockedCount,
+          blockedRolls: allBlockedRolls,
+          wardSavedCount: totalWardSavedCount,
+          wounds: totalWounds,
+          targetDestroyed: primaryTargetDestroyed,
+          targetShaken: primaryTargetShaken,
+          effectiveQuality: firstAlloc.effectiveQuality,
+          effectiveDefense: firstAlloc.effectiveDefense,
+          baseQuality: firstAlloc.baseQuality,
+          hitModifiers: firstAlloc.hitModifiers,
+          baseDefense: firstAlloc.baseDefense,
+          defenseModifiers: firstAlloc.defenseModifiers,
+          coverApplied: firstAlloc.coverApplied,
+          apApplied: firstAlloc.apApplied,
+          traumaRoll: firstAlloc.traumaRoll,
+          traumaTokens: firstAlloc.traumaTokens,
+          traumaDreadBonus: firstAlloc.traumaDreadBonus,
+          traumaTotal: firstAlloc.traumaTotal,
+          traumaOutcome: firstAlloc.traumaOutcome,
+          allocations: allocationOutcomes,
+        },
+      };
+
+      logEntry = acceptedEntry(action, diceResolution);
+      break;
+    }
+
     case 'fight': {
-      const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
+      const { attackerId, targetId, weaponId } = action.payload as {
+        attackerId: string;
+        targetId: string;
+        weaponId: string;
+      };
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
       const weapon = getWeapon(attacker, weaponId ?? '')!;
-      const isMelee = action.type === 'fight';
+      const isMelee = true;
       const distance = boardDistance(attacker.position, target.position);
-      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-      const inCover =
-        !isMelee &&
-        (target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target)));
       const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
       const isFatigued =
-        isMelee && (attacker.status.includes('fatigued') || attacker.status.includes('shaken'));
+        attacker.status.includes('fatigued') || attacker.status.includes('shaken');
 
       // Turn attacker to face the target
       const adx = target.position.x - attacker.position.x;
@@ -610,7 +868,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           },
           {
             defense: target.defense,
-            inCover,
+            inCover: false,
             specialRules: target.specialRules,
             modelCount: aliveModels,
             hasMoved: target.hasMoved,

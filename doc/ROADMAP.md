@@ -341,11 +341,11 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > - **Sub-phase 8B (HUD & Controls — `client/src/ui`):** Targeting chips per weapon, per-target breakdown in dice panel, and firing audio.
 
 ### Sub-phase 8A: Shared Engine & All-Weapon Batching
-- [ ] Support `{ attackerId, allocations: Array<{ weaponId: string, targetId: string }> }` in shoot action payload (backwards-compatible with single weapon/target).
-- [ ] Validate range, line-of-sight, and weapon eligibility across all assigned weapons.
-- [ ] Enforce split fire constraint: weapons can be divided between at most **two distinct enemy targets**.
-- [ ] Aggregate attack dice for all firing weapons into a single unified server roll request.
-- [ ] Pure engine unit tests in `shared/tests/engine/actions.test.ts`.
+- [x] Support `{ attackerId, allocations: Array<{ weaponId: string, targetId: string }> }` in shoot action payload (backwards-compatible with single weapon/target).
+- [x] Validate range, line-of-sight, and weapon eligibility across all assigned weapons.
+- [x] Enforce split fire constraint: weapons can be divided between at most **two distinct enemy targets**.
+- [x] Aggregate attack dice for all firing weapons into a single unified server roll request.
+- [x] Pure engine unit tests in `shared/tests/engine/actions.test.ts`.
 
 ### Sub-phase 8B: HUD Multi-Target Chips & Dice Log
 - [ ] Weapon allocation chips in targeting HUD allowing players to assign each equipped ranged weapon to eligible targets.

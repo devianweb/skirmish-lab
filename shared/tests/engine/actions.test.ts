@@ -435,6 +435,128 @@ describe('applyAction: shoot', () => {
     const after = createAction(GUEST, 'hold', { type: 'hold', unitId: 'g1' });
     expect(act(outcome.state!, after).reason).toBe('Game is over');
   });
+
+  it('resolves multi-weapon firing with multiple weapons on a single target', () => {
+    const state = shootState();
+    // Add pistol to h1
+    state.units[0].weapons.push({
+      id: 'pistol',
+      weaponType: 'pistol',
+      name: 'Pistol',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 2, specialRules: [] },
+    });
+    // Add another enemy so game doesn't end immediately
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }));
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'pistol', targetId: 'g1' },
+      ],
+    });
+
+    const specs = getDiceSpecs(state, action)!;
+    expect(specs.length).toBeGreaterThanOrEqual(4);
+    expect(specs[0].purpose).toBe('alloc_0_to-hit');
+    expect(specs[1].purpose).toBe('alloc_0_defense');
+
+    const multiDice: DiceResult[] = [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_0_to-hit' },
+      { rolls: [3], total: 3, finalTotal: 3, purpose: 'alloc_0_defense' }, // unsaved
+      { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'alloc_1_to-hit' },
+      { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'alloc_1_defense' }, // blocked
+    ];
+
+    const outcome = act(state, action, multiDice);
+    expect(outcome.ok).toBe(true);
+    const diceRes = outcome.state!.actionLog[0].dice!;
+    expect(diceRes.outcome.allocations).toHaveLength(2);
+    expect(diceRes.outcome.allocations![0].weaponId).toBe('rifle');
+    expect(diceRes.outcome.allocations![0].wounds).toBe(1);
+    expect(diceRes.outcome.allocations![1].weaponId).toBe('pistol');
+    expect(diceRes.outcome.allocations![1].wounds).toBe(0);
+    expect(diceRes.outcome.hitCount).toBe(3); // 1 + 2
+    expect(diceRes.outcome.blockedCount).toBe(2); // 0 + 2
+  });
+
+  it('resolves split-fire across up to 2 distinct targets', () => {
+    const state = shootState();
+    state.units[0].weapons.push({
+      id: 'pistol',
+      weaponType: 'pistol',
+      name: 'Pistol',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] },
+    });
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }));
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'pistol', targetId: 'g2' },
+      ],
+    });
+
+    const multiDice: DiceResult[] = [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_0_to-hit' },
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_0_defense' },
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_1_to-hit' },
+      { rolls: [2], total: 2, finalTotal: 2, purpose: 'alloc_1_defense' },
+    ];
+
+    const outcome = act(state, action, multiDice);
+    expect(outcome.ok).toBe(true);
+    const diceRes = outcome.state!.actionLog[0].dice!;
+    expect(diceRes.outcome.allocations).toHaveLength(2);
+    expect(diceRes.outcome.allocations![0].targetId).toBe('g1');
+    expect(diceRes.outcome.allocations![1].targetId).toBe('g2');
+    expect(diceRes.outcome.allocations![1].wounds).toBe(1);
+  });
+
+  it('rejects split fire when more than 2 distinct targets are allocated', () => {
+    const state = shootState();
+    state.units[0].weapons.push(
+      { id: 'w2', weaponType: 'pistol', name: 'W2', isEquipped: true, profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] } },
+      { id: 'w3', weaponType: 'pistol', name: 'W3', isEquipped: true, profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] } }
+    );
+    state.units.push(
+      makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }),
+      makeUnit('g3', GUEST, { position: { x: -5, y: 0, z: 10 } as Vector3 })
+    );
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'w2', targetId: 'g2' },
+        { weaponId: 'w3', targetId: 'g3' },
+      ],
+    });
+
+    expect(act(state, action).reason).toBe('Cannot split fire across more than 2 distinct targets');
+  });
+
+  it('rejects allocating the same weapon multiple times in one salvo', () => {
+    const state = shootState();
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }));
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'rifle', targetId: 'g2' },
+      ],
+    });
+
+    expect(act(state, action).reason).toBe('A weapon cannot be fired multiple times');
+  });
 });
 
 function chargeState(): GameState {
