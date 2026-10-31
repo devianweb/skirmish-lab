@@ -290,16 +290,46 @@ export class GameView {
       return { kind: 'unit', unitId };
     }
 
-    const terrainId = this.boardRenderer.raycastTerrain?.(raycaster) ?? null;
+    const terrainHit = this.boardRenderer.raycastTerrainHit?.(raycaster) ?? null;
 
-    // No unit hit — resolve the ground plane (y = 0).
+    // If an elevated walkable platform, ladder, stairs, or elevated piece was clicked,
+    // preserve the 3D elevation so models can climb, traverse, and drop from vertical structures.
+    if (terrainHit && terrainHit.point) {
+      const piece = terrainHit.piece;
+      const isWalkableOrClimbable =
+        piece?.isWalkable ||
+        piece?.terrainType === 'platform' ||
+        piece?.terrainType === 'stairs' ||
+        piece?.terrainType === 'ladder' ||
+        piece?.climbType === 'stairs' ||
+        piece?.climbType === 'ladder' ||
+        (piece?.elevation !== undefined && piece.elevation > 0);
+
+      if (isWalkableOrClimbable) {
+        const y =
+          piece?.elevation !== undefined
+            ? piece.elevation
+            : Math.round(terrainHit.point.y * 100) / 100;
+        return {
+          kind: 'position',
+          position: {
+            x: Math.round(terrainHit.point.x * 100) / 100,
+            y,
+            z: Math.round(terrainHit.point.z * 100) / 100,
+          },
+          terrainId: terrainHit.terrainId,
+        };
+      }
+    }
+
+    // No elevated terrain hit — resolve the ground plane (y = 0).
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const point = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(groundPlane, point)) {
       return {
         kind: 'position',
-        position: { x: point.x, y: 0, z: point.z },
-        ...(terrainId ? { terrainId } : {}),
+        position: { x: Math.round(point.x * 100) / 100, y: 0, z: Math.round(point.z * 100) / 100 },
+        ...(terrainHit?.terrainId ? { terrainId: terrainHit.terrainId } : {}),
       };
     }
     return null;
