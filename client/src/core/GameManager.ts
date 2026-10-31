@@ -11,6 +11,7 @@ import {
   validateAction,
   applyDefaultScenario,
   createAction,
+  ScenarioOptions,
 } from '@skirmish-lab/shared';
 import { WebRTCClient, GameMessage } from '../network/WebRTCClient';
 import { SessionStore } from '../storage/SessionStore';
@@ -229,11 +230,7 @@ export class GameManager {
   startGame(
     hostName = 'Host',
     guestName = 'Guest',
-    options?: {
-      hostArmyId?: string;
-      guestArmyId?: string;
-      useDeploymentPhase?: boolean;
-    }
+    options?: ScenarioOptions
   ): void {
     if (!this.isHost) return;
     this.gameState = createInitialGameState(HOST_PLAYER_ID, GUEST_PLAYER_ID, hostName, guestName);

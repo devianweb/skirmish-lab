@@ -1,11 +1,13 @@
 import {
   computeLosVisibilityPolygon,
+  CustomMapDefinition,
   GameState,
   GUEST_PLAYER_ID,
   HOST_PLAYER_ID,
   Vector3,
 } from '@skirmish-lab/shared';
 import { GameManager } from './core/GameManager';
+import { MapEditor } from './editor/MapEditor';
 import { SignalingDiceProvider } from './network/SignalingDiceProvider';
 import { GameView, PickTarget } from './renderer/GameView';
 import { ModelLoader } from './renderer/ModelLoader';
@@ -104,10 +106,31 @@ let hud: GameHUD | null = null;
 let gameManager: GameManager | null = null;
 let stopKeepAlive: (() => void) | null = null;
 let viewWired = false;
+let mapEditor: MapEditor | null = null;
+let activeCustomMap: CustomMapDefinition | null = null;
 
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
 const lobby = new Lobby(lobbyContainer, {
+  onOpenMapEditor: () => {
+    lobby.hide();
+    if (!mapEditor) {
+      mapEditor = new MapEditor(app, {
+        gameView,
+        modelLoader,
+        onExit: () => {
+          mapEditor?.hide();
+          lobby.show();
+          gameView.clear();
+        },
+        onSave: (map) => {
+          activeCustomMap = map;
+          alert(`Map "${map.name}" saved! It will be used for your next hosted match.`);
+        },
+      });
+    }
+    mapEditor.show();
+  },
   onRoleAssigned: (role) => {
     gameView.setupCameraForRole(role);
   },
@@ -217,6 +240,7 @@ const lobby = new Lobby(lobbyContainer, {
           hostArmyId,
           guestArmyId,
           useDeploymentPhase,
+          customMap: activeCustomMap ?? undefined,
         });
       }
     } else if (initialState) {

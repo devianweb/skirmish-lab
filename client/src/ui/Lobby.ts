@@ -18,6 +18,7 @@ export interface PeerReadyContext {
 export interface LobbyOptions {
   onPeerReady?: (context: PeerReadyContext) => void;
   onRoleAssigned?: (role: 'host' | 'guest') => void;
+  onOpenMapEditor?: () => void;
   sessionStore?: SessionStore;
 }
 
@@ -310,6 +311,7 @@ export class Lobby {
               <input id="codeInput" placeholder="XXX-XXX" value="${prefillCode}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
+            <button id="openMapEditorBtn" style="padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
           </div>
         </div>
       `;
@@ -355,6 +357,10 @@ export class Lobby {
         if (input && input.value) {
           this.signalingClient.joinRoom(input.value.toUpperCase());
         }
+      });
+
+      this.container.querySelector('#openMapEditorBtn')?.addEventListener('click', () => {
+        this.options.onOpenMapEditor?.();
       });
     }
   }
