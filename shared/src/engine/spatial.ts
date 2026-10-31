@@ -1995,51 +1995,70 @@ export function consolidateSquadToward(
   state: GameState,
   unit: Unit,
   targetPosition: Vector3,
-  maxDistance: number = 3.0
+  maxDistance: number = 3.0,
+  options: { intoContact?: boolean } = {}
 ): void {
-  // Only consolidate models that are not yet in contact (> 1.0" engagement range)
+  const intoContact = options.intoContact ?? false;
   const contactThreshold = 1.0;
   const targetContactDist = UNIT_SEPARATION_DISTANCE; // 0.6" base contact
 
-  if (!unit.models || unit.models.length <= 1) {
-    const dx = targetPosition.x - unit.position.x;
-    const dz = targetPosition.z - unit.position.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist > contactThreshold) {
-      const allowed = Math.min(maxDistance, dist - targetContactDist);
-      const targetCandidate: Vector3 = {
-        x: Math.round((unit.position.x + (dx / dist) * allowed) * 100) / 100,
-        y: unit.position.y ?? 0,
-        z: Math.round((unit.position.z + (dz / dist) * allowed) * 100) / 100,
-      };
-      unit.position = clampMoveDestinationWithObstacles(state, unit, targetCandidate, maxDistance);
-      if (unit.models && unit.models.length === 1 && !unit.models[0].isDestroyed) {
-        unit.models[0].position = { ...unit.position };
+  if (intoContact) {
+    if (!unit.models || unit.models.length <= 1) {
+      return;
+    }
+
+    let movedAny = false;
+    for (const model of unit.models) {
+      if (model.isDestroyed) continue;
+      const mPos = model.position ?? unit.position;
+      const dx = targetPosition.x - mPos.x;
+      const dz = targetPosition.z - mPos.z;
+      const dist = Math.hypot(dx, dz);
+      // Only models outside contact (> 1.0") consolidate into contact
+      if (dist > contactThreshold) {
+        movedAny = true;
+        const allowed = Math.min(maxDistance, dist - targetContactDist);
+        model.position = {
+          x: Math.round((mPos.x + (dx / dist) * allowed) * 100) / 100,
+          y: mPos.y ?? 0,
+          z: Math.round((mPos.z + (dz / dist) * allowed) * 100) / 100,
+        };
       }
+    }
+    if (movedAny) {
+      unit.position = computeSquadCentroid(getSquadModelPositions(unit));
     }
     return;
   }
 
-  let movedAny = false;
-  for (const model of unit.models) {
-    if (model.isDestroyed) continue;
-    const mPos = model.position ?? unit.position;
-    const dx = targetPosition.x - mPos.x;
-    const dz = targetPosition.z - mPos.z;
-    const dist = Math.hypot(dx, dz);
-    // Only models outside contact (> 1.0") consolidate into contact
-    if (dist > contactThreshold) {
-      movedAny = true;
-      const allowed = Math.min(maxDistance, dist - targetContactDist);
+  // Victory consolidation move (advancing up to maxDistance toward / through target position)
+  const dx = targetPosition.x - unit.position.x;
+  const dz = targetPosition.z - unit.position.z;
+  const dist = Math.hypot(dx, dz);
+  const dirX = dist > 1e-4 ? dx / dist : Math.sin(unit.rotation.y || 0);
+  const dirZ = dist > 1e-4 ? dz / dist : Math.cos(unit.rotation.y || 0);
+  const allowed = maxDistance;
+
+  const targetCandidate: Vector3 = {
+    x: Math.round((unit.position.x + dirX * allowed) * 100) / 100,
+    y: unit.position.y ?? 0,
+    z: Math.round((unit.position.z + dirZ * allowed) * 100) / 100,
+  };
+  const clamped = clampMoveDestinationWithObstacles(state, unit, targetCandidate, maxDistance);
+  const deltaX = clamped.x - unit.position.x;
+  const deltaZ = clamped.z - unit.position.z;
+  unit.position = { ...clamped };
+
+  if (unit.models && unit.models.length > 0) {
+    for (const model of unit.models) {
+      if (model.isDestroyed) continue;
+      const mPos = model.position ?? unit.position;
       model.position = {
-        x: Math.round((mPos.x + (dx / dist) * allowed) * 100) / 100,
-        y: mPos.y ?? 0,
-        z: Math.round((mPos.z + (dz / dist) * allowed) * 100) / 100,
+        x: Math.round((mPos.x + deltaX) * 100) / 100,
+        y: clamped.y ?? mPos.y ?? 0,
+        z: Math.round((mPos.z + deltaZ) * 100) / 100,
       };
     }
-  }
-  if (movedAny) {
-    unit.position = computeSquadCentroid(getSquadModelPositions(unit));
   }
 }
 

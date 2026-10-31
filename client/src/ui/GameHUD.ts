@@ -21,8 +21,8 @@ import {
   hasTrait,
   isPathDangerous,
   isPathDifficult,
+  isUnitInObjectiveRange,
   Objective,
-  OBJECTIVE_CONTROL_RADIUS,
   pathLength,
   pathLength3D,
   ShootingRayDebugInfo,
@@ -346,6 +346,39 @@ export class GameHUD {
       return;
     }
 
+    const pendingReaction = this.state.turnState.pendingReaction;
+    if (
+      pendingReaction &&
+      pendingReaction.type === 'melee-consolidation' &&
+      pendingReaction.promptingPlayerId === this.localPlayerId
+    ) {
+      if (target.kind === 'position') {
+        const victorId = pendingReaction.data?.unitId;
+        const victor = this.state.units.find((u) => u.id === victorId);
+        if (victor) {
+          const maxDist = pendingReaction.data?.maxDistance ?? 3.0;
+          const path = findNavPath(this.state, victor, target.position, maxDist);
+          if (path.length >= 2) {
+            const distance = pathLength3D(path);
+            this.flow = {
+              mode: 'confirming',
+              action: createAction(this.localPlayerId, 'consolidate-move', {
+                type: 'consolidate-move',
+                unitId: victor.id,
+                path,
+              }),
+              summary: `Consolidate ${victor.name} ${distance.toFixed(1)}" (max ${maxDist.toFixed(1)}")`,
+            };
+            this.movePathPreview = path;
+            this.movePreview = path[path.length - 1];
+            this.render();
+            this.emitMarkers();
+          }
+        }
+      }
+      return;
+    }
+
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       if (target.kind === 'position') {
         if (this.flow.action === 'move') {
@@ -401,6 +434,28 @@ export class GameHUD {
         (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
+
+    const pendingReaction = this.state.turnState.pendingReaction;
+    if (
+      pendingReaction &&
+      pendingReaction.type === 'melee-consolidation' &&
+      pendingReaction.promptingPlayerId === this.localPlayerId
+    ) {
+      const victorId = pendingReaction.data?.unitId;
+      const victor = this.state.units.find((u) => u.id === victorId);
+      if (victor && target?.kind === 'position') {
+        const maxDist = pendingReaction.data?.maxDistance ?? 3.0;
+        const path = findNavPath(this.state, victor, target.position, maxDist);
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.emitMarkers();
+      } else {
+        this.movePathPreview = null;
+        this.movePreview = null;
+        this.emitMarkers();
+      }
+      return;
+    }
 
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const active = this.activeUnit;
@@ -1824,18 +1879,10 @@ export class GameHUD {
       : '#ffd54f';
 
     const hostCount = (this.state?.units ?? []).filter(
-      (u) =>
-        u.ownerId === this.state?.hostId &&
-        !u.isDestroyed &&
-        !u.status.includes('shaken') &&
-        Math.hypot(u.position.x - obj.position.x, u.position.z - obj.position.z) <= OBJECTIVE_CONTROL_RADIUS
+      (u) => u.ownerId === this.state?.hostId && isUnitInObjectiveRange(u, obj)
     ).length;
     const guestCount = (this.state?.units ?? []).filter(
-      (u) =>
-        u.ownerId === this.state?.guestId &&
-        !u.isDestroyed &&
-        !u.status.includes('shaken') &&
-        Math.hypot(u.position.x - obj.position.x, u.position.z - obj.position.z) <= OBJECTIVE_CONTROL_RADIUS
+      (u) => u.ownerId === this.state?.guestId && isUnitInObjectiveRange(u, obj)
     ).length;
 
     return `
@@ -2333,7 +2380,8 @@ export class GameHUD {
       if (
         (this.flow.action.type === 'move-unit' ||
           this.flow.action.type === 'rush' ||
-          this.flow.action.type === 'charge') &&
+          this.flow.action.type === 'charge' ||
+          this.flow.action.type === 'consolidate-move') &&
         payload.path &&
         payload.path.length >= 2
       ) {
@@ -2388,7 +2436,28 @@ export class GameHUD {
       (this.flow.mode === 'confirming' && this.flow.action.type === 'move-unit') ||
       (this.flow.mode === 'idle' && this.hoveredAction === 'move');
 
-    if ((isMoveMode || isRushMode) && this.activeUnit) {
+    const pendingConsolidation = this.state?.turnState.pendingReaction;
+    const isConsolidationMode =
+      pendingConsolidation &&
+      pendingConsolidation.type === 'melee-consolidation' &&
+      pendingConsolidation.promptingPlayerId === this.localPlayerId;
+
+    if (isConsolidationMode && pendingConsolidation) {
+      const victorId = pendingConsolidation.data?.unitId;
+      const victor = this.state?.units.find((u) => u.id === victorId);
+      if (victor) {
+        markers.selectedUnitId = victor.id;
+        markers.movementRangeUnitId = victor.id;
+        markers.movementRangeRadius = pendingConsolidation.data?.maxDistance ?? 3.0;
+        if (this.movePathPreview && this.movePathPreview.length >= 2) {
+          markers.movePath = {
+            from: this.movePathPreview[0],
+            to: this.movePathPreview[this.movePathPreview.length - 1],
+            waypoints: this.movePathPreview,
+          };
+        }
+      }
+    } else if ((isMoveMode || isRushMode) && this.activeUnit) {
       markers.movementRangeUnitId = this.activeUnit.id;
       markers.movementRangeRadius = isRushMode
         ? this.activeUnit.speed * 2

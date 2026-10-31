@@ -206,6 +206,38 @@ describe('activation', () => {
       expect(state.objectives[0].isContested).toBe(false);
     });
 
+    it('enforces 3.0" vertical cylinder constraint: elevated unit > 3.0" vertically cannot control or contest', () => {
+      const state = makeState([
+        // Host unit is at ground level within 2.0" horizontally
+        makeUnit('h1', HOST, { position: { x: 2, y: 0, z: 0 } }),
+        // Guest sniper is directly above at x: 0, z: 0 but on a high roof (y: 3.5")
+        makeUnit('g-high', GUEST, { position: { x: 0, y: 3.5, z: 0 } }),
+      ]);
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+
+      evaluateObjectives(state);
+      // Guest unit is > 3.0" vertically above objective, so it does not contest; Host captures
+      expect(state.objectives[0].controllingPlayerId).toBe(HOST);
+      expect(state.objectives[0].isContested).toBe(false);
+    });
+
+    it('permits control if unit is on a low platform or stairs within 3.0" vertically', () => {
+      const state = makeState([
+        // Host unit on an elevated platform at y: 2.5" within 2.0" horizontally
+        makeUnit('h-plat', HOST, { position: { x: 1.5, y: 2.5, z: 0 } }),
+      ]);
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+
+      evaluateObjectives(state);
+      // Host unit is within 3.0" vertical delta (2.5 <= 3.0), so it controls the objective
+      expect(state.objectives[0].controllingPlayerId).toBe(HOST);
+      expect(state.objectives[0].isContested).toBe(false);
+    });
+
     it('terminates the match after round 4 and crowns the winner based on objective control', () => {
       // Place units far from any objective so existing control is preserved
       const state = makeState([
