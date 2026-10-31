@@ -236,5 +236,24 @@ describe('UnitRenderer', () => {
       const hit = renderer.raycastUnit(raycaster);
       expect(hit).toBe('squad-alpha');
     });
+
+    it('does not render undeployed units until isDeployed is true', () => {
+      const { renderer, unitGroup } = setup();
+      const unit = makeUnit({
+        id: 'undeployed-leader',
+        isDeployed: false,
+      });
+      const state = makeState({ units: [unit] });
+      renderer.syncFromState(state);
+
+      expect(unitGroup.children.length).toBe(0);
+
+      // Deploy the unit
+      unit.isDeployed = true;
+      renderer.syncFromState(state);
+
+      expect(unitGroup.children.length).toBe(1);
+      expect(unitGroup.children[0].userData.unitId).toBe('undeployed-leader');
+    });
   });
 });

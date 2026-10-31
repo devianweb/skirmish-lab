@@ -4,6 +4,7 @@ import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
   AttackRangeMarker,
+  DeploymentZoneMarker,
   MarkerRenderer,
   MarkerUnit,
   MovePathMarker,
@@ -209,6 +210,10 @@ export class GameView {
 
   setUnitsDebugMarker(units: Unit[] | null): void {
     this.markerRenderer.setUnitsDebug(units);
+  }
+
+  setDeploymentZonesMarker(zones: DeploymentZoneMarker | null): void {
+    this.markerRenderer.setDeploymentZones(zones);
   }
 
   showOutcomeToken(position: Vector3, wounds: number): void {

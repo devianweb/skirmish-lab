@@ -88,6 +88,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
   }
   gameView.setShootingDebugRayMarker(markers.shootingDebugRay ?? null);
   gameView.setUnitsDebugMarker(markers.debugActive && latestState ? latestState.units : null);
+  gameView.setDeploymentZonesMarker(markers.deploymentZones ?? null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }
@@ -109,7 +110,16 @@ const lobby = new Lobby(lobbyContainer, {
   onRoleAssigned: (role) => {
     gameView.setupCameraForRole(role);
   },
-  onPeerReady: ({ webrtcClient, signalingClient, role, roomCode, initialState }) => {
+  onPeerReady: ({
+    webrtcClient,
+    signalingClient,
+    role,
+    roomCode,
+    initialState,
+    hostArmyId,
+    guestArmyId,
+    useDeploymentPhase,
+  }) => {
     gameView.setupCameraForRole(role);
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
@@ -180,7 +190,11 @@ const lobby = new Lobby(lobbyContainer, {
     stopKeepAlive = signalingClient.startKeepAlive();
 
     if (isHost) {
-      gameManager.startGame('Host', 'Guest');
+      gameManager.startGame('Host', 'Guest', {
+        hostArmyId,
+        guestArmyId,
+        useDeploymentPhase,
+      });
     } else if (initialState) {
       // If state-update was the first message that triggered onPeerReady,
       // feed it to the newly created guest GameManager.

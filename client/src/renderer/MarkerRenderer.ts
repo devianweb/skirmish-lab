@@ -33,6 +33,19 @@ export interface MovePathMarker {
   isMeleeContact?: boolean;
 }
 
+export interface DeploymentZoneBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface DeploymentZoneMarker {
+  hostZone: DeploymentZoneBounds;
+  guestZone: DeploymentZoneBounds;
+  previewUnitZone?: DeploymentZoneBounds & { color?: number };
+}
+
 const SELECTION_COLOR = 0x29b6f6;
 const TARGET_COLOR = 0xff5252;
 const REACHABLE_TARGET_COLOR = 0x8e2424;
@@ -65,6 +78,7 @@ export class MarkerRenderer {
   private terrainDebug: THREE.Object3D | null = null;
   private unitsDebug: THREE.Object3D | null = null;
   private shootingDebug: THREE.Object3D | null = null;
+  private deploymentZones: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -420,6 +434,77 @@ export class MarkerRenderer {
   }
 
   /**
+   * Renders translucent floor boundaries and border outlines for deployment zones
+   * during the pre-match deployment phase.
+   */
+  setDeploymentZones(zones: DeploymentZoneMarker | null): void {
+    this.removeMarker('deploymentZones');
+    if (!zones) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-deployment-zones';
+
+    const addZone = (
+      bounds: DeploymentZoneBounds,
+      color: number,
+      opacity: number,
+      borderOpacity: number
+    ) => {
+      const width = bounds.maxX - bounds.minX;
+      const depth = bounds.maxZ - bounds.minZ;
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+
+      // Semi-transparent ground fill
+      const planeGeo = new THREE.PlaneGeometry(width, depth);
+      const planeMat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+      planeMesh.rotation.x = -Math.PI / 2;
+      planeMesh.position.set(centerX, 0.015, centerZ);
+      group.add(planeMesh);
+
+      // Boundary outline
+      const halfW = width / 2;
+      const halfD = depth / 2;
+      const points = [
+        new THREE.Vector3(centerX - halfW, 0.02, centerZ - halfD),
+        new THREE.Vector3(centerX + halfW, 0.02, centerZ - halfD),
+        new THREE.Vector3(centerX + halfW, 0.02, centerZ + halfD),
+        new THREE.Vector3(centerX - halfW, 0.02, centerZ + halfD),
+        new THREE.Vector3(centerX - halfW, 0.02, centerZ - halfD),
+      ];
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const lineMat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: borderOpacity,
+      });
+      const line = new THREE.Line(lineGeo, lineMat);
+      group.add(line);
+    };
+
+    // Host zone (Blue)
+    addZone(zones.hostZone, 0x29b6f6, 0.12, 0.85);
+
+    // Guest zone (Red)
+    addZone(zones.guestZone, 0xef5350, 0.12, 0.85);
+
+    // Preview unit zone (e.g. vanguard extension) if active
+    if (zones.previewUnitZone) {
+      addZone(zones.previewUnitZone, zones.previewUnitZone.color ?? 0xffd54f, 0.18, 0.95);
+    }
+
+    this.markerGroup.add(group);
+    this.deploymentZones = group;
+  }
+
+  /**
    * Floating wound-count token above a position (supports 0 wounds for clean
    * attack feedback), auto-cleared after a short delay.
    */
@@ -462,6 +547,7 @@ export class MarkerRenderer {
     this.removeMarker('terrainDebug');
     this.removeMarker('unitsDebug');
     this.removeMarker('shootingDebug');
+    this.removeMarker('deploymentZones');
     this.clearOutcome();
   }
 
@@ -498,6 +584,7 @@ export class MarkerRenderer {
       | 'terrainDebug'
       | 'unitsDebug'
       | 'shootingDebug'
+      | 'deploymentZones'
   ): void {
     const current = this[kind];
     if (current) {

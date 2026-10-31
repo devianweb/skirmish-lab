@@ -4,6 +4,7 @@ export type GameMessage =
   | { type: 'state-update', state: any, actionId: string }
   | { type: 'heartbeat-ping', timestamp: number }
   | { type: 'heartbeat-pong', timestamp: number }
+  | { type: 'select-army', armyId: string, playerId: string }
   | { type: 'request-snapshot' }
   | { type: 'snapshot', state: any }
   | { type: 'game-end', reason: string };

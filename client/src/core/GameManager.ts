@@ -147,10 +147,18 @@ export class GameManager {
    * (host only) and broadcast the confirmed starting state. The guest
    * receives everything through state updates.
    */
-  startGame(hostName = 'Host', guestName = 'Guest'): void {
+  startGame(
+    hostName = 'Host',
+    guestName = 'Guest',
+    options?: {
+      hostArmyId?: string;
+      guestArmyId?: string;
+      useDeploymentPhase?: boolean;
+    }
+  ): void {
     if (!this.isHost) return;
     this.gameState = createInitialGameState(HOST_PLAYER_ID, GUEST_PLAYER_ID, hostName, guestName);
-    applyDefaultScenario(this.gameState);
+    applyDefaultScenario(this.gameState, options);
     this.saveSnapshot(this.gameState);
     this.syncReactionTimer();
     this.broadcastState('game-start');

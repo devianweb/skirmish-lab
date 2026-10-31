@@ -408,14 +408,14 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Special deployment handling: `vanguard` places after standard units; `drop-reserve` held for Round 2+.
 
 ### Sub-phase 10C: Deployment HUD & Lobby Selection (`client/`)
-- [ ] Lobby UI army selector allowing players to pick their faction force before connecting.
-- [ ] 3D deployment zone boundaries visualizer.
-- [ ] Alternating placement HUD prompt and placement confirmation.
+- [x] Lobby UI army selector allowing players to pick their faction force before connecting.
+- [x] 3D deployment zone boundaries visualizer.
+- [x] Alternating placement HUD prompt and placement confirmation.
 
 ### Acceptance Criteria
-- [ ] Players can start a match instantly by selecting a pre-canned army per faction in the lobby.
-- [ ] Interactive deployment lets players alternate placing units within 12" zones before Round 1 begins.
-- [ ] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
+- [x] Players can start a match instantly by selecting a pre-canned army per faction in the lobby.
+- [x] Interactive deployment lets players alternate placing units within 12" zones before Round 1 begins.
+- [x] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
 
 ## Phase 11: Environmental Terrain Dynamics & Verticality
 **Goal:** Implement full tabletop terrain hazard tests and 3D multi-level vertical movement.

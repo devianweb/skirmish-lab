@@ -2,7 +2,9 @@ import { GameState, Objective, TerrainPiece, Unit } from '../gameTypes';
 import {
   ARMY_FRONTIER_WARDENS,
   ARMY_RUST_RAIDERS,
+  STARTER_ARMIES,
   createUnitFromFighter,
+  createUnitsFromStarterArmy,
 } from './armies';
 
 /**
@@ -179,9 +181,66 @@ export function createDefaultScenarioObjectives(): Objective[] {
   ];
 }
 
+export interface ScenarioOptions {
+  hostArmyId?: string;
+  guestArmyId?: string;
+  useDeploymentPhase?: boolean;
+}
+
 /** Apply the default scenario to a fresh game state (host-side, at start). */
-export function applyDefaultScenario(state: GameState): void {
-  state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
+export function applyDefaultScenario(state: GameState, options: ScenarioOptions = {}): void {
+  const hostStarter = options.hostArmyId && options.hostArmyId in STARTER_ARMIES
+    ? STARTER_ARMIES[options.hostArmyId as keyof typeof STARTER_ARMIES]
+    : null;
+  const guestStarter = options.guestArmyId && options.guestArmyId in STARTER_ARMIES
+    ? STARTER_ARMIES[options.guestArmyId as keyof typeof STARTER_ARMIES]
+    : null;
+
+  if (options.useDeploymentPhase) {
+    const hostForce = hostStarter ?? STARTER_ARMIES['frontier-wardens-starter'];
+    const guestForce = guestStarter ?? STARTER_ARMIES['rust-raiders-starter'];
+
+    const hostUnits = createUnitsFromStarterArmy(hostForce, state.hostId, {
+      startUndeployed: true,
+      defaultZ: -12,
+      facing: 0,
+    });
+    const guestUnits = createUnitsFromStarterArmy(guestForce, state.guestId, {
+      startUndeployed: true,
+      defaultZ: 12,
+      facing: Math.PI,
+    });
+
+    state.units = [...hostUnits, ...guestUnits];
+    state.terrain = createDefaultScenarioTerrain();
+    state.markers = [];
+    state.objectives = createDefaultScenarioObjectives();
+    state.status = 'in-progress';
+    state.turnState.phase = 'deployment';
+    state.turnState.roundNumber = 0;
+    state.turnState.startingPlayerId = state.hostId;
+    state.turnState.currentPlayerId = state.hostId;
+    state.turnState.activeUnitId = null;
+    state.turnState.unitsActivatedThisRound = [];
+    return;
+  }
+
+  if (hostStarter && guestStarter) {
+    const hostUnits = createUnitsFromStarterArmy(hostStarter, state.hostId, {
+      startUndeployed: false,
+      defaultZ: -12,
+      facing: 0,
+    });
+    const guestUnits = createUnitsFromStarterArmy(guestStarter, state.guestId, {
+      startUndeployed: false,
+      defaultZ: 12,
+      facing: Math.PI,
+    });
+    state.units = [...hostUnits, ...guestUnits];
+  } else {
+    state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
+  }
+
   state.terrain = createDefaultScenarioTerrain();
   state.markers = [];
   state.objectives = createDefaultScenarioObjectives();
