@@ -56,4 +56,41 @@ describe('WebRTCClient', () => {
     expect((client as any).dataChannel).toBeNull();
     expect((client as any).peerConnection).toBeNull();
   });
+
+  it('should transition to disconnected state when heartbeat times out after 6000ms', () => {
+    const stateCallback = vi.fn();
+    client.onConnectionState(stateCallback);
+
+    // Force connected state
+    (client as any).setConnectionState('connected');
+    expect(stateCallback).toHaveBeenLastCalledWith('connected');
+
+    // Simulate 6100ms of silence
+    (client as any).lastPongTime = Date.now() - 6100;
+    client.checkHeartbeat();
+
+    expect(stateCallback).toHaveBeenLastCalledWith('disconnected');
+  });
+
+  it('should restore connection to connected when a game message arrives after timeout', () => {
+    const stateCallback = vi.fn();
+    (client as any).setConnectionState('disconnected');
+    client.onConnectionState(stateCallback);
+
+    const dataChannel = {
+      readyState: 'open',
+      send: vi.fn(),
+      onopen: null,
+      onclose: null,
+      onerror: null,
+      onmessage: null,
+    };
+    (client as any).dataChannel = dataChannel;
+    (client as any).setupDataChannel();
+
+    // Message arrives from peer
+    dataChannel.onmessage!({ data: JSON.stringify({ type: 'heartbeat-pong', timestamp: Date.now() }) });
+
+    expect(stateCallback).toHaveBeenLastCalledWith('connected');
+  });
 });
