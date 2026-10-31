@@ -62,13 +62,17 @@ describe('scenario data pack', () => {
     const terrain = createDefaultScenarioTerrain();
     expect(terrain.length).toBeGreaterThanOrEqual(6);
     for (const piece of terrain) {
-      expect(piece.providesCover).toBe(true);
+      expect(typeof piece.providesCover).toBe('boolean');
       expect(typeof piece.blocksLineOfSight).toBe('boolean');
       expect(piece.scale.x).toBeGreaterThan(0);
     }
     const types = new Set(terrain.map((t) => t.terrainType));
     expect(types).toContain('crate');
     expect(types).toContain('wall');
+    expect(types).toContain('platform');
+    expect(types).toContain('ladder');
+    expect(types).toContain('stairs');
+    expect(types).toContain('toxic');
   });
 
   it('applies the scenario to a fresh state and leaves it playable', () => {

@@ -26,6 +26,12 @@ Used by `BoardRenderer` (via `piece.terrainType`), scaled by each piece's `scale
 | `wall-doorway` | `wall-doorway.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Door passage: central 1.0" doorway is open to both model movement and unobstructed Line of Sight. |
 | `crate` | `crate.glb` | `0.5 × 0.5 × 0.5` | `1 × 1 × 1` (scaled to waist height `1.0` in manifest) | Low cover: blocks movement; grants +1 Defense to defenders positioned within 1.0" along the line of fire. |
 | `column` | `column.glb` | `0.2 × 1.0 × 0.2` | `1 × 2.5 × 1` | Solid column: blocks movement and Line of Sight. |
+| `platform` | `floor-square.glb` | `1.0 × 0.1 × 1.0` | `3 × 0.3 × 3` | Elevated walkable platform: fighters stand at `y = 2.5"`. Models within 1.0" of edge gain Parapet Cover (+1 Defense); models set back > 1.0" create floor blind spots from street. |
+| `ladder` | `ladder.glb` | `0.5 × 2.0 × 0.2` | `0.5 × 2.5 × 1.0` | Vertical access ladder: climbed at 1:1 speed without Difficult Terrain penalty. |
+| `stairs` | `stairs-small.glb` | `1.0 × 1.0 × 1.0` | `1.5 × 2.5 × 1.0` | Stair ramp access: ascended at 1:1 speed without Difficult Terrain penalty. |
+| `wall-low` | `wall-low.glb` | `0.2 × 0.5 × 1.0` | `2 × 0.8 × 0.3` | Low barricade: low cover granting +1 Defense to defenders within 1.0" along line of fire; Plunging Fire (>= 2.0" above) looks over it. |
+| `pipe` | `pipe.glb` | `0.8 × 0.8 × 1.0` | `3 × 0.8 × 0.8` | Industrial conduit: low cover obstacle providing cover to models behind it. |
+| `toxic` | *(Procedural Plane)* | `1.0 × 0.05 × 1.0` | `2.5 × 0.05 × 2.5` | Dangerous & Difficult Terrain: entering or activating inside rolls 1d6 per model; 1s inflict unsaved wounds. Movement capped at 6.0". |
 
 ### 3. Gameplay UI Markers (`MARKER_ASSETS` & `OUTCOME_ASSETS`)
 Used by `MarkerRenderer` for selection, targeting, range rings, and floating wound outcome numbers:

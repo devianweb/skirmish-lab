@@ -457,12 +457,85 @@ export function clampMoveDestinationWithObstacles(
 }
 
 /**
+ * Finds a walkable elevated platform terrain piece at `point`.
+ */
+export function findWalkablePlatformAt(state: GameState, point: Vector3): TerrainPiece | null {
+  for (const piece of state.terrain) {
+    if (
+      piece.isWalkable ||
+      piece.terrainType === 'platform' ||
+      piece.terrainType === 'floor' ||
+      (piece.elevation !== undefined && piece.elevation > 0)
+    ) {
+      const { hx, hz } = terrainHalfExtents(piece);
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const dx = point.x - piece.position.x;
+      const dz = point.z - piece.position.z;
+      const localX = dx * cos - dz * sin;
+      const localZ = dx * sin + dz * cos;
+      if (Math.abs(localX) <= hx + 0.1 && Math.abs(localZ) <= hz + 0.1) {
+        return piece;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Distance from an elevated point on a platform to the platform's perimeter edge
+ * in the direction toward another point on the XZ plane.
+ */
+export function getPlatformEdgeDistance(
+  point: Vector3,
+  toward: Vector3,
+  platform: TerrainPiece
+): number {
+  const { hx, hz } = terrainHalfExtents(platform);
+  const yaw = platform.rotation.y || 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+
+  const dx = toward.x - point.x;
+  const dz = toward.z - point.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-4) return 0;
+
+  const dirX = dx / dist;
+  const dirZ = dz / dist;
+
+  const ox = point.x - platform.position.x;
+  const oz = point.z - platform.position.z;
+  const localOx = ox * cos - oz * sin;
+  const localOz = ox * sin + oz * cos;
+  const localDx = dirX * cos - dirZ * sin;
+  const localDz = dirX * sin + dirZ * cos;
+
+  let tExit = Infinity;
+  if (localDx > 1e-6) {
+    tExit = Math.min(tExit, (hx - localOx) / localDx);
+  } else if (localDx < -1e-6) {
+    tExit = Math.min(tExit, (-hx - localOx) / localDx);
+  }
+
+  if (localDz > 1e-6) {
+    tExit = Math.min(tExit, (hz - localOz) / localDz);
+  } else if (localDz < -1e-6) {
+    tExit = Math.min(tExit, (-hz - localOz) / localDz);
+  }
+
+  return Math.max(0, tExit === Infinity ? 0 : tExit);
+}
+
+/**
  * OPR-style Line of Sight check between `attacker` and `target`.
  *
  * Line of Sight is blocked by:
  *   1. Any terrain piece with `blocksLineOfSight: true` (walls, columns).
  *   2. Any other living fighter on the board (friendly or enemy not part of
  *      the attacker/target pair).
+ *   3. 3D roof floor plane blind spots for models set back > 1.0" from platform edges.
  */
 export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): boolean {
   const dx = target.position.x - attacker.position.x;
@@ -470,40 +543,76 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
   const dist = Math.hypot(dx, dz);
   if (dist < 1e-4) return true;
 
+  const attackerY = attacker.position.y ?? 0;
+  const targetY = target.position.y ?? 0;
+
+  // Setback Blind Spot:
+  // If target is elevated >= 1.0" above attacker, check if target is set back from platform edge
+  if (targetY >= attackerY + 1.0) {
+    const platform = findWalkablePlatformAt(state, target.position);
+    if (platform) {
+      const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
+      if (setback > 1.05) {
+        return false; // Ground shooter's sight is blocked by the floor plane
+      }
+    }
+  }
+
+  // If attacker is elevated >= 1.0" above target, check if attacker is set back from platform edge
+  if (attackerY >= targetY + 1.0) {
+    const platform = findWalkablePlatformAt(state, attacker.position);
+    if (platform) {
+      const setback = getPlatformEdgeDistance(attacker.position, target.position, platform);
+      if (setback > 1.05) {
+        return false; // Elevated shooter cannot see over floor lip to ground below
+      }
+    }
+  }
+
   const dirX = dx / dist;
   const dirZ = dz / dist;
 
   for (const piece of state.terrain) {
     if (!piece.blocksLineOfSight) continue;
 
-    if (piece.terrainType === 'wall-doorway') {
-      const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-      if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
-        return false;
-      }
-      continue;
-    }
-
-    if (piece.terrainType === 'wall-window') {
-      const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-      if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
-        return false;
-      }
-      if (ap.passesAperture) {
-        const { hx, hz } = terrainHalfExtents(piece);
-        const pieceRadius = Math.hypot(hx, hz);
-        const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
-        const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
-        if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
-          continue; // Peeking / manning the firing port allows sight
-        }
-        return false; // Distant window blocks sight
-      }
-      continue;
-    }
-
     const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0);
     if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+      // Check 3D vertical ray clearance
+      const tMid = (hit.tEntry + hit.tExit) / 2;
+      const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
+      const pieceBottom = piece.position.y ?? 0;
+      const pieceTop = pieceBottom + (piece.scale?.y ?? 1.5);
+      if (rayY > pieceTop + 0.05 || rayY < pieceBottom - 0.05) {
+        // Ray passes completely above or below the piece
+        continue;
+      }
+
+      if (piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+        if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
+          return false;
+        }
+        continue;
+      }
+
+      if (piece.terrainType === 'wall-window') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+        if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
+          return false;
+        }
+        if (ap.passesAperture) {
+          const { hx, hz } = terrainHalfExtents(piece);
+          const pieceRadius = Math.hypot(hx, hz);
+          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
+          const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
+          if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
+            continue; // Peeking / manning the firing port allows sight
+          }
+          return false; // Distant window blocks sight
+        }
+        continue;
+      }
+
       return false;
     }
   }
@@ -521,6 +630,12 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
       LOS_UNIT_RADIUS
     );
     if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+      const tMid = (hit.tEntry + hit.tExit) / 2;
+      const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
+      const otherY = other.position.y ?? 0;
+      if (rayY > otherY + 1.5 || rayY < otherY - 0.1) {
+        continue; // Ray passes above the intermediate fighter
+      }
       return false;
     }
   }
@@ -534,15 +649,14 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
  *
  * Cover applies when:
  *   1. `target.status` explicitly includes `'in-cover'`, OR
- *   2. The attack ray passes across a non-LoS-blocking `providesCover` terrain
+ *   2. `target` is on an elevated platform within 1.0" of the edge facing the shooter (Parapet Cover), OR
+ *   3. The attack ray passes across a non-LoS-blocking `providesCover` terrain
  *      piece (e.g. crates, barricades) situated between attacker and target,
  *      excluding cover adjacent to the attacker (shooting out of cover does
- *      not grant cover to the open target), OR
- *   3. For LoS-blocking cover (walls, columns): `target` is within 1.0" of the
- *      piece AND the piece partially obscures the target (at least one edge
- *      ray to the target's flank is blocked while center LoS remains open).
- *      Terrain behind or beside the target that does not obscure the model
- *      does not grant cover.
+ *      not grant cover to the open target), and excluding low ground cover against
+ *      plunging fire (attacker elevated >= 2.0"), OR
+ *   4. For LoS-blocking cover (walls, columns): `target` is within 1.0" of the
+ *      piece AND the piece partially obscures the target.
  */
 export function hasCoverAgainstAttack(
   state: GameState,
@@ -550,6 +664,23 @@ export function hasCoverAgainstAttack(
   target: Unit
 ): boolean {
   if (target.status.includes('in-cover')) return true;
+
+  const attackerY = attacker.position.y ?? 0;
+  const targetY = target.position.y ?? 0;
+
+  // 1. Parapet / Ledge Cover:
+  // If target is on an elevated platform >= 1.0" above attacker, and within 1.0" of the edge facing attacker
+  if (targetY >= attackerY + 1.0) {
+    const platform = findWalkablePlatformAt(state, target.position);
+    if (platform) {
+      const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
+      if (setback <= 1.05) {
+        return true; // Target claims Parapet Cover (+1 Defense)
+      }
+    }
+  }
+
+  const isPlungingFire = attackerY >= targetY + 2.0;
 
   const dx = target.position.x - attacker.position.x;
   const dz = target.position.z - attacker.position.z;
@@ -563,6 +694,15 @@ export function hasCoverAgainstAttack(
 
   for (const piece of state.terrain) {
     if (!piece.providesCover) continue;
+
+    // Plunging fire looks over ground-level low cover (crates, low barricades <= 1.5")
+    if (
+      isPlungingFire &&
+      (piece.scale?.y ?? 1.0) <= 1.5 &&
+      (piece.position.y ?? 0) < targetY + 0.5
+    ) {
+      continue;
+    }
 
     const { hx, hz } = terrainHalfExtents(piece);
     const pieceRadius = Math.hypot(hx, hz);
