@@ -36,7 +36,7 @@ export class UnitRenderer {
     const visibleIds = new Set<string>();
 
     for (const unit of state.units) {
-      if (unit.isDestroyed) {
+      if (unit.isDestroyed || unit.isDeployed === false) {
         continue;
       }
       visibleIds.add(unit.id);

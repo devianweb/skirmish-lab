@@ -310,4 +310,21 @@ describe('MarkerRenderer', () => {
     expect(marker.scale.x).toBeCloseTo(12, 1);
     expect(marker.scale.z).toBeCloseTo(12, 1);
   });
+
+  it('renders deployment zone boundaries and clears them properly', () => {
+    const renderer = makeRenderer();
+    renderer.setDeploymentZones({
+      hostZone: { minX: -18, maxX: 18, minZ: -18, maxZ: -6 },
+      guestZone: { minX: -18, maxX: 18, minZ: 6, maxZ: 18 },
+      previewUnitZone: { minX: -18, maxX: 18, minZ: -18, maxZ: 6, color: 0x29b6f6 },
+    });
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-deployment-zones');
+    const group = scene.getObjectByName('marker-deployment-zones')!;
+    // 3 zones (host, guest, preview) each with ground plane + outline = 6 children
+    expect(group.children.length).toBe(6);
+
+    renderer.setDeploymentZones(null);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-deployment-zones');
+  });
 });

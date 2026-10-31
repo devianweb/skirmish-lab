@@ -10,6 +10,8 @@ import {
   formatTraitLabel,
   GameState,
   GameAction,
+  getDeployableUnits,
+  getDeploymentZoneBounds,
   getUnitTough,
   hasCoverAgainstAttack,
   hasLineOfSight,
@@ -18,11 +20,16 @@ import {
   pathLength,
   ShootingRayDebugInfo,
   Unit,
+  validateDeploymentPosition,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
 import { soundFx } from '../audio/SoundFx';
-import { MovePathMarker } from '../renderer/MarkerRenderer';
+import {
+  DeploymentZoneBounds,
+  DeploymentZoneMarker,
+  MovePathMarker,
+} from '../renderer/MarkerRenderer';
 
 function escapeHtmlAttr(str: string): string {
   return str
@@ -61,6 +68,7 @@ export interface MarkerSnapshot {
   outcome: { position: Vector3; wounds: number } | null;
   debugActive?: boolean;
   shootingDebugRay?: ShootingRayDebugInfo | null;
+  deploymentZones?: DeploymentZoneMarker | null;
 }
 
 export type PickTarget =
@@ -89,6 +97,8 @@ export class GameHUD {
   private flow: TargetingMode = { mode: 'idle' };
   /** Selected own unit (board click or list) pending activation, or active unit. */
   private selectedUnitId: string | null = null;
+  /** Selected undeployed fighter pending placement during deployment phase. */
+  private selectedDeployUnitId: string | null = null;
   /** Unit hovered in the fighter list or on the board. */
   private hoveredUnitId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
@@ -195,6 +205,12 @@ export class GameHUD {
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
+    if (this.selectedDeployUnitId) {
+      const unit = state.units.find((u) => u.id === this.selectedDeployUnitId);
+      if (!unit || unit.isDeployed !== false) {
+        this.selectedDeployUnitId = null;
+      }
+    }
 
     if (prevRound !== null && state.turnState.roundNumber > prevRound && state.status !== 'game-over') {
       const starter =
@@ -273,6 +289,39 @@ export class GameHUD {
   /** Board/unit picks from GameView (see PickTarget in the renderer). */
   handleBoardPick(target: PickTarget): void {
     if (!this.state || this.state.status === 'game-over') return;
+
+    if (this.state.turnState.phase === 'deployment') {
+      if (!this.myTurn) {
+        this.showToast("Wait for opponent's deployment turn");
+        return;
+      }
+      if (target.kind === 'position') {
+        const deployable = getDeployableUnits(this.state, this.localPlayerId);
+        const unit = (this.selectedDeployUnitId
+          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
+          : null) ?? deployable[0];
+        if (!unit) {
+          this.showToast('No deployable units remaining');
+          return;
+        }
+        const val = validateDeploymentPosition(this.state, unit, target.position);
+        if (!val.valid) {
+          this.showToast(val.reason ?? 'Invalid deployment position');
+          return;
+        }
+        this.flow = {
+          mode: 'confirming',
+          action: createAction(this.localPlayerId, 'deploy-unit', {
+            type: 'deploy-unit',
+            unitId: unit.id,
+            position: target.position,
+          }),
+          summary: `Deploy ${unit.name} at (${target.position.x.toFixed(1)}, ${target.position.z.toFixed(1)})`,
+        };
+        this.render();
+      }
+      return;
+    }
 
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       if (target.kind === 'position') {
@@ -892,20 +941,30 @@ export class GameHUD {
     }
     const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}</div>` : '';
 
+    const isDeployPhase = state.turnState.phase === 'deployment';
+    const roundBadge = isDeployPhase
+      ? `<span class="sl-hud-round" style="background: #ffd54f; color: #12161c; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Deployment</span>`
+      : `<span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>`;
+
+    const turnLabel =
+      state.status === 'game-over'
+        ? this.gameOverText(opponentName)
+        : isDeployPhase
+        ? this.myTurn
+          ? 'Your turn to deploy'
+          : `${opponentName}'s turn to deploy`
+        : this.myTurn
+        ? 'Your turn'
+        : `${opponentName}'s turn`;
+
     const header = `
       <div class="sl-hud-header">
         <span class="sl-hud-title">SkirmishLab</span>
-        <span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>
+        ${roundBadge}
         <span class="sl-hud-objectives-score">
           Objectives: <span class="score-team-host" style="color: #29b6f6; font-weight: 700;">Host ${hostScore}</span> — <span class="score-team-guest" style="color: #ef5350; font-weight: 700;">Guest ${guestScore}</span>
         </span>
-        <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${
-      state.status === 'game-over'
-        ? this.gameOverText(opponentName)
-        : this.myTurn
-        ? 'Your turn'
-        : `${opponentName}'s turn`
-    }</span>
+        <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${turnLabel}</span>
         ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : ''}
       </div>`;
 
@@ -991,6 +1050,25 @@ export class GameHUD {
     }
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
+    const isDeployPhase = this.state?.turnState.phase === 'deployment';
+    if (unit.isDeployed === false) {
+      if (hasTrait(unit.specialRules, 'drop-reserve')) {
+        statusTags.push('DROP RESERVE (RD 2+)');
+      } else if (hasTrait(unit.specialRules, 'vanguard')) {
+        statusTags.push('VANGUARD');
+      } else {
+        statusTags.push('UNDEPLOYED');
+      }
+    }
+
+    const deployableList =
+      isDeployPhase && this.state ? getDeployableUnits(this.state, this.localPlayerId) : [];
+    const isDeployable = isDeployPhase && deployableList.some((u) => u.id === unit.id);
+    const isDeploySelected =
+      isDeployPhase &&
+      (this.selectedDeployUnitId === unit.id ||
+        (!this.selectedDeployUnitId && deployableList[0]?.id === unit.id));
+
     const canActivate = this.canActivateUnit(unit);
     const isActive = this.activeUnit?.id === unit.id;
     const weaponSummary = unit.weapons
@@ -1012,6 +1090,8 @@ export class GameHUD {
       unit.isDestroyed ? 'destroyed' : '',
       canActivate ? 'activatable' : '',
       isActive ? 'active' : '',
+      isDeployable ? 'deployable' : '',
+      isDeploySelected ? 'deploy-selected' : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -1041,6 +1121,16 @@ export class GameHUD {
       }
     }
     if (unit.isActivated) statusTags.push('ACTIVATED');
+
+    if (unit.isDeployed === false) {
+      if (hasTrait(unit.specialRules, 'drop-reserve')) {
+        statusTags.push('DROP RESERVE');
+      } else if (hasTrait(unit.specialRules, 'vanguard')) {
+        statusTags.push('VANGUARD');
+      } else {
+        statusTags.push('UNDEPLOYED');
+      }
+    }
 
     const classes = ['sl-hud-unit', 'enemy', teamClass, unit.isDestroyed ? 'destroyed' : '']
       .filter(Boolean)
@@ -1344,6 +1434,8 @@ export class GameHUD {
 
   private logVerb(action: GameAction): string {
     switch (action.type) {
+      case 'deploy-unit':
+        return `deployed ${this.unitName((action.payload as any).unitId)}`;
       case 'activate-unit':
         return `activated ${this.unitName((action.payload as any).unitId)}`;
       case 'hold':
@@ -1390,6 +1482,30 @@ export class GameHUD {
             <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
             <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
             <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+          </div>
+        </div>`;
+    }
+
+    if (this.state.turnState.phase === 'deployment') {
+      const deployable = getDeployableUnits(this.state, this.localPlayerId);
+      const selectedUnit =
+        (this.selectedDeployUnitId
+          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
+          : null) ?? deployable[0];
+
+      return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-deployment-bar" style="display: flex; align-items: center; justify-content: center; padding: 12px 20px; background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px;">
+            <span class="sl-hud-deploy-prompt" style="font-size: 14px; color: #e0e6ed;">
+              ${
+                !this.myTurn
+                  ? `<span style="color: #ffd54f;">⏳ Waiting for opponent to deploy...</span>`
+                  : selectedUnit
+                  ? `📍 Deploying <strong style="color: #29b6f6;">${selectedUnit.name}</strong> — Click any legal position within your 12" deployment zone`
+                  : `Select an undeployed fighter from the left panel to place on the battlefield`
+              }
+            </span>
           </div>
         </div>`;
     }
@@ -1857,6 +1973,13 @@ export class GameHUD {
         }
       });
       el.addEventListener('click', () => {
+        if (this.state?.turnState.phase === 'deployment') {
+          if (el.classList.contains('deployable')) {
+            this.selectedDeployUnitId = unitId;
+            this.render();
+          }
+          return;
+        }
         if (this.flow.mode === 'targeting' && this.flow.action !== 'move') {
           this.prepareAttack(unitId);
         } else if (el.classList.contains('activatable')) {
@@ -1990,7 +2113,34 @@ export class GameHUD {
       outcome,
       debugActive: this.terrainDebugEnabled,
       shootingDebugRay,
+      deploymentZones: null,
     };
+
+    if (this.state && this.state.turnState.phase === 'deployment') {
+      const hostZone = getDeploymentZoneBounds(this.state, this.state.hostId, false);
+      const guestZone = getDeploymentZoneBounds(this.state, this.state.guestId, false);
+      let previewUnitZone: (DeploymentZoneBounds & { color?: number }) | undefined = undefined;
+
+      const deployable = getDeployableUnits(this.state, this.localPlayerId);
+      const currentDeployUnit =
+        (this.selectedDeployUnitId
+          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
+          : null) ?? deployable[0];
+
+      if (this.myTurn && currentDeployUnit && hasTrait(currentDeployUnit.specialRules, 'vanguard')) {
+        const vBounds = getDeploymentZoneBounds(this.state, currentDeployUnit.ownerId, true);
+        previewUnitZone = {
+          ...vBounds,
+          color: currentDeployUnit.ownerId === this.state.hostId ? 0x29b6f6 : 0xef5350,
+        };
+      }
+
+      markers.deploymentZones = {
+        hostZone,
+        guestZone,
+        previewUnitZone,
+      };
+    }
 
     // If hovering an enemy unit, show the bright red target ring under that enemy.
     if (hoveredUnit && hoveredUnit.ownerId !== this.localPlayerId) {
@@ -2198,6 +2348,9 @@ export class GameHUD {
 .sl-hud-unit.team-red:hover { background: #351e24; }
 .sl-hud-unit.activatable { cursor: pointer; outline: 1px solid #69f0ae; }
 .sl-hud-unit.activatable:hover { background: #213028; }
+.sl-hud-unit.deployable { cursor: pointer; outline: 1px dashed #ffd54f; }
+.sl-hud-unit.deployable:hover { background: #332b1a; }
+.sl-hud-unit.deploy-selected { outline: 2px solid #ffd54f; background: #3d3215 !important; }
 .sl-hud-unit.enemy { cursor: pointer; }
 .sl-hud-unit.active { outline: 2px solid #69f0ae; }
 .sl-hud-unit.destroyed { opacity: 0.35; text-decoration: line-through; }

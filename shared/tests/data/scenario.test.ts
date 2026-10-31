@@ -172,5 +172,22 @@ describe('scenario data pack', () => {
       expect(patrol).toBeDefined();
       expect(patrol!.specialRules).toContain('drop-reserve');
     });
+
+    it('applies deployment phase scenario with starter armies in undeployed state', () => {
+      const state = createInitialGameState(HOST, GUEST);
+      applyDefaultScenario(state, {
+        hostArmyId: 'frontier-wardens-starter',
+        guestArmyId: 'rust-raiders-starter',
+        useDeploymentPhase: true,
+      });
+
+      expect(state.turnState.phase).toBe('deployment');
+      expect(state.turnState.roundNumber).toBe(0);
+      expect(state.turnState.currentPlayerId).toBe(HOST);
+      expect(state.units).toHaveLength(8); // 4 host units + 4 guest units
+      for (const unit of state.units) {
+        expect(unit.isDeployed).toBe(false);
+      }
+    });
   });
 });

@@ -1112,4 +1112,103 @@ describe('GameHUD', () => {
     const range = (hud as any).actionMaxRange(unit, 'charge');
     expect(range).toBe(unit.speed * 2);
   });
+
+  describe('Phase 10C: Interactive Deployment HUD', () => {
+    function deploymentState(): GameState {
+      const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
+      applyDefaultScenario(state, {
+        hostArmyId: 'frontier-wardens-starter',
+        guestArmyId: 'rust-raiders-starter',
+        useDeploymentPhase: true,
+      });
+      return state;
+    }
+
+    it('renders deployment header badge and deployment prompt during deployment phase', () => {
+      const state = deploymentState();
+      const { container } = setup(HOST, state);
+
+      expect(container.querySelector('.sl-hud-round')?.textContent).toContain('Deployment');
+      expect(container.querySelector('.sl-hud-turn')?.textContent).toContain('Your turn to deploy');
+      expect(container.querySelector('.sl-hud-deployment-bar')).toBeTruthy();
+      expect(container.querySelector('.sl-hud-deploy-prompt')?.textContent).toContain('Deploying');
+    });
+
+    it('displays undeployed status tags on units and highlights deployable fighters', () => {
+      const state = deploymentState();
+      const { container } = setup(HOST, state);
+
+      const hostRows = Array.from(container.querySelectorAll('.sl-hud-unit.team-blue'));
+      expect(hostRows.length).toBe(4);
+
+      // Patrol squad has drop-reserve
+      const dropReserveRow = hostRows.find((r) => r.textContent?.includes('DROP RESERVE'));
+      expect(dropReserveRow).toBeTruthy();
+
+      // Standard and vanguard units show UNDEPLOYED or VANGUARD
+      const deployableRow = hostRows.find((r) => r.classList.contains('deployable'));
+      expect(deployableRow).toBeTruthy();
+    });
+
+    it('allows board picking within 12" zone, showing confirm bar and submitting deploy-unit', () => {
+      const state = deploymentState();
+      const { hud, controller, container } = setup(HOST, state);
+
+      // Click at a valid host deployment position: x: 0, z: -12
+      hud.handleBoardPick({
+        kind: 'position',
+        position: { x: 0, y: 0, z: -12 },
+      });
+
+      const confirmBar = container.querySelector('.sl-hud-confirm');
+      expect(confirmBar).toBeTruthy();
+      expect(confirmBar?.textContent).toContain('Deploy');
+
+      // Click confirm
+      const confirmBtn = container.querySelector('button[data-action="confirm"]') as HTMLButtonElement;
+      confirmBtn.click();
+
+      expect(controller.submitAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'deploy-unit',
+          actorId: HOST,
+          payload: expect.objectContaining({
+            position: { x: 0, y: 0, z: -12 },
+          }),
+        })
+      );
+    });
+
+    it('rejects deployment outside 12" zone with toast error', () => {
+      const state = deploymentState();
+      const { hud, controller, container } = setup(HOST, state);
+
+      // Host deployment zone is z: -18..-6; z: 0 is in the middle of the board
+      hud.handleBoardPick({
+        kind: 'position',
+        position: { x: 0, y: 0, z: 0 },
+      });
+
+      expect(controller.submitAction).not.toHaveBeenCalled();
+      const toast = container.querySelector('.sl-hud-toast');
+      expect(toast?.textContent).toContain('outside');
+    });
+
+    it('emits deploymentZones marker data during deployment phase', () => {
+      const state = deploymentState();
+      const { hud } = setup(HOST, state);
+
+      let emittedMarkers: MarkerSnapshot | null = null;
+      hud.onMarkers((m) => {
+        emittedMarkers = m;
+      });
+
+      (hud as any).emitMarkers();
+
+      expect(emittedMarkers).toBeTruthy();
+      expect(emittedMarkers!.deploymentZones).toBeTruthy();
+      expect(emittedMarkers!.deploymentZones!.hostZone.maxZ).toBe(-6);
+      expect(emittedMarkers!.deploymentZones!.guestZone.minZ).toBe(6);
+    });
+  });
 });
