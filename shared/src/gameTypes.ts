@@ -123,6 +123,16 @@ export interface TerrainPiece {
   blocksLineOfSight: boolean;
   providesCover: boolean;
   isObstacle: boolean;
+  /** Whether moving through this piece caps total movement at 6" (Difficult Terrain). */
+  isDifficult?: boolean;
+  /** Whether entering or activating in this piece triggers 1d6 hazard tests on 1s (Dangerous Terrain). */
+  isDangerous?: boolean;
+  /** Height of elevated walkable surface (y coordinate in inches), e.g. 2.0 or 3.0. */
+  elevation?: number;
+  /** Whether this piece allows fighters to stand on top of its platform surface. */
+  isWalkable?: boolean;
+  /** Type of climb access: 'ladder' | 'stairs' | 'ramp' | 'sheer'. */
+  climbType?: 'ladder' | 'stairs' | 'ramp' | 'sheer';
   data?: Record<string, any>;
 }
 

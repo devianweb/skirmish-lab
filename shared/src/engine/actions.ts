@@ -41,6 +41,19 @@ import {
   hasLineOfSight,
   validateSquadCoherency,
 } from './spatial';
+import {
+  calculateFallingDamage,
+  detectPathFall,
+  getEffectiveMaxMovement,
+  isPathDangerous,
+  isPathDifficult,
+  pathLength3D,
+  resolveDangerousTerrain,
+  resolveFallingDamage,
+  resolveGapJump,
+  allocateSquadCasualties,
+  validateMeleeVerticalReach,
+} from './traversal';
 import { getTraitValue, hasTrait } from '../rules/traits';
 
 /**
@@ -257,10 +270,19 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
         return { valid: false, reason: 'Final position does not match path end' };
       }
-      const distance = pathLength(path);
-      const maxMove = Math.max(unit.result.speed, unit.result.remainingMovement);
+      const isDifficult = isPathDifficult(state, path, unit.result);
+      const distance = pathLength3D(path);
+      const maxMove = Math.min(
+        getEffectiveMaxMovement(unit.result, 'move', isDifficult),
+        Math.max(unit.result.speed, unit.result.remainingMovement)
+      );
       if (distance > maxMove + 0.01) {
-        return { valid: false, reason: 'Move exceeds unit speed' };
+        return {
+          valid: false,
+          reason: isDifficult
+            ? 'Move exceeds Difficult Terrain speed cap (6.0")'
+            : 'Move exceeds unit speed',
+        };
       }
       for (const point of path) {
         if (!isWithinBoard(state, point)) {
@@ -376,9 +398,16 @@ export function validateAction(state: GameState, action: GameAction): Validation
         boardDistance(path[0], attacker.result.position) < 0.01
           ? path
           : [{ ...attacker.result.position }, ...path];
-      const distance = pathLength(fullPath);
-      if (distance > attacker.result.speed * 2 + 0.01) {
-        return { valid: false, reason: 'Target out of charge range' };
+      const isDifficult = isPathDifficult(state, fullPath, attacker.result);
+      const distance = pathLength3D(fullPath);
+      const maxCharge = getEffectiveMaxMovement(attacker.result, 'charge', isDifficult);
+      if (distance > maxCharge + 0.01) {
+        return {
+          valid: false,
+          reason: isDifficult
+            ? 'Charge in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+            : 'Target out of charge range',
+        };
       }
       const chargeBlocker = findMoveBlocker(state, attacker.result, fullPath, {
         ignoreUnitId: target.result.id,
@@ -390,6 +419,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const distToEnd = boardDistance(end, target.result.position);
       if (distToEnd > 1.25) {
         return { valid: false, reason: 'Charge must end in engagement range' };
+      }
+      if (!validateMeleeVerticalReach(end, target.result.position)) {
+        return {
+          valid: false,
+          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+        };
       }
       const weapon = weaponId
         ? attacker.result.weapons.find((w) => w.id === weaponId)
@@ -426,11 +461,15 @@ export function validateAction(state: GameState, action: GameAction): Validation
         boardDistance(path[0], unit.position) < 0.01
           ? path
           : [{ ...unit.position }, ...path];
-      const dist = pathLength(fullPath);
-      if (dist > unit.speed * 2 + 0.01) {
+      const isDifficult = isPathDifficult(state, fullPath, unit);
+      const dist = pathLength3D(fullPath);
+      const maxRush = getEffectiveMaxMovement(unit, 'rush', isDifficult);
+      if (dist > maxRush + 0.01) {
         return {
           valid: false,
-          reason: `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`,
+          reason: isDifficult
+            ? 'Rush in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+            : `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`,
         };
       }
       const blocker = findMoveBlocker(state, unit, fullPath);
@@ -496,6 +535,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (distance > ENGAGEMENT_RANGE + 0.01) {
         return { valid: false, reason: 'Target not in engagement range' };
       }
+      if (!validateMeleeVerticalReach(attacker.result.position, target.result.position)) {
+        return {
+          valid: false,
+          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+        };
+      }
       const weapon = getWeapon(attacker.result, weaponId ?? '');
       if (!weapon || weapon.profile.type !== 'melee') {
         return { valid: false, reason: 'Unit has no such melee weapon' };
@@ -552,6 +597,33 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       specs.push({ count: stoicCount, sides: 6, purpose: 'stoic' });
     }
     return specs;
+  }
+
+  if (action.type === 'move-unit' || action.type === 'rush') {
+    const payload = action.payload as {
+      unitId?: string;
+      path?: Vector3[];
+      gapJump?: { gapDistance: number };
+    };
+    const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
+    const path = payload.path;
+    if (unit && path && path.length > 0) {
+      const specs: DiceSpec[] = [];
+      if (payload.gapJump && payload.gapJump.gapDistance > 1.05 && !hasTrait(unit.specialRules, 'airborne')) {
+        specs.push({ count: 1, sides: 6, purpose: 'gap_jump' });
+      }
+      if (isPathDangerous(state, path, unit)) {
+        const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
+        specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
+      }
+      const fall = detectPathFall(path);
+      if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+        specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
+        specs.push({ count: 1, sides: 6, purpose: 'trauma' });
+      }
+      if (specs.length > 0) return specs;
+    }
+    return null;
   }
 
   if (action.type === 'respond-reaction') {
@@ -654,7 +726,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
     : 1;
 
-  return getAttackDiceSpecs(attacks, {
+  const attackSpecs = getAttackDiceSpecs(attacks, {
     attackerRules: attacker.specialRules,
     weaponRules: weapon.profile.specialRules,
     defenderRules: target?.specialRules ?? [],
@@ -664,6 +736,117 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     distance,
     includeTrauma: true,
   });
+
+  if (action.type === 'charge') {
+    const chargePayload = action.payload as { path?: Vector3[]; gapJump?: { gapDistance: number } };
+    if (chargePayload.path && chargePayload.path.length > 0) {
+      const traversalSpecs: DiceSpec[] = [];
+      if (
+        chargePayload.gapJump &&
+        chargePayload.gapJump.gapDistance > 1.05 &&
+        !hasTrait(attacker.specialRules, 'airborne')
+      ) {
+        traversalSpecs.push({ count: 1, sides: 6, purpose: 'gap_jump' });
+      }
+      if (isPathDangerous(state, chargePayload.path, attacker)) {
+        const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
+        traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
+      }
+      const fall = detectPathFall(chargePayload.path);
+      if (fall.maxDrop > 3.05 && !hasTrait(attacker.specialRules, 'airborne')) {
+        traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
+        traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
+      }
+      if (traversalSpecs.length > 0) {
+        return [...traversalSpecs, ...attackSpecs];
+      }
+    }
+  }
+
+  return attackSpecs;
+}
+
+function applyTraversalHazardsAndFalls(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  action: GameAction,
+  dice?: DiceResult[]
+): { terminated: boolean; wounds: number } {
+  const payload = action.payload as any;
+
+  // 1. Gap Jump
+  if (payload.gapJump && payload.gapJump.gapDistance > 1.05) {
+    const jumpRoll =
+      dice?.find((d) => d.purpose === 'gap_jump')?.rolls[0] ??
+      payload.gapJump.jumpRoll ??
+      payload.gapJumpRoll;
+    const jumpRes = resolveGapJump(payload.gapJump.gapDistance, unit, jumpRoll);
+    if (jumpRes.requiresTest && !jumpRes.passed) {
+      // Model plummets into the gap to ground level
+      const startPt = path[0] ?? unit.position;
+      const endPt = path[path.length - 1] ?? unit.position;
+      const dropHeight = startPt.y ?? 0;
+      unit.position = {
+        x: (startPt.x + endPt.x) / 2,
+        y: 0,
+        z: (startPt.z + endPt.z) / 2,
+      };
+      if (unit.models) {
+        for (const m of unit.models) {
+          m.position = { ...unit.position };
+        }
+      }
+      if (dropHeight > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+        const defRoll =
+          dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
+          payload.fallingDefenseRoll;
+        const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
+        const fallRes = resolveFallingDamage(unit, dropHeight, defRoll);
+        if (fallRes.wounds > 0) {
+          applyWounds(unit, fallRes.wounds, traumaRolls);
+        }
+      }
+      unit.hasMoved = true;
+      unit.remainingMovement = 0;
+      finishActivation(state, dice);
+      return { terminated: true, wounds: 1 };
+    }
+  }
+
+  // 2. Dangerous terrain
+  if (isPathDangerous(state, path, unit)) {
+    const hazardDice =
+      dice?.find((d) => d.purpose === 'hazard')?.rolls ?? payload.hazardDice;
+    if (hazardDice && hazardDice.length > 0) {
+      const hazardRes = resolveDangerousTerrain(unit, hazardDice);
+      if (hazardRes.woundsInflicted > 0) {
+        if (payload.casualtyModelIds && unit.models && unit.models.length > 1) {
+          allocateSquadCasualties(unit, hazardRes.woundsInflicted, payload.casualtyModelIds);
+        }
+        applyWounds(unit, hazardRes.woundsInflicted);
+      }
+    }
+  }
+
+  // 3. Falling damage for drops > 3.0"
+  const fall = detectPathFall(path);
+  if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+    const defRoll =
+      dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
+      payload.fallingDefenseRoll;
+    const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
+    const fallRes = resolveFallingDamage(unit, fall.maxDrop, defRoll);
+    if (fallRes.wounds > 0) {
+      applyWounds(unit, fallRes.wounds, traumaRolls);
+    }
+    unit.hasMoved = true;
+    unit.remainingMovement = 0;
+    finishActivation(state, dice);
+    return { terminated: true, wounds: fallRes.wounds };
+  }
+
+  return { terminated: false, wounds: 0 };
 }
 
 /**
@@ -785,6 +968,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       unit.hasMoved = true;
       unit.remainingMovement = 0;
+      const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      if (traversal.terminated) {
+        logEntry = acceptedEntry(action);
+        break;
+      }
       logEntry = acceptedEntry(action);
       break;
     }
@@ -1117,6 +1305,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       unit.hasAttacked = true;
       unit.remainingMovement = 0;
       refreshEngagements(newState);
+      const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      if (traversal.terminated) {
+        logEntry = acceptedEntry(action);
+        break;
+      }
       logEntry = acceptedEntry(action);
       break;
     }
@@ -1158,6 +1351,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         attacker.rotation = { ...attacker.rotation, y: Math.atan2(cdx, cdz) };
         target.rotation = { ...target.rotation, y: Math.atan2(-cdx, -cdz) };
       }
+
+      const traversal = applyTraversalHazardsAndFalls(newState, attacker, path, action, dice);
+      if (traversal.terminated || attacker.isDestroyed) {
+        logEntry = acceptedEntry(action);
+        break;
+      }
+
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
