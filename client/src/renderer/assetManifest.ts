@@ -59,6 +59,28 @@ export const TERRAIN_ASSETS: Record<string, AssetDefinition> = {
     rotationY: Math.PI / 2,
   },
   pipe: model('pipe.glb', 1.0),
+  // Heavy Industrial Buildings
+  'building-a': model('building-a.glb', 1.0),
+  'building-c': model('building-c.glb', 1.0),
+  'building-f': model('building-f.glb', 1.0),
+  'building-h': model('building-h.glb', 1.0),
+  'building-l': model('building-l.glb', 1.0),
+  // Modular Walls, Doorways & Roofs
+  'wall-doorway-square': model('wall-doorway-square.glb', 1.0),
+  'wall-corner': model('wall-corner.glb', 1.0),
+  'wall-half': model('wall-half.glb', 1.0),
+  'roof-flat-side': model('roof-flat-side.glb', 1.0),
+  'roof-flat-corner': model('roof-flat-corner.glb', 1.0),
+  'roof-flat-patch-large': model('roof-flat-patch-large.glb', 1.0),
+  // Stairs & Traversal
+  'stairs-open': model('stairs-open.glb', 1.0),
+  'stairs-closed-short': model('stairs-closed-short.glb', 1.0),
+  'stairs-sides': model('stairs-sides.glb', 1.0),
+  // Barricades & Scatter
+  'barricade-doorway': model('barricade-doorway-a.glb', 1.0),
+  'barricade-window': model('barricade-window-b.glb', 1.0),
+  'column-wide': model('column-wide.glb', 1.0),
+  'detail-pipe': model('detail-pipe.glb', 1.0),
 };
 
 export const MARKER_ASSETS: Record<string, AssetDefinition> = {

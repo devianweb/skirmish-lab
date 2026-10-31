@@ -18,6 +18,24 @@ Asset registration, scaling, and orientation live in [`client/src/renderer/asset
 | `ladder.glb` | 22 KB | Terrain | `TERRAIN_ASSETS.ladder` | Vertical industrial ladder providing 1:1 traversal access to elevated platforms. |
 | `stairs-small.glb` | 7.5 KB | Terrain | `TERRAIN_ASSETS.stairs` | Industrial stair flight providing 1:1 ramp traversal up to elevated platforms. |
 | `pipe.glb` | 3.5 KB | Terrain | `TERRAIN_ASSETS.pipe` | Horizontal industrial conduit / pipeline providing low waist-height cover. |
+| `building-a.glb` | 174 KB | Terrain | `TERRAIN_ASSETS['building-a']` | Heavy industrial warehouse block with flat walkable roof ($y = 3.5″$). |
+| `building-c.glb` | 172 KB | Terrain | `TERRAIN_ASSETS['building-c']` | Refinery facility with walkable rooftop deck ($y = 3.0″$). |
+| `building-f.glb` | 132 KB | Terrain | `TERRAIN_ASSETS['building-f']` | Chemical storage silo completely blocking line-of-sight and movement. |
+| `building-h.glb` | 63 KB | Terrain | `TERRAIN_ASSETS['building-h']` | Compact service workshop building with roof access ($y = 2.5″$). |
+| `building-l.glb` | 159 KB | Terrain | `TERRAIN_ASSETS['building-l']` | Two-story industrial manufacturing plant with elevated sniper roof ($y = 4.5″$). |
+| `wall-doorway-square.glb` | 6.2 KB | Terrain | `TERRAIN_ASSETS['wall-doorway-square']` | Modular wall with square framed walk-through doorway. |
+| `wall-corner.glb` | 3.1 KB | Terrain | `TERRAIN_ASSETS['wall-corner']` | 90-degree corner wall junction piece. |
+| `wall-half.glb` | 2.7 KB | Terrain | `TERRAIN_ASSETS['wall-half']` | Half-length modular wall piece for precise perimeter gaps. |
+| `roof-flat-patch-large.glb` | 5.4 KB | Terrain | `TERRAIN_ASSETS['roof-flat-patch-large']` | Large elevated catwalk deck platform ($y \ge 3.0″$). |
+| `roof-flat-side.glb` | 5.6 KB | Terrain | `TERRAIN_ASSETS['roof-flat-side']` | Suspended catwalk bridge span between adjacent platforms. |
+| `roof-flat-corner.glb` | 7.0 KB | Terrain | `TERRAIN_ASSETS['roof-flat-corner']` | L-shaped corner catwalk junction platform piece. |
+| `stairs-open.glb` | 15 KB | Terrain | `TERRAIN_ASSETS['stairs-open']` | Open industrial staircase climbing to 3.0" platforms. |
+| `stairs-closed-short.glb` | 8.6 KB | Terrain | `TERRAIN_ASSETS['stairs-closed-short']` | Compact closed stair flight for 1.5" elevation transitions. |
+| `stairs-sides.glb` | 18 KB | Terrain | `TERRAIN_ASSETS['stairs-sides']` | Railed industrial staircase ascending to 3.5" catwalks. |
+| `barricade-doorway-a.glb` | 8.1 KB | Terrain | `TERRAIN_ASSETS['barricade-doorway']` | Improvised door-jam debris barricade blocking passage. |
+| `barricade-window-b.glb` | 13 KB | Terrain | `TERRAIN_ASSETS['barricade-window']` | Reinforced window shutters granting cover against incoming fire. |
+| `column-wide.glb` | 4.3 KB | Terrain | `TERRAIN_ASSETS['column-wide']` | Heavy structural pillar blocking vision and movement. |
+| `detail-pipe.glb` | 7.3 KB | Terrain | `TERRAIN_ASSETS['detail-pipe']` | Surface conduit pipeline runner providing low directional cover. |
 | `wall.glb` | 2.8 KB | Terrain | `TERRAIN_ASSETS.wall` | Solid perimeter wall block (100% LoS obstruction & movement blocking). |
 | `wall-low.glb` | 2.8 KB | Terrain | `TERRAIN_ASSETS['wall-low']` | Low barricade waist-high wall providing Cover (+1 Defense); plunged over from $y \ge 2.0″$. |
 | `wall-window-medium.glb` | 8.8 KB | Terrain | `TERRAIN_ASSETS['wall-window']` | Wall with central firing aperture granting +1 Defense to manned defenders. |
