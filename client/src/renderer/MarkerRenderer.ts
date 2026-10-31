@@ -116,7 +116,8 @@ export class MarkerRenderer {
       );
       this.applyTint(ring, REACHABLE_TARGET_COLOR);
       ring.name = `marker-reachable-${unit.id}`;
-      ring.position.set(unit.position.x, 0.018, unit.position.z);
+      const unitY = (unit.position.y ?? 0) + 0.018;
+      ring.position.set(unit.position.x, unitY, unit.position.z);
       group.add(ring);
     }
     this.markerGroup.add(group);
@@ -135,7 +136,8 @@ export class MarkerRenderer {
       this.createRangeRing(RANGE_COLOR, 1, normalizedThickness)
     );
     marker.name = 'marker-movement-range';
-    marker.position.set(unit.position.x, 0.03, unit.position.z);
+    const unitY = (unit.position.y ?? 0) + 0.03;
+    marker.position.set(unit.position.x, unitY, unit.position.z);
     marker.scale.set(radius, 1, radius);
     this.markerGroup.add(marker);
     this.range = marker;
@@ -173,13 +175,15 @@ export class MarkerRenderer {
     group.name = 'marker-move-path';
 
     const pathColor = path.color ?? (path.isMeleeContact ? 0xff7043 : PATH_COLOR);
-    const allPts: THREE.Vector3[] = [new THREE.Vector3(path.from.x, 0.06, path.from.z)];
+    const fromY = (path.from.y ?? 0) + 0.06;
+    const allPts: THREE.Vector3[] = [new THREE.Vector3(path.from.x, fromY, path.from.z)];
     if (path.waypoints && path.waypoints.length > 0) {
       for (const wp of path.waypoints) {
-        allPts.push(new THREE.Vector3(wp.x, 0.06, wp.z));
+        allPts.push(new THREE.Vector3(wp.x, (wp.y ?? 0) + 0.06, wp.z));
       }
     }
-    allPts.push(new THREE.Vector3(path.to.x, 0.06, path.to.z));
+    const toY = (path.to.y ?? 0) + 0.06;
+    allPts.push(new THREE.Vector3(path.to.x, toY, path.to.z));
 
     const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
     const lineMat = new THREE.LineBasicMaterial({ color: pathColor });
@@ -189,13 +193,13 @@ export class MarkerRenderer {
     if (path.waypoints && path.waypoints.length > 0) {
       for (const wp of path.waypoints) {
         const dot = this.createFlatRing(pathColor, 0.18, 0.05);
-        dot.position.set(wp.x, 0.06, wp.z);
+        dot.position.set(wp.x, (wp.y ?? 0) + 0.06, wp.z);
         group.add(dot);
       }
     }
 
     const endDisc = this.createFlatRing(pathColor, path.isMeleeContact ? 0.55 : 0.4, 0.06);
-    endDisc.position.set(path.to.x, 0.06, path.to.z);
+    endDisc.position.set(path.to.x, toY, path.to.z);
     group.add(endDisc);
 
     this.markerGroup.add(group);
@@ -217,7 +221,7 @@ export class MarkerRenderer {
     const innerRing = this.createFlatRing(0xffab40, 0.55, 0.06);
     group.add(outerRing);
     group.add(innerRing);
-    group.position.set(unit.position.x, 0.02, unit.position.z);
+    group.position.set(unit.position.x, (unit.position.y ?? 0) + 0.02, unit.position.z);
 
     this.markerGroup.add(group);
     this.meleeContact = group;
@@ -606,7 +610,7 @@ export class MarkerRenderer {
     const marker = this.modelLoader.createMarkerMesh(kind, fallbackFactory);
     this.applyTint(marker, tintColor);
     marker.name = `marker-${kind}`;
-    marker.position.set(unit.position.x, 0.02, unit.position.z);
+    marker.position.set(unit.position.x, (unit.position.y ?? 0) + 0.02, unit.position.z);
     this.markerGroup.add(marker);
     this[kind] = marker;
   }

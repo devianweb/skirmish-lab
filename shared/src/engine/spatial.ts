@@ -1273,14 +1273,16 @@ export function findNavPath(
   maxDistance: number = unit.remainingMovement,
   options: { ignoreUnitId?: string } = {}
 ): Vector3[] {
-  const from: Vector3 = { x: unit.position.x, y: 0, z: unit.position.z };
+  const startY = unit.position.y ?? 0;
+  const endY = destination.y ?? 0;
+  const from: Vector3 = { x: unit.position.x, y: startY, z: unit.position.z };
 
   // 1. Board clamping: ensure destination is within board boundaries
   const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
   const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
   const target: Vector3 = {
     x: Math.max(-halfW, Math.min(halfW, destination.x)),
-    y: 0,
+    y: endY,
     z: Math.max(-halfH, Math.min(halfH, destination.z)),
   };
 
@@ -1296,7 +1298,7 @@ export function findNavPath(
       from,
       {
         x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
-        y: 0,
+        y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
         z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
       },
     ];
@@ -1496,15 +1498,17 @@ export function findNavPath(
     if (segLen <= distLeft + 1e-4) {
       result.push({
         x: Math.round(p2.x * 100) / 100,
-        y: 0,
+        y: Math.round((p2.y ?? 0) * 100) / 100,
         z: Math.round(p2.z * 100) / 100,
       });
       distLeft -= segLen;
     } else {
       const ratio = distLeft / segLen;
+      const y1 = p1.y ?? 0;
+      const y2 = p2.y ?? 0;
       result.push({
         x: Math.round((p1.x + (p2.x - p1.x) * ratio) * 100) / 100,
-        y: 0,
+        y: Math.round((y1 + (y2 - y1) * ratio) * 100) / 100,
         z: Math.round((p1.z + (p2.z - p1.z) * ratio) * 100) / 100,
       });
       break;
