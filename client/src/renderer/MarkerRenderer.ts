@@ -26,6 +26,8 @@ export interface AttackRangeMarker {
   range: number;
   /** Optional 2D visibility polygon in world XZ coordinates for LoS shadow fill. */
   losPolygon?: Array<{ x: number; z: number }>;
+  /** Optional concentric range rings for multi-range weapons (e.g. [12, 24]) */
+  concentricRanges?: number[];
 }
 
 export interface MovePathMarker {
@@ -100,11 +102,34 @@ export class MarkerRenderer {
     );
   }
 
-  /** Indicator under a hovered or selected attack target (bright red floor ring). */
-  setTarget(unit: MarkerUnit | null): void {
-    this.replaceMarker('target', unit, TARGET_COLOR, () =>
-      this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
-    );
+  /** Indicator under hovered or selected attack targets (bright red floor ring). Supports single or split targets. */
+  setTarget(unit: MarkerUnit | MarkerUnit[] | null): void {
+    this.removeMarker('target');
+    if (!unit) return;
+
+    const targets = Array.isArray(unit) ? unit : [unit];
+    if (targets.length === 0) return;
+
+    if (targets.length === 1) {
+      this.replaceMarker('target', targets[0], TARGET_COLOR, () =>
+        this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
+      );
+      return;
+    }
+
+    const group = new THREE.Group();
+    group.name = 'marker-target';
+    for (const t of targets) {
+      const ring = this.modelLoader.createMarkerMesh('target', () =>
+        this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
+      );
+      this.applyTint(ring, TARGET_COLOR);
+      ring.name = `marker-target-${t.id}`;
+      ring.position.set(t.position.x, (t.position.y ?? 0) + 0.02, t.position.z);
+      group.add(ring);
+    }
+    this.markerGroup.add(group);
+    this.target = group;
   }
 
   /** Darker red floor rings under all enemy units within attack range. */
@@ -163,6 +188,33 @@ export class MarkerRenderer {
 
     const marker = new THREE.Group();
     marker.add(this.createLosFanMesh(spec.position, spec.range, polygon));
+
+    // Render soft concentric range rings for multi-range weapons
+    const ranges = (spec.concentricRanges && spec.concentricRanges.length > 0
+      ? spec.concentricRanges
+      : [spec.range]
+    ).filter((r) => r > 0);
+    const uniqueRanges = Array.from(new Set(ranges)).sort((a, b) => a - b);
+    for (const r of uniqueRanges) {
+      const normR = r / spec.range;
+      const segs = 64;
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= segs; i++) {
+        const theta = (i / segs) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(theta) * normR, 0, Math.sin(theta) * normR));
+      }
+      const ringGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const ringMat = new THREE.LineBasicMaterial({
+        color: 0xff7961,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+      });
+      const ringLine = new THREE.Line(ringGeo, ringMat);
+      ringLine.name = `attack-concentric-ring-${r}`;
+      marker.add(ringLine);
+    }
+
     marker.name = 'marker-attack-range';
     marker.position.set(spec.position.x, 0.035, spec.position.z);
     marker.scale.set(spec.range, 1, spec.range);

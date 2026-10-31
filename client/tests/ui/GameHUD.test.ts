@@ -258,6 +258,59 @@ describe('GameHUD', () => {
     ]);
   });
 
+  it('shoot flow: split fire targeting allocates weapons independently to multiple distinct targets', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged')
+    )!;
+    attacker.weapons.push({
+      id: 'pistol-sidearm',
+      weaponType: 'pistol',
+      name: 'Sidearm',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 2, specialRules: [] },
+    });
+    const guestUnits = state.units.filter((u) => u.ownerId === GUEST);
+    const targetA = guestUnits[0];
+    const targetB = guestUnits[1];
+    targetA.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 };
+    targetB.position = { x: attacker.position.x + 5, y: 0, z: attacker.position.z + 8 };
+
+    activateUnit(state, HOST, attacker.id);
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Shoot');
+    // Verify weapon chips are rendered
+    expect(container.textContent).toContain('Hand Cannon (12")');
+    expect(container.textContent).toContain('Sidearm (12")');
+
+    // Click target A -> default all to target A
+    hud.handleBoardPick({ kind: 'unit', unitId: targetA.id });
+    expect(container.textContent).toContain('fires Hand Cannon & Sidearm');
+
+    // Now click the Sidearm chip to reassign it
+    const sidearmChip = container.querySelector<HTMLButtonElement>('[data-weapon-id="pistol-sidearm"]')!;
+    expect(sidearmChip).toBeDefined();
+    sidearmChip.click();
+
+    // Pick target B for Sidearm
+    hud.handleBoardPick({ kind: 'unit', unitId: targetB.id });
+
+    // Verify split fire summary
+    expect(container.textContent).toContain('split fires');
+    expect(container.textContent).toContain(targetA.name);
+    expect(container.textContent).toContain(targetB.name);
+
+    clickByText(container, 'Confirm');
+    expect(controller.submitAction).toHaveBeenCalledTimes(1);
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('shoot');
+    expect(action.payload.allocations).toEqual([
+      { weaponId: 'handcannon', targetId: targetA.id },
+      { weaponId: 'pistol-sidearm', targetId: targetB.id },
+    ]);
+  });
+
   it('shoot flow: out-of-range target is refused locally', () => {
     const state = scenarioState();
     const attacker = state.units.find(
@@ -540,7 +593,7 @@ describe('GameHUD', () => {
 
     clickByText(container, 'Shoot');
     const targetingSnap = snapshots[snapshots.length - 1];
-    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24 });
+    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24, concentricRanges: [24] });
     // Enemies within 24" and Line of Sight appear in reachableTargetIds.
     expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
   });

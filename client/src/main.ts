@@ -49,7 +49,16 @@ function unitForMarkers(unitId: string | null): MarkerUnit | null {
 
 function applyMarkers(markers: MarkerSnapshot): void {
   gameView.setSelectionMarker(unitForMarkers(markers.selectedUnitId));
-  gameView.setTargetMarker(unitForMarkers(markers.targetUnitId));
+  const targetIds =
+    markers.targetUnitIds && markers.targetUnitIds.length > 0
+      ? markers.targetUnitIds
+      : markers.targetUnitId
+      ? [markers.targetUnitId]
+      : [];
+  const targetUnits = targetIds
+    .map((id) => unitForMarkers(id))
+    .filter((u): u is MarkerUnit => u !== null);
+  gameView.setTargetMarker(targetUnits.length > 0 ? targetUnits : null);
   const reachable = (markers.reachableTargetIds ?? [])
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
@@ -66,6 +75,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
       ? {
           position: attackRangeUnit.position,
           range: markers.attackRange.range,
+          concentricRanges: markers.attackRange.concentricRanges,
           losPolygon: computeLosVisibilityPolygon(
             latestState,
             attackRangeUnit.position,
