@@ -348,14 +348,14 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Pure engine unit tests in `shared/tests/engine/actions.test.ts`.
 
 ### Sub-phase 8B: HUD Multi-Target Chips & Dice Log
-- [ ] Weapon allocation chips in targeting HUD allowing players to assign each equipped ranged weapon to eligible targets.
-- [ ] Confirmation bar showing combined attack summary.
-- [ ] Authoritative dice panel grouping rolls, defense saves, and wound effects per weapon and target.
+- [x] Weapon allocation chips in targeting HUD allowing players to assign each equipped ranged weapon to eligible targets.
+- [x] Confirmation bar showing combined attack summary.
+- [x] Authoritative dice panel grouping rolls, defense saves, and wound effects per weapon and target.
 
 ### Acceptance Criteria
-- [ ] A unit with multiple ranged weapons fires all of them during a single shoot action.
-- [ ] Units can divide weapons between up to two distinct targets.
-- [ ] Server requests and resolves defense rolls for each target accurately in one unified round-trip.
+- [x] A unit with multiple ranged weapons fires all of them during a single shoot action.
+- [x] Units can divide weapons between up to two distinct targets.
+- [x] Server requests and resolves defense rolls for each target accurately in one unified round-trip.
 
 ## Phase 9: Multi-Model Squads & Coherency Engine
 **Goal:** Support multi-model squads (e.g. 3-model infantry squads) alongside single-model specialists and leaders.
