@@ -123,7 +123,7 @@ export function isPathDangerous(
  */
 export function detectPathFall(
   path: Vector3[],
-  state?: GameState
+  state?: GameState | null
 ): {
   maxDrop: number;
   dropStartIndex: number;
