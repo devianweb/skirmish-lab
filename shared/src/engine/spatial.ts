@@ -1593,7 +1593,7 @@ export function validateSquadCoherency(
     maxSquadSpread?: number;
   } = {}
 ): SquadCoherencyResult {
-  const maxMemberDist = options.maxMemberDistance ?? 1.0;
+  const maxMemberDist = options.maxMemberDistance ?? 2.0;
   const maxSpread = options.maxSquadSpread ?? 6.0;
   const tolerance = 0.02; // Small floating-point margin for tabletop movement
 
@@ -1724,7 +1724,7 @@ export function getSquadModelPositions(unit: Unit): Vector3[] {
 export function createSquadPositions(
   center: Vector3,
   count: number,
-  spacing: number = 0.8
+  spacing: number = 1.4
 ): Vector3[] {
   if (count <= 1) {
     return [{ ...center }];
