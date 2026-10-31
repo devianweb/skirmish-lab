@@ -477,34 +477,73 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > - **Sub-phase 12C (Reconnection Handshake, Peer Fallback State Sync & Lobby Resume UI — `client/` & `server/`):** Reconnection flow during the 5-minute grace window, Host-authoritative `state-sync` broadcast, peer fallback (`request-state-sync` if Host storage was wiped), URL query parameters (`?room=XXX-XXX`), and Lobby "Resume Match" banner.
 
 ### Sub-phase 12A: DataChannel Heartbeat & Timer Suspension (`client/`)
-- [ ] Application-level P2P heartbeat ping/pong protocol over WebRTC DataChannel (3s ping interval, 6s silence timeout).
-- [ ] Top-banner disconnect notification when peer connection is unstable or lost (`"⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)"`).
-- [ ] Pause reaction countdown timers (e.g. Overwatch, Counter-charge) and turn timers while disconnected; resume smoothly once reconnected.
-- [ ] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
+- [x] Application-level P2P heartbeat ping/pong protocol over WebRTC DataChannel (3s ping interval, 6s silence timeout).
+- [x] Top-banner disconnect notification when peer connection is unstable or lost (`"⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)"`).
+- [x] Pause reaction countdown timers (e.g. Overwatch, Counter-charge) and turn timers while disconnected; resume smoothly once reconnected.
+- [x] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
 
 ### Sub-phase 12B: Snapshot Persistence & SessionStore Management (`client/`)
-- [ ] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.
-- [ ] Save active session metadata (`roomCode`, `role`, `playerId`, `playerName`, `armyId`, timestamp) and latest confirmed `GameState`.
-- [ ] Auto-save state on both Host and Guest after every confirmed action execution.
-- [ ] Auto-cleanup session data when game reaches `status: 'game-over'` or when player clicks "Leave Room".
-- [ ] Unit tests for storage operations, versioning, error handling, and quota safety.
+- [x] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.
+- [x] Save active session metadata (`roomCode`, `role`, `playerId`, `playerName`, `armyId`, timestamp) and latest confirmed `GameState`.
+- [x] Auto-save state on both Host and Guest after every confirmed action execution.
+- [x] Auto-cleanup session data when game reaches `status: 'game-over'` or when player clicks "Leave Room".
+- [x] Unit tests for storage operations, versioning, error handling, and quota safety.
 
 ### Sub-phase 12C: Reconnection Handshake, Peer Fallback & Lobby Resume UI (`client/` & `server/`)
-- [ ] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.
-- [ ] Lobby "Resume Match" banner when an active unexpired room session is detected.
-- [ ] Reconnection handshake: Host broadcasts authoritative `state-sync` to reconnected Guest.
-- [ ] Peer fallback: If Host reconnects with empty storage, Host requests snapshot from Guest (`request-state-sync`), verifies it, and resumes authority.
-- [ ] End-to-end integration tests verifying reconnection and state restoration across drops.
+- [x] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.
+- [x] Lobby "Resume Match" banner when an active unexpired room session is detected.
+- [x] Reconnection handshake: Host broadcasts authoritative `state-sync` to reconnected Guest.
+- [x] Peer fallback: If Host reconnects with empty storage, Host requests snapshot from Guest (`request-state-sync`), verifies it, and resumes authority.
+- [x] End-to-end integration tests verifying reconnection and state restoration across drops.
 
 ### Acceptance Criteria
-- [ ] Disconnect detected via DataChannel heartbeat timeout (6s silence) or ICE disconnect.
-- [ ] Reaction and turn timers freeze while disconnected and resume upon reconnection.
-- [ ] Both Host and Guest maintain cached snapshots in `localStorage`.
-- [ ] Host and Guest can reconnect to the same room during the 5-minute grace window.
-- [ ] Game state re-synced after reconnection without state corruption.
-- [ ] Play resumes seamlessly from the last confirmed state.
+- [x] Disconnect detected via DataChannel heartbeat timeout (6s silence) or ICE disconnect.
+- [x] Reaction and turn timers freeze while disconnected and resume upon reconnection.
+- [x] Both Host and Guest maintain cached snapshots in `localStorage`.
+- [x] Host and Guest can reconnect to the same room during the 5-minute grace window.
+- [x] Game state re-synced after reconnection without state corruption.
+- [x] Play resumes seamlessly from the last confirmed state.
 
-## Phase 13: Polish, Audio & Release Hardening
+## Phase 13: 3D Map Builder & Battlefield Editor
+**Goal:** In-browser 3D terrain editor allowing players to design, customize, save, and share custom tabletop battlefields using modular assets.
+
+> **Atomic Sub-Phases:**
+> - **Sub-phase 13A (Schema, Asset Ingestion & Map Presets — `shared/` & `client/`):** Define `CustomMapDefinition`, terrain catalog metadata, validation utilities, import curated Kenney assets, and create standard presets.
+> - **Sub-phase 13B (Editor View, Palette & Grid Snapping — `client/`):** 3D editor overlay, ghost mesh placement, 0.5"/1.0" grid snapping, raycast surface auto-stacking, and hotkeys.
+> - **Sub-phase 13C (Inspector, Map Storage & Lobby Integration — `client/`):** Trait inspector, objective placement/preview, `localStorage` library with JSON import/export, and Lobby map selection synced over WebRTC.
+
+### Sub-phase 13A: Schema, Asset Ingestion & Map Presets (`shared/` & `client/`)
+- [x] Define `CustomMapDefinition`, `TerrainTypeMetadata`, and `TERRAIN_PALETTE_CATALOG` in `shared/src/data/mapSchema.ts`.
+- [x] Implement `validateMapDefinition` verifying playability, objective spacing (> 9"), deployment zone boundaries, and obstacle collisions.
+- [x] Ingest curated modular models from `assets-src/` into `client/public/models/` (industrial buildings, walls, doors, stairs, roofs, barricades).
+- [x] Register new terrain GLBs in `client/src/renderer/assetManifest.ts` with unscaled containers.
+- [x] Create balanced presets: `frontier-outpost`, `industrial-refinery`, and `sector-7-catwalks` in `shared/src/data/mapPresets.ts`.
+- [x] Update `applyDefaultScenario` in `shared/src/data/scenario.ts` to accept `mapId` and `customMap`.
+- [x] Unit tests in `shared/tests/data/scenario.test.ts` for schema, presets, and validation rules.
+
+### Sub-phase 13B: Editor View, Palette & Grid Snapping (`client/`)
+- [x] Dedicated `MapEditor` overlay mode accessible from Lobby with return controls.
+- [x] Interactive 3D scene with 44" x 30" battlefield grid and OrbitControls.
+- [x] Category palette toolbar (Structures, Walls, Platforms, Stairs/Ladders, Scatter).
+- [x] Ghost preview placement with 0.5" and 1.0" grid snapping.
+- [x] Raycast surface auto-stacking on elevated platforms and rooftops.
+- [x] Hotkeys: `R` (rotate 90°), `Q`/`E` (elevation adjust), `Delete`/`Backspace` (remove), `Ctrl+D` (duplicate).
+
+### Sub-phase 13C: Inspector, Map Storage & Lobby Integration (`client/`)
+- [x] Property inspector panel displaying selected piece traits and elevation with manual overrides.
+- [x] Objective marker placement and 3.0" control radius preview rings with auto-distribute fallback.
+- [x] Persistent map library in `localStorage` with JSON export/import.
+- [x] Lobby map selector dropdown allowing Host to pick presets or custom maps.
+- [x] P2P synchronization of custom terrain and objectives across WebRTC data channel.
+
+### Acceptance Criteria
+- [x] Map schema supports serializable terrain layouts and objective positions.
+- [x] Curated terrain assets load cleanly in Three.js with correct scales and materials.
+- [x] Creators can visually place, snap, rotate, and elevate terrain pieces in a 3D editor.
+- [x] Maps save to browser storage and export/import cleanly to JSON.
+- [x] Host can choose a custom map in the Lobby, and Guest receives and renders identical battlefield terrain.
+
+## Phase 14: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
 
 > **Recommended AI Model:** **3.8** *(Web Audio triggers, rematch UI resets, CSS polish, and release profiling)*

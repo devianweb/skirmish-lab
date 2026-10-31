@@ -1,16 +1,19 @@
 import {
   computeLosVisibilityPolygon,
+  CustomMapDefinition,
   GameState,
   GUEST_PLAYER_ID,
   HOST_PLAYER_ID,
   Vector3,
 } from '@skirmish-lab/shared';
 import { GameManager } from './core/GameManager';
+import { MapEditor } from './editor/MapEditor';
 import { SignalingDiceProvider } from './network/SignalingDiceProvider';
 import { GameView, PickTarget } from './renderer/GameView';
 import { ModelLoader } from './renderer/ModelLoader';
 import { registerAssetManifest } from './renderer/assetManifest';
 import { MarkerUnit } from './renderer/MarkerRenderer';
+import { defaultSessionStore } from './storage/SessionStore';
 import { GameHUD, MarkerSnapshot } from './ui/GameHUD';
 import { Lobby } from './ui/Lobby';
 
@@ -103,10 +106,32 @@ let hud: GameHUD | null = null;
 let gameManager: GameManager | null = null;
 let stopKeepAlive: (() => void) | null = null;
 let viewWired = false;
+let mapEditor: MapEditor | null = null;
+let activeCustomMap: CustomMapDefinition | null = null;
 
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
 const lobby = new Lobby(lobbyContainer, {
+  onOpenMapEditor: () => {
+    lobby.hide();
+    if (!mapEditor) {
+      mapEditor = new MapEditor(app, {
+        gameView,
+        modelLoader,
+        onExit: () => {
+          mapEditor?.hide();
+          lobby.show();
+          (lobby as any).render?.();
+          gameView.clear();
+        },
+        onSave: (map) => {
+          activeCustomMap = map;
+          alert(`Map "${map.name}" saved! It will be used for your next hosted match.`);
+        },
+      });
+    }
+    mapEditor.show();
+  },
   onRoleAssigned: (role) => {
     gameView.setupCameraForRole(role);
   },
@@ -119,10 +144,23 @@ const lobby = new Lobby(lobbyContainer, {
     hostArmyId,
     guestArmyId,
     useDeploymentPhase,
+    isCreatedRoom,
+    mapId,
+    customMap,
   }) => {
     gameView.setupCameraForRole(role);
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
+
+    // Save active session for instant reconnection upon reload or network drop
+    defaultSessionStore.saveActiveSession({
+      roomCode,
+      role,
+      playerId: localPlayerId,
+      playerName: isHost ? 'Host' : 'Guest',
+      armyId: isHost ? hostArmyId : guestArmyId,
+      timestamp: Date.now(),
+    });
 
     // If the host already has a game in progress and the guest rejoined the
     // room over a fresh WebRTC data channel, re-bind the existing GameManager
@@ -141,6 +179,8 @@ const lobby = new Lobby(lobbyContainer, {
     // Host rolls dice through the signaling server (never client-side).
     gameManager = new GameManager(webrtcClient, isHost, {
       diceProvider: new SignalingDiceProvider(signalingClient),
+      sessionStore: defaultSessionStore,
+      roomCode,
     });
 
     hud?.dispose();
@@ -157,6 +197,8 @@ const lobby = new Lobby(lobbyContainer, {
           gameManager = null;
           latestState = null;
           gameView.clear();
+          defaultSessionStore.clearActiveSession();
+          defaultSessionStore.clearSnapshot(roomCode);
           lobby.reset();
         },
       },
@@ -190,15 +232,30 @@ const lobby = new Lobby(lobbyContainer, {
     stopKeepAlive = signalingClient.startKeepAlive();
 
     if (isHost) {
-      gameManager.startGame('Host', 'Guest', {
-        hostArmyId,
-        guestArmyId,
-        useDeploymentPhase,
-      });
+      const cachedSnapshot = defaultSessionStore.getSnapshot(roomCode);
+      if (!isCreatedRoom && cachedSnapshot) {
+        gameManager.restoreFromSnapshot(cachedSnapshot);
+      } else if (!isCreatedRoom && !cachedSnapshot) {
+        // Host storage was empty upon reconnecting; request peer fallback snapshot from Guest
+        gameManager.requestStateSyncFromPeer();
+      } else {
+        gameManager.startGame('Host', 'Guest', {
+          hostArmyId,
+          guestArmyId,
+          useDeploymentPhase,
+          mapId,
+          customMap: customMap ?? activeCustomMap ?? undefined,
+        });
+      }
     } else if (initialState) {
       // If state-update was the first message that triggered onPeerReady,
       // feed it to the newly created guest GameManager.
       gameManager.applyStateUpdate(initialState);
+    } else {
+      const cachedSnapshot = defaultSessionStore.getSnapshot(roomCode);
+      if (cachedSnapshot) {
+        gameManager.restoreFromSnapshot(cachedSnapshot);
+      }
     }
     // The guest receives the starting state through the data channel.
 

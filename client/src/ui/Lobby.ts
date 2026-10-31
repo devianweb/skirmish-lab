@@ -1,5 +1,8 @@
+import { CustomMapDefinition } from '@skirmish-lab/shared';
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
+import { defaultMapStore, MapStore } from '../storage/MapStore';
+import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 
 /** Fired once the P2P data channel is alive (first heartbeat round-trip). */
 export interface PeerReadyContext {
@@ -11,11 +14,17 @@ export interface PeerReadyContext {
   hostArmyId?: string;
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
+  isCreatedRoom?: boolean;
+  mapId?: string;
+  customMap?: CustomMapDefinition;
 }
 
 export interface LobbyOptions {
   onPeerReady?: (context: PeerReadyContext) => void;
   onRoleAssigned?: (role: 'host' | 'guest') => void;
+  onOpenMapEditor?: () => void;
+  sessionStore?: SessionStore;
+  mapStore?: MapStore;
 }
 
 /**
@@ -34,16 +43,34 @@ export class Lobby {
   private hostArmyId: string = 'frontier-wardens-starter';
   private guestArmyId: string = 'rust-raiders-starter';
   private useDeploymentPhase: boolean = true;
+  private sessionStore: SessionStore;
+  private mapStore: MapStore;
+  private selectedMapSelection: string = 'preset:frontier-outpost';
+  private initialRoomCode: string | null = null;
+  private isCreatedRoom: boolean = false;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
     this.options = options;
+    this.sessionStore = options.sessionStore ?? defaultSessionStore;
+    this.mapStore = options.mapStore ?? defaultMapStore;
     this.signalingClient = new SignalingClient();
     this.setupSignalingHandlers();
   }
 
   async init(): Promise<void> {
     await this.signalingClient.connect();
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const roomParam = params.get('room');
+        if (roomParam) {
+          this.initialRoomCode = roomParam.toUpperCase();
+        }
+      } catch (e) {
+        console.warn('[Lobby] Failed to read URL room parameter:', e);
+      }
+    }
     this.render();
   }
 
@@ -62,17 +89,35 @@ export class Lobby {
     if (this.roomCode) {
       this.signalingClient.send({ type: 'leave-room' });
     }
+    this.updateUrlRoomCode(null);
     this.roomCode = null;
     this.role = null;
     this.peerReadyFired = false;
+    this.isCreatedRoom = false;
     this.show();
     this.render();
+  }
+
+  private updateUrlRoomCode(code: string | null): void {
+    if (typeof window === 'undefined' || !window.history?.replaceState) return;
+    try {
+      const url = new URL(window.location.href);
+      if (code) {
+        url.searchParams.set('room', code.toUpperCase());
+      } else {
+        url.searchParams.delete('room');
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) {
+      console.warn('[Lobby] Failed to update URL room code:', e);
+    }
   }
 
   private setupSignalingHandlers(): void {
     this.signalingClient.on('room-created', (msg: any) => {
       this.roomCode = msg.code;
       this.role = 'host';
+      this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.('host');
       this.webrtcClient = new WebRTCClient();
       this.setupWebRTCAsHost();
@@ -83,6 +128,7 @@ export class Lobby {
       this.roomCode = msg.code;
       const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
       this.role = assignedRole;
+      this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
       this.webrtcClient = new WebRTCClient();
       if (assignedRole === 'host') {
@@ -167,6 +213,7 @@ export class Lobby {
       this.maybeFirePeerReady();
     });
     client.on('state-update', (msg: any) => this.maybeFirePeerReady(msg.state));
+    client.on('state-sync', (msg: any) => this.maybeFirePeerReady(msg.state));
   }
 
   private async createAndSendOffer(): Promise<void> {
@@ -182,6 +229,18 @@ export class Lobby {
     this.signalingClient.sendAnswer(answer);
   }
 
+  private getMapDisplayName(selection: string): string {
+    if (selection === 'preset:frontier-outpost') return 'Frontier Outpost (Preset)';
+    if (selection === 'preset:industrial-refinery') return 'Industrial Refinery (Preset)';
+    if (selection === 'preset:sector-7-catwalks') return 'Sector 7 Catwalks (Preset)';
+    if (selection.startsWith('custom:')) {
+      const customId = selection.replace('custom:', '');
+      const map = this.mapStore.getMap(customId);
+      return map ? `Custom: ${map.name}` : 'Custom Map';
+    }
+    return selection;
+  }
+
   /**
    * The first heartbeat ping from the peer proves the data channel is open
    * in both directions — hand the connection to the app exactly once.
@@ -190,6 +249,18 @@ export class Lobby {
     if (this.peerReadyFired || !this.webrtcClient || !this.role || !this.roomCode) return;
     if (!this.webrtcClient.isConnected()) return;
     this.peerReadyFired = true;
+
+    let mapId: string | undefined;
+    let customMap: CustomMapDefinition | undefined;
+
+    if (this.selectedMapSelection.startsWith('preset:')) {
+      mapId = this.selectedMapSelection.replace('preset:', '');
+    } else if (this.selectedMapSelection.startsWith('custom:')) {
+      const customId = this.selectedMapSelection.replace('custom:', '');
+      customMap = this.mapStore.getMap(customId) ?? undefined;
+      mapId = customId;
+    }
+
     this.options.onPeerReady?.({
       webrtcClient: this.webrtcClient,
       signalingClient: this.signalingClient,
@@ -199,6 +270,9 @@ export class Lobby {
       hostArmyId: this.hostArmyId,
       guestArmyId: this.guestArmyId,
       useDeploymentPhase: this.useDeploymentPhase,
+      isCreatedRoom: this.isCreatedRoom,
+      mapId,
+      customMap,
     });
   }
 
@@ -209,17 +283,65 @@ export class Lobby {
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
           <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${this.roomCode}</h2>
           <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${this.role.toUpperCase()}</strong></p>
+          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${this.getMapDisplayName(this.selectedMapSelection)}</strong></p>
           <p id="status" style="font-size: 14px; color: #ffd54f;">Waiting for peer...</p>
         </div>
       `;
     } else {
+      const activeSession = this.sessionStore.getActiveSession();
+      const hasActiveSession = this.sessionStore.isSessionValid(activeSession);
+      const prefillCode = this.initialRoomCode || '';
+
+      const resumeBannerHtml = hasActiveSession && activeSession ? `
+        <div id="resumeBanner" style="margin-bottom: 20px; background: rgba(41, 182, 246, 0.15); border: 1px solid #29b6f6; border-radius: 8px; padding: 14px; text-align: left;">
+          <div style="font-size: 14px; font-weight: bold; color: #ffd54f; margin-bottom: 6px;">
+            ⚠️ Active Game Detected (Room ${activeSession.roomCode})
+          </div>
+          <div style="font-size: 13px; color: #b0bec5; margin-bottom: 12px;">
+            You have an ongoing match as <strong style="color: #29b6f6; text-transform: uppercase;">${activeSession.role.toUpperCase()}</strong>. Reconnect within the 5-minute grace window to resume.
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="resumeBtn" style="padding: 8px 16px; font-size: 13px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
+              Resume Match
+            </button>
+            <button id="abandonBtn" style="padding: 8px 14px; font-size: 13px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">
+              Abandon Game
+            </button>
+          </div>
+        </div>
+      ` : '';
+
+      const customMaps = this.mapStore.getMaps();
+      const customOptionsHtml = customMaps.length > 0
+        ? `
+          <optgroup label="Custom Maps">
+            ${customMaps.map((m) => `<option value="custom:${m.id}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${m.name} (${m.terrain?.length ?? 0} pieces)</option>`).join('')}
+          </optgroup>
+        `
+        : '';
+
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
           <p style="color: #b0bec5; font-size: 14px; margin-bottom: 24px;">One Page Rules Skirmish Simulator</p>
 
+          ${resumeBannerHtml}
+
           <div style="margin-bottom: 24px; text-align: left; background: rgba(26, 31, 41, 0.7); padding: 16px; border-radius: 8px; border: 1px solid #2a3442;">
-            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; color: #90caf9; text-transform: uppercase; letter-spacing: 0.5px;">Match Forces (Starter Armies)</h3>
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; color: #90caf9; text-transform: uppercase; letter-spacing: 0.5px;">Battlefield & Forces</h3>
+            
+            <div style="margin-bottom: 14px;">
+              <label style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Battlefield Map:</label>
+              <select id="mapSelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
+                <optgroup label="Standard Presets">
+                  <option value="preset:frontier-outpost" ${this.selectedMapSelection === 'preset:frontier-outpost' ? 'selected' : ''}>Frontier Outpost (Preset - 44"x30")</option>
+                  <option value="preset:industrial-refinery" ${this.selectedMapSelection === 'preset:industrial-refinery' ? 'selected' : ''}>Industrial Refinery (Preset - 44"x30")</option>
+                  <option value="preset:sector-7-catwalks" ${this.selectedMapSelection === 'preset:sector-7-catwalks' ? 'selected' : ''}>Sector 7 Catwalks (Preset - 44"x30")</option>
+                </optgroup>
+                ${customOptionsHtml}
+              </select>
+            </div>
+
             <div style="margin-bottom: 12px;">
               <label style="display: block; font-size: 12px; color: #29b6f6; margin-bottom: 4px; font-weight: 600;">Host Force (South):</label>
               <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
@@ -243,12 +365,33 @@ export class Lobby {
           <div style="display: flex; flex-direction: column; gap: 16px;">
             <button id="createBtn" style="padding: 12px 24px; font-size: 15px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 6px; cursor: pointer;">Create Room (Host)</button>
             <div style="display: flex; gap: 8px;">
-              <input id="codeInput" placeholder="XXX-XXX" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
+              <input id="codeInput" placeholder="XXX-XXX" value="${prefillCode}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
+            <button id="openMapEditorBtn" style="padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
           </div>
         </div>
       `;
+
+      if (hasActiveSession && activeSession) {
+        this.container.querySelector('#resumeBtn')?.addEventListener('click', () => {
+          this.isCreatedRoom = false;
+          this.signalingClient.joinRoom(activeSession.roomCode);
+        });
+
+        this.container.querySelector('#abandonBtn')?.addEventListener('click', () => {
+          this.sessionStore.clearActiveSession();
+          this.sessionStore.clearSnapshot(activeSession.roomCode);
+          this.updateUrlRoomCode(null);
+          this.initialRoomCode = null;
+          this.render();
+        });
+      }
+
+      const mapSelect = this.container.querySelector<HTMLSelectElement>('#mapSelect');
+      mapSelect?.addEventListener('change', () => {
+        this.selectedMapSelection = mapSelect.value;
+      });
 
       const hostSelect = this.container.querySelector<HTMLSelectElement>('#hostArmySelect');
       hostSelect?.addEventListener('change', () => {
@@ -266,14 +409,20 @@ export class Lobby {
       });
 
       this.container.querySelector('#createBtn')?.addEventListener('click', () => {
+        this.isCreatedRoom = true;
         this.signalingClient.createRoom();
       });
 
       this.container.querySelector('#joinBtn')?.addEventListener('click', () => {
+        this.isCreatedRoom = false;
         const input = this.container.querySelector<HTMLInputElement>('#codeInput');
         if (input && input.value) {
           this.signalingClient.joinRoom(input.value.toUpperCase());
         }
+      });
+
+      this.container.querySelector('#openMapEditorBtn')?.addEventListener('click', () => {
+        this.options.onOpenMapEditor?.();
       });
     }
   }

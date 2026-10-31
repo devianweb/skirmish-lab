@@ -11,4 +11,6 @@ export * from './engine/actions';
 export * from './data/weapons';
 export * from './data/armies';
 export * from './data/scenario';
+export * from './data/mapSchema';
+export * from './data/mapPresets';
 export type { SignalingMessage } from './signaling';

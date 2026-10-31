@@ -11,8 +11,10 @@ import {
   validateAction,
   applyDefaultScenario,
   createAction,
+  ScenarioOptions,
 } from '@skirmish-lab/shared';
 import { WebRTCClient, GameMessage } from '../network/WebRTCClient';
+import { SessionStore } from '../storage/SessionStore';
 
 /** Source of server-rolled dice for the host's confirmed attack actions. */
 export interface DiceProvider {
@@ -22,6 +24,10 @@ export interface DiceProvider {
 export interface GameManagerOptions {
   /** Dice provider (host needs one to resolve shoot/fight actions). */
   diceProvider?: DiceProvider;
+  /** Session store for persisting GameState snapshots across reloads. */
+  sessionStore?: SessionStore;
+  /** Active room code for keyed snapshot persistence. */
+  roomCode?: string;
 }
 
 export interface ActionRejection {
@@ -38,15 +44,23 @@ export class GameManager {
   private stateUpdateHandlers: Array<(state: GameState) => void> = [];
   private rejectionHandlers: Array<(rejection: ActionRejection) => void> = [];
   private diceProvider: DiceProvider | undefined;
+  private sessionStore: SessionStore | undefined;
+  private roomCode: string | undefined;
   /** Action currently being processed (guards concurrent host processing). */
   private pendingActionId: string | null = null;
   /** Reaction countdown timer on host for auto-resolving timeouts / anti-griefing. */
   private reactionTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Tracks whether the P2P data channel connection to the peer is currently active. */
+  private isPeerConnected: boolean = true;
+  /** Preserved remaining milliseconds on pending reaction when paused during a disconnect. */
+  private pausedReactionRemainingMs: number | null = null;
 
   constructor(webrtcClient: WebRTCClient, isHost: boolean, options: GameManagerOptions = {}) {
     this.webrtcClient = webrtcClient;
     this.isHost = isHost;
     this.diceProvider = options.diceProvider;
+    this.sessionStore = options.sessionStore;
+    this.roomCode = options.roomCode;
     this.setupHandlers();
   }
 
@@ -96,8 +110,31 @@ export class GameManager {
   rebindWebRTCClient(webrtcClient: WebRTCClient): void {
     this.webrtcClient = webrtcClient;
     this.setupHandlers();
-    if (this.isHost && this.gameState) {
-      this.broadcastState('rejoin');
+    if (this.isHost) {
+      if (this.gameState) {
+        this.broadcastState('rejoin');
+      } else {
+        // Host state is empty: request peer fallback snapshot from Guest
+        this.webrtcClient.send({ type: 'request-state-sync' } as GameMessage);
+      }
+    }
+  }
+
+  /** Restore game state from a cached snapshot upon reconnecting. */
+  restoreFromSnapshot(snapshot: GameState): void {
+    this.gameState = snapshot;
+    this.saveSnapshot(snapshot);
+    this.syncReactionTimer();
+    this.emitStateUpdate();
+    if (this.isHost) {
+      this.broadcastState('state-restored');
+    }
+  }
+
+  /** Host requests peer-fallback snapshot sync from Guest when local storage was empty. */
+  requestStateSyncFromPeer(): void {
+    if (this.webrtcClient) {
+      this.webrtcClient.send({ type: 'request-state-sync' } as GameMessage);
     }
   }
 
@@ -113,6 +150,28 @@ export class GameManager {
     this.webrtcClient.on('state-update', (msg: GameMessage) => {
       if (!this.isHost && msg.type === 'state-update') {
         this.applyStateUpdate(msg.state);
+      }
+    });
+
+    this.webrtcClient.on('state-sync', (msg: GameMessage) => {
+      if (msg.type === 'state-sync' && msg.state) {
+        if (!this.isHost) {
+          this.applyStateUpdate(msg.state);
+        } else if (!this.gameState && msg.state.board && Array.isArray(msg.state.units)) {
+          // Host peer-fallback recovery: Host loaded with empty state, adopts Guest's verified snapshot
+          this.gameState = msg.state;
+          this.saveSnapshot(this.gameState!);
+          this.syncReactionTimer();
+          this.emitStateUpdate();
+        }
+      }
+    });
+
+    this.webrtcClient.on('request-state-sync', (msg: GameMessage) => {
+      if (msg.type === 'request-state-sync') {
+        if (this.gameState) {
+          this.webrtcClient.send({ type: 'state-sync', state: this.gameState } as GameMessage);
+        }
       }
     });
 
@@ -132,10 +191,31 @@ export class GameManager {
 
     if (typeof this.webrtcClient.onConnectionState === 'function') {
       this.webrtcClient.onConnectionState((state: 'connected' | 'disconnected') => {
-        if (this.isHost && state === 'disconnected' && this.gameState?.turnState.pendingReaction) {
-          // If the peer disconnected while their reaction was pending, auto-resolve with default
-          if (this.gameState.turnState.pendingReaction.promptingPlayerId !== HOST_PLAYER_ID) {
-            this.handleReactionTimeout();
+        const isConnected = state === 'connected';
+        if (this.isPeerConnected === isConnected) return;
+        this.isPeerConnected = isConnected;
+
+        if (this.isHost) {
+          if (!isConnected) {
+            // Peer disconnected: pause pending reaction countdown timer to prevent unfair auto-timeout
+            if (this.gameState?.turnState.pendingReaction) {
+              if (this.reactionTimeoutTimer) {
+                clearTimeout(this.reactionTimeoutTimer);
+                this.reactionTimeoutTimer = null;
+              }
+              const pending = this.gameState.turnState.pendingReaction;
+              this.pausedReactionRemainingMs = Math.max(0, pending.expiresAt - Date.now());
+            }
+          } else {
+            // Peer reconnected: resume pending reaction timer seamlessly
+            if (this.gameState?.turnState.pendingReaction && this.pausedReactionRemainingMs !== null) {
+              const pending = this.gameState.turnState.pendingReaction;
+              pending.expiresAt = Date.now() + this.pausedReactionRemainingMs;
+              this.syncReactionTimer();
+              this.pausedReactionRemainingMs = null;
+              this.broadcastState('reaction-timer-resumed');
+              this.emitStateUpdate();
+            }
           }
         }
       });
@@ -150,11 +230,7 @@ export class GameManager {
   startGame(
     hostName = 'Host',
     guestName = 'Guest',
-    options?: {
-      hostArmyId?: string;
-      guestArmyId?: string;
-      useDeploymentPhase?: boolean;
-    }
+    options?: ScenarioOptions
   ): void {
     if (!this.isHost) return;
     this.gameState = createInitialGameState(HOST_PLAYER_ID, GUEST_PLAYER_ID, hostName, guestName);
@@ -256,7 +332,17 @@ export class GameManager {
     if (!this.isHost || !this.gameState) return;
 
     const pending = this.gameState.turnState.pendingReaction;
-    if (!pending) return;
+    if (!pending) {
+      this.pausedReactionRemainingMs = null;
+      return;
+    }
+
+    if (!this.isPeerConnected) {
+      if (this.pausedReactionRemainingMs === null) {
+        this.pausedReactionRemainingMs = Math.max(0, pending.expiresAt - Date.now());
+      }
+      return;
+    }
 
     const remaining = Math.max(0, pending.expiresAt - Date.now());
     this.reactionTimeoutTimer = setTimeout(() => {
@@ -305,10 +391,26 @@ export class GameManager {
   }
 
   private saveSnapshot(state: GameState): void {
-    this.snapshots.push(JSON.parse(JSON.stringify(state)));
+    const copy = JSON.parse(JSON.stringify(state));
+    this.snapshots.push(copy);
     if (this.snapshots.length > this.maxSnapshots) {
       this.snapshots.shift();
     }
+    if (this.sessionStore && this.roomCode) {
+      this.sessionStore.saveSnapshot(this.roomCode, copy);
+      if (copy.status === 'game-over') {
+        this.sessionStore.clearSnapshot(this.roomCode);
+        this.sessionStore.clearActiveSession();
+      }
+    }
+  }
+
+  setRoomCode(roomCode: string): void {
+    this.roomCode = roomCode;
+  }
+
+  setSessionStore(store: SessionStore): void {
+    this.sessionStore = store;
   }
 
   getLatestSnapshot(): GameState | null {

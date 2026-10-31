@@ -6,6 +6,8 @@ import {
   createUnitFromFighter,
   createUnitsFromStarterArmy,
 } from './armies';
+import { CustomMapDefinition } from './mapSchema';
+import { STANDARD_MAP_PRESETS } from './mapPresets';
 
 /**
  * Default v1 scenario data: each player deploys a five-fighter force on
@@ -264,6 +266,8 @@ export interface ScenarioOptions {
   hostArmyId?: string;
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
+  mapId?: string;
+  customMap?: CustomMapDefinition;
 }
 
 /** Apply the default scenario to a fresh game state (host-side, at start). */
@@ -274,6 +278,23 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
   const guestStarter = options.guestArmyId && options.guestArmyId in STARTER_ARMIES
     ? STARTER_ARMIES[options.guestArmyId as keyof typeof STARTER_ARMIES]
     : null;
+
+  const selectedMap: CustomMapDefinition =
+    options.customMap ??
+    (options.mapId && options.mapId in STANDARD_MAP_PRESETS
+      ? STANDARD_MAP_PRESETS[options.mapId]
+      : STANDARD_MAP_PRESETS['frontier-outpost']);
+
+  const mapTerrain: TerrainPiece[] = selectedMap.terrain.map((t) => ({
+    ...t,
+    position: { ...t.position },
+    rotation: { ...t.rotation },
+    scale: { ...t.scale },
+  }));
+  const mapObjectives = (selectedMap.objectives ?? createDefaultScenarioObjectives()).map((o) => ({
+    ...o,
+    position: { ...o.position },
+  }));
 
   if (options.useDeploymentPhase) {
     const hostForce = hostStarter ?? STARTER_ARMIES['frontier-wardens-starter'];
@@ -291,9 +312,9 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     });
 
     state.units = [...hostUnits, ...guestUnits];
-    state.terrain = createDefaultScenarioTerrain();
+    state.terrain = mapTerrain;
     state.markers = [];
-    state.objectives = createDefaultScenarioObjectives();
+    state.objectives = mapObjectives;
     state.status = 'in-progress';
     state.turnState.phase = 'deployment';
     state.turnState.roundNumber = 0;
@@ -320,9 +341,9 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
   }
 
-  state.terrain = createDefaultScenarioTerrain();
+  state.terrain = mapTerrain;
   state.markers = [];
-  state.objectives = createDefaultScenarioObjectives();
+  state.objectives = mapObjectives;
   state.status = 'in-progress';
   state.turnState.phase = 'activation';
 }

@@ -2,62 +2,116 @@
 
 All `.glb` files and `Textures/colormap.png` in `client/public/models/` are from the **Kenney Prototype Kit** (https://kenney.nl, created 2024-08-28), distributed under the [Creative Commons Zero (CC0)](https://creativecommons.org/publicdomain/zero/1.0/) license — public domain, no attribution required.
 
-They were curated from the raw pack staged in `assets-src/` (gitignored). Asset registration and scaling live in [`client/src/renderer/assetManifest.ts`](../client/src/renderer/assetManifest.ts).
+Asset registration, scaling, and orientation live in [`client/src/renderer/assetManifest.ts`](../client/src/renderer/assetManifest.ts).
 
-## Complete Asset Mapping
+---
 
-### 1. Fighter Role Models (`UNIT_ASSETS`)
-Used by `UnitRenderer` (via `unit.unitType`). Tinted per owning player (Host = Blue `0x3a7bd5`, Guest = Red `0xd54a3a`):
+## Complete 3D Asset Inventory (`client/public/models/`)
 
-| Fighter Role (`unitType`) | GLB File | Manifest Scale | Fighters Using This Model |
-| :--- | :--- | :---: | :--- |
-| `leader` | `figurine-large.glb` | `1.0` | Warden Captain, Raid Boss |
-| `trooper` | `figurine.glb` | `1.15` | Warden Trooper, Rust Runner |
-| `specialist` | `figurine-cube.glb` | `0.95` | Warden Marksman, Warden Breacher, Rust Skirmisher, Rust Sapper |
-| `heavy` | `figurine-cube-detailed.glb` | `1.0` | Warden Gun Crew, Rust Bruiser |
+| File Name | Size | Category | Asset Manifest Key | Description & Role |
+| :--- | :---: | :--- | :--- | :--- |
+| `figurine-large.glb` | 118 KB | Fighter | `UNIT_ASSETS.leader` | Heavy commander figurine with raised shoulder armor and distinct silhouette. |
+| `figurine.glb` | 117 KB | Fighter | `UNIT_ASSETS.trooper` | Standard infantry figurine with rounded helmet. |
+| `figurine-cube.glb` | 118 KB | Fighter | `UNIT_ASSETS.specialist` | Specialist figurine with angular visor and modular combat frame. |
+| `figurine-cube-detailed.glb` | 125 KB | Fighter | `UNIT_ASSETS.heavy` | Armored heavy trooper figurine with reinforced back battery and plating. |
+| `floor-square.glb` | 2.3 KB | Terrain | `TERRAIN_ASSETS.platform` | Walkable metal floor tile used for elevated platforms and catwalks ($y = 2.5″$). |
+| `ladder.glb` | 22 KB | Terrain | `TERRAIN_ASSETS.ladder` | Vertical industrial ladder providing 1:1 traversal access to elevated platforms. |
+| `stairs-small.glb` | 7.5 KB | Terrain | `TERRAIN_ASSETS.stairs` | Industrial stair flight providing 1:1 ramp traversal up to elevated platforms. |
+| `pipe.glb` | 3.5 KB | Terrain | `TERRAIN_ASSETS.pipe` | Horizontal industrial conduit / pipeline providing low waist-height cover. |
+| `building-a.glb` | 174 KB | Terrain | `TERRAIN_ASSETS['building-a']` | Heavy industrial warehouse block with flat walkable roof ($y = 3.5″$). |
+| `building-c.glb` | 172 KB | Terrain | `TERRAIN_ASSETS['building-c']` | Refinery facility with walkable rooftop deck ($y = 3.0″$). |
+| `building-f.glb` | 132 KB | Terrain | `TERRAIN_ASSETS['building-f']` | Chemical storage silo completely blocking line-of-sight and movement. |
+| `building-h.glb` | 63 KB | Terrain | `TERRAIN_ASSETS['building-h']` | Compact service workshop building with roof access ($y = 2.5″$). |
+| `building-l.glb` | 159 KB | Terrain | `TERRAIN_ASSETS['building-l']` | Two-story industrial manufacturing plant with elevated sniper roof ($y = 4.5″$). |
+| `wall-doorway-square.glb` | 6.2 KB | Terrain | `TERRAIN_ASSETS['wall-doorway-square']` | Modular wall with square framed walk-through doorway. |
+| `wall-corner.glb` | 3.1 KB | Terrain | `TERRAIN_ASSETS['wall-corner']` | 90-degree corner wall junction piece. |
+| `wall-half.glb` | 2.7 KB | Terrain | `TERRAIN_ASSETS['wall-half']` | Half-length modular wall piece for precise perimeter gaps. |
+| `roof-flat-patch-large.glb` | 5.4 KB | Terrain | `TERRAIN_ASSETS['roof-flat-patch-large']` | Large elevated catwalk deck platform ($y \ge 3.0″$). |
+| `roof-flat-side.glb` | 5.6 KB | Terrain | `TERRAIN_ASSETS['roof-flat-side']` | Suspended catwalk bridge span between adjacent platforms. |
+| `roof-flat-corner.glb` | 7.0 KB | Terrain | `TERRAIN_ASSETS['roof-flat-corner']` | L-shaped corner catwalk junction platform piece. |
+| `stairs-open.glb` | 15 KB | Terrain | `TERRAIN_ASSETS['stairs-open']` | Open industrial staircase climbing to 3.0" platforms. |
+| `stairs-closed-short.glb` | 8.6 KB | Terrain | `TERRAIN_ASSETS['stairs-closed-short']` | Compact closed stair flight for 1.5" elevation transitions. |
+| `stairs-sides.glb` | 18 KB | Terrain | `TERRAIN_ASSETS['stairs-sides']` | Railed industrial staircase ascending to 3.5" catwalks. |
+| `barricade-doorway-a.glb` | 8.1 KB | Terrain | `TERRAIN_ASSETS['barricade-doorway']` | Improvised door-jam debris barricade blocking passage. |
+| `barricade-window-b.glb` | 13 KB | Terrain | `TERRAIN_ASSETS['barricade-window']` | Reinforced window shutters granting cover against incoming fire. |
+| `column-wide.glb` | 4.3 KB | Terrain | `TERRAIN_ASSETS['column-wide']` | Heavy structural pillar blocking vision and movement. |
+| `detail-pipe.glb` | 7.3 KB | Terrain | `TERRAIN_ASSETS['detail-pipe']` | Surface conduit pipeline runner providing low directional cover. |
+| `wall.glb` | 2.8 KB | Terrain | `TERRAIN_ASSETS.wall` | Solid perimeter wall block (100% LoS obstruction & movement blocking). |
+| `wall-low.glb` | 2.8 KB | Terrain | `TERRAIN_ASSETS['wall-low']` | Low barricade waist-high wall providing Cover (+1 Defense); plunged over from $y \ge 2.0″$. |
+| `wall-window-medium.glb` | 8.8 KB | Terrain | `TERRAIN_ASSETS['wall-window']` | Wall with central firing aperture granting +1 Defense to manned defenders. |
+| `wall-doorway.glb` | 14 KB | Terrain | `TERRAIN_ASSETS['wall-doorway']` | Wall with central walk-through doorway opening (full LoS and movement passage). |
+| `crate.glb` | 18 KB | Terrain | `TERRAIN_ASSETS.crate` | Waist-height storage crate providing low cover (+1 Defense within $1.0″$). |
+| `column.glb` | 2.9 KB | Terrain | `TERRAIN_ASSETS.column` | Solid architectural column (blocks LoS and movement). |
+| `indicator-round-b.glb` | 4.5 KB | Marker | `MARKER_ASSETS.selection` / `target` | Flat circular floor beacon used for selection (blue) and enemy target (red). |
+| `indicator-round-a.glb` | 6.4 KB | Marker | *(Alternate Indicator)* | Thick rim alternate circular floor marker. |
+| `indicator-square-a.glb` | 2.0 KB | Marker | *(Alternate Indicator)* | Square perimeter floor marker. |
+| `number-1.glb` .. `number-5.glb` | 4–7 KB | Outcome | `OUTCOME_ASSETS['outcome-N']` | 3D billboard digits (1 to 5) indicating wound damage count dealt on attack. |
+| `Textures/colormap.png` | 4.0 KB | Texture | *(Shared Texture)* | Global texture palette referenced by all Kenney Prototype Kit materials. |
 
-### 2. Battlefield Terrain (`TERRAIN_ASSETS`)
-Used by `BoardRenderer` (via `piece.terrainType`), scaled by each piece's `scale` vector in the scenario data:
+---
 
-| Terrain Type (`terrainType`) | GLB File | Raw GLB Footprint (`X × Y × Z`) | Default Scenario Piece Scale | Mechanical Function & Apertures |
-| :--- | :--- | :---: | :---: | :--- |
-| `wall` | `wall.glb` | `0.2 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Solid obstacle: blocks movement and 100% of Line of Sight. |
-| `wall-window` | `wall-window-medium.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Firing port: blocks movement, but allows LoS through central 1.0" aperture when manned within 1.0" (granting +1 Defense against incoming fire). |
-| `wall-doorway` | `wall-doorway.glb` | `0.3 × 1.0 × 1.0` | `3 × 1.5 × 0.5` | Door passage: central 1.0" doorway is open to both model movement and unobstructed Line of Sight. |
-| `crate` | `crate.glb` | `0.5 × 0.5 × 0.5` | `1 × 1 × 1` (scaled to waist height `1.0` in manifest) | Low cover: blocks movement; grants +1 Defense to defenders positioned within 1.0" along the line of fire. |
-| `column` | `column.glb` | `0.2 × 1.0 × 0.2` | `1 × 2.5 × 1` | Solid column: blocks movement and Line of Sight. |
-| `platform` | `floor-square.glb` | `1.0 × 0.1 × 1.0` | `3 × 0.3 × 3` | Elevated walkable platform: fighters stand at `y = 2.5"`. Models within 1.0" of edge gain Parapet Cover (+1 Defense); models set back > 1.0" create floor blind spots from street. |
-| `ladder` | `ladder.glb` | `0.5 × 2.0 × 0.2` | `0.5 × 2.5 × 1.0` | Vertical access ladder: climbed at 1:1 speed without Difficult Terrain penalty. |
-| `stairs` | `stairs-small.glb` | `1.0 × 1.0 × 1.0` | `1.5 × 2.5 × 1.0` | Stair ramp access: ascended at 1:1 speed without Difficult Terrain penalty. |
-| `wall-low` | `wall-low.glb` | `0.2 × 0.5 × 1.0` | `2 × 0.8 × 0.3` | Low barricade: low cover granting +1 Defense to defenders within 1.0" along line of fire; Plunging Fire (>= 2.0" above) looks over it. |
-| `pipe` | `pipe.glb` | `0.8 × 0.8 × 1.0` | `3 × 0.8 × 0.8` | Industrial conduit: low cover obstacle providing cover to models behind it. |
-| `toxic` | *(Procedural Plane)* | `1.0 × 0.05 × 1.0` | `2.5 × 0.05 × 2.5` | Dangerous & Difficult Terrain: entering or activating inside rolls 1d6 per model; 1s inflict unsaved wounds. Movement capped at 6.0". |
+## 1. Fighter 3D Model Mapping
 
-### 3. Gameplay UI Markers (`MARKER_ASSETS` & `OUTCOME_ASSETS`)
-Used by `MarkerRenderer` for selection, targeting, range rings, and floating wound outcome numbers:
+Fighters are mapped to 3D models via their `modelType` attribute defined in [`shared/src/data/armies.ts`](../shared/src/data/armies.ts). Meshes are instantiated by [`client/src/renderer/UnitRenderer.ts`](../client/src/renderer/UnitRenderer.ts) and tinted dynamically per owning player (Host = Blue `#29b6f6` / `0x3a7bd5`, Guest = Red `#ef5350` / `0xd54a3a`):
 
-| Marker Key | GLB File | Manifest Scale | Purpose & Behavior |
-| :--- | :--- | :---: | :--- |
-| `selection` | `indicator-round-b.glb` | `1.4` | Flat blue (`0x29b6f6`) floor ring under the selected, active, or hovered friendly unit |
-| `target` | `indicator-round-b.glb` | `1.4` | Bright red (`0xff5252`) floor ring under the hovered or selected enemy target |
-| `reachable-target` | `indicator-round-b.glb` | `1.4` | Darker red (`0x8e2424`) floor ring under all reachable enemy targets within the attack range circle |
-| `movement-range` | *(Procedural `RingGeometry`)* | `1.0` *(× `remainingMovement`)* | Crisp, constant-thickness (`0.08"` rim) blue (`0x29b6f6`) circle around the active unit showing remaining movement radius when `Move` is hovered or active |
-| `attack-range` | *(Procedural `los-shadow-fan`)* | `1.0` *(× weapon/charge range)* | Dark transparent red (`0xb71c1c`) Line-of-Sight visibility fan sized to weapon/charge range, cut out where blocked by terrain or fighters |
-| `outcome-0` | *(Procedural `TorusGeometry`)* | `1.0` | Floating neutral (`0xb0bec5`) 3D "0" digit above a target that received 0 wounds, giving clear attack feedback |
-| `outcome-1` .. `outcome-5` | `number-1.glb` .. `number-5.glb` | `1.2` | Floating red (`0xef5350`) wound-count digit above a wounded target; oriented toward the camera each frame so digits never appear mirrored |
+| Role (`modelType`) | 3D Model File | Manifest Scale | Frontier Wardens Units | Rust Raiders Units |
+| :--- | :--- | :---: | :--- | :--- |
+| **`leader`** | `figurine-large.glb` | `1.0` | **Warden Captain** (`warden-captain`), **Warden Storm Commander** (`warden-storm-commander`), **Marshal Vance** (`marshal-vance`) | **Raid Boss** (`raider-boss`) |
+| **`trooper`** | `figurine.glb` | `1.15` | **Warden Trooper** (`warden-trooper`), **Warden Patrol Squad** (`warden-patrol-squad`), **Line Trooper Squad** (`line-trooper-squad`), **Sentry Automaton** (`sentry-automaton`), **Warden Veteran** (`warden-veteran`) | **Rust Runner** (`raider-trooper`), **Rust Patrol Mob** (`raider-patrol-mob`) |
+| **`specialist`** | `figurine-cube.glb` | `0.95` | **Warden Marksman** (`warden-marksman`), **Warden Breacher** (`warden-breacher`), **Warden Demolitionist** (`warden-demolitionist`), **Shock Trooper** (`shock-trooper`), **Warden Sharpshooter** (`warden-sharpshooter`) | **Rust Skirmisher** (`raider-skirmisher`), **Rust Sapper** (`raider-sapper`) |
+| **`heavy`** | `figurine-cube-detailed.glb` | `1.0` | **Warden Gun Crew** (`warden-gun-crew`), **Heavy Ordnance Crew** (`heavy-ordnance-crew`), **Goliath Automaton** (`goliath-automaton`) | **Rust Bruiser** (`raider-bruiser`) |
 
-### 4. Mission Objective Markers (`ObjectiveRenderer`)
-Rendered procedurally in Three.js by `ObjectiveRenderer` at each objective's coordinate (`Objective.position`), dynamically color-coded to reflect control status:
+---
 
-| Visual Element | Geometry | Dimensions | Dynamic Color & Behavior |
+## 2. Default Battlefield Scenario Terrain Mapping
+
+The default testing map layout is defined in [`shared/src/data/scenario.ts`](../shared/src/data/scenario.ts) and rendered by [`client/src/renderer/BoardRenderer.ts`](../client/src/renderer/BoardRenderer.ts):
+
+| Piece ID | Display Name | `terrainType` | 3D Model File | World Position (`x, y, z`) | Dimensions / Scale (`W × H × D`) | Mechanical Attributes |
+| :--- | :--- | :--- | :--- | :---: | :---: | :--- |
+| `terrain-wall-north` | North Solid Wall | `wall` | `wall.glb` | `(0, 0, 8)` | `4.0 × 2.0 × 0.5` | Solid wall: 100% LoS obstruction & movement blocking. |
+| `terrain-wall-south` | South Window Wall | `wall-window` | `wall-window-medium.glb` | `(0, 0, -8)` | `4.0 × 2.0 × 0.5` | Window wall: blocks movement, 1.0" center aperture grants Cover (+1 Def). |
+| `terrain-door-east` | East Doorway Wall | `wall-doorway` | `wall-doorway.glb` | `(8, 0, 0)` | `4.0 × 2.0 × 0.5` | Doorway wall: 1.0" center doorway permits model passage and clear LoS. |
+| `terrain-crate-sw` | SW Low Crate | `crate` | `crate.glb` | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
+| `terrain-crate-ne` | NE Low Crate | `crate` | `crate.glb` | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
+| `terrain-col-nw` | NW Column | `column` | `column.glb` | `(-8, 0, 6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
+| `terrain-col-se` | SE Column | `column` | `column.glb` | `(8, 0, -6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
+| `terrain-platform-west` | West Overlook Platform | `platform` | `floor-square.glb` | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Walkable elevation ($y = 2.5″$): Parapet Cover within 1.0" of edge; floor blind spot $> 1.0″$. |
+| `terrain-ladder-west` | West Access Ladder | `ladder` | `ladder.glb` | `(-7.1, 0, -2)` | `0.5 × 2.5 × 0.5` | Ladder access: 1:1 climb speed onto West Platform without Difficult Terrain penalty. |
+| `terrain-platform-east` | East Catwalk Platform | `platform` | `floor-square.glb` | `(9, 2.5, 2)` | `3.5 × 0.3 × 3.5` | Walkable catwalk ($y = 2.5″$): elevated vantage point overlooking East lane. |
+| `terrain-stairs-east` | East Access Stairs | `stairs` | `stairs-small.glb` | `(7.1, 0, 2)` | `1.8 × 2.5 × 1.2` | Stair ramp: 1:1 movement onto East Catwalk without Difficult Terrain penalty. |
+| `terrain-wall-low-north` | North Low Barricade | `wall-low` | `wall-low.glb` | `(-3, 0, 3)` | `2.5 × 0.8 × 0.4` | Low cover barricade: Plunging Fire from $y \ge 2.0″$ overlooks it against ground targets. |
+| `terrain-pipe-center` | Center Industrial Pipe | `pipe` | `pipe.glb` | `(3, 0, -2)` | `3.0 × 0.8 × 0.8` | Industrial conduit: low cover waist-height obstacle. |
+| `terrain-toxic-sludge` | Toxic Sludge Hazard | `toxic` | *(Procedural Green Plane)* | `(0, 0, 0)` | `3.0 × 0.05 × 3.0` | Dangerous & Difficult Terrain: 1d6 hazard check per model (1s inflict unsaved wounds); 6.0" movement speed cap. |
+
+---
+
+## 3. UI & Gameplay Markers (`MarkerRenderer`)
+
+Rendered dynamically by [`client/src/renderer/MarkerRenderer.ts`](../client/src/renderer/MarkerRenderer.ts):
+
+| Marker Type | Asset / Geometry | Base Height ($y$) | Color & Visual Appearance | Trigger Condition |
+| :--- | :--- | :---: | :--- | :--- |
+| **Unit Selection** | `indicator-round-b.glb` | Unit $y + 0.02″$ | Blue (`0x29b6f6`) rotating glow ring | Active unit, selected unit, or hovered friendly unit |
+| **Target Indicator** | `indicator-round-b.glb` | Unit $y + 0.02″$ | Red (`0xff5252`) rotating glow ring | Hovered enemy target or selected attack target |
+| **Reachable Targets** | `indicator-round-b.glb` | Unit $y + 0.018″$ | Dark Red (`0x8e2424`) flat rings | All enemy units currently within range of selected weapon/charge |
+| **Movement Range** | Procedural `RingGeometry` | Unit $y + 0.03″$ | Blue (`0x29b6f6`), constant 0.08" thickness | Hovering or preparing Move / Rush action |
+| **Line-of-Sight Fan** | Procedural `los-shadow-fan` | Ground $y + 0.01″$ | Semi-transparent dark red (`0xb71c1c`) | Hovering or preparing Shoot / Charge action |
+| **Move Path Preview** | Procedural `LineBasicMaterial` | Interpolated 3D $y$ | Orange/Cyan path line with waypoint dot rings and terminal destination disc | Dragging or picking destination for Move, Rush, or Charge |
+| **Melee Contact Ring** | Procedural Concentric Rings | Unit $y + 0.02″$ | Dual Amber (`0xff7043` & `0xffab40`) rings | Target unit actively engaged in close-quarters melee combat |
+| **Wound Outcome (0)** | Procedural `TorusGeometry` | Unit $y + 2.0″$ | Neutral grey (`0xb0bec5`) floating 3D "0" | Attack resolved with 0 unsaved wounds |
+| **Wound Outcome (1–5)** | `number-1.glb` .. `number-5.glb` | Unit $y + 2.0″$ | Red (`0xef5350`) floating 3D billboard digits | Attack resolved dealing 1 to 5 unsaved wounds |
+
+---
+
+## 4. Mission Objective Beacons (`ObjectiveRenderer`)
+
+Rendered procedurally by [`client/src/renderer/ObjectiveRenderer.ts`](../client/src/renderer/ObjectiveRenderer.ts) at each objective location:
+
+| Element | Geometry | Dimensions | Dynamic Color Scheme |
 | :--- | :--- | :--- | :--- |
-| `boundary-ring` | Procedural `RingGeometry` | Inner `2.92"`, Outer `3.0"` | Floor boundary indicating 3.0" control radius. Color-coded by controlling player: Neutral (`#ffd54f`), Host (`#29b6f6`), Guest (`#ef5350`), Contested (`#ff9800`). |
-| `capture-zone` | Procedural `CircleGeometry` | Radius `2.92"` | Semi-transparent (`opacity: 0.08`) floor disc showing the capture zone. Matches controlling state color. |
-| `beacon-base` | Procedural `CylinderGeometry` | Radius `0.4"`, Height `0.15"` | Central metallic pedestal anchor (`#546e7a`). |
-| `light-pillar` | Procedural `CylinderGeometry` | Radius `0.18"`, Height `4.0"` | Semi-transparent (`opacity: 0.35`) vertical energy column rising from the center. Matches controlling state color. |
-| `hover-crystal` | Procedural `OctahedronGeometry` | Radius `0.35"` | Floating diamond crystal at $y = 4.2"$. Matches controlling state color with high emissive glow (`0.4`). |
-
-### Shared Texture
-- `Textures/colormap.png`: Shared palette texture referenced by all Kenney Prototype Kit `.glb` materials.
-
-Note: Kenney's assets are CC0 and are not game-rule artwork — they are generic prototype placeholders, consistent with this project's first-principles, no-publisher-content policy.
+| **Control Radius Ring** | Procedural `RingGeometry` | Inner `2.92"`, Outer `3.0"` | Neutral = Yellow (`#ffd54f`), Host = Blue (`#29b6f6`), Guest = Red (`#ef5350`), Contested = Orange (`#ff9800`) |
+| **Capture Zone Disc** | Procedural `CircleGeometry` | Radius `2.92"`, opacity `0.08` | Matches controlling player color |
+| **Metallic Pedestal** | Procedural `CylinderGeometry` | Radius `0.4"`, Height `0.15"` | Fixed gunmetal pedestal (`#546e7a`) |
+| **Light Pillar** | Procedural `CylinderGeometry` | Radius `0.18"`, Height `4.0"`, opacity `0.35` | Glowing vertical energy beam matching control state |
+| **Hover Crystal** | Procedural `OctahedronGeometry` | Radius `0.35"`, Height $y = 4.2″$ | Floating diamond crystal matching control state with `0.4` emissive glow |

@@ -178,12 +178,24 @@ export class GameHUD {
 
   private peerState: 'connected' | 'disconnected' = 'connected';
   private signalingState: 'connected' | 'disconnected' | 'reconnecting' = 'connected';
+  private disconnectedAt: number | null = null;
 
   setNetworkStatus(status: {
     peer?: 'connected' | 'disconnected';
     signaling?: 'connected' | 'disconnected' | 'reconnecting';
   }): void {
-    if (status.peer !== undefined) this.peerState = status.peer;
+    if (status.peer !== undefined) {
+      if (status.peer === 'disconnected' && this.peerState !== 'disconnected') {
+        this.disconnectedAt = Date.now();
+      } else if (status.peer === 'connected' && this.peerState === 'disconnected') {
+        if (this.disconnectedAt && this.reactionReceivedAt) {
+          const pausedDuration = Date.now() - this.disconnectedAt;
+          this.reactionReceivedAt.timestamp += pausedDuration;
+        }
+        this.disconnectedAt = null;
+      }
+      this.peerState = status.peer;
+    }
     if (status.signaling !== undefined) this.signalingState = status.signaling;
     if (this.visible) this.render();
   }
@@ -268,14 +280,15 @@ export class GameHUD {
   }
 
   private getReactionRemainingSec(pending: any): number {
+    const now = this.disconnectedAt ?? Date.now();
     if (pending.durationMs) {
       if (!this.reactionReceivedAt || this.reactionReceivedAt.id !== pending.id) {
-        this.reactionReceivedAt = { id: pending.id, timestamp: Date.now() };
+        this.reactionReceivedAt = { id: pending.id, timestamp: now };
       }
-      const elapsed = Date.now() - this.reactionReceivedAt.timestamp;
+      const elapsed = now - this.reactionReceivedAt.timestamp;
       return Math.max(0, Math.ceil((pending.durationMs - elapsed) / 1000));
     }
-    return Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000));
+    return Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
   }
 
   private updateReactionTimerDisplay(): void {
@@ -1026,7 +1039,7 @@ export class GameHUD {
 
     const alerts: string[] = [];
     if (this.peerState === 'disconnected') {
-      alerts.push('<div class="sl-hud-alert sl-hud-alert-error">⚠️ Opponent disconnected — waiting for peer to reconnect...</div>');
+      alerts.push('<div class="sl-hud-alert sl-hud-alert-error">⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)</div>');
     } else if (this.signalingState === 'reconnecting') {
       alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling disconnected — reconnecting to room...</div>');
     } else if (this.signalingState === 'disconnected') {

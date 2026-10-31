@@ -681,12 +681,46 @@ describe('GameHUD', () => {
 
     hud.setNetworkStatus({ peer: 'disconnected' });
     expect(container.querySelector('.sl-hud-alert-error')?.textContent).toContain('Opponent disconnected');
+    expect(container.querySelector('.sl-hud-alert-error')?.textContent).toContain('Grace period: 5m');
 
     hud.setNetworkStatus({ peer: 'connected', signaling: 'reconnecting' });
     expect(container.querySelector('.sl-hud-alert-warn')?.textContent).toContain('Signaling disconnected');
 
     hud.setNetworkStatus({ signaling: 'connected' });
     expect(container.querySelector('.sl-hud-alert')).toBeNull();
+  });
+
+  it('freezes reaction timer display during peer disconnect and resumes upon reconnect', () => {
+    const state = scenarioState();
+    state.turnState.pendingReaction = {
+      id: 'reaction-1',
+      actionType: 'charge',
+      promptingPlayerId: HOST,
+      reactorUnitId: 'u1',
+      activeUnitId: 'u2',
+      durationMs: 15000,
+      expiresAt: Date.now() + 15000,
+      options: [{ id: 'opt1', label: 'Hold', isDefault: true }],
+    };
+
+    const { hud, container } = setup(HOST, state);
+    const initialSec = parseInt(container.querySelector('.sl-hud-reaction-timer')?.textContent || '0', 10);
+    expect(initialSec).toBeGreaterThanOrEqual(14);
+
+    // Disconnect peer
+    hud.setNetworkStatus({ peer: 'disconnected' });
+    const frozenSec = parseInt(container.querySelector('.sl-hud-reaction-timer')?.textContent || '0', 10);
+
+    // Calling update timer while disconnected still reports frozen remaining time
+    (hud as any).updateReactionTimerDisplay();
+    const stillFrozenSec = parseInt(container.querySelector('.sl-hud-reaction-timer')?.textContent || '0', 10);
+    expect(stillFrozenSec).toBe(frozenSec);
+
+    // Reconnect peer
+    hud.setNetworkStatus({ peer: 'connected' });
+    (hud as any).updateReactionTimerDisplay();
+    const resumedSec = parseInt(container.querySelector('.sl-hud-reaction-timer')?.textContent || '0', 10);
+    expect(resumedSec).toBe(frozenSec);
   });
 
   it('applies red team styling to Guest units and blue team styling to Host units', () => {
