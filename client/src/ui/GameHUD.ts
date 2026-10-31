@@ -22,6 +22,7 @@ import {
   isPathDangerous,
   isPathDifficult,
   Objective,
+  OBJECTIVE_CONTROL_RADIUS,
   pathLength,
   pathLength3D,
   ShootingRayDebugInfo,
@@ -1818,6 +1819,21 @@ export class GameHUD {
       ? '#ef5350'
       : '#ffd54f';
 
+    const hostCount = (this.state?.units ?? []).filter(
+      (u) =>
+        u.ownerId === this.state?.hostId &&
+        !u.isDestroyed &&
+        !u.status.includes('shaken') &&
+        Math.hypot(u.position.x - obj.position.x, u.position.z - obj.position.z) <= OBJECTIVE_CONTROL_RADIUS
+    ).length;
+    const guestCount = (this.state?.units ?? []).filter(
+      (u) =>
+        u.ownerId === this.state?.guestId &&
+        !u.isDestroyed &&
+        !u.status.includes('shaken') &&
+        Math.hypot(u.position.x - obj.position.x, u.position.z - obj.position.z) <= OBJECTIVE_CONTROL_RADIUS
+    ).length;
+
     return `
       <div class="sl-hud-datacard ${teamClass}">
         <div class="sl-hud-datacard-header">
@@ -1825,7 +1841,10 @@ export class GameHUD {
           <span class="sl-hud-datacard-meta">Objective (3.0" control radius)</span>
           <span class="sl-hud-datacard-tags" style="color: ${statusColor}; font-weight: 700;">${statusText}</span>
         </div>
-        <div style="font-size: 11px; color: #b0bec5;">
+        <div style="font-size: 12px; margin-top: 4px; font-weight: 600; color: #eceff1;">
+          Unit Presence: <span style="color: #29b6f6;">Host: ${hostCount}</span> · <span style="color: #ef5350;">Guest: ${guestCount}</span>
+        </div>
+        <div style="font-size: 11px; color: #b0bec5; margin-top: 2px;">
           End-of-round control: friendly unit in 3", zero enemy units in 3". Persistent until seized or contested.
         </div>
       </div>`;
@@ -1833,10 +1852,13 @@ export class GameHUD {
 
   private renderDataCard(): string {
     const terrainHtml = this.renderTerrainDebugCard();
+    // Hovering an objective beacon takes precedence for inspection
+    const hoveredObj = this.inspectedObjective;
+    if (hoveredObj) {
+      return `${terrainHtml}${this.renderObjectiveCard(hoveredObj)}`;
+    }
     const unit = this.inspectedUnit;
     if (!unit) {
-      const obj = this.inspectedObjective;
-      if (obj) return this.renderObjectiveCard(obj);
       return terrainHtml;
     }
 

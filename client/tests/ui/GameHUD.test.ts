@@ -974,6 +974,9 @@ describe('GameHUD', () => {
 
       const { hud, container } = setup(HOST, state);
 
+      // Even when a unit is active, hovering an objective inspects the objective
+      activateUnit(state, HOST, state.units[0].id);
+
       // Hovering ground near Objective Alpha (within 3.0")
       hud.handleBoardHover({ kind: 'position', position: { x: -11, y: 0, z: -4 } });
 
@@ -981,6 +984,7 @@ describe('GameHUD', () => {
       expect(card?.textContent).toContain('Objective Alpha');
       expect(card?.textContent).toContain('Controlled by Host');
       expect(card?.textContent).toContain('3.0" control radius');
+      expect(card?.textContent).toContain('Unit Presence:');
     });
 
     it('displays final objective score and breakdown on game over screen', () => {

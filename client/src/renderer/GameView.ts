@@ -103,7 +103,7 @@ export class GameView {
     this.boardRenderer = options.boardRenderer ?? new BoardRenderer(scene, modelLoader);
     this.unitRenderer = options.unitRenderer ?? new UnitRenderer(scene, modelLoader);
     this.markerRenderer = new MarkerRenderer(scene, modelLoader);
-    this.objectiveRenderer = options.objectiveRenderer ?? new ObjectiveRenderer(scene);
+    this.objectiveRenderer = options.objectiveRenderer ?? new ObjectiveRenderer(scene, modelLoader);
 
     this.camera = options.camera ?? this.sceneManager.getCamera?.() ?? null;
     this.inputElement = this.camera ? inputElement : null;
