@@ -410,12 +410,13 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
-        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0")
+        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0" horizontal, <= 1.5" vertical)
         if (this.movePreview) {
           const enemy = this.enemyUnits.find(
             (e) =>
               !e.isDestroyed &&
-              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0
+              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0 &&
+              Math.abs((e.position.y ?? 0) - (this.movePreview!.y ?? 0)) <= 1.5
           );
           this.hoveredEngagedTargetId = enemy ? enemy.id : null;
         } else {
@@ -638,7 +639,7 @@ export class GameHUD {
     if (isDifficult) {
       summary += ' · [Difficult Terrain: 6.0" speed cap]';
     }
-    const fall = detectPathFall(path);
+    const fall = detectPathFall(path, this.state);
     if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
       summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
     }
@@ -691,7 +692,10 @@ export class GameHUD {
     }
 
     const wouldEngage = this.enemyUnits.some(
-      (e) => !e.isDestroyed && Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0
+      (e) =>
+        !e.isDestroyed &&
+        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
     );
     if (wouldEngage) {
       this.showToast('Rush cannot end in melee contact — use Charge instead');
@@ -703,7 +707,7 @@ export class GameHUD {
     if (isDifficult) {
       summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
     }
-    const fall = detectPathFall(path);
+    const fall = detectPathFall(path, this.state);
     if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
       summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
     }
@@ -866,7 +870,7 @@ export class GameHUD {
       if (isDifficult) {
         traversalNotes += ' · [Difficult Terrain 6.0" cap]';
       }
-      const fall = detectPathFall(path);
+      const fall = detectPathFall(path, this.state);
       if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
         traversalNotes += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1)`;
       }

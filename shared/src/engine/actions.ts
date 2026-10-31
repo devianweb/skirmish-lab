@@ -484,7 +484,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
         (u) =>
           !u.isDestroyed &&
           u.ownerId !== action.actorId &&
-          boardDistance(end, u.position) <= ENGAGEMENT_RANGE
+          boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+          Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
       );
       if (wouldEngage) {
         return {
@@ -616,7 +617,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
         specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
-      const fall = detectPathFall(path);
+      const fall = detectPathFall(path, state);
       if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
         specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         specs.push({ count: 1, sides: 6, purpose: 'trauma' });
@@ -752,7 +753,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
         traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
-      const fall = detectPathFall(chargePayload.path);
+      const fall = detectPathFall(chargePayload.path, state);
       if (fall.maxDrop > 3.05 && !hasTrait(attacker.specialRules, 'airborne')) {
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
@@ -830,7 +831,7 @@ function applyTraversalHazardsAndFalls(
   }
 
   // 3. Falling damage for drops > 3.0"
-  const fall = detectPathFall(path);
+  const fall = detectPathFall(path, state);
   if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
     const defRoll =
       dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
@@ -1882,6 +1883,7 @@ function refreshEngagements(state: GameState): void {
         !other.isDestroyed &&
         other.ownerId !== unit.ownerId &&
         boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01 &&
+        Math.abs((unit.position.y ?? 0) - (other.position.y ?? 0)) <= 1.5 &&
         (other.weapons.some((w) => w.isEquipped && w.profile.type === 'melee') ||
          unit.weapons.some((w) => w.isEquipped && w.profile.type === 'melee'))
     );

@@ -306,10 +306,16 @@ export class GameView {
         (piece?.elevation !== undefined && piece.elevation > 0);
 
       if (isWalkableOrClimbable) {
+        const isSloped =
+          piece?.terrainType === 'stairs' ||
+          piece?.climbType === 'stairs' ||
+          piece?.climbType === 'ramp';
         const y =
-          piece?.elevation !== undefined
-            ? piece.elevation
-            : Math.round(terrainHit.point.y * 100) / 100;
+          isSloped
+            ? Math.round(terrainHit.point.y * 100) / 100
+            : piece?.elevation !== undefined
+              ? piece.elevation
+              : Math.round(terrainHit.point.y * 100) / 100;
         return {
           kind: 'position',
           position: {
