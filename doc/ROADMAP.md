@@ -372,10 +372,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests for coherency geometry in `shared/tests/engine/spatial.test.ts`.
 
 ### Sub-phase 9B: Casualty Cascade & Melee Consolidation (`shared/`)
-- [ ] Unsaved wounds eliminate individual squad models outright without rolling wound effects.
-- [ ] Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
-- [ ] Melee consolidation: surviving models consolidate up to **3"** into base contact when charged or upon wiping out opposing units.
-- [ ] Unit tests in `shared/tests/engine/actions.test.ts`.
+- [x] Unsaved wounds eliminate individual squad models outright without rolling wound effects.
+- [x] Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
+- [x] Melee consolidation: surviving models consolidate up to **3"** into base contact when charged or upon wiping out opposing units.
+- [x] Unit tests in `shared/tests/engine/actions.test.ts`.
 
 ### Sub-phase 9C: 3D Multi-Mesh Rendering & Centroid Badges (`client/`)
 - [ ] `UnitRenderer` instantiates, updates, and disposes multiple 3D meshes per squad.
