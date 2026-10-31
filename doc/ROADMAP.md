@@ -418,27 +418,53 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
 
 ## Phase 11: Environmental Terrain Dynamics & Verticality
-**Goal:** Implement full tabletop terrain hazard tests and 3D multi-level vertical movement.
+**Goal:** Implement full tabletop terrain hazard tests, 3D multi-level vertical movement, and an expanded test battlefield using curated Kenney prototype models.
 
-> **Recommended AI Model:** **4.0** *(3D raycasting, elevation platforms, falling physics, and dynamic navmesh)*
+> **Specification:** See **[RULES_SPECIFICATION.md Section 8 & 10](./RULES_SPECIFICATION.md#8-environmental-obstacles--terrain)** and **[phase-11-spec.md](../.gemini/antigravity-cli/brain/af5e2845-3bb4-4667-aef8-633145239fb8/phase-11-spec.md)**.
 >
-> **Specification:** See **[RULES_SPECIFICATION.md Section 8 & 10](./RULES_SPECIFICATION.md#8-environmental-obstacles--terrain)**.
+> **Atomic Sub-Phases:**
+> - **Sub-phase 11A (Shared Traversal Engine & Hazard Rules — `shared/`):** Difficult terrain 6″ movement speed cap, dangerous terrain 1d6 hazard tests per model, vertical 3D movement distance math, safe drops ($\le 3″$), falling damage ($> 3″$, AP 1 per 3″ fallen), gap jump checks, strict vertical melee reach ($\le 1″$), and ledge knockback displacement with pure unit tests.
+> - **Sub-phase 11B (Elevation Geometry, 3D Line of Sight & Expanded Testing Map — `shared/` & `client/`):** Walkable elevation platform schema (`y > 0`), ladders, stairs, 3D LoS raycasting with parapet cover (+1 Defense within 1″ of ledge) and floor blind spots, plunging fire over ground crates, and an upgraded multi-level default scenario map using Kenney models (`ladder.glb`, `stairs-small.glb`, `floor-square.glb`, `wall-low.glb`, `pipe.glb`).
+> - **Sub-phase 11C (HUD Traversal Controls, Hazard Modals & 3D Visual Rendering — `client/`):** HUD gap jump risk warnings in movement confirmation bar, interactive player choice modal for multi-model squad hazard casualties, 3D platform rendering, vertical movement path preview lines, and falling damage feedback tokens.
 
-### Tasks
-- [ ] **Difficult & Dangerous Terrain:**
-  - [ ] **Difficult Terrain:** Caps movement at **6" maximum** across the activation (negates Rush and Charge speed bonuses).
-  - [ ] **Dangerous Terrain:** Roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 automatic wound.
-- [ ] **Vertical Elevation & Platforms:**
-  - [ ] Multi-level terrain meshes with upper platforms, walkways, and roofs (y > 0).
-  - [ ] Vertical ladders/stairs for scaling elevations.
-  - [ ] Standard drop clearance: models safely drop elevations ≤ 3" without penalty.
-  - [ ] Extended jump checks across horizontal gaps (≤ 6").
-  - [ ] Falling damage: AP(1) per full 3" of vertical fall if pushed or failing extended jumps.
+### Sub-phase 11A: Shared Traversal Engine & Hazard Rules (`shared/`)
+- [ ] Difficult terrain movement speed cap: caps total activation movement at **6.0″ maximum** (negates speed bonuses for Rush and Charge).
+- [ ] Dangerous terrain hazard checks: roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 unsaved wound.
+- [ ] 3D movement distance math: ladders/stairs traverse at 1:1 cost; free-climbing sheer walls classifies move as Difficult Terrain (caps at 6.0″).
+- [ ] Elevation drop thresholds: safe drops $\le 3.0″$ consume normal vertical distance; voluntary or involuntary drops $> 3.0″$ inflict Falling Damage (1 automatic hit with AP 1 per full 3.0″ fallen) and terminate activation immediately.
+- [ ] Horizontal gap jumping: gaps $\le 1.0″$ step across freely; gaps $> 1.0″$ up to 6.0″ require a Jump test (Quality $Q$+) with failed checks falling to the bottom with falling damage.
+- [ ] Strict vertical melee reach: models cannot initiate melee contact or strike across a vertical difference $> 1.0″$ without climbing to base contact.
+- [ ] Ledge knockback: pushing models over ledges $> 3.0″$ causes them to plummet to the ground with falling damage.
+- [ ] Pure engine unit tests in `shared/tests/engine/`.
+
+### Sub-phase 11B: Elevation Geometry, 3D Line of Sight & Expanded Testing Map (`shared/` & `client/`)
+- [ ] Extend `TerrainPiece` schema with elevation attributes: `isDifficult`, `isDangerous`, `elevation`, `walkable`, and climb access points.
+- [ ] 3D Line of Sight raycasting updates:
+  - Models on elevated platforms within 1.0″ of edge facing the shooter receive +1 Defense (Parapet Cover).
+  - Models set back $> 1.0″$ from roof edges are visually blocked by floor polygons (floor blind spots).
+  - Plunging fire looks over ground-level low cover ($\le 1.0″$) along the line of fire.
+- [ ] Expanded default testing scenario map (`createDefaultScenarioTerrain`):
+  - Multi-level platforms, walkways, industrial pipes, ladders, stairs, low barricades, and dangerous terrain hazard zones (toxic sludge / acid pool).
+  - Curate and register new Kenney Prototype Kit models in `client/public/models/`: `ladder.glb`, `stairs-small.glb`, `floor-square.glb`, `wall-low.glb`, `pipe.glb`.
+  - Update `doc/ASSETS.md` asset mapping table with footprints and mechanical roles.
+- [ ] Unit tests for 3D elevation geometry and line of sight.
+
+### Sub-phase 11C: HUD Traversal Controls, Hazard Modals & 3D Visual Rendering (`client/`)
+- [ ] HUD movement confirmation bar shows Jump Test risk warning (Quality target) when moving across horizontal gaps $> 1.0″$.
+- [ ] Interactive Player Choice Modal prompting the controlling player to allocate hazard test casualties across squad members.
+- [ ] Three.js 3D rendering for multi-level platforms, ladders, stairs, industrial pipes, and hazardous terrain textures.
+- [ ] 3D vertical movement path preview lines & falling damage outcome tokens.
+- [ ] Client integration tests.
 
 ### Acceptance Criteria
-- [ ] Difficult terrain caps movement at 6".
-- [ ] Dangerous terrain rolls 1s for wounds on traversal.
-- [ ] Models can move onto elevated platforms and suffer falling damage if displaced off high edges.
+- [ ] Difficult terrain caps total activation movement at 6.0″.
+- [ ] Dangerous terrain rolls 1d6 per model; 1s inflict wounds with interactive squad casualty selection.
+- [ ] Climbing ladders costs 1:1; climbing sheer walls applies Difficult Terrain 6.0″ cap.
+- [ ] Drops $\le 3.0″$ are safe; drops $> 3.0″$ inflict AP(1) falling damage per full 3″ fallen and end activation.
+- [ ] Gaps $\le 1.0″$ step freely; gaps $> 1.0″$ prompt Jump test (Quality $Q$+) with falling risk.
+- [ ] Ledge models within 1.0″ of edge gain +1 Defense; setback models create blind spots.
+- [ ] Ground models cannot melee targets on ledges $> 1.0″$ without climbing into base contact.
+- [ ] Default scenario battlefield features rich multi-level Kenney terrain models (platforms, catwalks, stairs, ladders, pipes, hazard pools).
 
 ## Phase 12: Reconnection & Network Resilience
 **Goal:** Handle disconnections, socket recoveries, and snapshot re-syncing without dropping matches.
