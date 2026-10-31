@@ -504,7 +504,46 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Game state re-synced after reconnection without state corruption.
 - [x] Play resumes seamlessly from the last confirmed state.
 
-## Phase 13: Polish, Audio & Release Hardening
+## Phase 13: 3D Map Builder & Battlefield Editor
+**Goal:** In-browser 3D terrain editor allowing players to design, customize, save, and share custom tabletop battlefields using modular assets.
+
+> **Atomic Sub-Phases:**
+> - **Sub-phase 13A (Schema, Asset Ingestion & Map Presets — `shared/` & `client/`):** Define `CustomMapDefinition`, terrain catalog metadata, validation utilities, import curated Kenney assets, and create standard presets.
+> - **Sub-phase 13B (Editor View, Palette & Grid Snapping — `client/`):** 3D editor overlay, ghost mesh placement, 0.5"/1.0" grid snapping, raycast surface auto-stacking, and hotkeys.
+> - **Sub-phase 13C (Inspector, Map Storage & Lobby Integration — `client/`):** Trait inspector, objective placement/preview, `localStorage` library with JSON import/export, and Lobby map selection synced over WebRTC.
+
+### Sub-phase 13A: Schema, Asset Ingestion & Map Presets (`shared/` & `client/`)
+- [x] Define `CustomMapDefinition`, `TerrainTypeMetadata`, and `TERRAIN_PALETTE_CATALOG` in `shared/src/data/mapSchema.ts`.
+- [x] Implement `validateMapDefinition` verifying playability, objective spacing (> 9"), deployment zone boundaries, and obstacle collisions.
+- [x] Ingest curated modular models from `assets-src/` into `client/public/models/` (industrial buildings, walls, doors, stairs, roofs, barricades).
+- [x] Register new terrain GLBs in `client/src/renderer/assetManifest.ts` with unscaled containers.
+- [x] Create balanced presets: `frontier-outpost`, `industrial-refinery`, and `sector-7-catwalks` in `shared/src/data/mapPresets.ts`.
+- [x] Update `applyDefaultScenario` in `shared/src/data/scenario.ts` to accept `mapId` and `customMap`.
+- [x] Unit tests in `shared/tests/data/scenario.test.ts` for schema, presets, and validation rules.
+
+### Sub-phase 13B: Editor View, Palette & Grid Snapping (`client/`)
+- [ ] Dedicated `MapEditor` overlay mode accessible from Lobby with return controls.
+- [ ] Interactive 3D scene with 44" x 30" battlefield grid and OrbitControls.
+- [ ] Category palette toolbar (Structures, Walls, Platforms, Stairs/Ladders, Scatter).
+- [ ] Ghost preview placement with 0.5" and 1.0" grid snapping.
+- [ ] Raycast surface auto-stacking on elevated platforms and rooftops.
+- [ ] Hotkeys: `R` (rotate 90°), `Q`/`E` (elevation adjust), `Delete`/`Backspace` (remove), `Ctrl+D` (duplicate).
+
+### Sub-phase 13C: Inspector, Map Storage & Lobby Integration (`client/`)
+- [ ] Property inspector panel displaying selected piece traits and elevation with manual overrides.
+- [ ] Objective marker placement and 3.0" control radius preview rings with auto-distribute fallback.
+- [ ] Persistent map library in `localStorage` with JSON export/import.
+- [ ] Lobby map selector dropdown allowing Host to pick presets or custom maps.
+- [ ] P2P synchronization of custom terrain and objectives across WebRTC data channel.
+
+### Acceptance Criteria
+- [x] Map schema supports serializable terrain layouts and objective positions.
+- [x] Curated terrain assets load cleanly in Three.js with correct scales and materials.
+- [ ] Creators can visually place, snap, rotate, and elevate terrain pieces in a 3D editor.
+- [ ] Maps save to browser storage and export/import cleanly to JSON.
+- [ ] Host can choose a custom map in the Lobby, and Guest receives and renders identical battlefield terrain.
+
+## Phase 14: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
 
 > **Recommended AI Model:** **3.8** *(Web Audio triggers, rematch UI resets, CSS polish, and release profiling)*

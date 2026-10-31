@@ -11,6 +11,12 @@ import {
   STARTER_ARMIES,
   createUnitsFromStarterArmy,
 } from '../../src/data/armies';
+import {
+  CustomMapDefinition,
+  STANDARD_MAP_PRESETS,
+  TERRAIN_PALETTE_CATALOG,
+  validateMapDefinition,
+} from '../../src/index';
 import { WEAPONS } from '../../src/data/weapons';
 import { getActivatableUnits, isRoundComplete } from '../../src/engine/activation';
 
@@ -191,6 +197,162 @@ describe('scenario data pack', () => {
       expect(state.units).toHaveLength(8); // 4 host units + 4 guest units
       for (const unit of state.units) {
         expect(unit.isDeployed).toBe(false);
+      }
+    });
+  });
+
+  describe('Phase 13A: Map Schema, Presets & Validation', () => {
+    it('ships standard map presets (Frontier Outpost, Industrial Refinery, Sector 7 Catwalks)', () => {
+      expect(STANDARD_MAP_PRESETS['frontier-outpost']).toBeDefined();
+      expect(STANDARD_MAP_PRESETS['industrial-refinery']).toBeDefined();
+      expect(STANDARD_MAP_PRESETS['sector-7-catwalks']).toBeDefined();
+
+      for (const [id, preset] of Object.entries(STANDARD_MAP_PRESETS)) {
+        expect(preset.id).toBe(id);
+        expect(preset.name.length).toBeGreaterThan(0);
+        expect(preset.terrain.length).toBeGreaterThanOrEqual(10);
+        expect(preset.objectives).toHaveLength(4);
+        expect(preset.board?.width).toBe(44);
+        expect(preset.board?.height).toBe(30);
+
+        // Every piece has valid scale and position
+        for (const piece of preset.terrain) {
+          expect(piece.id).toBeDefined();
+          expect(piece.position).toBeDefined();
+          expect(piece.scale.x).toBeGreaterThan(0);
+          expect(piece.scale.y).toBeGreaterThan(0);
+          expect(piece.scale.z).toBeGreaterThan(0);
+          expect(typeof piece.blocksLineOfSight).toBe('boolean');
+          expect(typeof piece.providesCover).toBe('boolean');
+        }
+      }
+    });
+
+    it('applies map presets to game state via mapId', () => {
+      const state = createInitialGameState(HOST, GUEST);
+      applyDefaultScenario(state, { mapId: 'industrial-refinery' });
+
+      expect(state.terrain.some((t) => t.id === 'refinery-main-facility')).toBe(true);
+      expect(state.terrain.some((t) => t.terrainType === 'building-c')).toBe(true);
+      expect(state.objectives.some((o) => o.name.includes('Refinery Rooftop'))).toBe(true);
+    });
+
+    it('applies custom map directly to game state via customMap option', () => {
+      const state = createInitialGameState(HOST, GUEST);
+      const custom: CustomMapDefinition = {
+        id: 'test-custom-arena',
+        name: 'Test Custom Arena',
+        terrain: [
+          {
+            id: 'custom-wall-1',
+            terrainType: 'wall',
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 5, y: 2, z: 1 },
+            blocksLineOfSight: true,
+            providesCover: true,
+            isObstacle: true,
+          },
+        ],
+        objectives: [
+          {
+            id: 'obj-custom-1',
+            name: 'Central Bunker',
+            position: { x: 0, y: 0, z: 5 },
+            controllingPlayerId: null,
+            isContested: false,
+          },
+        ],
+      };
+
+      applyDefaultScenario(state, { customMap: custom });
+
+      expect(state.terrain).toHaveLength(1);
+      expect(state.terrain[0].id).toBe('custom-wall-1');
+      expect(state.objectives).toHaveLength(1);
+      expect(state.objectives[0].name).toBe('Central Bunker');
+    });
+
+    it('catalog defines rich metadata and categories for all terrain types', () => {
+      const keys = Object.keys(TERRAIN_PALETTE_CATALOG);
+      expect(keys.length).toBeGreaterThanOrEqual(15);
+
+      for (const [key, meta] of Object.entries(TERRAIN_PALETTE_CATALOG)) {
+        expect(meta.type).toBe(key);
+        expect(meta.displayName.length).toBeGreaterThan(0);
+        expect(['structures', 'walls', 'platforms', 'stairs-ladders', 'scatter']).toContain(meta.category);
+        expect(meta.defaultScale.x).toBeGreaterThan(0);
+        expect(meta.defaultScale.y).toBeGreaterThan(0);
+        expect(meta.defaultScale.z).toBeGreaterThan(0);
+      }
+    });
+
+    it('validates empty map and warns about 0 terrain pieces', () => {
+      const emptyMap: CustomMapDefinition = {
+        id: 'empty',
+        name: 'Empty Map',
+        terrain: [],
+        objectives: [],
+      };
+      const notices = validateMapDefinition(emptyMap);
+      expect(notices.some((n) => n.message.includes('0 terrain pieces'))).toBe(true);
+    });
+
+    it('validates objective placement: warns on deployment zone overlap, small objective count, and tight spacing', () => {
+      const invalidMap: CustomMapDefinition = {
+        id: 'bad-map',
+        name: 'Bad Map',
+        terrain: [
+          {
+            id: 'blocker',
+            terrainType: 'wall',
+            position: { x: 0, y: 0, z: -14 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 4, y: 2, z: 4 },
+            blocksLineOfSight: true,
+            providesCover: true,
+            isObstacle: true,
+          },
+        ],
+        objectives: [
+          // Inside host deployment zone (z <= -12) and inside blocker
+          {
+            id: 'obj-1',
+            name: 'Spawn Objective',
+            position: { x: 0, y: 0, z: -14 },
+            controllingPlayerId: null,
+            isContested: false,
+          },
+          // Inside guest deployment zone (z >= 12)
+          {
+            id: 'obj-2',
+            name: 'Enemy Spawn Objective',
+            position: { x: 0, y: 0, z: 13 },
+            controllingPlayerId: null,
+            isContested: false,
+          },
+        ],
+      };
+
+      const notices = validateMapDefinition(invalidMap);
+
+      // Warning 1: Fewer than 3 objectives
+      expect(notices.some((n) => n.message.includes('Only 2 objective marker(s)'))).toBe(true);
+
+      // Warning 2: Objective inside Host deployment zone
+      expect(notices.some((n) => n.message.includes('inside the Host deployment zone'))).toBe(true);
+
+      // Warning 3: Objective inside Guest deployment zone
+      expect(notices.some((n) => n.message.includes('inside the Guest deployment zone'))).toBe(true);
+
+      // Warning 4: Objective inside obstacle piece
+      expect(notices.some((n) => n.message.includes('appears inside obstacle terrain piece'))).toBe(true);
+    });
+
+    it('validates standard map presets have 0 warnings', () => {
+      for (const preset of Object.values(STANDARD_MAP_PRESETS)) {
+        const notices = validateMapDefinition(preset);
+        expect(notices).toHaveLength(0);
       }
     });
   });
