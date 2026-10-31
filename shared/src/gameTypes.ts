@@ -156,6 +156,11 @@ export interface Player {
   isActive: boolean;
 }
 
+export interface WeaponAllocation {
+  weaponId: string;
+  targetId: string;
+}
+
 export type ActionType =
   | 'activate-unit'
   | 'move-unit'
@@ -173,7 +178,13 @@ export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
   | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
+  | {
+      type: 'shoot';
+      attackerId: string;
+      targetId?: string;
+      weaponId?: string;
+      allocations?: WeaponAllocation[];
+    }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
@@ -215,6 +226,35 @@ export interface RetaliationOutcome {
   targetShaken?: boolean;
   effectiveQuality?: number;
   effectiveDefense?: number;
+  baseQuality?: number;
+  hitModifiers?: string[];
+  baseDefense?: number;
+  defenseModifiers?: string[];
+  traumaRoll?: number;
+  traumaTokens?: number;
+  traumaDreadBonus?: number;
+  traumaTotal?: number;
+  traumaOutcome?: 'shaken' | 'knocked-out';
+}
+
+export interface WeaponAttackOutcome {
+  weaponId: string;
+  weaponName?: string;
+  targetId: string;
+  targetName?: string;
+  attackCount: number;
+  hitCount: number;
+  bonusHits?: number;
+  blockedCount: number;
+  blockedRolls?: boolean[];
+  wardSavedCount?: number;
+  wounds: number;
+  targetDestroyed: boolean;
+  targetShaken?: boolean;
+  effectiveQuality?: number;
+  effectiveDefense?: number;
+  coverApplied?: boolean;
+  apApplied?: number;
   baseQuality?: number;
   hitModifiers?: string[];
   baseDefense?: number;
@@ -269,6 +309,7 @@ export interface DiceResolution {
     moralePassed?: boolean;
     moraleOutcome?: 'passed' | 'shaken' | 'routed';
     retaliation?: RetaliationOutcome;
+    allocations?: WeaponAttackOutcome[];
     pushedBack?: boolean;
     pushBackPosition?: Vector3;
   };
