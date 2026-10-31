@@ -444,9 +444,9 @@ export class GameHUD {
         const dz = active.position.z - enemy.position.z;
         const len = Math.hypot(dx, dz) || 1;
         const contactTarget = {
-          x: Math.round((enemy.position.x + (dx / len) * 0.9) * 100) / 100,
-          y: 0,
-          z: Math.round((enemy.position.z + (dz / len) * 0.9) * 100) / 100,
+          x: Math.round((enemy.position.x + (dx / len) * 1.0) * 100) / 100,
+          y: active.position.y ?? 0,
+          z: Math.round((enemy.position.z + (dz / len) * 1.0) * 100) / 100,
         };
         const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
           ignoreUnitId: enemy.id,
@@ -826,14 +826,14 @@ export class GameHUD {
         return;
       }
 
-      // Charge ends at 0.9" engagement distance of the target.
+      // Charge ends at true base contact (1.0" center-to-center for 0.5" radius bases).
       const dx = active.position.x - target.position.x;
       const dz = active.position.z - target.position.z;
       const len = Math.hypot(dx, dz) || 1;
       const contactTarget = {
-        x: Math.round((target.position.x + (dx / len) * 0.9) * 100) / 100,
-        y: 0,
-        z: Math.round((target.position.z + (dz / len) * 0.9) * 100) / 100,
+        x: Math.round((target.position.x + (dx / len) * 1.0) * 100) / 100,
+        y: active.position.y ?? 0,
+        z: Math.round((target.position.z + (dz / len) * 1.0) * 100) / 100,
       };
 
       const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
@@ -846,7 +846,7 @@ export class GameHUD {
         return;
       }
       if (!validateMeleeVerticalReach(end, target.position)) {
-        this.showToast('Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)');
+        this.showToast('Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)');
         return;
       }
       const isDifficult = isPathDifficult(this.state!, path, active);
@@ -914,7 +914,7 @@ export class GameHUD {
           weaponId: weapon.id,
           ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
         }),
-        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
+        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into base contact) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
       return;
     }

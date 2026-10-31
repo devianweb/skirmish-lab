@@ -1540,13 +1540,15 @@ export function computePushBackPosition(
   const len = Math.hypot(dx, dz) || 1;
   const baseAngle = Math.atan2(dx, dz);
 
+  const elev = attacker.position.y ?? target.position.y ?? 0;
+
   // Test candidate angles: direct reverse, then slight lateral deviations (+-25 deg, +-50 deg, +-75 deg)
   const angleOffsets = [0, 0.44, -0.44, 0.87, -0.87, 1.3, -1.3];
   for (const offset of angleOffsets) {
     const angle = baseAngle + offset;
     const candidate: Vector3 = {
       x: Math.round((target.position.x + Math.sin(angle) * separationDistance) * 100) / 100,
-      y: 0,
+      y: elev,
       z: Math.round((target.position.z + Math.cos(angle) * separationDistance) * 100) / 100,
     };
     if (Math.abs(candidate.x) > halfW || Math.abs(candidate.z) > halfH) continue;
@@ -1561,7 +1563,7 @@ export function computePushBackPosition(
   // Fallback: clamp destination directly away
   const directCandidate: Vector3 = {
     x: Math.round((target.position.x + (dx / len) * separationDistance) * 100) / 100,
-    y: 0,
+    y: elev,
     z: Math.round((target.position.z + (dz / len) * separationDistance) * 100) / 100,
   };
   return clampMoveDestinationWithObstacles(state, attacker, directCandidate, separationDistance);
@@ -1867,6 +1869,9 @@ export function consolidateSquadToward(
         z: Math.round((unit.position.z + (dz / dist) * allowed) * 100) / 100,
       };
       unit.position = clampMoveDestinationWithObstacles(state, unit, targetCandidate, maxDistance);
+      if (unit.models && unit.models.length === 1 && !unit.models[0].isDestroyed) {
+        unit.models[0].position = { ...unit.position };
+      }
     }
     return;
   }

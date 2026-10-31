@@ -295,16 +295,16 @@ describe('Phase 11A: Shared Traversal Engine', () => {
   });
 
   describe('Vertical Melee Reach Restriction', () => {
-    it('permits melee engagement when vertical difference is <= 1.0"', () => {
+    it('permits melee engagement when vertical difference is <= 4.0"', () => {
       const groundPos = { x: 5, y: 0, z: 5 };
-      const curbPos = { x: 5, y: 0.8, z: 5 };
-      expect(validateMeleeVerticalReach(groundPos, curbPos)).toBe(true);
+      const platformPos = { x: 5, y: 3.0, z: 5 };
+      expect(validateMeleeVerticalReach(groundPos, platformPos)).toBe(true);
     });
 
-    it('rejects melee engagement when vertical difference is > 1.0"', () => {
+    it('rejects melee engagement when vertical difference is > 4.0"', () => {
       const groundPos = { x: 5, y: 0, z: 5 };
-      const roofPos = { x: 5, y: 2.5, z: 5 };
-      expect(validateMeleeVerticalReach(groundPos, roofPos)).toBe(false);
+      const tallTowerPos = { x: 5, y: 4.5, z: 5 };
+      expect(validateMeleeVerticalReach(groundPos, tallTowerPos)).toBe(false);
     });
   });
 
@@ -393,7 +393,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(outcome.state!.turnState.activeUnitId).toBeNull();
     });
 
-    it('rejects charge when target is on a ledge outside vertical melee reach (> 1.0")', () => {
+    it('rejects charge when target is on a ledge outside vertical melee reach (> 4.0")', () => {
       const state = makeState();
       state.turnState.phase = 'activation';
       const attacker = state.units.find((u) => u.ownerId === 'host-1')!;
@@ -401,7 +401,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       state.turnState.activeUnitId = attacker.id;
       attacker.isActivated = true;
       attacker.position = { x: 0, y: 0, z: 0 };
-      target.position = { x: 1.0, y: 2.5, z: 0 }; // 2.5" tall ledge
+      target.position = { x: 1.0, y: 5.0, z: 0 }; // 5.0" tall ledge (> 4.0" vertical melee reach)
 
       const chargeAction = createAction('host-1', 'charge', {
         attackerId: attacker.id,

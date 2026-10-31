@@ -857,6 +857,9 @@ describe('applyAction: charge', () => {
     // Charger pushed back to create >= 1.0" gap between models (target is at z = 5, charger pushed back to z = 3.0)
     expect(attacker.position.z).toBeCloseTo(3.0, 1);
     expect(Math.hypot(attacker.position.x - target.position.x, attacker.position.z - target.position.z)).toBeGreaterThanOrEqual(1.5);
+    if (attacker.models && attacker.models.length > 0) {
+      expect(attacker.models[0].position?.z).toBeCloseTo(attacker.position.z, 1);
+    }
 
     // Both models become fatigued and are NOT locked in engaged status
     expect(attacker.status).toContain('fatigued');

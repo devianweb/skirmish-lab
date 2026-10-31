@@ -423,7 +423,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!validateMeleeVerticalReach(end, target.result.position)) {
         return {
           valid: false,
-          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+          reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
         };
       }
       const weapon = weaponId
@@ -538,7 +538,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!validateMeleeVerticalReach(attacker.result.position, target.result.position)) {
         return {
           valid: false,
-          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+          reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
         };
       }
       const weapon = getWeapon(attacker.result, weaponId ?? '');
@@ -1412,10 +1412,25 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         let pushBackPos: Vector3 | undefined;
 
         if (target.isDestroyed) {
+          // If defender is destroyed, charger may consolidate up to 3"
+          consolidateSquadToward(newState, attacker, target.position, 3.0);
           refreshEngagements(newState);
         } else if (!defenderMelee) {
           pushBackPos = computePushBackPosition(newState, attacker, target, 2.0);
+          const deltaX = pushBackPos.x - attacker.position.x;
+          const deltaZ = pushBackPos.z - attacker.position.z;
           attacker.position = { ...pushBackPos };
+          if (attacker.models && attacker.models.length > 0) {
+            for (const m of attacker.models) {
+              if (!m.isDestroyed && m.position) {
+                m.position = {
+                  x: Math.round((m.position.x + deltaX) * 100) / 100,
+                  y: pushBackPos.y ?? m.position.y ?? 0,
+                  z: Math.round((m.position.z + deltaZ) * 100) / 100,
+                };
+              }
+            }
+          }
           pushedBack = true;
           attacker.status = attacker.status.filter((s) => s !== 'engaged');
           target.status = target.status.filter((s) => s !== 'engaged');
@@ -1574,13 +1589,29 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let pushBackPos: Vector3 | undefined;
       if (!charger.isDestroyed && !defender.isDestroyed) {
         pushBackPos = computePushBackPosition(newState, charger, defender, 2.0);
+        const deltaX = pushBackPos.x - charger.position.x;
+        const deltaZ = pushBackPos.z - charger.position.z;
         charger.position = { ...pushBackPos };
+        if (charger.models && charger.models.length > 0) {
+          for (const m of charger.models) {
+            if (!m.isDestroyed && m.position) {
+              m.position = {
+                x: Math.round((m.position.x + deltaX) * 100) / 100,
+                y: pushBackPos.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + deltaZ) * 100) / 100,
+              };
+            }
+          }
+        }
         pushedBack = true;
         charger.status = charger.status.filter((s) => s !== 'engaged');
         defender.status = defender.status.filter((s) => s !== 'engaged');
       } else if (charger.isDestroyed && !defender.isDestroyed) {
         // Defender consolidates up to 3" upon wiping out charger in melee retaliation
         consolidateSquadToward(newState, defender, charger.position, 3.0);
+      } else if (!charger.isDestroyed && defender.isDestroyed) {
+        // Charger consolidates up to 3" upon wiping out defender in melee
+        consolidateSquadToward(newState, charger, defender.position, 3.0);
       }
 
       newState.turnState.pendingReaction = null;
