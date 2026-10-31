@@ -409,7 +409,7 @@ describe('applyAction: move-unit', () => {
     });
     const outcome = act(state, action);
     expect(outcome.ok).toBe(false);
-    expect(outcome.reason).toContain('exceeds 1" limit');
+    expect(outcome.reason).toContain('exceeds 2" limit');
   });
 });
 

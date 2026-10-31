@@ -478,32 +478,32 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       expect(res.maxDistanceToNearestMember).toBeCloseTo(0.8, 2);
     });
 
-    it('rejects 2 models exceeding 1" separation', () => {
+    it('rejects 2 models exceeding coherency separation', () => {
       const res = validateSquadCoherency([
         { x: 0, y: 0, z: 0 },
-        { x: 1.5, y: 0, z: 0 },
+        { x: 2.5, y: 0, z: 0 },
       ]);
       expect(res.coherent).toBe(false);
-      expect(res.reason).toContain('exceeds 1" limit');
+      expect(res.reason).toContain('exceeds 2" limit');
     });
 
-    it('validates 3 models in triangle formation where all pairs are within 1"', () => {
-      const positions = createSquadPositions({ x: 0, y: 0, z: 0 }, 3, 0.8);
+    it('validates 3 models in triangle formation where all pairs are within coherency', () => {
+      const positions = createSquadPositions({ x: 0, y: 0, z: 0 }, 3, 1.4);
       const res = validateSquadCoherency(positions);
       expect(res.coherent).toBe(true);
-      expect(res.maxDistanceBetweenModels).toBeLessThanOrEqual(1.0);
+      expect(res.maxDistanceBetweenModels).toBeLessThanOrEqual(2.0);
     });
 
     it('rejects formation when a model is isolated from the squad', () => {
       const positions: Vector3[] = [
         { x: 0, y: 0, z: 0 },
-        { x: 0.6, y: 0, z: 0 },
-        { x: 2.5, y: 0, z: 0 }, // 1.9" away from nearest member
+        { x: 1.4, y: 0, z: 0 },
+        { x: 4.0, y: 0, z: 0 }, // 2.6" away from nearest member (> 2.0")
       ];
       const res = validateSquadCoherency(positions);
       expect(res.coherent).toBe(false);
       expect(res.reason).toContain('Model 3');
-      expect(res.reason).toContain('exceeds 1" limit');
+      expect(res.reason).toContain('exceeds 2" limit');
     });
 
     it('rejects formation split into 2 disconnected groups even when under 6" spread', () => {
@@ -568,13 +568,18 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
   });
 
   describe('createSquadPositions', () => {
-    it('generates coherent positions for 1, 2, 3, and 5 model formations', () => {
+    it('generates coherent positions with clear base separation for 1, 2, 3, and 5 model formations', () => {
       for (const count of [1, 2, 3, 5]) {
         const center = { x: 4, y: 0, z: -2 };
-        const positions = createSquadPositions(center, count, 0.8);
+        const positions = createSquadPositions(center, count);
         expect(positions).toHaveLength(count);
         const coherency = validateSquadCoherency(positions);
         expect(coherency.coherent).toBe(true);
+        if (count > 1) {
+          // Verify models have at least 0.3" edge-to-edge gap (bases with diameter 1.0" do not intersect)
+          expect(coherency.maxDistanceToNearestMember).toBeGreaterThanOrEqual(1.2);
+          expect(coherency.maxDistanceToNearestMember).toBeLessThanOrEqual(2.0);
+        }
       }
     });
   });
@@ -609,7 +614,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       ];
       const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 3 }, incoherent);
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('exceeds 1" limit');
+      expect(result.reason).toContain('exceeds 2" limit');
     });
 
     it('rejects formation move if a model ends outside the battlefield', () => {
