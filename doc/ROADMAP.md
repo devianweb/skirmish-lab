@@ -555,10 +555,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests for 3.0″ vertical objective control bounds and interactive post-melee consolidation moves.
 
 ### Sub-phase 13.5B: Ranged Combat & Split-Fire System
-- [ ] Concentric weapon range indicators: render soft range rings for each equipped ranged weapon on the battlefield in `MarkerRenderer.ts` (e.g. 9″ sidearm ring, 24″ rifle ring) overlaid on the LoS shadow fan.
-- [ ] Interactive weapon targeting chips in HUD: display per-weapon chips in the bottom bar during Shoot mode, allowing players to assign each weapon independently to different enemy targets.
-- [ ] Split-fire engine resolution: execute multi-target shoot action in `actions.ts`, rolling combat tests per target and applying separate defense tests and wounds.
-- [ ] Unit and UI tests for split-targeting allocations and range ring rendering.
+- [x] Concentric weapon range indicators: render soft range rings for each equipped ranged weapon on the battlefield in `MarkerRenderer.ts` (e.g. 9″ sidearm ring, 24″ rifle ring) overlaid on the LoS shadow fan.
+- [x] Interactive weapon targeting chips in HUD: display per-weapon chips in the bottom bar during Shoot mode, allowing players to assign each weapon independently to different enemy targets.
+- [x] Split-fire engine resolution: execute multi-target shoot action in `actions.ts`, rolling combat tests per target and applying separate defense tests and wounds.
+- [x] Unit and UI tests for split-targeting allocations and range ring rendering.
 
 ### Sub-phase 13.5C: 3D Surface-Constrained Navigation & Stair Traversal
 - [ ] Surface-constrained 3D pathfinding: prohibit non-airborne models from flying diagonally through open air.

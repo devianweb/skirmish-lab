@@ -1,4 +1,5 @@
 import {
+  boardDistance,
   CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
@@ -68,10 +69,11 @@ export interface GameHUDOptions {
 export interface MarkerSnapshot {
   selectedUnitId: string | null;
   targetUnitId: string | null;
+  targetUnitIds?: string[];
   reachableTargetIds?: string[];
   movementRangeUnitId: string | null;
   movementRangeRadius?: number;
-  attackRange?: { unitId: string; range: number } | null;
+  attackRange?: { unitId: string; range: number; concentricRanges?: number[] } | null;
   movePath?: MovePathMarker | null;
   engagedTargetId?: string | null;
   hoveredTerrainId?: string | null;
@@ -130,6 +132,10 @@ export class GameHUD {
   private hoveredEngagedTargetId: string | null = null;
   /** Designated model in a multi-model squad to allocate hazard casualties to. */
   private selectedCasualtyModelId: string | null = null;
+  /** For Shoot mode: map of weaponId -> targetUnitId | null */
+  private shootAllocations: Map<string, string | null> = new Map();
+  /** For Shoot mode: currently selected weapon chip for assignment */
+  private selectedShootWeaponId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -403,6 +409,15 @@ export class GameHUD {
       return;
     }
 
+    if (
+      this.flow.mode === 'confirming' &&
+      this.flow.action.type === 'shoot' &&
+      target.kind === 'unit'
+    ) {
+      this.prepareAttack(target.unitId);
+      return;
+    }
+
     // Allow switching to another unit when idle OR while confirming a unit
     // activation/hold, without forcing the player to click Cancel first.
     if (
@@ -658,6 +673,15 @@ export class GameHUD {
     this.hoveredEngagedTargetId = null;
     this.flow = { mode: 'targeting', action };
 
+    if (action === 'shoot') {
+      this.shootAllocations.clear();
+      const ranged = active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+      for (const w of ranged) {
+        this.shootAllocations.set(w.id, null);
+      }
+      this.selectedShootWeaponId = ranged[0]?.id ?? null;
+    }
+
     // If fighting and there is only one enemy in engagement range, automatically
     // select that target and go straight to confirmation.
     if (action === 'fight') {
@@ -800,7 +824,14 @@ export class GameHUD {
   }
 
   private prepareAttack(targetUnitId: string): void {
-    if (this.flow.mode !== 'targeting') return;
+    let actionKind: string;
+    if (this.flow.mode === 'targeting') {
+      actionKind = this.flow.action;
+    } else if (this.flow.mode === 'confirming' && this.flow.action.type === 'shoot') {
+      actionKind = 'shoot';
+    } else {
+      return;
+    }
     const active = this.activeUnit;
     if (!active) return;
     const target = this.state?.units.find((u) => u.id === targetUnitId);
@@ -811,7 +842,7 @@ export class GameHUD {
       target.position.z - active.position.z
     );
 
-    if (this.flow.action === 'shoot') {
+    if (actionKind === 'shoot') {
       const rangedWeapons = active.weapons.filter(
         (w) => w.isEquipped && w.profile.type === 'ranged'
       );
@@ -820,67 +851,92 @@ export class GameHUD {
         return;
       }
 
-      // Find all equipped ranged weapons eligible to target this unit
-      const validAllocations: Array<{ weapon: Weapon; mods: CombatModifierBreakdown; diceText: string }> = [];
-      for (const weapon of rangedWeapons) {
-        if (distance > weapon.profile.range + 0.01) continue;
+      // Single ranged weapon: instant streamlined flow
+      if (rangedWeapons.length === 1) {
+        const weapon = rangedWeapons[0];
+        if (distance > weapon.profile.range + 0.01) {
+          this.showToast(`Out of range (${distance.toFixed(1)}" > ${weapon.profile.range}")`);
+          return;
+        }
         const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-        if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) continue;
-        const inCover =
-          this.state &&
-          !hasTrait(weapon.profile.specialRules, 'blast') &&
-          (target.status.includes('in-cover') ||
-            (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
-        const attacks = weapon.profile.attacks;
-        const mods = computeCombatModifiers(
-          {
-            quality: active.quality,
-            specialRules: active.specialRules,
-            weaponRules: weapon.profile.specialRules,
-            isMelee: false,
-            distance,
-            hasMoved: active.hasMoved,
-          },
-          {
-            defense: target.defense,
-            inCover: !!inCover,
-            specialRules: target.specialRules,
-            hasMoved: target.hasMoved,
-          }
-        );
-        const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
-        const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-        const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
-        validAllocations.push({ weapon, mods, diceText });
-      }
-
-      if (validAllocations.length === 0) {
-        this.showToast(`Out of range or no line of sight to ${target.name}`);
+        if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
+          this.showToast(`No line of sight to ${target.name}`);
+          return;
+        }
+        this.shootAllocations.set(weapon.id, target.id);
+        this.confirmShootTargets();
         return;
       }
 
-      const allocations = validAllocations.map((v) => ({
-        weaponId: v.weapon.id,
-        targetId: target.id,
-      }));
+      // Multi-weapon unit:
+      const allUnassigned = [...this.shootAllocations.values()].every((v) => v === null);
+      if (allUnassigned) {
+        let assignedAny = false;
+        let firstUnreachableWeaponId: string | null = null;
+        for (const weapon of rangedWeapons) {
+          const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+          const hasLos = isLobbed || (this.state && hasLineOfSight(this.state, active, target));
+          if (distance <= weapon.profile.range + 0.01 && hasLos) {
+            this.shootAllocations.set(weapon.id, target.id);
+            assignedAny = true;
+          } else {
+            this.shootAllocations.set(weapon.id, null);
+            if (!firstUnreachableWeaponId) firstUnreachableWeaponId = weapon.id;
+          }
+        }
 
-      const weaponNames = validAllocations.map((v) => v.weapon.name).join(' & ');
-      const diceSummaries = validAllocations.map((v) => `${v.weapon.name}: ${v.diceText}`).join(' | ');
+        if (!assignedAny) {
+          this.showToast(`Out of range or no line of sight to ${target.name}`);
+          return;
+        }
 
-      this.beginConfirmation(
-        createAction(this.localPlayerId, 'shoot', {
-          type: 'shoot',
-          attackerId: active.id,
-          targetId: target.id,
-          weaponId: validAllocations[0].weapon.id,
-          allocations,
-        }),
-        `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`
+        this.selectedShootWeaponId = firstUnreachableWeaponId ?? rangedWeapons[0].id;
+        this.confirmShootTargets();
+        return;
+      }
+
+      // Reassigning or allocating selected weapon chip:
+      const currentWeapon =
+        (this.selectedShootWeaponId
+          ? rangedWeapons.find((w) => w.id === this.selectedShootWeaponId)
+          : null) ??
+        rangedWeapons.find((w) => this.shootAllocations.get(w.id) === null) ??
+        rangedWeapons[0];
+
+      if (distance > currentWeapon.profile.range + 0.01) {
+        this.showToast(
+          `${currentWeapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${currentWeapon.profile.range}")`
+        );
+        return;
+      }
+      const isLobbed = hasTrait(currentWeapon.profile.specialRules, 'lobbed');
+      if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
+        this.showToast(`No line of sight to ${target.name}`);
+        return;
+      }
+
+      const otherTargets = new Set<string>();
+      for (const [wid, tid] of this.shootAllocations.entries()) {
+        if (wid !== currentWeapon.id && tid) otherTargets.add(tid);
+      }
+      otherTargets.add(target.id);
+      if (otherTargets.size > 2) {
+        this.showToast('Cannot split fire across more than 2 distinct targets');
+        return;
+      }
+
+      this.shootAllocations.set(currentWeapon.id, target.id);
+
+      const nextUnassigned = rangedWeapons.find(
+        (w) => w.id !== currentWeapon.id && this.shootAllocations.get(w.id) === null
       );
+      this.selectedShootWeaponId = nextUnassigned?.id ?? currentWeapon.id;
+
+      this.confirmShootTargets();
       return;
     }
 
-    if (this.flow.action === 'charge') {
+    if (actionKind === 'charge') {
       if (active.status.includes('engaged')) {
         this.showToast('Already engaged — fight instead');
         return;
@@ -984,7 +1040,7 @@ export class GameHUD {
       return;
     }
 
-    if (this.flow.action === 'fight') {
+    if (actionKind === 'fight') {
       if (!active.status.includes('engaged')) {
         this.showToast('Not engaged');
         return;
@@ -1033,6 +1089,106 @@ export class GameHUD {
     }
   }
 
+  private confirmShootTargets(): void {
+    const isShootFlow =
+      (this.flow.mode === 'targeting' && this.flow.action === 'shoot') ||
+      (this.flow.mode === 'confirming' && this.flow.action.type === 'shoot');
+    if (!isShootFlow) return;
+    const active = this.activeUnit;
+    if (!active || !this.state) return;
+
+    const allocations: Array<{ weapon: Weapon; target: Unit; mods: CombatModifierBreakdown; diceText: string }> = [];
+    const rangedWeapons = active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+
+    for (const weapon of rangedWeapons) {
+      const targetId = this.shootAllocations.get(weapon.id);
+      if (!targetId) continue;
+      const target = this.state.units.find((u) => u.id === targetId && !u.isDestroyed);
+      if (!target) continue;
+
+      const distance = boardDistance(active.position, target.position);
+      if (distance > weapon.profile.range + 0.01) {
+        this.showToast(
+          `${weapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+        );
+        return;
+      }
+      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+      if (!isLobbed && !hasLineOfSight(this.state, active, target)) {
+        this.showToast(`No line of sight from ${weapon.name} to ${target.name}`);
+        return;
+      }
+
+      const inCover =
+        !hasTrait(weapon.profile.specialRules, 'blast') &&
+        (target.status.includes('in-cover') ||
+          (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
+      const attacks = weapon.profile.attacks;
+      const mods = computeCombatModifiers(
+        {
+          quality: active.quality,
+          specialRules: active.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: false,
+          distance,
+          hasMoved: active.hasMoved,
+        },
+        {
+          defense: target.defense,
+          inCover: !!inCover,
+          specialRules: target.specialRules,
+          hasMoved: target.hasMoved,
+        }
+      );
+      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+      allocations.push({ weapon, target, mods, diceText });
+    }
+
+    if (allocations.length === 0) {
+      this.showToast('Please assign at least one target for your weapons');
+      return;
+    }
+
+    const uniqueTargets = new Set(allocations.map((a) => a.target.id));
+    if (uniqueTargets.size > 2) {
+      this.showToast('Cannot split fire across more than 2 distinct targets');
+      return;
+    }
+
+    let summary: string;
+    if (uniqueTargets.size === 1) {
+      const target = allocations[0].target;
+      const distance = boardDistance(active.position, target.position);
+      const weaponNames = allocations.map((a) => a.weapon.name).join(' & ');
+      const diceSummaries = allocations.map((a) => `${a.weapon.name}: ${a.diceText}`).join(' | ');
+      summary = `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`;
+    } else {
+      const splitSummaries = allocations
+        .map(
+          (a) =>
+            `${a.weapon.name} at ${a.target.name} (${boardDistance(active.position, a.target.position).toFixed(1)}") [${a.diceText}]`
+        )
+        .join(' · ');
+      summary = `${active.name} split fires: ${splitSummaries}`;
+    }
+
+    this.beginConfirmation(
+      createAction(this.localPlayerId, 'shoot', {
+        type: 'shoot',
+        attackerId: active.id,
+        targetId: allocations[0].target.id,
+        weaponId: allocations[0].weapon.id,
+        allocations: allocations.map((a) => ({
+          weaponId: a.weapon.id,
+          targetId: a.target.id,
+        })),
+      }),
+      summary
+    );
+  }
+
   private beginConfirmation(action: GameAction, summary: string): void {
     this.flow = { mode: 'confirming', action, summary };
     this.render();
@@ -1044,6 +1200,8 @@ export class GameHUD {
     this.movePreview = null;
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
+    this.shootAllocations.clear();
+    this.selectedShootWeaponId = null;
     this.flow = { mode: 'waiting' };
     this.render();
     // Only confirmed actions ever leave the HUD — no optimistic dispatch.
@@ -1055,6 +1213,8 @@ export class GameHUD {
     this.movePreview = null;
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
+    this.shootAllocations.clear();
+    this.selectedShootWeaponId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
     this.render();
@@ -1675,11 +1835,37 @@ export class GameHUD {
         }
       }
 
+      let shootChipsHtml = '';
+      if (this.flow.action.type === 'shoot' && active) {
+        const rangedWeapons = active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+        if (rangedWeapons.length > 1) {
+          const chips = rangedWeapons
+            .map((w) => {
+              const assignedId = this.shootAllocations.get(w.id);
+              const assignedUnit = assignedId ? this.state?.units.find((u) => u.id === assignedId) : null;
+              const isSelected = w.id === this.selectedShootWeaponId;
+              return `
+                <button class="sl-hud-weapon-chip ${isSelected ? 'selected' : ''} ${assignedUnit ? 'assigned' : ''}" data-weapon-id="${w.id}">
+                  <span class="sl-chip-weapon-name">${w.name} (${w.profile.range}")</span>
+                  <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${
+                assignedUnit ? `➔ ${assignedUnit.name}` : '➔ Unassigned'
+              }</span>
+                </button>`;
+            })
+            .join('');
+          shootChipsHtml = `
+            <div class="sl-hud-chips-bar" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 8px;">
+              ${chips}
+            </div>`;
+        }
+      }
+
       return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-confirm" style="display: flex; flex-direction: column; align-items: center;">
             ${casualtySelectorHtml}
+            ${shootChipsHtml}
             <div style="display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center;">
               <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
               <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
@@ -1762,6 +1948,56 @@ export class GameHUD {
     }
 
     if (this.flow.mode === 'targeting') {
+      const rangedWeapons =
+        this.flow.action === 'shoot' && active
+          ? active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged')
+          : [];
+
+      if (this.flow.action === 'shoot' && rangedWeapons.length > 1) {
+        const chipsHtml = rangedWeapons
+          .map((w) => {
+            const assignedId = this.shootAllocations.get(w.id);
+            const assignedUnit = assignedId ? this.state?.units.find((u) => u.id === assignedId) : null;
+            const isSelected = w.id === this.selectedShootWeaponId;
+            return `
+              <button class="sl-hud-weapon-chip ${isSelected ? 'selected' : ''} ${assignedUnit ? 'assigned' : ''}" data-weapon-id="${w.id}">
+                <span class="sl-chip-weapon-name">${w.name} (${w.profile.range}")</span>
+                <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${
+              assignedUnit ? `➔ ${assignedUnit.name}` : '➔ Unassigned'
+            }</span>
+              </button>`;
+          })
+          .join('');
+
+        const assignedCount = [...this.shootAllocations.values()].filter((v) => v !== null).length;
+        const uniqueTargets = new Set([...this.shootAllocations.values()].filter((v) => v !== null));
+        const hint =
+          assignedCount === 0
+            ? 'Click an enemy target to assign all weapons, or click a weapon chip to target independently'
+            : uniqueTargets.size > 1
+            ? 'Split fire active. Click Confirm Attack to proceed, or click a weapon chip to reassign'
+            : 'Click Confirm Attack to fire, or click another weapon chip to split fire';
+
+        return `
+          <div class="sl-hud-bottom-dock">
+            ${dataCardSlot}
+            <div class="sl-hud-bottom sl-hud-shoot-dock" style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              <div class="sl-hud-chips-bar" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
+                ${chipsHtml}
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="sl-hud-hint" style="font-size: 11px;">${hint}</span>
+                ${
+                  assignedCount > 0
+                    ? '<button class="sl-hud-btn primary" data-action="confirm-shoot-targets">Confirm Attack</button>'
+                    : ''
+                }
+                <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+              </div>
+            </div>
+          </div>`;
+      }
+
       const instruction =
         this.flow.action === 'move'
           ? 'Click a destination on the board (auto-paths around obstacles)'
@@ -2233,6 +2469,9 @@ export class GameHUD {
           case 'confirm':
             this.confirmPending();
             break;
+          case 'confirm-shoot-targets':
+            this.confirmShootTargets();
+            break;
           case 'cancel':
             this.cancel();
             break;
@@ -2297,6 +2536,19 @@ export class GameHUD {
           this.selectedCasualtyModelId = modelId;
           (this.flow.action.payload as any).casualtyModelIds = [modelId];
           this.render();
+        }
+      });
+    }
+
+    const weaponChipBtns = this.root.querySelectorAll<HTMLButtonElement>('[data-weapon-id]');
+    for (const btn of weaponChipBtns) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wid = btn.dataset.weaponId;
+        if (wid) {
+          this.selectedShootWeaponId = wid;
+          this.render();
+          this.emitMarkers();
         }
       });
     }
@@ -2377,10 +2629,31 @@ export class GameHUD {
       markers.targetUnitId = hoveredUnit.id;
     }
 
+    // While in shoot targeting, reflect assigned targets
+    if (this.flow.mode === 'targeting' && this.flow.action === 'shoot') {
+      const assigned = Array.from(
+        new Set([...this.shootAllocations.values()].filter((id): id is string => id !== null))
+      );
+      if (hoveredUnit && hoveredUnit.ownerId !== this.localPlayerId && !assigned.includes(hoveredUnit.id)) {
+        assigned.push(hoveredUnit.id);
+      }
+      if (assigned.length > 0) {
+        markers.targetUnitIds = assigned;
+        markers.targetUnitId = assigned[0];
+      }
+    }
+
     // While confirming an attack/charge/rush/move, reflect markers
     if (this.flow.mode === 'confirming') {
-      const payload = this.flow.action.payload as { targetId?: string; path?: Vector3[] };
-      if (payload.targetId) {
+      const payload = this.flow.action.payload as {
+        targetId?: string;
+        allocations?: Array<{ weaponId: string; targetId: string }>;
+        path?: Vector3[];
+      };
+      if (payload.allocations && payload.allocations.length > 0) {
+        markers.targetUnitIds = Array.from(new Set(payload.allocations.map((a) => a.targetId)));
+        markers.targetUnitId = payload.allocations[0].targetId;
+      } else if (payload.targetId) {
         markers.targetUnitId = payload.targetId;
       }
       if (
@@ -2423,11 +2696,24 @@ export class GameHUD {
       if (active) {
         const maxRange = this.actionMaxRange(active, attackAction);
         if (maxRange > 0) {
-          markers.attackRange = { unitId: active.id, range: maxRange };
+          const concentricRanges =
+            attackAction === 'shoot'
+              ? Array.from(
+                  new Set(
+                    active.weapons
+                      .filter((w) => w.isEquipped && w.profile.type === 'ranged')
+                      .map((w) => w.profile.range)
+                  )
+                ).sort((a, b) => a - b)
+              : undefined;
+          markers.attackRange = { unitId: active.id, range: maxRange, concentricRanges };
         }
         const reachable = this.reachableEnemies(active, attackAction);
+        const targetedIds = new Set(
+          markers.targetUnitIds ?? (markers.targetUnitId ? [markers.targetUnitId] : [])
+        );
         markers.reachableTargetIds = reachable
-          .filter((enemy) => enemy.id !== markers.targetUnitId)
+          .filter((enemy) => !targetedIds.has(enemy.id))
           .map((enemy) => enemy.id);
       }
     }
@@ -2529,11 +2815,20 @@ export class GameHUD {
       );
       if (distance > limit + 0.01) return false;
       if (action === 'shoot') {
-        const ranged = unit.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
-        if (ranged && hasTrait(ranged.profile.specialRules, 'lobbed')) {
-          return true;
+        const weaponToCheck = this.selectedShootWeaponId
+          ? unit.weapons.find((w) => w.id === this.selectedShootWeaponId)
+          : null;
+        if (weaponToCheck && weaponToCheck.profile.type === 'ranged') {
+          if (distance > weaponToCheck.profile.range + 0.01) return false;
+          if (hasTrait(weaponToCheck.profile.specialRules, 'lobbed')) return true;
+          return hasLineOfSight(this.state!, unit, candidate);
         }
-        return hasLineOfSight(this.state!, unit, candidate);
+        const rangedWeapons = unit.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+        return rangedWeapons.some((w) => {
+          if (distance > w.profile.range + 0.01) return false;
+          if (hasTrait(w.profile.specialRules, 'lobbed')) return true;
+          return hasLineOfSight(this.state!, unit, candidate);
+        });
       }
       if (action === 'charge') {
         // Verify pathfinder reaches within engagement range under double speed
@@ -2676,6 +2971,15 @@ export class GameHUD {
   border-radius: 12px; padding: 24px 36px; text-align: center; box-shadow: 0 12px 32px rgba(0,0,0,0.6); }
 .sl-hud-gameover h2 { margin: 0 0 8px; font-size: 28px; color: #ffd54f; }
 .sl-hud-gameover p { margin: 0 0 18px; color: #b0bec5; }
+.sl-hud-shoot-dock { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.sl-hud-chips-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.sl-hud-weapon-chip { pointer-events: auto; display: flex; align-items: center; gap: 6px; background: #1e2633; color: #cfd8dc; border: 1px solid #37474f; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; transition: all 0.15s ease; }
+.sl-hud-weapon-chip:hover { background: #2a374a; border-color: #607d8b; }
+.sl-hud-weapon-chip.selected { background: #1a365d; border-color: #42a5f5; color: #fff; box-shadow: 0 0 8px rgba(66, 165, 245, 0.4); }
+.sl-hud-weapon-chip.assigned { border-color: #43a047; }
+.sl-chip-weapon-name { font-weight: 600; color: #90caf9; }
+.sl-chip-target { font-size: 11px; color: #ffd54f; }
+.sl-chip-target.unassigned { color: #90a4ae; font-style: italic; }
 `;
     document.head.appendChild(style);
   }
