@@ -158,6 +158,13 @@ describe('scenario data pack', () => {
         const allRules = force.fighters.flatMap((f) => f.specialRules);
         expect(allRules).toContain('vanguard');
         expect(allRules).toContain('drop-reserve');
+
+        // Contains at least one unit equipped with multiple ranged weapons (for split fire and multi-weapon chips)
+        const multiRangedFighter = force.fighters.find((f) => {
+          const weapons = f.weapons.map((id) => WEAPONS[id]).filter(Boolean);
+          return weapons.filter((w) => w.profile.type === 'ranged').length >= 2;
+        });
+        expect(multiRangedFighter).toBeDefined();
       }
     });
 

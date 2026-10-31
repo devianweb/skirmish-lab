@@ -34,6 +34,13 @@ export const WEAPONS: Record<string, Weapon> = {
     profile: { type: 'ranged', range: 12, attacks: 1, specialRules: ['pierce(1)'] },
     isEquipped: true,
   },
+  sidearm: {
+    id: 'sidearm',
+    weaponType: 'sidearm',
+    name: 'Sidearm',
+    profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] },
+    isEquipped: true,
+  },
   cannon: {
     id: 'cannon',
     weaponType: 'cannon',
