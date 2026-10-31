@@ -212,4 +212,18 @@ describe('Lobby UI', () => {
     lobby.reset();
     expect((lobby as any).isCreatedRoom).toBe(false);
   });
+
+  it('triggers onOpenMapEditor callback when Map Builder button is clicked', () => {
+    const onOpenMapEditorSpy = vi.fn();
+    const lobby = new Lobby(container, {
+      onOpenMapEditor: onOpenMapEditorSpy,
+    });
+    (lobby as any).render();
+
+    const openEditorBtn = container.querySelector('#openMapEditorBtn') as HTMLButtonElement;
+    expect(openEditorBtn).toBeTruthy();
+    openEditorBtn.click();
+
+    expect(onOpenMapEditorSpy).toHaveBeenCalledTimes(1);
+  });
 });
