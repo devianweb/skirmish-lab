@@ -109,8 +109,31 @@ export class GameManager {
   rebindWebRTCClient(webrtcClient: WebRTCClient): void {
     this.webrtcClient = webrtcClient;
     this.setupHandlers();
-    if (this.isHost && this.gameState) {
-      this.broadcastState('rejoin');
+    if (this.isHost) {
+      if (this.gameState) {
+        this.broadcastState('rejoin');
+      } else {
+        // Host state is empty: request peer fallback snapshot from Guest
+        this.webrtcClient.send({ type: 'request-state-sync' } as GameMessage);
+      }
+    }
+  }
+
+  /** Restore game state from a cached snapshot upon reconnecting. */
+  restoreFromSnapshot(snapshot: GameState): void {
+    this.gameState = snapshot;
+    this.saveSnapshot(snapshot);
+    this.syncReactionTimer();
+    this.emitStateUpdate();
+    if (this.isHost) {
+      this.broadcastState('state-restored');
+    }
+  }
+
+  /** Host requests peer-fallback snapshot sync from Guest when local storage was empty. */
+  requestStateSyncFromPeer(): void {
+    if (this.webrtcClient) {
+      this.webrtcClient.send({ type: 'request-state-sync' } as GameMessage);
     }
   }
 
@@ -126,6 +149,28 @@ export class GameManager {
     this.webrtcClient.on('state-update', (msg: GameMessage) => {
       if (!this.isHost && msg.type === 'state-update') {
         this.applyStateUpdate(msg.state);
+      }
+    });
+
+    this.webrtcClient.on('state-sync', (msg: GameMessage) => {
+      if (msg.type === 'state-sync' && msg.state) {
+        if (!this.isHost) {
+          this.applyStateUpdate(msg.state);
+        } else if (!this.gameState && msg.state.board && Array.isArray(msg.state.units)) {
+          // Host peer-fallback recovery: Host loaded with empty state, adopts Guest's verified snapshot
+          this.gameState = msg.state;
+          this.saveSnapshot(this.gameState!);
+          this.syncReactionTimer();
+          this.emitStateUpdate();
+        }
+      }
+    });
+
+    this.webrtcClient.on('request-state-sync', (msg: GameMessage) => {
+      if (msg.type === 'request-state-sync') {
+        if (this.gameState) {
+          this.webrtcClient.send({ type: 'state-sync', state: this.gameState } as GameMessage);
+        }
       }
     });
 

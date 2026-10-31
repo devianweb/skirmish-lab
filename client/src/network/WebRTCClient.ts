@@ -2,6 +2,8 @@ export type GameMessage =
   | { type: 'action-request', action: any }
   | { type: 'action-rejected', actionId: string, reason: string }
   | { type: 'state-update', state: any, actionId: string }
+  | { type: 'state-sync', state: any }
+  | { type: 'request-state-sync' }
   | { type: 'heartbeat-ping', timestamp: number }
   | { type: 'heartbeat-pong', timestamp: number }
   | { type: 'select-army', armyId: string, playerId: string }

@@ -967,6 +967,61 @@ describe('GameManager', () => {
       expect(guest2.getGameState()!.turnState.activeUnitId).toBe(guestUnitId);
     });
 
+    it('restores game state from snapshot on host and broadcasts to guest', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const originalState = host.getGameState()!;
+      originalState.turnState.roundNumber = 3;
+
+      // Host restores from snapshot
+      host.restoreFromSnapshot(originalState);
+
+      expect(host.getGameState()!.turnState.roundNumber).toBe(3);
+      expect(guest.getGameState()!.turnState.roundNumber).toBe(3);
+    });
+
+    it('recovers authoritative state on host via peer-fallback request-state-sync if host storage was empty', async () => {
+      // 1. Initial game where guest has received state
+      const channel1 = makeChannelPair();
+      const host1 = new GameManager(channel1.hostWebRTC, true);
+      const guest = new GameManager(channel1.guestWebRTC, false);
+      host1.startGame('Host', 'Guest');
+
+      const guestState = guest.getGameState()!;
+      expect(guestState).toBeDefined();
+
+      // 2. Host reloads/rejoins with wiped local storage (null gameState)
+      const channel2 = makeChannelPair();
+      const rejoiningHost = new GameManager(channel2.hostWebRTC, true);
+      expect(rejoiningHost.getGameState()).toBeNull();
+
+      // Re-bind guest to channel2
+      guest.rebindWebRTCClient(channel2.guestWebRTC);
+
+      // Rejoining host sends request-state-sync
+      rejoiningHost.requestStateSyncFromPeer();
+
+      // Host receives state-sync from Guest and adopts it authoritatively
+      expect(rejoiningHost.getGameState()).toBeDefined();
+      expect(rejoiningHost.getGameState()!.turnState.roundNumber).toBe(guestState.turnState.roundNumber);
+      expect(rejoiningHost.getGameState()!.units.length).toBe(guestState.units.length);
+
+      // 3. Rejoining host is authoritative and can successfully process subsequent actions
+      const hostUnit = rejoiningHost.getGameState()!.units.find((u: any) => u.ownerId === HOST_PLAYER_ID)!;
+      rejoiningHost.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', {
+          type: 'activate-unit',
+          unitId: hostUnit.id,
+        })
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      expect(rejoiningHost.getGameState()!.turnState.activeUnitId).toBe(hostUnit.id);
+      expect(guest.getGameState()!.turnState.activeUnitId).toBe(hostUnit.id);
+    });
+
     it('terminates game after round 4 with objective control winner across the wire', async () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);

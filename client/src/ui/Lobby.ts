@@ -1,5 +1,6 @@
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
+import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 
 /** Fired once the P2P data channel is alive (first heartbeat round-trip). */
 export interface PeerReadyContext {
@@ -11,11 +12,13 @@ export interface PeerReadyContext {
   hostArmyId?: string;
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
+  isCreatedRoom?: boolean;
 }
 
 export interface LobbyOptions {
   onPeerReady?: (context: PeerReadyContext) => void;
   onRoleAssigned?: (role: 'host' | 'guest') => void;
+  sessionStore?: SessionStore;
 }
 
 /**
@@ -34,16 +37,31 @@ export class Lobby {
   private hostArmyId: string = 'frontier-wardens-starter';
   private guestArmyId: string = 'rust-raiders-starter';
   private useDeploymentPhase: boolean = true;
+  private sessionStore: SessionStore;
+  private initialRoomCode: string | null = null;
+  private isCreatedRoom: boolean = false;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
     this.options = options;
+    this.sessionStore = options.sessionStore ?? defaultSessionStore;
     this.signalingClient = new SignalingClient();
     this.setupSignalingHandlers();
   }
 
   async init(): Promise<void> {
     await this.signalingClient.connect();
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const roomParam = params.get('room');
+        if (roomParam) {
+          this.initialRoomCode = roomParam.toUpperCase();
+        }
+      } catch (e) {
+        console.warn('[Lobby] Failed to read URL room parameter:', e);
+      }
+    }
     this.render();
   }
 
@@ -62,17 +80,35 @@ export class Lobby {
     if (this.roomCode) {
       this.signalingClient.send({ type: 'leave-room' });
     }
+    this.updateUrlRoomCode(null);
     this.roomCode = null;
     this.role = null;
     this.peerReadyFired = false;
+    this.isCreatedRoom = false;
     this.show();
     this.render();
+  }
+
+  private updateUrlRoomCode(code: string | null): void {
+    if (typeof window === 'undefined' || !window.history?.replaceState) return;
+    try {
+      const url = new URL(window.location.href);
+      if (code) {
+        url.searchParams.set('room', code.toUpperCase());
+      } else {
+        url.searchParams.delete('room');
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) {
+      console.warn('[Lobby] Failed to update URL room code:', e);
+    }
   }
 
   private setupSignalingHandlers(): void {
     this.signalingClient.on('room-created', (msg: any) => {
       this.roomCode = msg.code;
       this.role = 'host';
+      this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.('host');
       this.webrtcClient = new WebRTCClient();
       this.setupWebRTCAsHost();
@@ -83,6 +119,7 @@ export class Lobby {
       this.roomCode = msg.code;
       const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
       this.role = assignedRole;
+      this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
       this.webrtcClient = new WebRTCClient();
       if (assignedRole === 'host') {
@@ -167,6 +204,7 @@ export class Lobby {
       this.maybeFirePeerReady();
     });
     client.on('state-update', (msg: any) => this.maybeFirePeerReady(msg.state));
+    client.on('state-sync', (msg: any) => this.maybeFirePeerReady(msg.state));
   }
 
   private async createAndSendOffer(): Promise<void> {
@@ -199,6 +237,7 @@ export class Lobby {
       hostArmyId: this.hostArmyId,
       guestArmyId: this.guestArmyId,
       useDeploymentPhase: this.useDeploymentPhase,
+      isCreatedRoom: this.isCreatedRoom,
     });
   }
 
@@ -213,10 +252,35 @@ export class Lobby {
         </div>
       `;
     } else {
+      const activeSession = this.sessionStore.getActiveSession();
+      const hasActiveSession = this.sessionStore.isSessionValid(activeSession);
+      const prefillCode = this.initialRoomCode || '';
+
+      const resumeBannerHtml = hasActiveSession && activeSession ? `
+        <div id="resumeBanner" style="margin-bottom: 20px; background: rgba(41, 182, 246, 0.15); border: 1px solid #29b6f6; border-radius: 8px; padding: 14px; text-align: left;">
+          <div style="font-size: 14px; font-weight: bold; color: #ffd54f; margin-bottom: 6px;">
+            ⚠️ Active Game Detected (Room ${activeSession.roomCode})
+          </div>
+          <div style="font-size: 13px; color: #b0bec5; margin-bottom: 12px;">
+            You have an ongoing match as <strong style="color: #29b6f6; text-transform: uppercase;">${activeSession.role.toUpperCase()}</strong>. Reconnect within the 5-minute grace window to resume.
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="resumeBtn" style="padding: 8px 16px; font-size: 13px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
+              Resume Match
+            </button>
+            <button id="abandonBtn" style="padding: 8px 14px; font-size: 13px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">
+              Abandon Game
+            </button>
+          </div>
+        </div>
+      ` : '';
+
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
           <p style="color: #b0bec5; font-size: 14px; margin-bottom: 24px;">One Page Rules Skirmish Simulator</p>
+
+          ${resumeBannerHtml}
 
           <div style="margin-bottom: 24px; text-align: left; background: rgba(26, 31, 41, 0.7); padding: 16px; border-radius: 8px; border: 1px solid #2a3442;">
             <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; color: #90caf9; text-transform: uppercase; letter-spacing: 0.5px;">Match Forces (Starter Armies)</h3>
@@ -243,12 +307,27 @@ export class Lobby {
           <div style="display: flex; flex-direction: column; gap: 16px;">
             <button id="createBtn" style="padding: 12px 24px; font-size: 15px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 6px; cursor: pointer;">Create Room (Host)</button>
             <div style="display: flex; gap: 8px;">
-              <input id="codeInput" placeholder="XXX-XXX" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
+              <input id="codeInput" placeholder="XXX-XXX" value="${prefillCode}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
           </div>
         </div>
       `;
+
+      if (hasActiveSession && activeSession) {
+        this.container.querySelector('#resumeBtn')?.addEventListener('click', () => {
+          this.isCreatedRoom = false;
+          this.signalingClient.joinRoom(activeSession.roomCode);
+        });
+
+        this.container.querySelector('#abandonBtn')?.addEventListener('click', () => {
+          this.sessionStore.clearActiveSession();
+          this.sessionStore.clearSnapshot(activeSession.roomCode);
+          this.updateUrlRoomCode(null);
+          this.initialRoomCode = null;
+          this.render();
+        });
+      }
 
       const hostSelect = this.container.querySelector<HTMLSelectElement>('#hostArmySelect');
       hostSelect?.addEventListener('change', () => {
@@ -266,10 +345,12 @@ export class Lobby {
       });
 
       this.container.querySelector('#createBtn')?.addEventListener('click', () => {
+        this.isCreatedRoom = true;
         this.signalingClient.createRoom();
       });
 
       this.container.querySelector('#joinBtn')?.addEventListener('click', () => {
+        this.isCreatedRoom = false;
         const input = this.container.querySelector<HTMLInputElement>('#codeInput');
         if (input && input.value) {
           this.signalingClient.joinRoom(input.value.toUpperCase());

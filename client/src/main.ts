@@ -120,6 +120,7 @@ const lobby = new Lobby(lobbyContainer, {
     hostArmyId,
     guestArmyId,
     useDeploymentPhase,
+    isCreatedRoom,
   }) => {
     gameView.setupCameraForRole(role);
     const isHost = role === 'host';
@@ -205,15 +206,28 @@ const lobby = new Lobby(lobbyContainer, {
     stopKeepAlive = signalingClient.startKeepAlive();
 
     if (isHost) {
-      gameManager.startGame('Host', 'Guest', {
-        hostArmyId,
-        guestArmyId,
-        useDeploymentPhase,
-      });
+      const cachedSnapshot = defaultSessionStore.getSnapshot(roomCode);
+      if (!isCreatedRoom && cachedSnapshot) {
+        gameManager.restoreFromSnapshot(cachedSnapshot);
+      } else if (!isCreatedRoom && !cachedSnapshot) {
+        // Host storage was empty upon reconnecting; request peer fallback snapshot from Guest
+        gameManager.requestStateSyncFromPeer();
+      } else {
+        gameManager.startGame('Host', 'Guest', {
+          hostArmyId,
+          guestArmyId,
+          useDeploymentPhase,
+        });
+      }
     } else if (initialState) {
       // If state-update was the first message that triggered onPeerReady,
       // feed it to the newly created guest GameManager.
       gameManager.applyStateUpdate(initialState);
+    } else {
+      const cachedSnapshot = defaultSessionStore.getSnapshot(roomCode);
+      if (cachedSnapshot) {
+        gameManager.restoreFromSnapshot(cachedSnapshot);
+      }
     }
     // The guest receives the starting state through the data channel.
 
