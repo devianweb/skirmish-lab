@@ -32,6 +32,7 @@ import {
 import {
   computePushBackPosition,
   computeSquadCentroid,
+  consolidateSquadToward,
   findMoveBlocker,
   hasCoverAgainstAttack,
   hasLineOfSight,
@@ -1100,6 +1101,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
+      // Defending squad models consolidate up to 3" into contact with chargers
+      consolidateSquadToward(newState, target, attacker.position, 3.0);
+
       const weapon = weaponId
         ? getWeapon(attacker, weaponId)
         : attacker.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
@@ -1314,6 +1318,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         pushedBack = true;
         charger.status = charger.status.filter((s) => s !== 'engaged');
         defender.status = defender.status.filter((s) => s !== 'engaged');
+      } else if (charger.isDestroyed && !defender.isDestroyed) {
+        // Defender consolidates up to 3" upon wiping out charger in melee retaliation
+        consolidateSquadToward(newState, defender, charger.position, 3.0);
       }
 
       newState.turnState.pendingReaction = null;
@@ -1510,6 +1517,10 @@ function applyWounds(
       victim.isDestroyed = true;
       unit.wounds = Math.max(1, unit.wounds - 1);
       remainingWounds -= applied;
+    }
+    const surviving = unit.models.filter((m) => !m.isDestroyed);
+    if (surviving.length > 0 && surviving.some((m) => m.position)) {
+      unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
     }
   }
 

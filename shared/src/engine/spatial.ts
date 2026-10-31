@@ -1697,3 +1697,56 @@ export function validateFormationMove(
   };
 }
 
+/**
+ * Consolidates surviving models in a unit up to `maxDistance` toward `targetPosition`,
+ * stopping at base contact (`UNIT_SEPARATION_DISTANCE = 0.6"`).
+ */
+export function consolidateSquadToward(
+  state: GameState,
+  unit: Unit,
+  targetPosition: Vector3,
+  maxDistance: number = 3.0
+): void {
+  // Only consolidate models that are not yet in contact (> 1.0" engagement range)
+  const contactThreshold = 1.0;
+  const targetContactDist = UNIT_SEPARATION_DISTANCE; // 0.6" base contact
+
+  if (!unit.models || unit.models.length <= 1) {
+    const dx = targetPosition.x - unit.position.x;
+    const dz = targetPosition.z - unit.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > contactThreshold) {
+      const allowed = Math.min(maxDistance, dist - targetContactDist);
+      const targetCandidate: Vector3 = {
+        x: Math.round((unit.position.x + (dx / dist) * allowed) * 100) / 100,
+        y: unit.position.y ?? 0,
+        z: Math.round((unit.position.z + (dz / dist) * allowed) * 100) / 100,
+      };
+      unit.position = clampMoveDestinationWithObstacles(state, unit, targetCandidate, maxDistance);
+    }
+    return;
+  }
+
+  let movedAny = false;
+  for (const model of unit.models) {
+    if (model.isDestroyed) continue;
+    const mPos = model.position ?? unit.position;
+    const dx = targetPosition.x - mPos.x;
+    const dz = targetPosition.z - mPos.z;
+    const dist = Math.hypot(dx, dz);
+    // Only models outside contact (> 1.0") consolidate into contact
+    if (dist > contactThreshold) {
+      movedAny = true;
+      const allowed = Math.min(maxDistance, dist - targetContactDist);
+      model.position = {
+        x: Math.round((mPos.x + (dx / dist) * allowed) * 100) / 100,
+        y: mPos.y ?? 0,
+        z: Math.round((mPos.z + (dz / dist) * allowed) * 100) / 100,
+      };
+    }
+  }
+  if (movedAny) {
+    unit.position = computeSquadCentroid(getSquadModelPositions(unit));
+  }
+}
+

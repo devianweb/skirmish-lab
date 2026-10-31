@@ -1056,6 +1056,43 @@ describe('applyAction: charge', () => {
     expect(specs?.some((s) => s.purpose === 'retaliation-to-hit')).toBe(false);
     expect(specs?.some((s) => s.purpose === 'retaliation-defense')).toBe(false);
   });
+
+  it('Phase 9B: defending squad members consolidate up to 3" into contact when charged', () => {
+    const state = chargeState();
+    const defender = state.units.find((u) => u.id === 'g1')!;
+    // Target squad with front model at (0, 0, 5.0) and rear model at (0, 0, 5.8)
+    // Centroid is (0, 0, 5.4)
+    defender.models = [
+      { id: 'gm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.0 } },
+      { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.8 } },
+    ];
+    defender.position = { x: 0, y: 0, z: 5.4 };
+
+    // Charger ends at z=4.5 (0.9" from defender centroid, <= 1.0" engagement range)
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4.5 }],
+      weaponId: 'blade',
+    });
+
+    const diceResults: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [1, 1] } as any, // Misses
+      { purpose: 'defense', rolls: [6, 6] } as any,
+      { purpose: 'trauma', rolls: [1] } as any,
+    ];
+
+    const outcome = applyAction(state, action, diceResults);
+    expect(outcome.ok).toBe(true);
+
+    const postDefender = outcome.state!.units.find((u) => u.id === 'g1')!;
+    // Front model was already at z=5.0 (0.5" from charger at z=4.5) -> <= 1.0" so stays in place
+    expect(postDefender.models[0].position?.z).toBeCloseTo(5.0, 1);
+    // Rear model was at z=5.8 (1.3" from charger at z=4.5) -> consolidates into base contact (z=5.1)
+    expect(postDefender.models[1].position?.z).toBeLessThan(5.8);
+    expect(postDefender.models[1].position?.z).toBeCloseTo(5.1, 1);
+  });
 });
 
 describe('applyAction: rush', () => {
@@ -1359,6 +1396,72 @@ describe('applyAction invariants', () => {
     ]);
     const g1After3 = thirdShot.state!.units.find((u) => u.id === 'g1')!;
     expect(g1After3.isDestroyed).toBe(true);
+  });
+
+  it('Phase 9B: multi-model squad casualty cascade and centroid recomputation', () => {
+    // 3-model squad: m1 at (0, 0, 10), m2 at (0.7, 0, 10), m3 at (1.4, 0, 10) -> Centroid is (0.7, 0, 10)
+    const state = makeState([
+      makeUnit('h1', HOST, { weapons: [weapon('rifle')] }),
+      makeUnit('g-squad', GUEST, {
+        position: { x: 0.7, y: 0, z: 10 } as Vector3,
+        wounds: 3,
+        maxWounds: 3,
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 10 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.7, y: 0, z: 10 } },
+          { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1.4, y: 0, z: 10 } },
+        ],
+      }),
+    ]);
+    state.turnState.activeUnitId = 'h1';
+    state.units[0].isActivated = true;
+
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g-squad',
+      weaponId: 'rifle',
+    });
+
+    // 1st wound: eliminates m1 outright. 2 models remain (m2 at 0.7, m3 at 1.4 -> centroid moves to 1.05)
+    const shot1 = act(state, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const squad1 = shot1.state!.units.find((u) => u.id === 'g-squad')!;
+    expect(squad1.isDestroyed).toBe(false);
+    expect(squad1.models.filter((m) => !m.isDestroyed)).toHaveLength(2);
+    expect(squad1.models[0].isDestroyed).toBe(true);
+    expect(squad1.wounds).toBe(2);
+    expect(squad1.position.x).toBeCloseTo(1.05, 2);
+    expect(shot1.logEntry.dice?.outcome.traumaRoll).toBeUndefined(); // No trauma rolled!
+
+    // 2nd wound: eliminates m2 outright. Only m3 remains at 1.4
+    shot1.state!.units[0].hasAttacked = false;
+    const shot2 = act(shot1.state!, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const squad2 = shot2.state!.units.find((u) => u.id === 'g-squad')!;
+    expect(squad2.isDestroyed).toBe(false);
+    expect(squad2.models.filter((m) => !m.isDestroyed)).toHaveLength(1);
+    expect(squad2.wounds).toBe(1);
+    expect(squad2.position.x).toBeCloseTo(1.4, 2);
+    expect(shot2.logEntry.dice?.outcome.traumaRoll).toBeUndefined(); // Still no trauma rolled!
+
+    // 3rd wound: strikes final surviving model (m3). Trauma roll = 6 + 1 token = 7 >= 6 -> Knocked Out!
+    shot2.state!.units[0].hasAttacked = false;
+    const shot3 = act(shot2.state!, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const squad3 = shot3.state!.units.find((u) => u.id === 'g-squad')!;
+    expect(squad3.isDestroyed).toBe(true);
+    expect(squad3.models.every((m) => m.isDestroyed)).toBe(true);
+    expect(shot3.logEntry.dice?.outcome.traumaOutcome).toBe('knocked-out');
   });
 
   it('Tough(3) / Resilient(3) accumulates wounds without rolling until 3 wounds, and uses KO threshold 8+', () => {
