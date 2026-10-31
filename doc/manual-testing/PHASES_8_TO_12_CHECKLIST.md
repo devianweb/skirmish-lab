@@ -10,7 +10,9 @@ Run `npm run dev` to launch the dev servers, then test with two desktop browser 
 
 ### 1.1 Multi-Weapon Selection & Targeting Chips
 - [ ] **Equipped Weapons Display:**
-  - In a new match, activate a Host unit equipped with multiple ranged weapons (e.g., Warden Veteran with Rifle and Sidearm).
+  - In a new match, activate a Host or Guest unit equipped with multiple ranged weapons:
+    - **Frontier Wardens (Host):** *Warden Scout Marksman* (equipped with **Rifle** `24"` and **Sidearm** `12"`), or *Warden Breacher* (equipped with **Scattergun** `12"` and **Sidearm** `12"`).
+    - **Rust Raiders (Guest):** *Rust Infiltrator* (equipped with **Rifle** `24"` and **Sidearm** `12"`), or *Rust Sapper* (equipped with **Scattergun** `12"` and **Sidearm** `12"`).
   - Click the **Shoot** action button in the action menu.
   - **Verify:** The bottom targeting panel renders individual weapon chips for every equipped ranged weapon.
   - **Verify:** Each chip displays the weapon name, range, Quality/To-Hit requirement, and attack dice count.
@@ -44,6 +46,7 @@ Run `npm run dev` to launch the dev servers, then test with two desktop browser 
 ---
 
 ## Part 2: Phase 9 — Multi-Model Squads & Coherency Engine
+- The models seem to be three meshes crammed into one. It might as well be one unit. I think this is entirely broken.
 
 ### 2.1 Multi-Model Squad Rendering & Selection
 - [ ] **Squad Group Mesh & Base Rings:**

@@ -6,7 +6,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 1. Host Reconnection via Lobby Code ("Room not found or full" fix)
 
-- [ ] **Host Rejoin with Guest Waiting in Room:**
+- [x] **Host Rejoin with Guest Waiting in Room:**
   - In Tab 1, click "Create Room" to generate a room code (e.g. `ABC-123`).
   - In Tab 2, enter `ABC-123` and click "Join Room". Verify both tabs connect.
   - Close Tab 1 (Host disconnects; 5-minute grace window activates on server while Guest remains in room).
@@ -33,7 +33,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 3. Unit Data Card Table Stats
 
-- [ ] **Toughness, Move, and Charge Columns:**
+- [x] **Toughness, Move, and Charge Columns:**
   - Click or hover any friendly or enemy unit on the board.
   - Inspect the RTS Data Card table at the bottom left:
     - **Verify:** The table header reads: `Quality | Defense | Toughness | Move | Charge`.
@@ -47,7 +47,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 4. Charge Range Fan Radius
 
-- [ ] **Charge Range Fan Boundary:**
+- [x] **Charge Range Fan Boundary:**
   - Select a ready unit with speed 6" and click the **Charge** button.
   - **Verify:** The visual range circle drawn around the unit has a radius of exactly **12.0"** (double speed), not 13.0".
 
@@ -55,12 +55,12 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 5. Wound Effect Progression & Clean-Room Badges
 
-- [ ] **Progressive WT Badges on Multi-Wound Models:**
+- [x] **Progressive WT Badges on Multi-Wound Models:**
   - Inflict 1 wound on a Toughness 3 model (e.g. Warden Captain).
   - **Verify:** Status badge reads `1/3 WT` (1 of 3 wound tokens before check). No roll is triggered.
   - Inflict a 2nd wound on the model.
   - **Verify:** Status badge reads `2/3 WT`. No roll is triggered.
-- [ ] **Wound Effect Check Threshold (Knockout on $5 + X$):**
+- [x] **Wound Effect Check Threshold (Knockout on $5 + X$):**
   - Inflict a 3rd wound on the Toughness 3 model.
   - **Verify:** Reaching 3 wounds triggers the Wound Effect roll.
   - **Verify:** Dice log displays:
@@ -72,7 +72,7 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 6. Reaction Timer Clock-Skew Synchronization
 
-- [ ] **Countdown Timer Sync Across Physical Devices:**
+- [x] **Countdown Timer Sync Across Physical Devices:**
   - Execute a Charge into melee contact with an enemy model that has an equipped melee weapon.
   - When the defender receives the Melee Retaliation prompt:
   - **Verify:** Both tabs start the countdown smoothly at `15s` and count down in tandem.
@@ -82,11 +82,11 @@ Run `npm run dev` to launch the dev servers, then test with two browser tabs con
 
 ### 7. Turn & Reaction Audio Notifications
 
-- [ ] **Audio Initialization:**
+- [x] **Audio Initialization:**
   - Click anywhere in the browser tab to unlock Web Audio API.
-- [ ] **Turn Chime:**
+- [x] **Turn Chime:**
   - When opponent completes their unit activation and priority switches to you:
   - **Verify:** A distinct two-tone bell chime plays automatically.
-- [ ] **Reaction Alert:**
+- [x] **Reaction Alert:**
   - When an enemy charges your unit and the Melee Retaliation prompt appears:
   - **Verify:** A distinct harmonic alert tone sounds to notify you of the reaction choice.
