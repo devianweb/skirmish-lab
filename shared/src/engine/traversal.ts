@@ -26,10 +26,10 @@ export function pathLength3D(path: Vector3[]): number {
 }
 
 /**
- * Maximum vertical height difference for melee engagement without being on the same platform surface.
- * Ground models cannot strike targets on ledges > 1.0" tall without climbing up.
+ * Maximum vertical height difference for melee engagement.
+ * Core rules: Models must strike enemies within 2" horizontally and 4" vertically.
  */
-export const MELEE_MAX_VERTICAL_REACH = 1.05;
+export const MELEE_MAX_VERTICAL_REACH = 4.05;
 
 /** Validates whether two models can engage in Close Quarters Combat vertically. */
 export function validateMeleeVerticalReach(a: Vector3, b: Vector3): boolean {

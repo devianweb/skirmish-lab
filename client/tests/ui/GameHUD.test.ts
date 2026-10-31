@@ -1050,7 +1050,7 @@ describe('GameHUD', () => {
     clickByText(container, 'Charge');
     hud.handleBoardPick({ kind: 'unit', unitId: target.id });
     expect(container.textContent).toContain('charges');
-    expect(container.textContent).toContain('into melee');
+    expect(container.textContent).toContain('into base contact');
   });
 
   it('positions disconnect alerts below header so lobby room code is not obscured', () => {
@@ -1293,13 +1293,13 @@ describe('GameHUD', () => {
       expect(action.payload.casualtyModelIds).toEqual(['m2']);
     });
 
-    it('rejects charge when target is on elevated ledge outside vertical melee reach (> 1.0")', () => {
+    it('rejects charge when target is on elevated ledge outside vertical melee reach (> 4.0")', () => {
       const state = scenarioState();
       const attacker = state.units.find((u) => u.ownerId === HOST)!;
       const target = state.units.find((u) => u.ownerId === GUEST)!;
       activateUnit(state, HOST, attacker.id);
       attacker.position = { x: 0, y: 0, z: 0 };
-      target.position = { x: 1.0, y: 2.5, z: 0 }; // 2.5" tall ledge
+      target.position = { x: 1.0, y: 5.0, z: 0 }; // 5.0" tall ledge (> 4.0" reach)
 
       const { hud, container, controller } = setup(HOST, state);
 
