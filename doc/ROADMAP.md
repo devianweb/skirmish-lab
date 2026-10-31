@@ -336,124 +336,171 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ## Phase 8: Combat Enhancements: All-Weapon Firing & Split Fire
 **Goal:** Fire all equipped ranged weapons during a shoot action matching physical tabletop skirmish rules.
 
-> **Recommended AI Model:** **3.8** *(Straightforward multi-weapon loop refactor and HUD targeting chips)*
->
-> **Specification:** See **[RULES_SPECIFICATION.md Section 4](./RULES_SPECIFICATION.md#4-ranged-combat-resolution)**.
+> **Atomic Sub-Phases:**
+> - **Sub-phase 8A (Engine & Data Schema — `shared/`):** Multi-weapon firing loop, split fire target allocation (up to 2 targets), aggregated server roll request, and pure unit tests.
+> - **Sub-phase 8B (HUD & Controls — `client/src/ui`):** Targeting chips per weapon, per-target breakdown in dice panel, and firing audio.
 
-### Tasks
-- [ ] **All-Weapon Shoot Action (`shared`):**
-  - [ ] When shooting, an active unit discharges all eligible equipped ranged weapons (instead of only selecting 1 weapon).
-  - [ ] Aggregate dice specs for all firing weapons into a unified server roll request.
-- [ ] **Split Fire Target Allocation:**
-  - [ ] Allow assigning different weapon profiles to up to **two distinct enemy targets** in line of sight and range.
-  - [ ] Sequential resolution: resolve weapon A vs Target 1, then weapon B vs Target 2 with separate defense/trauma rolls.
-- [ ] **HUD Multi-Weapon Target Selection (`client`):**
-  - [ ] Shoot targeting interface shows weapon allocation chips to assign targets for each equipped ranged weapon.
-  - [ ] Confirmation bar and dice panel show per-target breakdown.
+### Sub-phase 8A: Shared Engine & All-Weapon Batching
+- [x] Support `{ attackerId, allocations: Array<{ weaponId: string, targetId: string }> }` in shoot action payload (backwards-compatible with single weapon/target).
+- [x] Validate range, line-of-sight, and weapon eligibility across all assigned weapons.
+- [x] Enforce split fire constraint: weapons can be divided between at most **two distinct enemy targets**.
+- [x] Aggregate attack dice for all firing weapons into a single unified server roll request.
+- [x] Pure engine unit tests in `shared/tests/engine/actions.test.ts`.
+
+### Sub-phase 8B: HUD Multi-Target Chips & Dice Log
+- [x] Weapon allocation chips in targeting HUD allowing players to assign each equipped ranged weapon to eligible targets.
+- [x] Confirmation bar showing combined attack summary.
+- [x] Authoritative dice panel grouping rolls, defense saves, and wound effects per weapon and target.
 
 ### Acceptance Criteria
-- [ ] A unit with multiple ranged weapons fires all of them during a single shoot action.
-- [ ] Units can divide weapons between up to two distinct targets.
-- [ ] Server requests and resolves defense rolls for each target accurately.
+- [x] A unit with multiple ranged weapons fires all of them during a single shoot action.
+- [x] Units can divide weapons between up to two distinct targets.
+- [x] Server requests and resolves defense rolls for each target accurately in one unified round-trip.
 
 ## Phase 9: Multi-Model Squads & Coherency Engine
-**Goal:** Support 3-model squads alongside single-model specialists and leaders.
+**Goal:** Support multi-model squads (e.g. 3-model infantry squads) alongside single-model specialists and leaders.
 
-> **Recommended AI Model:** **4.0** *(Complex 3D formation pathfinding, coherency geometry, and multi-mesh Three.js lifecycle)*
->
-> **Specification:** See **[RULES_SPECIFICATION.md Section 2.1 & 6.1](./RULES_SPECIFICATION.md#21-spatial-dimensions--coherency)**.
+> **Atomic Sub-Phases:**
+> - **Sub-phase 9A (Spatial Schema & Coherency Engine — `shared/`):** Model position tracking, 1″ model / 6″ squad coherency validation pure functions, and unit tests.
+> - **Sub-phase 9B (Casualty Cascade & Consolidation — `shared/`):** Outright non-leader casualty elimination, last-model trauma table rules, and 3″ melee consolidation math.
+> - **Sub-phase 9C (3D Multi-Mesh Rendering & Centroid Markers — `client/src/scene`):** Three.js `UnitRenderer` multi-mesh lifecycle and squad centroid status tracking.
 
-### Tasks
-- [ ] **Multi-Model Spatial Schema (`shared`):**
-  - [ ] Each model in `unit.models` tracks its own `position`, `rotation`, and individual line-of-sight.
-  - [ ] Coherency validation: every model must remain within **1"** of at least one squad member, and all squad models within **6"** of the entire squad.
-- [ ] **Squad Movement & Pathfinding:**
-  - [ ] Multi-waypoint clearance navigation maintaining formation around obstacles.
-- [ ] **Squad Casualty Allocation:**
-  - [ ] Each unsaved wound eliminates 1 model outright from the squad without rolling trauma.
-  - [ ] Only the **final surviving model** in a squad accumulates trauma tokens and rolls on the Trauma Table.
-  - [ ] Defending player selects which non-leader model is removed as a casualty (integrated into Phase 6.5 reaction framework).
-- [ ] **Melee Consolidation:**
-  - [ ] Defending models consolidate up to **3"** into base contact when charged.
-  - [ ] Surviving models consolidate up to **3"** if the opposing unit is wiped out.
-- [ ] **Multi-Model 3D Scene Rendering (`client`):**
-  - [ ] `UnitRenderer` instantiates and manages multiple 3D meshes per squad.
-  - [ ] Floating wound and status markers follow the squad centroid or individual models.
+### Sub-phase 9A: Spatial Schema & Coherency Engine (`shared/`)
+- [x] Update `Model` interface to track individual `position: Vector3` and `rotation: Vector3`.
+- [x] Coherency validation pure functions: every model must remain within **1"** of at least one other squad member, and all squad models within **6"** of the entire squad.
+- [x] Path movement validation ensuring entire formation maintains coherency at destination.
+- [x] Unit tests for coherency geometry in `shared/tests/engine/spatial.test.ts`.
 
-### Acceptance Criteria
-- [ ] Squads render and move with multiple 3D models while adhering to 1" coherency.
-- [ ] Unsaved wounds remove individual squad models until 1 remains.
-- [ ] Trauma table is only rolled for the last surviving model in a squad.
-- [ ] Melee 3" consolidation pulls squad members into contact.
+### Sub-phase 9B: Casualty Cascade & Melee Consolidation (`shared/`)
+- [x] Unsaved wounds eliminate individual squad models outright without rolling wound effects.
+- [x] Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
+- [x] Melee consolidation: surviving models consolidate up to **3"** into base contact when charged or upon wiping out opposing units.
+- [x] Unit tests in `shared/tests/engine/actions.test.ts`.
 
-## Phase 10: Interactive Deployment & Army Rosters (Pre-Canned + Custom Builder)
-**Goal:** Provide quickplay pre-canned starter armies for instant fun, an advanced army roster importer/builder, and alternating pre-match deployment.
-
-> **Recommended AI Model:** **3.8** *(or **4.0** for parsing complex custom text formats)*
-
-### Tasks
-- [ ] **Pre-Canned Quickplay Starter Armies (`shared/data`):**
-  - [ ] 1-click ready-to-play, point-balanced starter forces for each faction (e.g. 250pts / 300pts for Frontier Wardens, Rust Raiders, and future factions).
-  - [ ] Beginners can immediately jump into play without navigating army building.
-- [ ] **Custom Army Roster Importer & Builder:**
-  - [ ] Points budget validation (e.g. 250pt, 300pt, 500pt match limits).
-  - [ ] Clean-room JSON army list import/export format.
-  - [ ] Plain-text roster import compatible with standard army builders (e.g. Army Forge text format).
-- [ ] **Pre-Match Interactive Deployment Phase:**
-  - [ ] Pre-game roll-off for deployment initiative.
-  - [ ] Alternating deployment phase: players take turns placing 1 unit at a time within their 12" deployment zones.
-  - [ ] Deployment validity checks (inside deployment zone bounds, no placement inside obstacles or within 1" of enemy models).
-- [ ] **Deployment Special Rules:**
-  - [ ] **`vanguard` (Infiltrate):** Deploys after standard deployment anywhere on the board > 12" from the enemy deployment zone.
-  - [ ] **`drop-reserve` (Deep Strike):** Held in reserve during deployment; arrives on Round 2, 3, or 4 anywhere > 9" from enemy units.
+### Sub-phase 9C: 3D Multi-Mesh Rendering & Centroid Badges (`client/`)
+- [x] `UnitRenderer` instantiates, updates, and disposes multiple 3D meshes per squad.
+- [x] Status badges and wound markers follow the squad centroid.
+- [x] Interactive selection highlights the entire squad.
 
 ### Acceptance Criteria
-- [ ] Players can start a match instantly by selecting a pre-canned army per faction.
-- [ ] Advanced players can paste/import custom army lists within a selected points cap.
-- [ ] Interactive deployment lets players alternate placing units before Round 1 begins.
-- [ ] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
+- [x] Squads render and move with multiple 3D models while adhering to 1" coherency.
+- [x] Unsaved wounds remove individual squad models until 1 remains.
+- [x] Wound Effects table is only rolled for the last surviving model in a squad.
+- [x] Melee 3" consolidation pulls squad members into contact.
+
+## Phase 10: Interactive Deployment & Pre-Canned Starter Armies
+**Goal:** Provide quickplay point-balanced starter forces for instant match play and an alternating pre-match deployment phase.
+
+> **Atomic Sub-Phases:**
+> - **Sub-phase 10A (Pre-Canned Armies — `shared/data`):** Point-balanced starter army rosters for Frontier Wardens and Rust Raiders, with special rules definitions (`vanguard`, `drop-reserve`).
+> - **Sub-phase 10B (Deployment Engine — `shared/`):** Deployment turn phase, 12″ deployment zone validation, alternating placement, and initiative roll-off.
+> - **Sub-phase 10C (Deployment HUD & Lobby Picker — `client/src/ui`):** Lobby army selection and 3D deployment zone placement interaction.
+
+### Sub-phase 10A: Pre-Canned Quickplay Starter Armies (`shared/data`)
+- [x] 1-click ready-to-play, point-balanced starter forces for each faction in `shared/data/armies.ts`.
+- [x] Balanced unit composition (e.g. 250pts / 300pts for Frontier Wardens and Rust Raiders).
+- [x] Special rules data attributes: `vanguard` and `drop-reserve`.
+
+### Sub-phase 10B: Pre-Match Deployment Engine (`shared/`)
+- [x] Deployment phase state machine (`TurnPhase = 'deployment'`).
+- [x] Pre-game roll-off for deployment initiative.
+- [x] Alternating placement validation: units placed within friendly 12" zone, outside obstacles, > 1" from enemy models.
+- [x] Special deployment handling: `vanguard` places after standard units; `drop-reserve` held for Round 2+.
+
+### Sub-phase 10C: Deployment HUD & Lobby Selection (`client/`)
+- [x] Lobby UI army selector allowing players to pick their faction force before connecting.
+- [x] 3D deployment zone boundaries visualizer.
+- [x] Alternating placement HUD prompt and placement confirmation.
+
+### Acceptance Criteria
+- [x] Players can start a match instantly by selecting a pre-canned army per faction in the lobby.
+- [x] Interactive deployment lets players alternate placing units within 12" zones before Round 1 begins.
+- [x] Vanguard units deploy after standard units; Drop Reserve units hold back for Round 2+.
 
 ## Phase 11: Environmental Terrain Dynamics & Verticality
-**Goal:** Implement full tabletop terrain hazard tests and 3D multi-level vertical movement.
+**Goal:** Implement full tabletop terrain hazard tests, 3D multi-level vertical movement, and an expanded test battlefield using curated Kenney prototype models.
 
-> **Recommended AI Model:** **4.0** *(3D raycasting, elevation platforms, falling physics, and dynamic navmesh)*
+> **Specification:** See **[RULES_SPECIFICATION.md Section 8 & 10](./RULES_SPECIFICATION.md#8-environmental-obstacles--terrain)** and **[phase-11-spec.md](../.gemini/antigravity-cli/brain/af5e2845-3bb4-4667-aef8-633145239fb8/phase-11-spec.md)**.
 >
-> **Specification:** See **[RULES_SPECIFICATION.md Section 8 & 10](./RULES_SPECIFICATION.md#8-environmental-obstacles--terrain)**.
+> **Atomic Sub-Phases:**
+> - **Sub-phase 11A (Shared Traversal Engine & Hazard Rules — `shared/`):** Difficult terrain 6″ movement speed cap, dangerous terrain 1d6 hazard tests per model, vertical 3D movement distance math, safe drops ($\le 3″$), falling damage ($> 3″$, AP 1 per 3″ fallen), gap jump checks, strict vertical melee reach ($\le 1″$), and ledge knockback displacement with pure unit tests.
+> - **Sub-phase 11B (Elevation Geometry, 3D Line of Sight & Expanded Testing Map — `shared/` & `client/`):** Walkable elevation platform schema (`y > 0`), ladders, stairs, 3D LoS raycasting with parapet cover (+1 Defense within 1″ of ledge) and floor blind spots, plunging fire over ground crates, and an upgraded multi-level default scenario map using Kenney models (`ladder.glb`, `stairs-small.glb`, `floor-square.glb`, `wall-low.glb`, `pipe.glb`).
+> - **Sub-phase 11C (HUD Traversal Controls, Hazard Modals & 3D Visual Rendering — `client/`):** HUD gap jump risk warnings in movement confirmation bar, interactive player choice modal for multi-model squad hazard casualties, 3D platform rendering, vertical movement path preview lines, and falling damage feedback tokens.
 
-### Tasks
-- [ ] **Difficult & Dangerous Terrain:**
-  - [ ] **Difficult Terrain:** Caps movement at **6" maximum** across the activation (negates Rush and Charge speed bonuses).
-  - [ ] **Dangerous Terrain:** Roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 automatic wound.
-- [ ] **Vertical Elevation & Platforms:**
-  - [ ] Multi-level terrain meshes with upper platforms, walkways, and roofs (y > 0).
-  - [ ] Vertical ladders/stairs for scaling elevations.
-  - [ ] Standard drop clearance: models safely drop elevations ≤ 3" without penalty.
-  - [ ] Extended jump checks across horizontal gaps (≤ 6").
-  - [ ] Falling damage: AP(1) per full 3" of vertical fall if pushed or failing extended jumps.
+### Sub-phase 11A: Shared Traversal Engine & Hazard Rules (`shared/`)
+- [x] Difficult terrain movement speed cap: caps total activation movement at **6.0″ maximum** (negates speed bonuses for Rush and Charge).
+- [x] Dangerous terrain hazard checks: roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 unsaved wound.
+- [x] 3D movement distance math: ladders/stairs traverse at 1:1 cost; free-climbing sheer walls classifies move as Difficult Terrain (caps at 6.0″).
+- [x] Elevation drop thresholds: safe drops $\le 3.0″$ consume normal vertical distance; voluntary or involuntary drops $> 3.0″$ inflict Falling Damage (1 automatic hit with AP 1 per full 3.0″ fallen) and terminate activation immediately.
+- [x] Horizontal gap jumping: gaps $\le 1.0″$ step across freely; gaps $> 1.0″$ up to 6.0″ require a Jump test (Quality $Q$+) with failed checks falling to the bottom with falling damage.
+- [x] Strict vertical melee reach: models cannot initiate melee contact or strike across a vertical difference $> 1.0″$ without climbing to base contact.
+- [x] Ledge knockback: pushing models over ledges $> 3.0″$ causes them to plummet to the ground with falling damage.
+- [x] Pure engine unit tests in `shared/tests/engine/`.
+
+### Sub-phase 11B: Elevation Geometry, 3D Line of Sight & Expanded Testing Map (`shared/` & `client/`)
+- [x] Extend `TerrainPiece` schema with elevation attributes: `isDifficult`, `isDangerous`, `elevation`, `walkable`, and climb access points.
+- [x] 3D Line of Sight raycasting updates:
+  - [x] Models on elevated platforms within 1.0″ of edge facing the shooter receive +1 Defense (Parapet Cover).
+  - [x] Models set back $> 1.0″$ from roof edges are visually blocked by floor polygons (floor blind spots).
+  - [x] Plunging fire looks over ground-level low cover ($\le 1.0″$) along the line of fire.
+- [x] Expanded default testing scenario map (`createDefaultScenarioTerrain`):
+  - [x] Multi-level platforms, walkways, industrial pipes, ladders, stairs, low barricades, and dangerous terrain hazard zones (toxic sludge / acid pool).
+  - [x] Curate and register new Kenney Prototype Kit models in `client/public/models/`: `ladder.glb`, `stairs-small.glb`, `floor-square.glb`, `wall-low.glb`, `pipe.glb`.
+  - [x] Update `doc/ASSETS.md` asset mapping table with footprints and mechanical roles.
+- [x] Unit tests for 3D elevation geometry and line of sight.
+
+### Sub-phase 11C: HUD Traversal Controls, Hazard Modals & 3D Visual Rendering (`client/`)
+- [x] HUD movement confirmation bar shows Jump Test risk warning (Quality target) when moving across horizontal gaps $> 1.0″$.
+- [x] Interactive Player Choice Modal prompting the controlling player to allocate hazard test casualties across squad members.
+- [x] Three.js 3D rendering for multi-level platforms, ladders, stairs, industrial pipes, and hazardous terrain textures.
+- [x] 3D vertical movement path preview lines & falling damage outcome tokens.
+- [x] Client integration tests.
 
 ### Acceptance Criteria
-- [ ] Difficult terrain caps movement at 6".
-- [ ] Dangerous terrain rolls 1s for wounds on traversal.
-- [ ] Models can move onto elevated platforms and suffer falling damage if displaced off high edges.
+- [x] Difficult terrain caps total activation movement at 6.0″.
+- [x] Dangerous terrain rolls 1d6 per model; 1s inflict wounds with interactive squad casualty selection.
+- [x] Climbing ladders costs 1:1; climbing sheer walls applies Difficult Terrain 6.0″ cap.
+- [x] Drops $\le 3.0″$ are safe; drops $> 3.0″$ inflict AP(1) falling damage per full 3″ fallen and end activation.
+- [x] Gaps $\le 1.0″$ step freely; gaps $> 1.0″$ prompt Jump test (Quality $Q$+) with falling risk.
+- [x] Ledge models within 1.0″ of edge gain +1 Defense; setback models create blind spots.
+- [x] Ground models cannot melee targets on ledges $> 1.0″$ without climbing into base contact.
+- [x] Default scenario battlefield features rich multi-level Kenney terrain models (platforms, catwalks, stairs, ladders, pipes, hazard pools).
 
 ## Phase 12: Reconnection & Network Resilience
 **Goal:** Handle disconnections, socket recoveries, and snapshot re-syncing without dropping matches.
 
-> **Recommended AI Model:** **4.0** *(WebRTC socket recovery, IndexedDB state caching, and distributed desync prevention)*
+> **Specification:** See **[phase-12-spec.md](../.gemini/antigravity-cli/brain/af5e2845-3bb4-4667-aef8-633145239fb8/phase-12-spec.md)**.
+>
+> **Atomic Sub-Phases:**
+> - **Sub-phase 12A (DataChannel Heartbeats, P2P Ping/Pong & Timer Suspension — `client/`):** P2P heartbeat ping every 3s over WebRTC DataChannel, 6s timeout threshold detecting peer silence, top-banner disconnect warnings, and pausing/resuming reaction and turn timers while disconnected.
+> - **Sub-phase 12B (Snapshot Persistence, Storage Management & Cleanup — `client/`):** `SessionStore` utility managing `localStorage` for `skirmish_lab_active_session` and `skirmish_lab_snapshot_{roomCode}`, auto-saving confirmed `GameState` after every action, corruption safety checks, and auto-cleanup on Game Over or match abandon.
+> - **Sub-phase 12C (Reconnection Handshake, Peer Fallback State Sync & Lobby Resume UI — `client/` & `server/`):** Reconnection flow during the 5-minute grace window, Host-authoritative `state-sync` broadcast, peer fallback (`request-state-sync` if Host storage was wiped), URL query parameters (`?room=XXX-XXX`), and Lobby "Resume Match" banner.
 
-### Tasks
-- [ ] Heartbeat timeout detection across WebRTC data channel and signaling WebSocket.
-- [x] Disconnect UI/handling (top-banner notification when opponent peer disconnects/reconnects or when signaling drops).
-- [ ] Snapshot storage and retrieval in IndexedDB / local storage.
-- [ ] Guest snapshot caching for potential host rehosting.
-- [ ] Reconnection flow: rejoin active room during the 5-minute grace window.
-- [ ] State re-sync on reconnection (host broadcasts authoritative state to rejoined guest).
-- [ ] Handle host reconnection and socket recovery.
+### Sub-phase 12A: DataChannel Heartbeat & Timer Suspension (`client/`)
+- [ ] Application-level P2P heartbeat ping/pong protocol over WebRTC DataChannel (3s ping interval, 6s silence timeout).
+- [ ] Top-banner disconnect notification when peer connection is unstable or lost (`"⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)"`).
+- [ ] Pause reaction countdown timers (e.g. Overwatch, Counter-charge) and turn timers while disconnected; resume smoothly once reconnected.
+- [ ] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
+
+### Sub-phase 12B: Snapshot Persistence & SessionStore Management (`client/`)
+- [ ] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.
+- [ ] Save active session metadata (`roomCode`, `role`, `playerId`, `playerName`, `armyId`, timestamp) and latest confirmed `GameState`.
+- [ ] Auto-save state on both Host and Guest after every confirmed action execution.
+- [ ] Auto-cleanup session data when game reaches `status: 'game-over'` or when player clicks "Leave Room".
+- [ ] Unit tests for storage operations, versioning, error handling, and quota safety.
+
+### Sub-phase 12C: Reconnection Handshake, Peer Fallback & Lobby Resume UI (`client/` & `server/`)
+- [ ] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.
+- [ ] Lobby "Resume Match" banner when an active unexpired room session is detected.
+- [ ] Reconnection handshake: Host broadcasts authoritative `state-sync` to reconnected Guest.
+- [ ] Peer fallback: If Host reconnects with empty storage, Host requests snapshot from Guest (`request-state-sync`), verifies it, and resumes authority.
+- [ ] End-to-end integration tests verifying reconnection and state restoration across drops.
 
 ### Acceptance Criteria
-- [ ] Disconnect detected via heartbeat timeout.
-- [ ] Guest has cached snapshot.
-- [ ] Host can reconnect to the same room during grace window.
+- [ ] Disconnect detected via DataChannel heartbeat timeout (6s silence) or ICE disconnect.
+- [ ] Reaction and turn timers freeze while disconnected and resume upon reconnection.
+- [ ] Both Host and Guest maintain cached snapshots in `localStorage`.
+- [ ] Host and Guest can reconnect to the same room during the 5-minute grace window.
 - [ ] Game state re-synced after reconnection without state corruption.
 - [ ] Play resumes seamlessly from the last confirmed state.
 
@@ -487,7 +534,7 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 | **Phase 7: Objectives & 4-Round Mission Engine** | **3.8** | Game state entity, 3″ distance checks, round clock, 3D beacon | The logic is clean and additive: placing 3–5 beacons, computing standard 2D distance checks at round end, and tracking integer victory points. |
 | **Phase 8: All-Weapon Firing & Split Fire** | **3.8** | Multi-target dice loop & UI chips | Mostly refactoring `actions.ts` and HUD targeting chips to loop over an array of equipped weapons rather than a single weapon ID. |
 | **Phase 9: Multi-Model Squads & Coherency Engine** | **4.0** | 3D multi-model formation pathfinding & coherency geometry | High mathematical complexity: multi-mesh group rendering in Three.js, maintaining 1″ model / 6″ squad coherency around clearance corners, and squad casualty cascades. |
-| **Phase 10: Interactive Deployment & Pre-Canned / Custom Armies** | **3.8** *(or 4.0 for parser)* | Data curation, text parser, deployment boundary checks | Writing pre-canned starter rosters is pure data; deployment is simple boundary validation. (If writing a complex Army Forge text regex parser, 4.0 can scaffold that piece). |
+| **Phase 10: Interactive Deployment & Pre-Canned Starter Armies** | **3.8** | Pre-canned data packs & deployment boundary checks | Writing point-balanced starter rosters is pure data; deployment is straightforward 2D boundary validation. |
 | **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
 | **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
 | **Phase 13: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
@@ -496,6 +543,7 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 > **Hybrid Workflow within a Phase:** For 4.0 phases (such as Phase 6.5 and Phase 9), kick off with 4.0 to design the shared state schema and core engine functions in `shared/`, then switch to 3.8 to build the Three.js visual rendering, HTML/CSS HUD components, and supplementary unit tests.
 
 ## Future Considerations (Post-v1)
+- Custom army roster importer & builder (clean-room JSON import/export, points budget validation, and Army Forge plain-text roster parsing)
 - Full host migration if needed
 - Additional terrain types
 - More special rules

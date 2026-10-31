@@ -50,6 +50,15 @@ export const TERRAIN_ASSETS: Record<string, AssetDefinition> = {
     url: `${MODELS_BASE}column.glb`,
     scaleVector: { x: 2.5, y: 1, z: 2.5 },
   },
+  ladder: model('ladder.glb', 1.0),
+  stairs: model('stairs-small.glb', 1.0),
+  platform: model('floor-square.glb', 1.0),
+  'wall-low': {
+    url: `${MODELS_BASE}wall-low.glb`,
+    scaleVector: { x: 5, y: 1, z: 1 },
+    rotationY: Math.PI / 2,
+  },
+  pipe: model('pipe.glb', 1.0),
 };
 
 export const MARKER_ASSETS: Record<string, AssetDefinition> = {

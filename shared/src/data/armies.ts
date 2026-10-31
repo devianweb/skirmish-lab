@@ -1,6 +1,7 @@
 import { resolveWeapons } from './weapons';
 import { Unit, UnitStatus } from '../gameTypes';
 import { Vector3 } from '../types';
+import { createSquadPositions } from '../engine/spatial';
 
 /**
  * Fighter definitions for the two v1 armies — original, generic names and
@@ -19,6 +20,8 @@ export interface FighterDefinition {
   speed: number;          // Movement in board units (inches)
   /** Unit type used by the renderer for model selection. */
   modelType: 'leader' | 'trooper' | 'specialist' | 'heavy';
+  /** Number of models in the unit/squad (defaults to 1). */
+  modelCount?: number;
   weapons: string[];      // Weapon profile IDs
   specialRules: string[];
 }
@@ -208,18 +211,197 @@ export function createUnitFromFighter(
     maxWounds: definition.wounds,
     isActivated: false,
     isDestroyed: false,
-    models: [
-      {
-        id: `${unitId}-model-1`,
+    models: (() => {
+      const count = definition.modelCount ?? 1;
+      const positions = createSquadPositions(position, count);
+      return positions.map((pos, idx) => ({
+        id: `${unitId}-model-${idx + 1}`,
         wounds: definition.wounds,
         maxWounds: definition.wounds,
         isDestroyed: false,
-      },
-    ],
+        position: { ...pos },
+        rotation: { x: 0, y: 0, z: 0 },
+      }));
+    })(),
     weapons: resolveWeapons(definition.weapons),
     specialRules: [...definition.specialRules],
     hasMoved: false,
     hasAttacked: false,
     remainingMovement: definition.speed,
+    isDeployed: true,
   };
+}
+
+// ============================================================================
+// Pre-Canned Point-Balanced Starter Forces (Phase 10A)
+// ============================================================================
+
+export interface StarterArmy {
+  id: string;
+  name: string;
+  factionId: string;
+  theme: string;
+  totalPoints: number;
+  fighters: FighterDefinition[];
+}
+
+export const STARTER_ARMIES: Record<string, StarterArmy> = {
+  'frontier-wardens-starter': {
+    id: 'frontier-wardens-starter',
+    name: 'Frontier Wardens Vanguard Force',
+    factionId: 'frontier-wardens',
+    theme: 'Disciplined outpost vanguard equipped with precision marksmen, resilient defenders, and drop reserves',
+    totalPoints: 300,
+    fighters: [
+      {
+        id: 'warden-captain',
+        name: 'Warden Captain',
+        faction: 'frontier-wardens',
+        points: 110,
+        quality: 3,
+        defense: 4,
+        wounds: 3,
+        speed: 6,
+        modelType: 'leader',
+        weapons: ['handcannon', 'blade'],
+        specialRules: ['commander', 'steadfast', 'resilient(3)'],
+      },
+      {
+        id: 'warden-marksman',
+        name: 'Warden Scout Marksman',
+        faction: 'frontier-wardens',
+        points: 75,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'specialist',
+        weapons: ['carbine'],
+        specialRules: ['steadfast', 'marksman', 'camouflaged', 'vanguard'],
+      },
+      {
+        id: 'warden-breacher',
+        name: 'Warden Breacher',
+        faction: 'frontier-wardens',
+        points: 65,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'specialist',
+        weapons: ['scattergun', 'fists'],
+        specialRules: ['steadfast', 'sustained'],
+      },
+      {
+        id: 'warden-patrol-squad',
+        name: 'Warden Patrol Squad',
+        faction: 'frontier-wardens',
+        points: 50,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 2,
+        weapons: ['rifle'],
+        specialRules: ['steadfast', 'drop-reserve'],
+      },
+    ],
+  },
+  'rust-raiders-starter': {
+    id: 'rust-raiders-starter',
+    name: 'Rust Raiders Incursion Mob',
+    factionId: 'rust-raiders',
+    theme: 'Aggressive scavenger incursion force featuring rapid infiltrators, combat sappers, and drop reserves',
+    totalPoints: 300,
+    fighters: [
+      {
+        id: 'raider-boss',
+        name: 'Raid Boss',
+        faction: 'rust-raiders',
+        points: 110,
+        quality: 3,
+        defense: 4,
+        wounds: 3,
+        speed: 6,
+        modelType: 'leader',
+        weapons: ['handcannon', 'blade'],
+        specialRules: ['commander', 'frenzy', 'resilient(3)'],
+      },
+      {
+        id: 'raider-skirmisher',
+        name: 'Rust Infiltrator',
+        faction: 'rust-raiders',
+        points: 75,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'specialist',
+        weapons: ['carbine'],
+        specialRules: ['frenzy', 'marksman', 'camouflaged', 'vanguard'],
+      },
+      {
+        id: 'raider-sapper',
+        name: 'Rust Sapper',
+        faction: 'rust-raiders',
+        points: 65,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'specialist',
+        weapons: ['scattergun', 'fists'],
+        specialRules: ['frenzy', 'sustained'],
+      },
+      {
+        id: 'raider-mob-squad',
+        name: 'Rust Runner Mob',
+        faction: 'rust-raiders',
+        points: 50,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 2,
+        weapons: ['rifle'],
+        specialRules: ['frenzy', 'drop-reserve'],
+      },
+    ],
+  },
+};
+
+/**
+ * Creates full Unit instances from a StarterArmy definition for game setup or interactive deployment.
+ */
+export function createUnitsFromStarterArmy(
+  starterArmy: StarterArmy,
+  ownerId: string,
+  options: {
+    startUndeployed?: boolean;
+    defaultZ?: number;
+    facing?: number;
+  } = {}
+): Unit[] {
+  const spread = [-6, -2, 2, 6];
+  const z = options.defaultZ ?? 0;
+  const facing = options.facing ?? 0;
+
+  return starterArmy.fighters.map((fighter, index) => {
+    const pos = {
+      x: spread[index % spread.length],
+      y: 0,
+      z,
+    };
+    const unit = createUnitFromFighter(fighter, ownerId, starterArmy.factionId, pos, {
+      unitId: `${ownerId}-${fighter.id}-${index + 1}`,
+      nameSuffix: String(index + 1),
+    });
+    unit.rotation = { x: 0, y: facing, z: 0 };
+    if (options.startUndeployed) {
+      unit.isDeployed = false;
+    }
+    return unit;
+  });
 }

@@ -157,4 +157,103 @@ describe('UnitRenderer', () => {
 
     expect(JSON.stringify(state)).toBe(before);
   });
+
+  describe('Phase 9C: Multi-Model Squad Rendering', () => {
+    it('instantiates multiple 3D model meshes for multi-model squads with local relative offsets', () => {
+      const { renderer, unitGroup } = setup();
+      const squad = makeUnit({
+        id: 'squad-1',
+        ownerId: 'host-1',
+        position: { x: 5, y: 0, z: 5 },
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 5.0, y: 0, z: 5.0 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 5.8, y: 0, z: 5.0 } },
+          { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 4.2, y: 0, z: 5.0 } },
+        ],
+      });
+      const state = makeState({ units: [squad] });
+
+      renderer.syncFromState(state);
+
+      expect(unitGroup.children.length).toBe(1);
+      const squadRoot = unitGroup.children[0] as THREE.Group;
+      expect(squadRoot.userData.unitId).toBe('squad-1');
+      expect(squadRoot.position.x).toBe(5);
+      expect(squadRoot.position.z).toBe(5);
+
+      // Squad group contains 3 child model meshes
+      expect(squadRoot.children.length).toBe(3);
+      const modelMeshes = squadRoot.children;
+      // Local offsets: m1 at 0, m2 at +0.8, m3 at -0.8
+      expect(modelMeshes[0].position.x).toBeCloseTo(0, 2);
+      expect(modelMeshes[1].position.x).toBeCloseTo(0.8, 2);
+      expect(modelMeshes[2].position.x).toBeCloseTo(-0.8, 2);
+    });
+
+    it('removes and disposes casualty model meshes when models are destroyed', () => {
+      const { renderer, unitGroup } = setup();
+      const squad = makeUnit({
+        id: 'squad-1',
+        position: { x: 5, y: 0, z: 5 },
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 5.0, y: 0, z: 5.0 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 5.8, y: 0, z: 5.0 } },
+        ],
+      });
+      const state = makeState({ units: [squad] });
+
+      renderer.syncFromState(state);
+      const squadRoot = unitGroup.children[0] as THREE.Group;
+      expect(squadRoot.children.length).toBe(2);
+
+      // Suffer casualty on m1
+      squad.models[0].isDestroyed = true;
+      squad.position = { x: 5.8, y: 0, z: 5.0 }; // Centroid moves to m2
+      renderer.syncFromState(state);
+
+      expect(squadRoot.children.length).toBe(1);
+      expect(squadRoot.children[0].userData.modelId).toBe('m2');
+    });
+
+    it('raycasting any squad member mesh returns the squad unitId', () => {
+      const { renderer } = setup();
+      const squad = makeUnit({
+        id: 'squad-alpha',
+        position: { x: 0, y: 0, z: 0 },
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+        ],
+      });
+      const state = makeState({ units: [squad] });
+      renderer.syncFromState(state);
+
+      // Raycast aimed directly down at model m2 at (0.8, 0, 0)
+      const raycaster = new THREE.Raycaster(
+        new THREE.Vector3(0.8, 10, 0),
+        new THREE.Vector3(0, -1, 0)
+      );
+      const hit = renderer.raycastUnit(raycaster);
+      expect(hit).toBe('squad-alpha');
+    });
+
+    it('does not render undeployed units until isDeployed is true', () => {
+      const { renderer, unitGroup } = setup();
+      const unit = makeUnit({
+        id: 'undeployed-leader',
+        isDeployed: false,
+      });
+      const state = makeState({ units: [unit] });
+      renderer.syncFromState(state);
+
+      expect(unitGroup.children.length).toBe(0);
+
+      // Deploy the unit
+      unit.isDeployed = true;
+      renderer.syncFromState(state);
+
+      expect(unitGroup.children.length).toBe(1);
+      expect(unitGroup.children[0].userData.unitId).toBe('undeployed-leader');
+    });
+  });
 });

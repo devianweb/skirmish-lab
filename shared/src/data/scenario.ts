@@ -2,7 +2,9 @@ import { GameState, Objective, TerrainPiece, Unit } from '../gameTypes';
 import {
   ARMY_FRONTIER_WARDENS,
   ARMY_RUST_RAIDERS,
+  STARTER_ARMIES,
   createUnitFromFighter,
+  createUnitsFromStarterArmy,
 } from './armies';
 
 /**
@@ -129,6 +131,85 @@ export function createDefaultScenarioTerrain(): TerrainPiece[] {
       providesCover: true,
       isObstacle: true,
     },
+    // Multi-level verticality & testing map features
+    {
+      id: 'terrain-platform-west',
+      terrainType: 'platform',
+      position: { x: -6, y: 2.5, z: 2 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 0.3, z: 3 },
+      elevation: 2.5,
+      isWalkable: true,
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: false,
+    },
+    {
+      id: 'terrain-ladder-west',
+      terrainType: 'ladder',
+      climbType: 'ladder',
+      position: { x: -4.5, y: 0, z: 2 },
+      rotation: { x: 0, y: -Math.PI / 2, z: 0 },
+      scale: { x: 0.5, y: 2.5, z: 1.0 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: false,
+    },
+    {
+      id: 'terrain-platform-east',
+      terrainType: 'platform',
+      position: { x: 6, y: 2.5, z: -2 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 0.3, z: 3 },
+      elevation: 2.5,
+      isWalkable: true,
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: false,
+    },
+    {
+      id: 'terrain-stairs-east',
+      terrainType: 'stairs',
+      climbType: 'stairs',
+      position: { x: 4.5, y: 0, z: -2 },
+      rotation: { x: 0, y: Math.PI / 2, z: 0 },
+      scale: { x: 1.5, y: 2.5, z: 1.0 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: false,
+    },
+    {
+      id: 'terrain-wall-low-north',
+      terrainType: 'wall-low',
+      position: { x: 4, y: 0, z: 4 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 2, y: 0.8, z: 0.3 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: true,
+    },
+    {
+      id: 'terrain-pipe-center',
+      terrainType: 'pipe',
+      position: { x: -2, y: 0, z: -3 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 0.8, z: 0.8 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: true,
+    },
+    {
+      id: 'terrain-toxic-sludge',
+      terrainType: 'toxic',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 2.5, y: 0.05, z: 2.5 },
+      isDangerous: true,
+      isDifficult: true,
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+    },
   ];
 }
 
@@ -179,9 +260,66 @@ export function createDefaultScenarioObjectives(): Objective[] {
   ];
 }
 
+export interface ScenarioOptions {
+  hostArmyId?: string;
+  guestArmyId?: string;
+  useDeploymentPhase?: boolean;
+}
+
 /** Apply the default scenario to a fresh game state (host-side, at start). */
-export function applyDefaultScenario(state: GameState): void {
-  state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
+export function applyDefaultScenario(state: GameState, options: ScenarioOptions = {}): void {
+  const hostStarter = options.hostArmyId && options.hostArmyId in STARTER_ARMIES
+    ? STARTER_ARMIES[options.hostArmyId as keyof typeof STARTER_ARMIES]
+    : null;
+  const guestStarter = options.guestArmyId && options.guestArmyId in STARTER_ARMIES
+    ? STARTER_ARMIES[options.guestArmyId as keyof typeof STARTER_ARMIES]
+    : null;
+
+  if (options.useDeploymentPhase) {
+    const hostForce = hostStarter ?? STARTER_ARMIES['frontier-wardens-starter'];
+    const guestForce = guestStarter ?? STARTER_ARMIES['rust-raiders-starter'];
+
+    const hostUnits = createUnitsFromStarterArmy(hostForce, state.hostId, {
+      startUndeployed: true,
+      defaultZ: -12,
+      facing: 0,
+    });
+    const guestUnits = createUnitsFromStarterArmy(guestForce, state.guestId, {
+      startUndeployed: true,
+      defaultZ: 12,
+      facing: Math.PI,
+    });
+
+    state.units = [...hostUnits, ...guestUnits];
+    state.terrain = createDefaultScenarioTerrain();
+    state.markers = [];
+    state.objectives = createDefaultScenarioObjectives();
+    state.status = 'in-progress';
+    state.turnState.phase = 'deployment';
+    state.turnState.roundNumber = 0;
+    state.turnState.startingPlayerId = state.hostId;
+    state.turnState.currentPlayerId = state.hostId;
+    state.turnState.activeUnitId = null;
+    state.turnState.unitsActivatedThisRound = [];
+    return;
+  }
+
+  if (hostStarter && guestStarter) {
+    const hostUnits = createUnitsFromStarterArmy(hostStarter, state.hostId, {
+      startUndeployed: false,
+      defaultZ: -12,
+      facing: 0,
+    });
+    const guestUnits = createUnitsFromStarterArmy(guestStarter, state.guestId, {
+      startUndeployed: false,
+      defaultZ: 12,
+      facing: Math.PI,
+    });
+    state.units = [...hostUnits, ...guestUnits];
+  } else {
+    state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
+  }
+
   state.terrain = createDefaultScenarioTerrain();
   state.markers = [];
   state.objectives = createDefaultScenarioObjectives();

@@ -1,6 +1,8 @@
 import { GameState, MAX_ROUNDS, OBJECTIVE_CONTROL_RADIUS, Unit } from '../gameTypes';
+import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
+import { findTerrainAtPosition } from './spatial';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -263,4 +265,147 @@ export function applyRoundEndMorale(
   }
 
   return outcomes;
+}
+
+// ============================================================================
+// Interactive Pre-Match Deployment Engine (Phase 10B)
+// ============================================================================
+
+export interface DeploymentZoneBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/**
+ * Calculates rectangular battlefield boundaries for a player's deployment zone.
+ * Standard depth is 12". Vanguard units may deploy up to 12" ahead.
+ */
+export function getDeploymentZoneBounds(
+  state: GameState,
+  playerId: string,
+  isVanguard: boolean = false
+): DeploymentZoneBounds {
+  const halfW = (state.board.width * state.board.gridSize) / 2;
+  const halfH = (state.board.height * state.board.gridSize) / 2;
+  const isHost = playerId === state.hostId;
+
+  if (isHost) {
+    // Host deployed at South edge (-halfH) facing +z
+    const minZ = -halfH;
+    const maxZ = isVanguard ? Math.min(0, -halfH + 24) : -halfH + 12;
+    return { minX: -halfW, maxX: halfW, minZ, maxZ };
+  } else {
+    // Guest deployed at North edge (+halfH) facing -z
+    const maxZ = halfH;
+    const minZ = isVanguard ? Math.max(0, halfH - 24) : halfH - 12;
+    return { minX: -halfW, maxX: halfW, minZ, maxZ };
+  }
+}
+
+/**
+ * Get undeployed units eligible for deployment for a player.
+ * Enforces rule sequencing:
+ * 1. Standard units deploy first.
+ * 2. Vanguard units deploy after all standard units are deployed.
+ * 3. Drop Reserve units cannot deploy during pre-match deployment (held for Round 2+).
+ */
+export function getDeployableUnits(state: GameState, playerId: string): Unit[] {
+  const undeployed = state.units.filter(
+    (u) => u.ownerId === playerId && !u.isDestroyed && u.isDeployed === false
+  );
+
+  // Filter out drop-reserve units (held for Round 2+)
+  const eligible = undeployed.filter((u) => !hasTrait(u.specialRules, 'drop-reserve'));
+
+  // Standard units must deploy before vanguard units
+  const standard = eligible.filter((u) => !hasTrait(u.specialRules, 'vanguard'));
+  if (standard.length > 0) {
+    return standard;
+  }
+  return eligible;
+}
+
+/** True when the player still has units to place during the deployment phase. */
+export function hasDeployableUnits(state: GameState, playerId: string): boolean {
+  return getDeployableUnits(state, playerId).length > 0;
+}
+
+/** True when all deployable units for both players have been placed. */
+export function isDeploymentComplete(state: GameState): boolean {
+  return !hasDeployableUnits(state, state.hostId) && !hasDeployableUnits(state, state.guestId);
+}
+
+/**
+ * Passes turn to opponent during deployment phase, or transitions to 'activation'
+ * (Round 1) if all units are placed.
+ */
+export function advanceDeployment(state: GameState): void {
+  const current = state.turnState.currentPlayerId;
+  const opponent = getOpponentId(state, current);
+
+  if (hasDeployableUnits(state, opponent)) {
+    state.turnState.currentPlayerId = opponent;
+  }
+
+  if (isDeploymentComplete(state)) {
+    state.turnState.phase = 'activation';
+    state.turnState.roundNumber = 1;
+    state.turnState.currentPlayerId = state.turnState.startingPlayerId;
+  }
+}
+
+/**
+ * Validates whether a unit may be legally deployed at `position`.
+ */
+export function validateDeploymentPosition(
+  state: GameState,
+  unit: Unit,
+  position: Vector3
+): { valid: boolean; reason?: string } {
+  if (hasTrait(unit.specialRules, 'drop-reserve')) {
+    return { valid: false, reason: 'Drop Reserve units cannot be deployed pre-match (held for Round 2+)' };
+  }
+
+  const eligibleUnits = getDeployableUnits(state, unit.ownerId);
+  if (!eligibleUnits.some((u) => u.id === unit.id)) {
+    return { valid: false, reason: 'Unit is not currently eligible for deployment (vanguard units deploy after standard units)' };
+  }
+
+  const isVanguard = hasTrait(unit.specialRules, 'vanguard');
+  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isVanguard);
+
+  if (
+    position.x < bounds.minX - 0.01 ||
+    position.x > bounds.maxX + 0.01 ||
+    position.z < bounds.minZ - 0.01 ||
+    position.z > bounds.maxZ + 0.01
+  ) {
+    return {
+      valid: false,
+      reason: isVanguard
+        ? 'Position outside friendly vanguard deployment zone (up to 12" ahead)'
+        : 'Position outside friendly 12" deployment zone',
+    };
+  }
+
+  // Check obstacle collision
+  const piece = findTerrainAtPosition(state, position);
+  if (piece && piece.isObstacle) {
+    return { valid: false, reason: 'Cannot deploy inside a terrain obstacle' };
+  }
+
+  // Check proximity to deployed enemy models (> 1.0")
+  for (const other of state.units) {
+    if (other.ownerId === unit.ownerId || other.isDestroyed || other.isDeployed === false) {
+      continue;
+    }
+    const dist = Math.hypot(position.x - other.position.x, position.z - other.position.z);
+    if (dist <= 1.0) {
+      return { valid: false, reason: 'Cannot deploy within 1" of enemy models' };
+    }
+  }
+
+  return { valid: true };
 }

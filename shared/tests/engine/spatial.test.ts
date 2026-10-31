@@ -6,10 +6,17 @@ import {
   clampMoveDestinationWithObstacles,
   computeLosVisibilityPolygon,
   computeShootingRayDebug,
+  computeSquadCentroid,
+  createSquadPositions,
   findMoveBlocker,
   findNavPath,
+  findWalkablePlatformAt,
+  getPlatformEdgeDistance,
+  getSquadModelPositions,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  validateFormationMove,
+  validateSquadCoherency,
 } from '../../src/engine/spatial';
 import { WEAPONS } from '../../src/data/weapons';
 
@@ -450,5 +457,288 @@ describe('spatial: findNavPath obstacle pathfinding', () => {
     const len = pathLength(path);
     expect(len).toBeCloseTo(3, 1);
     expect(findMoveBlocker(state, unit, path).blocked).toBe(false);
+  });
+});
+
+describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
+  describe('validateSquadCoherency', () => {
+    it('treats single model squads as vacuously coherent', () => {
+      const res = validateSquadCoherency([{ x: 0, y: 0, z: 0 }]);
+      expect(res.coherent).toBe(true);
+      expect(res.maxDistanceBetweenModels).toBe(0);
+    });
+
+    it('validates 2 models within 1" spacing as coherent', () => {
+      const res = validateSquadCoherency([
+        { x: 0, y: 0, z: 0 },
+        { x: 0.8, y: 0, z: 0 },
+      ]);
+      expect(res.coherent).toBe(true);
+      expect(res.maxDistanceBetweenModels).toBeCloseTo(0.8, 2);
+      expect(res.maxDistanceToNearestMember).toBeCloseTo(0.8, 2);
+    });
+
+    it('rejects 2 models exceeding 1" separation', () => {
+      const res = validateSquadCoherency([
+        { x: 0, y: 0, z: 0 },
+        { x: 1.5, y: 0, z: 0 },
+      ]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds 1" limit');
+    });
+
+    it('validates 3 models in triangle formation where all pairs are within 1"', () => {
+      const positions = createSquadPositions({ x: 0, y: 0, z: 0 }, 3, 0.8);
+      const res = validateSquadCoherency(positions);
+      expect(res.coherent).toBe(true);
+      expect(res.maxDistanceBetweenModels).toBeLessThanOrEqual(1.0);
+    });
+
+    it('rejects formation when a model is isolated from the squad', () => {
+      const positions: Vector3[] = [
+        { x: 0, y: 0, z: 0 },
+        { x: 0.6, y: 0, z: 0 },
+        { x: 2.5, y: 0, z: 0 }, // 1.9" away from nearest member
+      ];
+      const res = validateSquadCoherency(positions);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('Model 3');
+      expect(res.reason).toContain('exceeds 1" limit');
+    });
+
+    it('rejects formation split into 2 disconnected groups even when under 6" spread', () => {
+      const positions: Vector3[] = [
+        { x: 0, y: 0, z: 0 },
+        { x: 0.5, y: 0, z: 0 },
+        { x: 3.0, y: 0, z: 0 },
+        { x: 3.5, y: 0, z: 0 },
+      ];
+      const res = validateSquadCoherency(positions);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('disconnected');
+    });
+
+    it('rejects long daisy chain exceeding 6" max squad spread', () => {
+      // 8 models in a straight line with 0.9" spacing (total spread 7 * 0.9 = 6.3" > 6.0")
+      const positions: Vector3[] = [];
+      for (let i = 0; i < 8; i++) {
+        positions.push({ x: i * 0.9, y: 0, z: 0 });
+      }
+      const res = validateSquadCoherency(positions);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds max coherency limit of 6"');
+    });
+  });
+
+  describe('computeSquadCentroid', () => {
+    it('computes exact average coordinates for squad models', () => {
+      const positions: Vector3[] = [
+        { x: 1, y: 0, z: 2 },
+        { x: 3, y: 0, z: 4 },
+        { x: 5, y: 0, z: 6 },
+      ];
+      const centroid = computeSquadCentroid(positions);
+      expect(centroid).toEqual({ x: 3, y: 0, z: 4 });
+    });
+
+    it('handles empty positions array gracefully', () => {
+      expect(computeSquadCentroid([])).toEqual({ x: 0, y: 0, z: 0 });
+    });
+  });
+
+  describe('getSquadModelPositions', () => {
+    it('returns positions of active models while omitting destroyed models', () => {
+      const unit = makeUnit('u1', HOST, { x: 5, y: 0, z: 5 });
+      unit.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 5, y: 0, z: 5 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 5.6, y: 0, z: 5 } },
+        { id: 'm3', wounds: 0, maxWounds: 1, isDestroyed: true, position: { x: 6.2, y: 0, z: 5 } },
+      ];
+      const positions = getSquadModelPositions(unit);
+      expect(positions).toHaveLength(2);
+      expect(positions[0]).toEqual({ x: 5, y: 0, z: 5 });
+      expect(positions[1]).toEqual({ x: 5.6, y: 0, z: 5 });
+    });
+
+    it('falls back to unit position when models array is empty', () => {
+      const unit = makeUnit('u1', HOST, { x: 2, y: 0, z: 4 });
+      unit.models = [];
+      expect(getSquadModelPositions(unit)).toEqual([{ x: 2, y: 0, z: 4 }]);
+    });
+  });
+
+  describe('createSquadPositions', () => {
+    it('generates coherent positions for 1, 2, 3, and 5 model formations', () => {
+      for (const count of [1, 2, 3, 5]) {
+        const center = { x: 4, y: 0, z: -2 };
+        const positions = createSquadPositions(center, count, 0.8);
+        expect(positions).toHaveLength(count);
+        const coherency = validateSquadCoherency(positions);
+        expect(coherency.coherent).toBe(true);
+      }
+    });
+  });
+
+  describe('validateFormationMove', () => {
+    it('validates a legal rigid squad move within movement allowance', () => {
+      const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
+      unit.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.7, y: 0, z: 0 } },
+      ];
+      const state = makeState([unit], []);
+      const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 4 });
+      expect(result.valid).toBe(true);
+      expect(result.destination).toEqual({ x: 0.35, y: 0, z: 4 });
+      expect(result.modelPositions).toHaveLength(2);
+      expect(result.modelPositions[0]).toEqual({ x: 0, y: 0, z: 4 });
+      expect(result.modelPositions[1]).toEqual({ x: 0.7, y: 0, z: 4 });
+    });
+
+    it('rejects formation move if explicit positions violate coherency', () => {
+      const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
+      unit.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.7, y: 0, z: 0 } },
+      ];
+      const state = makeState([unit], []);
+      // Incoherent destination positions (2.5" apart)
+      const incoherent = [
+        { x: 0, y: 0, z: 3 },
+        { x: 2.5, y: 0, z: 3 },
+      ];
+      const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 3 }, incoherent);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('exceeds 1" limit');
+    });
+
+    it('rejects formation move if a model ends outside the battlefield', () => {
+      const unit = makeUnit('u1', HOST, { x: 19.5, y: 0, z: 0 }); // Near edge (board halfW = 20)
+      unit.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 19.5, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 20.2, y: 0, z: 0 } }, // Outside!
+      ];
+      const state = makeState([unit], []);
+      const result = validateFormationMove(state, unit, { x: 19.8, y: 0, z: 0 });
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('leaves the battlefield');
+    });
+  });
+
+  describe('3D Elevation Line of Sight, Parapets & Plunging Fire (Phase 11B)', () => {
+    const platform: TerrainPiece = {
+      id: 'plat-1',
+      terrainType: 'platform',
+      isWalkable: true,
+      elevation: 3.0,
+      position: { x: 0, y: 3.0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 0.5, z: 4 }, // X from -2 to +2, Z from -2 to +2
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: false,
+    };
+
+    it('calculates distance to platform edge along line of fire', () => {
+      // Platform extends X: -2..2, Z: -2..2
+      // Point at (1.5, 3.0, 0), facing target at (10, 0, 0) (facing +X)
+      // Edge is at X = 2.0 -> distance is 0.5"
+      const edgeDist = getPlatformEdgeDistance({ x: 1.5, y: 3.0, z: 0 }, { x: 10, y: 0, z: 0 }, platform);
+      expect(edgeDist).toBeCloseTo(0.5);
+
+      // Point at (0, 3.0, 0), facing target at (10, 0, 0)
+      // Edge is at X = 2.0 -> distance is 2.0"
+      const deepDist = getPlatformEdgeDistance({ x: 0, y: 3.0, z: 0 }, { x: 10, y: 0, z: 0 }, platform);
+      expect(deepDist).toBeCloseTo(2.0);
+    });
+
+    it('grants Parapet Cover (+1 Defense) to elevated models within 1.0" of platform edge', () => {
+      const groundAttacker = makeUnit('att', HOST, { x: 8, y: 0, z: 0 });
+      // Defender at X = 1.5 (0.5" from front edge at X = 2.0)
+      const ledgeDefender = makeUnit('def', GUEST, { x: 1.5, y: 3.0, z: 0 });
+      const state = makeState([groundAttacker, ledgeDefender], [platform]);
+
+      expect(hasLineOfSight(state, groundAttacker, ledgeDefender)).toBe(true);
+      expect(hasCoverAgainstAttack(state, groundAttacker, ledgeDefender)).toBe(true);
+    });
+
+    it('blocks Line of Sight with Setback Blind Spot when elevated model is set back > 1.0" from edge', () => {
+      const groundAttacker = makeUnit('att', HOST, { x: 8, y: 0, z: 0 });
+      // Defender at center of platform (X = 0, set back 2.0" from edge at X = 2.0)
+      const setbackDefender = makeUnit('def', GUEST, { x: 0, y: 3.0, z: 0 });
+      const state = makeState([groundAttacker, setbackDefender], [platform]);
+
+      // Ground attacker cannot see the setback defender
+      expect(hasLineOfSight(state, groundAttacker, setbackDefender)).toBe(false);
+      // Elevated defender cannot see down to ground attacker
+      expect(hasLineOfSight(state, setbackDefender, groundAttacker)).toBe(false);
+    });
+
+    it('allows line of sight between models on adjacent elevated platforms at similar heights', () => {
+      const platform2: TerrainPiece = {
+        ...platform,
+        id: 'plat-2',
+        position: { x: 8, y: 3.0, z: 0 },
+      };
+      const elevatedAttacker = makeUnit('att', HOST, { x: 0, y: 3.0, z: 0 }); // Center of plat-1
+      const elevatedDefender = makeUnit('def', GUEST, { x: 8, y: 3.0, z: 0 }); // Center of plat-2
+      const state = makeState([elevatedAttacker, elevatedDefender], [platform, platform2]);
+
+      // At equal elevation, floor blind spot does not block horizontal sight
+      expect(hasLineOfSight(state, elevatedAttacker, elevatedDefender)).toBe(true);
+    });
+
+    it('plunging fire (attacker elevated >= 2.0") looks over ground-level low cover', () => {
+      const elevatedAttacker = makeUnit('att', HOST, { x: 0, y: 3.0, z: 0 });
+      const groundDefender = makeUnit('def', GUEST, { x: 8, y: 0, z: 0 });
+      // Crate at X = 7 (defender is 1.0" behind crate)
+      const lowCrate: TerrainPiece = {
+        id: 'crate-1',
+        terrainType: 'crate',
+        position: { x: 7, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: true,
+      };
+
+      const state = makeState([elevatedAttacker, groundDefender], [platform, lowCrate]);
+
+      // Plunging fire looks over the 1.0" tall crate: no cover granted!
+      expect(hasCoverAgainstAttack(state, elevatedAttacker, groundDefender)).toBe(false);
+
+      // But a ground shooter at (0, 0, 0) DOES suffer cover from the crate
+      const groundAttacker = makeUnit('ground-att', HOST, { x: 0, y: 0, z: 0 });
+      const stateGround = makeState([groundAttacker, groundDefender], [lowCrate]);
+      expect(hasCoverAgainstAttack(stateGround, groundAttacker, groundDefender)).toBe(true);
+    });
+
+    it('clears line of sight when ray passes vertically above a low wall in 3D', () => {
+      const highAttacker = makeUnit('att', HOST, { x: 0, y: 4.0, z: 0 });
+      const groundTarget = makeUnit('tgt', GUEST, { x: 10, y: 0, z: 0 });
+      // Low wall at X = 5, height = 1.0. At X = 5, ray passes at Y = 2.0 (1.0" above wall).
+      const lowWall: TerrainPiece = {
+        id: 'wall-low',
+        terrainType: 'wall',
+        position: { x: 5, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 0.5, y: 1.0, z: 4 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+
+      const state = makeState([highAttacker, groundTarget], [lowWall]);
+      expect(hasLineOfSight(state, highAttacker, groundTarget)).toBe(true);
+
+      // If wall is tall (height = 3.0), at X = 5 ray is at Y = 2.0 <= 3.0 -> blocked!
+      const tallWall: TerrainPiece = {
+        ...lowWall,
+        scale: { x: 0.5, y: 3.0, z: 4 },
+      };
+      const stateBlocked = makeState([highAttacker, groundTarget], [tallWall]);
+      expect(hasLineOfSight(stateBlocked, highAttacker, groundTarget)).toBe(false);
+    });
   });
 });

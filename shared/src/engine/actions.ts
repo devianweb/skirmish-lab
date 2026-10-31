@@ -8,17 +8,22 @@ import {
   RetaliationOutcome,
   Unit,
   Weapon,
+  WeaponAllocation,
+  WeaponAttackOutcome,
 } from '../gameTypes';
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
   advanceActivation,
+  advanceDeployment,
   applyRoundEndMorale,
   endRound,
   getUnitsRequiringRoundMorale,
   isRoundComplete,
+  validateDeploymentPosition,
 } from './activation';
 import {
   CombatOutcome,
+  extractAllocationRolls,
   extractAttackRolls,
   extractRetaliationRolls,
   getAttackDiceSpecs,
@@ -28,10 +33,27 @@ import {
 } from './combat';
 import {
   computePushBackPosition,
+  computeSquadCentroid,
+  consolidateSquadToward,
+  createSquadPositions,
   findMoveBlocker,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  validateSquadCoherency,
 } from './spatial';
+import {
+  calculateFallingDamage,
+  detectPathFall,
+  getEffectiveMaxMovement,
+  isPathDangerous,
+  isPathDifficult,
+  pathLength3D,
+  resolveDangerousTerrain,
+  resolveFallingDamage,
+  resolveGapJump,
+  allocateSquadCasualties,
+  validateMeleeVerticalReach,
+} from './traversal';
 import { getTraitValue, hasTrait } from '../rules/traits';
 
 /**
@@ -82,8 +104,19 @@ interface PayloadWithUnitId {
 }
 interface PayloadWithAttacker {
   attackerId: string;
-  targetId: string;
+  targetId?: string;
   weaponId?: string;
+  allocations?: WeaponAllocation[];
+}
+
+export function getShootAllocations(payload: PayloadWithAttacker): WeaponAllocation[] {
+  if (payload.allocations && payload.allocations.length > 0) {
+    return payload.allocations;
+  }
+  if (payload.weaponId && payload.targetId) {
+    return [{ weaponId: payload.weaponId, targetId: payload.targetId }];
+  }
+  return [];
 }
 
 function getUnit(state: GameState, unitId: string): Unit | undefined {
@@ -180,16 +213,49 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return { valid: true };
     }
 
+    case 'deploy-unit': {
+      if (state.turnState.phase !== 'deployment') {
+        return { valid: false, reason: 'Units can only be deployed during the deployment phase' };
+      }
+      const { unitId, position } = action.payload as {
+        unitId: string;
+        position: Vector3;
+        rotation?: Vector3;
+      };
+      if (action.actorId !== state.turnState.currentPlayerId) {
+        return { valid: false, reason: 'Not your turn to deploy' };
+      }
+      const unit = getUnit(state, unitId);
+      if (!unit) {
+        return { valid: false, reason: 'Unit not found' };
+      }
+      if (unit.ownerId !== action.actorId) {
+        return { valid: false, reason: 'Cannot deploy opponent unit' };
+      }
+      if (unit.isDeployed !== false) {
+        return { valid: false, reason: 'Unit is already deployed' };
+      }
+      const val = validateDeploymentPosition(state, unit, position);
+      if (!val.valid) {
+        return { valid: false, reason: val.reason };
+      }
+      return { valid: true };
+    }
+
     case 'move-unit': {
-      const { unitId, path, finalPosition } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
+        modelPositions?: Vector3[];
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
       if (hasTrait(unit.result.specialRules, 'stationary')) {
         return { valid: false, reason: 'Stationary units cannot move or charge' };
+      }
+      if (unit.result.hasMoved || unit.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
       }
       if (isEngaged(unit.result)) {
         return { valid: false, reason: 'Engaged units cannot move away' };
@@ -204,9 +270,19 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
         return { valid: false, reason: 'Final position does not match path end' };
       }
-      const distance = pathLength(path);
-      if (distance > unit.result.remainingMovement + 0.01) {
-        return { valid: false, reason: 'Move exceeds remaining movement' };
+      const isDifficult = isPathDifficult(state, path, unit.result);
+      const distance = pathLength3D(path);
+      const maxMove = Math.min(
+        getEffectiveMaxMovement(unit.result, 'move', isDifficult),
+        Math.max(unit.result.speed, unit.result.remainingMovement)
+      );
+      if (distance > maxMove + 0.01) {
+        return {
+          valid: false,
+          reason: isDifficult
+            ? 'Move exceeds Difficult Terrain speed cap (6.0")'
+            : 'Move exceeds unit speed',
+        };
       }
       for (const point of path) {
         if (!isWithinBoard(state, point)) {
@@ -217,35 +293,81 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (blocker.blocked) {
         return { valid: false, reason: blocker.reason };
       }
+      if (modelPositions && modelPositions.length > 0) {
+        const activeCount = unit.result.models
+          ? unit.result.models.filter((m) => !m.isDestroyed).length
+          : 1;
+        if (modelPositions.length !== activeCount && activeCount > 1) {
+          return {
+            valid: false,
+            reason: `Model positions count mismatch (${modelPositions.length} vs ${activeCount} active models)`,
+          };
+        }
+        const coherency = validateSquadCoherency(modelPositions);
+        if (!coherency.coherent) {
+          return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+        }
+        for (const pos of modelPositions) {
+          if (!isWithinBoard(state, pos)) {
+            return { valid: false, reason: 'Squad model position leaves the board' };
+          }
+        }
+      }
       return { valid: true };
     }
 
     case 'shoot': {
-      const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
+      const payload = action.payload as PayloadWithAttacker;
+      const { attackerId } = payload;
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
       if (attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already attacked this activation' };
       }
-      const target = requireTarget(state, action.actorId, targetId);
-      if ('reason' in target) return target;
-      const weapon = getWeapon(attacker.result, weaponId ?? '');
-      if (!weapon || weapon.profile.type !== 'ranged') {
-        return { valid: false, reason: 'Unit has no such ranged weapon' };
-      }
       if (isEngaged(attacker.result)) {
         return { valid: false, reason: 'Engaged units must fight instead of shooting' };
       }
-      const distance = boardDistance(attacker.result.position, target.result.position);
-      if (distance > weapon.profile.range + 0.01) {
-        return { valid: false, reason: 'Target out of range' };
+
+      const allocations = getShootAllocations(payload);
+      if (allocations.length === 0) {
+        return { valid: false, reason: 'No weapon allocations specified for shooting' };
       }
-      if (
-        !hasTrait(weapon.profile.specialRules, 'lobbed') &&
-        !hasLineOfSight(state, attacker.result, target.result)
-      ) {
-        return { valid: false, reason: 'No line of sight to target' };
+
+      const weaponIds = new Set<string>();
+      const targetIds = new Set<string>();
+
+      for (const alloc of allocations) {
+        if (weaponIds.has(alloc.weaponId)) {
+          return { valid: false, reason: 'A weapon cannot be fired multiple times' };
+        }
+        weaponIds.add(alloc.weaponId);
+        targetIds.add(alloc.targetId);
+
+        const weapon = getWeapon(attacker.result, alloc.weaponId);
+        if (!weapon || weapon.profile.type !== 'ranged') {
+          return { valid: false, reason: `Unit has no such ranged weapon (${alloc.weaponId})` };
+        }
+
+        const target = requireTarget(state, action.actorId, alloc.targetId);
+        if ('reason' in target) return target;
+
+        const distance = boardDistance(attacker.result.position, target.result.position);
+        if (distance > weapon.profile.range + 0.01) {
+          return { valid: false, reason: 'Target out of range' };
+        }
+        if (
+          !hasTrait(weapon.profile.specialRules, 'lobbed') &&
+          !hasLineOfSight(state, attacker.result, target.result)
+        ) {
+          return { valid: false, reason: 'No line of sight to target' };
+        }
       }
+
+      // Split fire constraint: maximum 2 distinct targets
+      if (targetIds.size > 2) {
+        return { valid: false, reason: 'Cannot split fire across more than 2 distinct targets' };
+      }
+
       return { valid: true };
     }
 
@@ -276,9 +398,16 @@ export function validateAction(state: GameState, action: GameAction): Validation
         boardDistance(path[0], attacker.result.position) < 0.01
           ? path
           : [{ ...attacker.result.position }, ...path];
-      const distance = pathLength(fullPath);
-      if (distance > attacker.result.speed * 2 + 0.01) {
-        return { valid: false, reason: 'Target out of charge range' };
+      const isDifficult = isPathDifficult(state, fullPath, attacker.result);
+      const distance = pathLength3D(fullPath);
+      const maxCharge = getEffectiveMaxMovement(attacker.result, 'charge', isDifficult);
+      if (distance > maxCharge + 0.01) {
+        return {
+          valid: false,
+          reason: isDifficult
+            ? 'Charge in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+            : 'Target out of charge range',
+        };
       }
       const chargeBlocker = findMoveBlocker(state, attacker.result, fullPath, {
         ignoreUnitId: target.result.id,
@@ -291,6 +420,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (distToEnd > 1.25) {
         return { valid: false, reason: 'Charge must end in engagement range' };
       }
+      if (!validateMeleeVerticalReach(end, target.result.position)) {
+        return {
+          valid: false,
+          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+        };
+      }
       const weapon = weaponId
         ? attacker.result.weapons.find((w) => w.id === weaponId)
         : attacker.result.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
@@ -301,10 +436,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
+        modelPositions?: Vector3[];
       };
       const actor = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in actor) return actor;
@@ -325,11 +461,15 @@ export function validateAction(state: GameState, action: GameAction): Validation
         boardDistance(path[0], unit.position) < 0.01
           ? path
           : [{ ...unit.position }, ...path];
-      const dist = pathLength(fullPath);
-      if (dist > unit.speed * 2 + 0.01) {
+      const isDifficult = isPathDifficult(state, fullPath, unit);
+      const dist = pathLength3D(fullPath);
+      const maxRush = getEffectiveMaxMovement(unit, 'rush', isDifficult);
+      if (dist > maxRush + 0.01) {
         return {
           valid: false,
-          reason: `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`,
+          reason: isDifficult
+            ? 'Rush in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+            : `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`,
         };
       }
       const blocker = findMoveBlocker(state, unit, fullPath);
@@ -352,11 +492,35 @@ export function validateAction(state: GameState, action: GameAction): Validation
           reason: 'Rush cannot end in melee contact (use Charge instead)',
         };
       }
+      if (modelPositions && modelPositions.length > 0) {
+        const activeCount = unit.models
+          ? unit.models.filter((m) => !m.isDestroyed).length
+          : 1;
+        if (modelPositions.length !== activeCount && activeCount > 1) {
+          return {
+            valid: false,
+            reason: `Model positions count mismatch (${modelPositions.length} vs ${activeCount} active models)`,
+          };
+        }
+        const coherency = validateSquadCoherency(modelPositions);
+        if (!coherency.coherent) {
+          return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+        }
+        for (const pos of modelPositions) {
+          if (!isWithinBoard(state, pos)) {
+            return { valid: false, reason: 'Squad model position leaves the board' };
+          }
+        }
+      }
       return { valid: true };
     }
 
     case 'fight': {
-      const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
+      const { attackerId, targetId, weaponId } = action.payload as {
+        attackerId: string;
+        targetId: string;
+        weaponId: string;
+      };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
       if (attacker.result.hasAttacked) {
@@ -370,6 +534,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const distance = boardDistance(attacker.result.position, target.result.position);
       if (distance > ENGAGEMENT_RANGE + 0.01) {
         return { valid: false, reason: 'Target not in engagement range' };
+      }
+      if (!validateMeleeVerticalReach(attacker.result.position, target.result.position)) {
+        return {
+          valid: false,
+          reason: 'Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)',
+        };
       }
       const weapon = getWeapon(attacker.result, weaponId ?? '');
       if (!weapon || weapon.profile.type !== 'melee') {
@@ -429,6 +599,33 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     return specs;
   }
 
+  if (action.type === 'move-unit' || action.type === 'rush') {
+    const payload = action.payload as {
+      unitId?: string;
+      path?: Vector3[];
+      gapJump?: { gapDistance: number };
+    };
+    const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
+    const path = payload.path;
+    if (unit && path && path.length > 0) {
+      const specs: DiceSpec[] = [];
+      if (payload.gapJump && payload.gapJump.gapDistance > 1.05 && !hasTrait(unit.specialRules, 'airborne')) {
+        specs.push({ count: 1, sides: 6, purpose: 'gap_jump' });
+      }
+      if (isPathDangerous(state, path, unit)) {
+        const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
+        specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
+      }
+      const fall = detectPathFall(path);
+      if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+        specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
+        specs.push({ count: 1, sides: 6, purpose: 'trauma' });
+      }
+      if (specs.length > 0) return specs;
+    }
+    return null;
+  }
+
   if (action.type === 'respond-reaction') {
     const { choiceId } = action.payload as { reactionId: string; choiceId: string };
     const pending = state.turnState.pendingReaction;
@@ -459,7 +656,52 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     });
   }
 
-  if (action.type !== 'shoot' && action.type !== 'fight' && action.type !== 'charge') return null;
+  if (action.type === 'shoot') {
+    const payload = action.payload as PayloadWithAttacker;
+    const attacker = getUnit(state, payload.attackerId);
+    if (!attacker) return null;
+    const allocations = getShootAllocations(payload);
+    if (allocations.length === 0) return null;
+
+    const isSingle = allocations.length === 1;
+    const allSpecs: DiceSpec[] = [];
+
+    allocations.forEach((alloc, index) => {
+      const weapon = getWeapon(attacker, alloc.weaponId);
+      const target = getUnit(state, alloc.targetId);
+      if (!weapon || !target) return;
+      const attacks = weapon.profile.attacks;
+      if (typeof attacks !== 'number' || attacks < 1) return;
+
+      const distance = boardDistance(attacker.position, target.position);
+      const aliveModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const specs = getAttackDiceSpecs(attacks, {
+        attackerRules: attacker.specialRules,
+        weaponRules: weapon.profile.specialRules,
+        defenderRules: target.specialRules ?? [],
+        defenderModelCount: aliveModels,
+        isMelee: false,
+        isCharging: false,
+        distance,
+        includeTrauma: true,
+      });
+
+      if (isSingle) {
+        allSpecs.push(...specs);
+      } else {
+        allSpecs.push(
+          ...specs.map((s) => ({
+            ...s,
+            purpose: `alloc_${index}_${s.purpose}`,
+          }))
+        );
+      }
+    });
+
+    return allSpecs.length > 0 ? allSpecs : null;
+  }
+
+  if (action.type !== 'fight' && action.type !== 'charge') return null;
 
   const payload = action.payload as { attackerId: string; targetId: string; weaponId?: string };
   const attacker = getUnit(state, payload.attackerId);
@@ -484,7 +726,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
     : 1;
 
-  return getAttackDiceSpecs(attacks, {
+  const attackSpecs = getAttackDiceSpecs(attacks, {
     attackerRules: attacker.specialRules,
     weaponRules: weapon.profile.specialRules,
     defenderRules: target?.specialRules ?? [],
@@ -494,6 +736,117 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     distance,
     includeTrauma: true,
   });
+
+  if (action.type === 'charge') {
+    const chargePayload = action.payload as { path?: Vector3[]; gapJump?: { gapDistance: number } };
+    if (chargePayload.path && chargePayload.path.length > 0) {
+      const traversalSpecs: DiceSpec[] = [];
+      if (
+        chargePayload.gapJump &&
+        chargePayload.gapJump.gapDistance > 1.05 &&
+        !hasTrait(attacker.specialRules, 'airborne')
+      ) {
+        traversalSpecs.push({ count: 1, sides: 6, purpose: 'gap_jump' });
+      }
+      if (isPathDangerous(state, chargePayload.path, attacker)) {
+        const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
+        traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
+      }
+      const fall = detectPathFall(chargePayload.path);
+      if (fall.maxDrop > 3.05 && !hasTrait(attacker.specialRules, 'airborne')) {
+        traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
+        traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
+      }
+      if (traversalSpecs.length > 0) {
+        return [...traversalSpecs, ...attackSpecs];
+      }
+    }
+  }
+
+  return attackSpecs;
+}
+
+function applyTraversalHazardsAndFalls(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  action: GameAction,
+  dice?: DiceResult[]
+): { terminated: boolean; wounds: number } {
+  const payload = action.payload as any;
+
+  // 1. Gap Jump
+  if (payload.gapJump && payload.gapJump.gapDistance > 1.05) {
+    const jumpRoll =
+      dice?.find((d) => d.purpose === 'gap_jump')?.rolls[0] ??
+      payload.gapJump.jumpRoll ??
+      payload.gapJumpRoll;
+    const jumpRes = resolveGapJump(payload.gapJump.gapDistance, unit, jumpRoll);
+    if (jumpRes.requiresTest && !jumpRes.passed) {
+      // Model plummets into the gap to ground level
+      const startPt = path[0] ?? unit.position;
+      const endPt = path[path.length - 1] ?? unit.position;
+      const dropHeight = startPt.y ?? 0;
+      unit.position = {
+        x: (startPt.x + endPt.x) / 2,
+        y: 0,
+        z: (startPt.z + endPt.z) / 2,
+      };
+      if (unit.models) {
+        for (const m of unit.models) {
+          m.position = { ...unit.position };
+        }
+      }
+      if (dropHeight > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+        const defRoll =
+          dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
+          payload.fallingDefenseRoll;
+        const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
+        const fallRes = resolveFallingDamage(unit, dropHeight, defRoll);
+        if (fallRes.wounds > 0) {
+          applyWounds(unit, fallRes.wounds, traumaRolls);
+        }
+      }
+      unit.hasMoved = true;
+      unit.remainingMovement = 0;
+      finishActivation(state, dice);
+      return { terminated: true, wounds: 1 };
+    }
+  }
+
+  // 2. Dangerous terrain
+  if (isPathDangerous(state, path, unit)) {
+    const hazardDice =
+      dice?.find((d) => d.purpose === 'hazard')?.rolls ?? payload.hazardDice;
+    if (hazardDice && hazardDice.length > 0) {
+      const hazardRes = resolveDangerousTerrain(unit, hazardDice);
+      if (hazardRes.woundsInflicted > 0) {
+        if (payload.casualtyModelIds && unit.models && unit.models.length > 1) {
+          allocateSquadCasualties(unit, hazardRes.woundsInflicted, payload.casualtyModelIds);
+        }
+        applyWounds(unit, hazardRes.woundsInflicted);
+      }
+    }
+  }
+
+  // 3. Falling damage for drops > 3.0"
+  const fall = detectPathFall(path);
+  if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+    const defRoll =
+      dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
+      payload.fallingDefenseRoll;
+    const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
+    const fallRes = resolveFallingDamage(unit, fall.maxDrop, defRoll);
+    if (fallRes.wounds > 0) {
+      applyWounds(unit, fallRes.wounds, traumaRolls);
+    }
+    unit.hasMoved = true;
+    unit.remainingMovement = 0;
+    finishActivation(state, dice);
+    return { terminated: true, wounds: fallRes.wounds };
+  }
+
+  return { terminated: false, wounds: 0 };
 }
 
 /**
@@ -539,14 +892,42 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'deploy-unit': {
+      const { unitId, position, rotation } = action.payload as {
+        unitId: string;
+        position: Vector3;
+        rotation?: Vector3;
+      };
+      const unit = getUnit(newState, unitId)!;
+      unit.isDeployed = true;
+      unit.position = { ...position };
+      if (rotation) {
+        unit.rotation = { ...rotation };
+      } else {
+        const facing = unit.ownerId === newState.hostId ? 0 : Math.PI;
+        unit.rotation = { x: 0, y: facing, z: 0 };
+      }
+      if (unit.models && unit.models.length > 0) {
+        const count = unit.models.length;
+        const positions = createSquadPositions(position, count);
+        for (let i = 0; i < count; i++) {
+          unit.models[i].position = { ...positions[i] };
+          unit.models[i].rotation = { ...unit.rotation };
+        }
+      }
+      advanceDeployment(newState);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
     case 'move-unit': {
-      const { unitId, path, finalPosition } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
+        modelPositions?: Vector3[];
       };
       const unit = getUnit(newState, unitId)!;
-      const distance = pathLength(path);
       if (path.length >= 2) {
         const lastStep = path[path.length - 1];
         const prevStep = path[path.length - 2];
@@ -556,29 +937,231 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
         }
       }
-      unit.position = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
+      const targetPos = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
+      const deltaX = targetPos.x - unit.position.x;
+      const deltaZ = targetPos.z - unit.position.z;
+
+      if (modelPositions && modelPositions.length > 0) {
+        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          activeModels[i].position = { ...modelPositions[i] };
+        }
+        unit.position = computeSquadCentroid(modelPositions);
+      } else if (unit.models && unit.models.length > 0) {
+        for (const m of unit.models) {
+          if (!m.isDestroyed) {
+            if (m.position) {
+              m.position = {
+                x: Math.round((m.position.x + deltaX) * 100) / 100,
+                y: targetPos.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + deltaZ) * 100) / 100,
+              };
+            } else {
+              m.position = { ...targetPos };
+            }
+          }
+        }
+        unit.position = targetPos;
+      } else {
+        unit.position = targetPos;
+      }
+
       unit.hasMoved = true;
-      unit.remainingMovement = round2(unit.remainingMovement - distance);
+      unit.remainingMovement = 0;
+      const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      if (traversal.terminated) {
+        logEntry = acceptedEntry(action);
+        break;
+      }
       logEntry = acceptedEntry(action);
       break;
     }
 
-    case 'shoot':
+    case 'shoot': {
+      const payload = action.payload as PayloadWithAttacker;
+      const attacker = getUnit(newState, payload.attackerId)!;
+      const allocations = getShootAllocations(payload);
+
+      if (!dice) {
+        return { ok: false, reason: 'Dice results required' };
+      }
+
+      const isSingle = allocations.length === 1;
+      const allocationOutcomes: WeaponAttackOutcome[] = [];
+
+      let totalAttackCount = 0;
+      let totalHitCount = 0;
+      let totalBonusHits = 0;
+      let totalBlockedCount = 0;
+      const allBlockedRolls: boolean[] = [];
+      let totalWardSavedCount = 0;
+      let totalWounds = 0;
+      let primaryTargetDestroyed = false;
+      let primaryTargetShaken = false;
+
+      // Turn attacker to face the primary target
+      const primaryTarget = getUnit(newState, allocations[0].targetId);
+      if (primaryTarget) {
+        const adx = primaryTarget.position.x - attacker.position.x;
+        const adz = primaryTarget.position.z - attacker.position.z;
+        if (Math.hypot(adx, adz) > 1e-4) {
+          attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
+        }
+      }
+
+      for (let i = 0; i < allocations.length; i++) {
+        const alloc = allocations[i];
+        const weapon = getWeapon(attacker, alloc.weaponId)!;
+        const target = getUnit(newState, alloc.targetId)!;
+        const distance = boardDistance(attacker.position, target.position);
+        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        const inCover =
+          target.status.includes('in-cover') ||
+          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target));
+        const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
+
+        let outcome: CombatOutcome;
+        let traumaRolls: number[] | undefined;
+        try {
+          const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
+          traumaRolls = rolls.trauma;
+          outcome = resolveAttack(
+            {
+              quality: attacker.quality,
+              specialRules: attacker.specialRules,
+              weaponRules: weapon.profile.specialRules,
+              isMelee: false,
+              isCharging: false,
+              hasMoved: attacker.hasMoved,
+              isFatigued: false,
+              distance,
+            },
+            {
+              defense: target.defense,
+              inCover,
+              specialRules: target.specialRules,
+              modelCount: aliveModels,
+              hasMoved: target.hasMoved,
+            },
+            weapon.profile.attacks as number,
+            rolls
+          );
+        } catch (error) {
+          return { ok: false, reason: (error as Error).message };
+        }
+
+        if (hasTrait(weapon.profile.specialRules, 'expendable')) {
+          weapon.isEquipped = false;
+        }
+
+        const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+        const trauma = applyWounds(target, outcome.wounds, traumaRolls, 0, lethalValue);
+
+        totalAttackCount += outcome.attackCount;
+        totalHitCount += outcome.hitCount;
+        totalBonusHits += outcome.bonusHits;
+        totalBlockedCount += outcome.blockedCount;
+        allBlockedRolls.push(...outcome.blockedRolls);
+        totalWardSavedCount += outcome.wardSavedCount;
+        totalWounds += outcome.wounds;
+        if (i === 0) {
+          primaryTargetDestroyed = target.isDestroyed;
+          primaryTargetShaken = target.status.includes('shaken');
+        }
+
+        allocationOutcomes.push({
+          weaponId: weapon.id,
+          weaponName: weapon.name,
+          targetId: target.id,
+          targetName: target.name,
+          attackCount: outcome.attackCount,
+          hitCount: outcome.hitCount,
+          bonusHits: outcome.bonusHits,
+          blockedCount: outcome.blockedCount,
+          blockedRolls: outcome.blockedRolls,
+          wardSavedCount: outcome.wardSavedCount,
+          wounds: outcome.wounds,
+          targetDestroyed: target.isDestroyed,
+          targetShaken: target.status.includes('shaken'),
+          effectiveQuality: outcome.effectiveQuality,
+          effectiveDefense: outcome.effectiveDefense,
+          baseQuality: outcome.baseQuality,
+          hitModifiers: outcome.hitModifiers,
+          baseDefense: outcome.baseDefense,
+          defenseModifiers: outcome.defenseModifiers,
+          coverApplied: outcome.coverApplied,
+          apApplied: outcome.apApplied,
+          ...(trauma
+            ? {
+                traumaRoll: trauma.roll,
+                traumaTokens: trauma.tokens,
+                traumaDreadBonus: trauma.dreadBonus,
+                traumaTotal: trauma.total,
+                traumaOutcome: trauma.outcome,
+              }
+            : {}),
+        });
+      }
+
+      attacker.hasAttacked = true;
+      refreshEngagements(newState);
+
+      const firstAlloc = allocationOutcomes[0];
+      diceResolution = {
+        rollId: action.id,
+        specs: getDiceSpecs(state, action) ?? [],
+        results: dice,
+        context: {
+          attackerId: attacker.id,
+          targetId: allocations[0].targetId,
+          weaponId: allocations[0].weaponId,
+          actionId: action.id,
+        },
+        outcome: {
+          attackCount: totalAttackCount,
+          hitCount: totalHitCount,
+          bonusHits: totalBonusHits,
+          blockedCount: totalBlockedCount,
+          blockedRolls: allBlockedRolls,
+          wardSavedCount: totalWardSavedCount,
+          wounds: totalWounds,
+          targetDestroyed: primaryTargetDestroyed,
+          targetShaken: primaryTargetShaken,
+          effectiveQuality: firstAlloc.effectiveQuality,
+          effectiveDefense: firstAlloc.effectiveDefense,
+          baseQuality: firstAlloc.baseQuality,
+          hitModifiers: firstAlloc.hitModifiers,
+          baseDefense: firstAlloc.baseDefense,
+          defenseModifiers: firstAlloc.defenseModifiers,
+          coverApplied: firstAlloc.coverApplied,
+          apApplied: firstAlloc.apApplied,
+          traumaRoll: firstAlloc.traumaRoll,
+          traumaTokens: firstAlloc.traumaTokens,
+          traumaDreadBonus: firstAlloc.traumaDreadBonus,
+          traumaTotal: firstAlloc.traumaTotal,
+          traumaOutcome: firstAlloc.traumaOutcome,
+          allocations: allocationOutcomes,
+        },
+      };
+
+      logEntry = acceptedEntry(action, diceResolution);
+      break;
+    }
+
     case 'fight': {
-      const { attackerId, targetId, weaponId } = action.payload as PayloadWithAttacker;
+      const { attackerId, targetId, weaponId } = action.payload as {
+        attackerId: string;
+        targetId: string;
+        weaponId: string;
+      };
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
       const weapon = getWeapon(attacker, weaponId ?? '')!;
-      const isMelee = action.type === 'fight';
+      const isMelee = true;
       const distance = boardDistance(attacker.position, target.position);
-      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-      const inCover =
-        !isMelee &&
-        (target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target)));
       const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
       const isFatigued =
-        isMelee && (attacker.status.includes('fatigued') || attacker.status.includes('shaken'));
+        attacker.status.includes('fatigued') || attacker.status.includes('shaken');
 
       // Turn attacker to face the target
       const adx = target.position.x - attacker.position.x;
@@ -606,7 +1189,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           },
           {
             defense: target.defense,
-            inCover,
+            inCover: false,
             specialRules: target.specialRules,
             modelCount: aliveModels,
             hasMoved: target.hasMoved,
@@ -681,19 +1264,52 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'rush': {
-      const { unitId, path } = action.payload as { unitId: string; path: Vector3[] };
+      const { unitId, path, finalPosition, modelPositions } = action.payload as {
+        unitId: string;
+        path: Vector3[];
+        finalPosition?: Vector3;
+        modelPositions?: Vector3[];
+      };
       const unit = getUnit(newState, unitId)!;
-      const end = path[path.length - 1];
+      const end = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
       const dx = end.x - unit.position.x;
       const dz = end.z - unit.position.z;
       if (Math.hypot(dx, dz) > 1e-4) {
         unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
       }
-      unit.position = { ...end };
+      if (modelPositions && modelPositions.length > 0) {
+        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          activeModels[i].position = { ...modelPositions[i] };
+        }
+        unit.position = computeSquadCentroid(modelPositions);
+      } else if (unit.models && unit.models.length > 0) {
+        for (const m of unit.models) {
+          if (!m.isDestroyed) {
+            if (m.position) {
+              m.position = {
+                x: Math.round((m.position.x + dx) * 100) / 100,
+                y: end.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + dz) * 100) / 100,
+              };
+            } else {
+              m.position = { ...end };
+            }
+          }
+        }
+        unit.position = { ...end };
+      } else {
+        unit.position = { ...end };
+      }
       unit.hasMoved = true;
       unit.hasAttacked = true;
       unit.remainingMovement = 0;
       refreshEngagements(newState);
+      const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      if (traversal.terminated) {
+        logEntry = acceptedEntry(action);
+        break;
+      }
       logEntry = acceptedEntry(action);
       break;
     }
@@ -707,7 +1323,25 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       };
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
-      attacker.position = { ...path[path.length - 1] };
+      const end = path[path.length - 1];
+      const deltaX = end.x - attacker.position.x;
+      const deltaZ = end.z - attacker.position.z;
+      if (attacker.models && attacker.models.length > 0) {
+        for (const m of attacker.models) {
+          if (!m.isDestroyed) {
+            if (m.position) {
+              m.position = {
+                x: Math.round((m.position.x + deltaX) * 100) / 100,
+                y: end.y ?? m.position.y ?? 0,
+                z: Math.round((m.position.z + deltaZ) * 100) / 100,
+              };
+            } else {
+              m.position = { ...end };
+            }
+          }
+        }
+      }
+      attacker.position = { ...end };
       attacker.hasMoved = true;
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
@@ -717,8 +1351,18 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         attacker.rotation = { ...attacker.rotation, y: Math.atan2(cdx, cdz) };
         target.rotation = { ...target.rotation, y: Math.atan2(-cdx, -cdz) };
       }
+
+      const traversal = applyTraversalHazardsAndFalls(newState, attacker, path, action, dice);
+      if (traversal.terminated || attacker.isDestroyed) {
+        logEntry = acceptedEntry(action);
+        break;
+      }
+
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
+
+      // Defending squad models consolidate up to 3" into contact with chargers
+      consolidateSquadToward(newState, target, attacker.position, 3.0);
 
       const weapon = weaponId
         ? getWeapon(attacker, weaponId)
@@ -878,6 +1522,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let trauma: ReturnType<typeof applyWounds> | undefined;
 
       if (choiceId === 'strike-back' && defenderMelee && dice) {
+        // Turn defender to face the charger
+        const rdx = charger.position.x - defender.position.x;
+        const rdz = charger.position.z - defender.position.z;
+        if (Math.hypot(rdx, rdz) > 1e-4) {
+          defender.rotation = { ...defender.rotation, y: Math.atan2(rdx, rdz) };
+        }
+
         const retRolls = extractAttackRolls(dice);
         const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
         const retAliveModels = charger.models?.filter((m) => !m.isDestroyed).length ?? 1;
@@ -927,6 +1578,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         pushedBack = true;
         charger.status = charger.status.filter((s) => s !== 'engaged');
         defender.status = defender.status.filter((s) => s !== 'engaged');
+      } else if (charger.isDestroyed && !defender.isDestroyed) {
+        // Defender consolidates up to 3" upon wiping out charger in melee retaliation
+        consolidateSquadToward(newState, defender, charger.position, 3.0);
       }
 
       newState.turnState.pendingReaction = null;
@@ -1123,6 +1777,10 @@ function applyWounds(
       victim.isDestroyed = true;
       unit.wounds = Math.max(1, unit.wounds - 1);
       remainingWounds -= applied;
+    }
+    const surviving = unit.models.filter((m) => !m.isDestroyed);
+    if (surviving.length > 0 && surviving.some((m) => m.position)) {
+      unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
     }
   }
 

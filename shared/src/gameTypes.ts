@@ -54,9 +54,12 @@ export type UnitStatus =
 
 export interface Model {
   id: string;
+  name?: string;
   wounds: number;
   maxWounds: number;
   isDestroyed: boolean;
+  position?: Vector3;
+  rotation?: Vector3;
 }
 
 export interface WeaponProfile {
@@ -98,6 +101,8 @@ export interface Unit {
   traumaTokens?: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
+  /** Whether this unit has been deployed to the board (false during pre-match deployment / drop-reserves). */
+  isDeployed?: boolean;
 
   // Game State
   models: Model[];
@@ -119,6 +124,16 @@ export interface TerrainPiece {
   blocksLineOfSight: boolean;
   providesCover: boolean;
   isObstacle: boolean;
+  /** Whether moving through this piece caps total movement at 6" (Difficult Terrain). */
+  isDifficult?: boolean;
+  /** Whether entering or activating in this piece triggers 1d6 hazard tests on 1s (Dangerous Terrain). */
+  isDangerous?: boolean;
+  /** Height of elevated walkable surface (y coordinate in inches), e.g. 2.0 or 3.0. */
+  elevation?: number;
+  /** Whether this piece allows fighters to stand on top of its platform surface. */
+  isWalkable?: boolean;
+  /** Type of climb access: 'ladder' | 'stairs' | 'ramp' | 'sheer'. */
+  climbType?: 'ladder' | 'stairs' | 'ramp' | 'sheer';
   data?: Record<string, any>;
 }
 
@@ -156,8 +171,14 @@ export interface Player {
   isActive: boolean;
 }
 
+export interface WeaponAllocation {
+  weaponId: string;
+  targetId: string;
+}
+
 export type ActionType =
   | 'activate-unit'
+  | 'deploy-unit'
   | 'move-unit'
   | 'rush'
   | 'shoot'
@@ -171,9 +192,16 @@ export type ActionType =
 
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
+  | { type: 'deploy-unit', unitId: string, position: Vector3, rotation?: Vector3 }
+  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[] }
+  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[] }
+  | {
+      type: 'shoot';
+      attackerId: string;
+      targetId?: string;
+      weaponId?: string;
+      allocations?: WeaponAllocation[];
+    }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
@@ -215,6 +243,35 @@ export interface RetaliationOutcome {
   targetShaken?: boolean;
   effectiveQuality?: number;
   effectiveDefense?: number;
+  baseQuality?: number;
+  hitModifiers?: string[];
+  baseDefense?: number;
+  defenseModifiers?: string[];
+  traumaRoll?: number;
+  traumaTokens?: number;
+  traumaDreadBonus?: number;
+  traumaTotal?: number;
+  traumaOutcome?: 'shaken' | 'knocked-out';
+}
+
+export interface WeaponAttackOutcome {
+  weaponId: string;
+  weaponName?: string;
+  targetId: string;
+  targetName?: string;
+  attackCount: number;
+  hitCount: number;
+  bonusHits?: number;
+  blockedCount: number;
+  blockedRolls?: boolean[];
+  wardSavedCount?: number;
+  wounds: number;
+  targetDestroyed: boolean;
+  targetShaken?: boolean;
+  effectiveQuality?: number;
+  effectiveDefense?: number;
+  coverApplied?: boolean;
+  apApplied?: number;
   baseQuality?: number;
   hitModifiers?: string[];
   baseDefense?: number;
@@ -269,6 +326,7 @@ export interface DiceResolution {
     moralePassed?: boolean;
     moraleOutcome?: 'passed' | 'shaken' | 'routed';
     retaliation?: RetaliationOutcome;
+    allocations?: WeaponAttackOutcome[];
     pushedBack?: boolean;
     pushBackPosition?: Vector3;
   };

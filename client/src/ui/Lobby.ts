@@ -8,6 +8,9 @@ export interface PeerReadyContext {
   role: 'host' | 'guest';
   roomCode: string;
   initialState?: any;
+  hostArmyId?: string;
+  guestArmyId?: string;
+  useDeploymentPhase?: boolean;
 }
 
 export interface LobbyOptions {
@@ -28,6 +31,9 @@ export class Lobby {
   private role: 'host' | 'guest' | null = null;
   private options: LobbyOptions;
   private peerReadyFired = false;
+  private hostArmyId: string = 'frontier-wardens-starter';
+  private guestArmyId: string = 'rust-raiders-starter';
+  private useDeploymentPhase: boolean = true;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
@@ -190,38 +196,82 @@ export class Lobby {
       role: this.role,
       roomCode: this.roomCode,
       initialState: rejoiningState,
+      hostArmyId: this.hostArmyId,
+      guestArmyId: this.guestArmyId,
+      useDeploymentPhase: this.useDeploymentPhase,
     });
   }
 
   private render(): void {
     if (this.roomCode && this.role) {
       this.container.innerHTML = `
-        <div style="font-family: Arial; padding: 40px; text-align: center;">
-          <h1>SkirmishLab</h1>
-          <h2>Room: ${this.roomCode}</h2>
-          <p>Role: ${this.role}</p>
-          <p id="status">Waiting for peer...</p>
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 60px auto; padding: 30px; background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
+          <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
+          <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${this.roomCode}</h2>
+          <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${this.role.toUpperCase()}</strong></p>
+          <p id="status" style="font-size: 14px; color: #ffd54f;">Waiting for peer...</p>
         </div>
       `;
     } else {
       this.container.innerHTML = `
-        <div style="font-family: Arial; padding: 40px; text-align: center;">
-          <h1>SkirmishLab</h1>
-          <button id="createBtn" style="padding: 10px 20px; margin: 10px;">Create Room</button>
-          <div style="margin: 20px;">
-            <input id="codeInput" placeholder="XXX-XXX" style="padding: 10px;" />
-            <button id="joinBtn" style="padding: 10px 20px;">Join Room</button>
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
+          <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
+          <p style="color: #b0bec5; font-size: 14px; margin-bottom: 24px;">One Page Rules Skirmish Simulator</p>
+
+          <div style="margin-bottom: 24px; text-align: left; background: rgba(26, 31, 41, 0.7); padding: 16px; border-radius: 8px; border: 1px solid #2a3442;">
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; color: #90caf9; text-transform: uppercase; letter-spacing: 0.5px;">Match Forces (Starter Armies)</h3>
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; font-size: 12px; color: #29b6f6; margin-bottom: 4px; font-weight: 600;">Host Force (South):</label>
+              <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
+                <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
+                <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
+              </select>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <label style="display: block; font-size: 12px; color: #ef5350; margin-bottom: 4px; font-weight: 600;">Guest Force (North):</label>
+              <select id="guestArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
+                <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
+                <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
+              </select>
+            </div>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ffd54f; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="deployPhaseCheck" ${this.useDeploymentPhase ? 'checked' : ''} />
+              <span>Interactive Pre-Match Deployment (12" Zones)</span>
+            </label>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <button id="createBtn" style="padding: 12px 24px; font-size: 15px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 6px; cursor: pointer;">Create Room (Host)</button>
+            <div style="display: flex; gap: 8px;">
+              <input id="codeInput" placeholder="XXX-XXX" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
+              <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
+            </div>
           </div>
         </div>
       `;
 
-      document.getElementById('createBtn')?.addEventListener('click', () => {
+      const hostSelect = this.container.querySelector<HTMLSelectElement>('#hostArmySelect');
+      hostSelect?.addEventListener('change', () => {
+        this.hostArmyId = hostSelect.value;
+      });
+
+      const guestSelect = this.container.querySelector<HTMLSelectElement>('#guestArmySelect');
+      guestSelect?.addEventListener('change', () => {
+        this.guestArmyId = guestSelect.value;
+      });
+
+      const deployCheck = this.container.querySelector<HTMLInputElement>('#deployPhaseCheck');
+      deployCheck?.addEventListener('change', () => {
+        this.useDeploymentPhase = deployCheck.checked;
+      });
+
+      this.container.querySelector('#createBtn')?.addEventListener('click', () => {
         this.signalingClient.createRoom();
       });
 
-      document.getElementById('joinBtn')?.addEventListener('click', () => {
-        const input = document.getElementById('codeInput') as HTMLInputElement;
-        if (input.value) {
+      this.container.querySelector('#joinBtn')?.addEventListener('click', () => {
+        const input = this.container.querySelector<HTMLInputElement>('#codeInput');
+        if (input && input.value) {
           this.signalingClient.joinRoom(input.value.toUpperCase());
         }
       });

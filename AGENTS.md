@@ -53,6 +53,11 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - Keep networking protocol well-documented
 - Write TypeScript with strict types
 - Follow Three.js best practices for performance
+- **Atomic Sub-Phasing for Complex Mechanics:** When implementing expansive or complex phases (e.g. multi-model squads, 3D verticality, custom army builders), break work into atomic, sequential PRs:
+  1. *Engine & Data Schema (`shared/`):* Define serializable types and pure engine logic functions accompanied by unit tests.
+  2. *HUD & Interaction Controls (`client/src/ui`):* Add user controls, targeting chips, and HUD state management.
+  3. *3D Scene & Rendering (`client/src/scene`):* Implement Three.js meshes, animations, and visual synchronization.
+- **TDD for Rules Engine:** Write unit tests in `shared/tests` to verify rules behavior before wiring UI or scene rendering. Pure engine tests ensure robustness regardless of AI reasoning tier.
 
 ### Development Don'ts
 - Don't put game logic in Three.js scene objects
@@ -65,6 +70,8 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - Don't allow real-time drag synchronization
 - Don't hardcode ruleset-specific logic into the engine (rulesets are data packs)
 - Don't bundle third-party rulebook text, lore, artwork, or proprietary army data
+- Don't attempt monolithic PRs across complex subsystems (schema + UI + 3D rendering all in one go); split them logically
+- Don't open or merge a pull request targeting the `release` branch unless explicitly commanded by the user
 
 ## Git Workflow
 - Always work on feature branches, never commit directly to master/main
@@ -74,6 +81,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 ## CI/CD & Deployment
 - **PR Checks:** Pull requests to `main`/`master` must build and run tests across all workspaces. No deployments from PRs.
 - **Release Deployments:** Only a **merged PR into the `release` branch** triggers deployment. GitHub Actions deploys the client to GitHub Pages and the signaling server to Azure App Service (Linux Node 24 LTS, Free F1 tier) when a PR targeting `release` is merged. Deployments are intentional — open a PR (`master` → `release`) and merge it when ready to demo.
+- **Never auto-deploy or assume release timing:** Never create or merge a pull request targeting the `release` branch unless the user explicitly and directly commands you to deploy a release in the current turn. Merges to `master` are normal development merges; releases are strictly deliberate events initiated on explicit user command.
 - **Configuration:** The client uses `VITE_SIGNALING_URL` to point to the deployed signaling server. For GitHub Pages, ensure `base` is configured correctly in `client/vite.config.ts`.
 - **Documentation:** See [DEPLOYMENT.md](doc/DEPLOYMENT.md) for full setup instructions.
 

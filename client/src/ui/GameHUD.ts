@@ -1,26 +1,42 @@
 import {
+  CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
   createAction,
   describeTerrainPiece,
   describeTrait,
+  detectPathFall,
+  detectPathGapJump,
   findNavPath,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
   GameAction,
+  getDeployableUnits,
+  getDeploymentZoneBounds,
+  getEffectiveMaxMovement,
   getUnitTough,
   hasCoverAgainstAttack,
   hasLineOfSight,
   hasTrait,
+  isPathDangerous,
+  isPathDifficult,
   Objective,
   pathLength,
+  pathLength3D,
   ShootingRayDebugInfo,
   Unit,
+  validateDeploymentPosition,
+  validateMeleeVerticalReach,
   Vector3,
+  Weapon,
 } from '@skirmish-lab/shared';
 import { soundFx } from '../audio/SoundFx';
-import { MovePathMarker } from '../renderer/MarkerRenderer';
+import {
+  DeploymentZoneBounds,
+  DeploymentZoneMarker,
+  MovePathMarker,
+} from '../renderer/MarkerRenderer';
 
 function escapeHtmlAttr(str: string): string {
   return str
@@ -59,6 +75,7 @@ export interface MarkerSnapshot {
   outcome: { position: Vector3; wounds: number } | null;
   debugActive?: boolean;
   shootingDebugRay?: ShootingRayDebugInfo | null;
+  deploymentZones?: DeploymentZoneMarker | null;
 }
 
 export type PickTarget =
@@ -87,6 +104,8 @@ export class GameHUD {
   private flow: TargetingMode = { mode: 'idle' };
   /** Selected own unit (board click or list) pending activation, or active unit. */
   private selectedUnitId: string | null = null;
+  /** Selected undeployed fighter pending placement during deployment phase. */
+  private selectedDeployUnitId: string | null = null;
   /** Unit hovered in the fighter list or on the board. */
   private hoveredUnitId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
@@ -106,6 +125,8 @@ export class GameHUD {
   private movePathPreview: Vector3[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
   private hoveredEngagedTargetId: string | null = null;
+  /** Designated model in a multi-model squad to allocate hazard casualties to. */
+  private selectedCasualtyModelId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -193,6 +214,12 @@ export class GameHUD {
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
+    if (this.selectedDeployUnitId) {
+      const unit = state.units.find((u) => u.id === this.selectedDeployUnitId);
+      if (!unit || unit.isDeployed !== false) {
+        this.selectedDeployUnitId = null;
+      }
+    }
 
     if (prevRound !== null && state.turnState.roundNumber > prevRound && state.status !== 'game-over') {
       const starter =
@@ -272,6 +299,39 @@ export class GameHUD {
   handleBoardPick(target: PickTarget): void {
     if (!this.state || this.state.status === 'game-over') return;
 
+    if (this.state.turnState.phase === 'deployment') {
+      if (!this.myTurn) {
+        this.showToast("Wait for opponent's deployment turn");
+        return;
+      }
+      if (target.kind === 'position') {
+        const deployable = getDeployableUnits(this.state, this.localPlayerId);
+        const unit = (this.selectedDeployUnitId
+          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
+          : null) ?? deployable[0];
+        if (!unit) {
+          this.showToast('No deployable units remaining');
+          return;
+        }
+        const val = validateDeploymentPosition(this.state, unit, target.position);
+        if (!val.valid) {
+          this.showToast(val.reason ?? 'Invalid deployment position');
+          return;
+        }
+        this.flow = {
+          mode: 'confirming',
+          action: createAction(this.localPlayerId, 'deploy-unit', {
+            type: 'deploy-unit',
+            unitId: unit.id,
+            position: target.position,
+          }),
+          summary: `Deploy ${unit.name} at (${target.position.x.toFixed(1)}, ${target.position.z.toFixed(1)})`,
+        };
+        this.render();
+      }
+      return;
+    }
+
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       if (target.kind === 'position') {
         if (this.flow.action === 'move') {
@@ -331,7 +391,7 @@ export class GameHUD {
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
-        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.remainingMovement;
+        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
         const path = findNavPath(this.state, active, target.position, maxDist);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -540,17 +600,46 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const path = findNavPath(this.state, active, rawDestination, active.remainingMovement);
+    const isDifficultDirect = isPathDifficult(this.state, [active.position, rawDestination], active);
+    const maxAllowance = isDifficultDirect ? Math.min(active.speed, 6.0) : active.speed;
+    const path = findNavPath(this.state, active, rawDestination, maxAllowance);
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength(path);
+    const isDifficult = isPathDifficult(this.state, path, active);
+    const maxMove = Math.min(
+      getEffectiveMaxMovement(active, 'move', isDifficult),
+      Math.max(active.speed, active.remainingMovement)
+    );
+    const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
+
+    const maxMoveStr = Number.isInteger(maxMove) ? `${maxMove}` : maxMove.toFixed(1);
+    let summary = `Move ${active.name} ${distance.toFixed(1)}" (max ${maxMoveStr}") · can shoot after moving`;
+    if (isDifficult) {
+      summary += ' · [Difficult Terrain: 6.0" speed cap]';
+    }
+    const fall = detectPathFall(path);
+    if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+      summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    }
+    if (isPathDangerous(this.state, path, active)) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+    const gapJump = detectPathGapJump(this.state, path, active);
+    if (gapJump.isGapJump) {
+      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required or fall!`;
+    }
+
+    this.selectedCasualtyModelId =
+      active.models && active.models.length > 1
+        ? active.models.find((m) => !m.isDestroyed)?.id ?? null
+        : null;
 
     this.movePreview = destination;
     this.movePathPreview = path;
@@ -560,8 +649,10 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
+        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
+        ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
       }),
-      `Move ${active.name} ${distance.toFixed(1)}" (max ${active.speed}") · can shoot after moving`
+      summary
     );
   }
 
@@ -569,13 +660,17 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const path = findNavPath(this.state, active, rawDestination, active.speed * 2);
+    const isDifficultDirect = isPathDifficult(this.state, [active.position, rawDestination], active);
+    const maxAllowance = isDifficultDirect ? 6.0 : active.speed * 2;
+    const path = findNavPath(this.state, active, rawDestination, maxAllowance);
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength(path);
+    const isDifficult = isPathDifficult(this.state, path, active);
+    const maxRush = getEffectiveMaxMovement(active, 'rush', isDifficult);
+    const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -589,6 +684,28 @@ export class GameHUD {
       return;
     }
 
+    const maxRushStr = Number.isInteger(maxRush) ? `${maxRush}` : maxRush.toFixed(1);
+    let summary = `Rush ${active.name} ${distance.toFixed(1)}" (max ${maxRushStr}") · double move (activation ends)`;
+    if (isDifficult) {
+      summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
+    }
+    const fall = detectPathFall(path);
+    if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+      summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    }
+    if (isPathDangerous(this.state, path, active)) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+    const gapJump = detectPathGapJump(this.state, path, active);
+    if (gapJump.isGapJump) {
+      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required or fall!`;
+    }
+
+    this.selectedCasualtyModelId =
+      active.models && active.models.length > 1
+        ? active.models.find((m) => !m.isDestroyed)?.id ?? null
+        : null;
+
     this.movePreview = destination;
     this.movePathPreview = path;
     this.beginConfirmation(
@@ -597,8 +714,10 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
+        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
+        ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
       }),
-      `Rush ${active.name} ${distance.toFixed(1)}" (max ${(active.speed * 2).toFixed(1)}") · double move (activation ends)`
+      summary
     );
   }
 
@@ -615,53 +734,70 @@ export class GameHUD {
     );
 
     if (this.flow.action === 'shoot') {
-      const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
-      if (!weapon) {
+      const rangedWeapons = active.weapons.filter(
+        (w) => w.isEquipped && w.profile.type === 'ranged'
+      );
+      if (rangedWeapons.length === 0) {
         this.showToast('No ranged weapon');
         return;
       }
-      if (distance > weapon.profile.range + 0.01) {
-        this.showToast(`Out of range: ${distance.toFixed(1)}" vs ${weapon.profile.range}"`);
+
+      // Find all equipped ranged weapons eligible to target this unit
+      const validAllocations: Array<{ weapon: Weapon; mods: CombatModifierBreakdown; diceText: string }> = [];
+      for (const weapon of rangedWeapons) {
+        if (distance > weapon.profile.range + 0.01) continue;
+        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) continue;
+        const inCover =
+          this.state &&
+          !hasTrait(weapon.profile.specialRules, 'blast') &&
+          (target.status.includes('in-cover') ||
+            (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
+        const attacks = weapon.profile.attacks;
+        const mods = computeCombatModifiers(
+          {
+            quality: active.quality,
+            specialRules: active.specialRules,
+            weaponRules: weapon.profile.specialRules,
+            isMelee: false,
+            distance,
+            hasMoved: active.hasMoved,
+          },
+          {
+            defense: target.defense,
+            inCover: !!inCover,
+            specialRules: target.specialRules,
+            hasMoved: target.hasMoved,
+          }
+        );
+        const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
+        const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
+        const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+        validAllocations.push({ weapon, mods, diceText });
+      }
+
+      if (validAllocations.length === 0) {
+        this.showToast(`Out of range or no line of sight to ${target.name}`);
         return;
       }
-      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-      if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
-        this.showToast('No line of sight to target');
-        return;
-      }
-      const inCover =
-        this.state &&
-        !hasTrait(weapon.profile.specialRules, 'blast') &&
-        (target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
-      const attacks = weapon.profile.attacks;
-      const mods = computeCombatModifiers(
-        {
-          quality: active.quality,
-          specialRules: active.specialRules,
-          weaponRules: weapon.profile.specialRules,
-          isMelee: false,
-          distance,
-          hasMoved: active.hasMoved,
-        },
-        {
-          defense: target.defense,
-          inCover: !!inCover,
-          specialRules: target.specialRules,
-          hasMoved: target.hasMoved,
-        }
-      );
-      const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
-      const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+
+      const allocations = validAllocations.map((v) => ({
+        weaponId: v.weapon.id,
+        targetId: target.id,
+      }));
+
+      const weaponNames = validAllocations.map((v) => v.weapon.name).join(' & ');
+      const diceSummaries = validAllocations.map((v) => `${v.weapon.name}: ${v.diceText}`).join(' | ');
+
       this.beginConfirmation(
         createAction(this.localPlayerId, 'shoot', {
           type: 'shoot',
           attackerId: active.id,
           targetId: target.id,
-          weaponId: weapon.id,
+          weaponId: validAllocations[0].weapon.id,
+          allocations,
         }),
-        `${active.name} fires ${weapon.name} at ${target.name} (${distance.toFixed(1)}") · ${diceText}`
+        `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`
       );
       return;
     }
@@ -696,12 +832,36 @@ export class GameHUD {
         this.showToast('Cannot reach engagement range of target');
         return;
       }
-      const chargeDistance = pathLength(path);
-      if (chargeDistance > active.speed * 2 + 0.01) {
+      if (!validateMeleeVerticalReach(end, target.position)) {
+        this.showToast('Target is on a ledge outside vertical melee reach (> 1.0" vertical difference)');
+        return;
+      }
+      const isDifficult = isPathDifficult(this.state!, path, active);
+      const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
+      const chargeDistance = pathLength3D(path);
+      if (chargeDistance > maxCharge + 0.01) {
         this.showToast(
-          `Too far to charge: ${chargeDistance.toFixed(1)}" vs charge speed ${(active.speed * 2).toFixed(1)}"`
+          isDifficult
+            ? `Charge in Difficult Terrain is capped at 6.0" (${chargeDistance.toFixed(1)}" exceeds 6.0")`
+            : `Too far to charge: ${chargeDistance.toFixed(1)}" vs charge speed ${maxCharge.toFixed(1)}"`
         );
         return;
+      }
+
+      let traversalNotes = '';
+      if (isDifficult) {
+        traversalNotes += ' · [Difficult Terrain 6.0" cap]';
+      }
+      const fall = detectPathFall(path);
+      if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+        traversalNotes += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1)`;
+      }
+      if (isPathDangerous(this.state!, path, active)) {
+        traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
+      }
+      const gapJump = detectPathGapJump(this.state!, path, active);
+      if (gapJump.isGapJump) {
+        traversalNotes += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required`;
       }
 
       const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
@@ -739,6 +899,7 @@ export class GameHUD {
           targetId: target.id,
           path,
           weaponId: weapon.id,
+          ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
         }),
         `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into melee) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
@@ -873,20 +1034,30 @@ export class GameHUD {
     }
     const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}</div>` : '';
 
+    const isDeployPhase = state.turnState.phase === 'deployment';
+    const roundBadge = isDeployPhase
+      ? `<span class="sl-hud-round" style="background: #ffd54f; color: #12161c; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Deployment</span>`
+      : `<span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>`;
+
+    const turnLabel =
+      state.status === 'game-over'
+        ? this.gameOverText(opponentName)
+        : isDeployPhase
+        ? this.myTurn
+          ? 'Your turn to deploy'
+          : `${opponentName}'s turn to deploy`
+        : this.myTurn
+        ? 'Your turn'
+        : `${opponentName}'s turn`;
+
     const header = `
       <div class="sl-hud-header">
         <span class="sl-hud-title">SkirmishLab</span>
-        <span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>
+        ${roundBadge}
         <span class="sl-hud-objectives-score">
           Objectives: <span class="score-team-host" style="color: #29b6f6; font-weight: 700;">Host ${hostScore}</span> — <span class="score-team-guest" style="color: #ef5350; font-weight: 700;">Guest ${guestScore}</span>
         </span>
-        <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${
-      state.status === 'game-over'
-        ? this.gameOverText(opponentName)
-        : this.myTurn
-        ? 'Your turn'
-        : `${opponentName}'s turn`
-    }</span>
+        <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${turnLabel}</span>
         ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : ''}
       </div>`;
 
@@ -972,6 +1143,25 @@ export class GameHUD {
     }
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
+    const isDeployPhase = this.state?.turnState.phase === 'deployment';
+    if (unit.isDeployed === false) {
+      if (hasTrait(unit.specialRules, 'drop-reserve')) {
+        statusTags.push('DROP RESERVE (RD 2+)');
+      } else if (hasTrait(unit.specialRules, 'vanguard')) {
+        statusTags.push('VANGUARD');
+      } else {
+        statusTags.push('UNDEPLOYED');
+      }
+    }
+
+    const deployableList =
+      isDeployPhase && this.state ? getDeployableUnits(this.state, this.localPlayerId) : [];
+    const isDeployable = isDeployPhase && deployableList.some((u) => u.id === unit.id);
+    const isDeploySelected =
+      isDeployPhase &&
+      (this.selectedDeployUnitId === unit.id ||
+        (!this.selectedDeployUnitId && deployableList[0]?.id === unit.id));
+
     const canActivate = this.canActivateUnit(unit);
     const isActive = this.activeUnit?.id === unit.id;
     const weaponSummary = unit.weapons
@@ -993,6 +1183,8 @@ export class GameHUD {
       unit.isDestroyed ? 'destroyed' : '',
       canActivate ? 'activatable' : '',
       isActive ? 'active' : '',
+      isDeployable ? 'deployable' : '',
+      isDeploySelected ? 'deploy-selected' : '',
     ]
       .filter(Boolean)
       .join(' ');
@@ -1022,6 +1214,16 @@ export class GameHUD {
       }
     }
     if (unit.isActivated) statusTags.push('ACTIVATED');
+
+    if (unit.isDeployed === false) {
+      if (hasTrait(unit.specialRules, 'drop-reserve')) {
+        statusTags.push('DROP RESERVE');
+      } else if (hasTrait(unit.specialRules, 'vanguard')) {
+        statusTags.push('VANGUARD');
+      } else {
+        statusTags.push('UNDEPLOYED');
+      }
+    }
 
     const classes = ['sl-hud-unit', 'enemy', teamClass, unit.isDestroyed ? 'destroyed' : '']
       .filter(Boolean)
@@ -1068,6 +1270,70 @@ export class GameHUD {
               <div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — Defender declined retaliation (no Fatigue)</div>
             </div>`;
         }
+      }
+
+      if (outcome.allocations && outcome.allocations.length > 1) {
+        const allocsHtml = outcome.allocations
+          .map((alloc, idx) => {
+            const allocToHit = entry.dice!.results.find((r) => r.purpose === `alloc_${idx}_to-hit`) ?? toHit;
+            const allocDef = entry.dice!.results.find((r) => r.purpose === `alloc_${idx}_defense`) ?? defense;
+            const aHitDice = allocToHit
+              ? allocToHit.rolls
+                  .map((r) => {
+                    const isHit = r > 1 && (r >= 6 || r >= (alloc.effectiveQuality ?? 4));
+                    return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}">${r}</span>`;
+                  })
+                  .join('')
+              : '';
+            const usedDef = allocDef ? allocDef.rolls.slice(0, alloc.hitCount) : [];
+            const aDefDice =
+              usedDef.length > 0
+                ? usedDef
+                    .map((r, di) => {
+                      const isBlocked = alloc.blockedRolls
+                        ? (alloc.blockedRolls[di] ?? false)
+                        : r > 1 && r >= (alloc.effectiveDefense ?? 5);
+                      return `<span class="sl-die ${isBlocked ? 'def-pass' : 'def-fail'}">${r}</span>`;
+                    })
+                    .join('')
+                : '<span class="sl-hud-dice-empty">no hits</span>';
+
+            const allocTraumaHtml =
+              alloc.traumaRoll !== undefined
+                ? `<div class="sl-hud-dice-label" style="font-size:10px;">Wound Effect (roll ${alloc.traumaRoll} + ${alloc.traumaTokens ?? 0} WT = ${alloc.traumaTotal}):</div>
+                   <div class="sl-hud-dice-row">
+                     <span class="sl-die ${alloc.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${alloc.traumaRoll}</span>
+                     <span class="sl-hud-dice-summary">${alloc.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'}</span>
+                   </div>`
+                : '';
+
+            return `
+              <div class="sl-hud-alloc-block" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">
+                <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold; font-size: 11px;">
+                  ${alloc.weaponName ?? alloc.weaponId} → ${alloc.targetName ?? alloc.targetId}
+                </div>
+                <div class="sl-hud-dice-row">
+                  <span class="sl-hud-dice-sublabel" style="font-size:10px; margin-right:4px;">Hit (Q${alloc.effectiveQuality ?? 4}+):</span> ${aHitDice}
+                  <span class="sl-hud-dice-sublabel" style="font-size:10px; margin: 0 4px 0 8px;">Def (D${alloc.effectiveDefense ?? 5}+):</span> ${aDefDice}
+                </div>
+                ${allocTraumaHtml}
+                <div class="sl-hud-dice-summary" style="font-size: 10px; margin-top: 2px;">
+                  ${alloc.hitCount} hit${alloc.hitCount === 1 ? '' : 's'} · ${alloc.blockedCount} blocked ·
+                  <strong>${alloc.wounds} wound${alloc.wounds === 1 ? '' : 's'}</strong>
+                  ${alloc.targetDestroyed ? ' · target down' : alloc.targetShaken ? ' · shaken' : ''}
+                </div>
+              </div>`;
+          })
+          .join('');
+
+        return `
+          <div class="sl-hud-dice">
+            <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} Salvo (${outcome.allocations.length} weapons)</div>
+            ${allocsHtml}
+            <div class="sl-hud-dice-summary" style="margin-top: 6px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 4px;">
+              Total: ${outcome.hitCount} hits · ${outcome.blockedCount} blocked · ${outcome.wounds} unsaved wounds
+            </div>
+          </div>`;
       }
 
       const hitDiceHtml = toHit
@@ -1261,6 +1527,8 @@ export class GameHUD {
 
   private logVerb(action: GameAction): string {
     switch (action.type) {
+      case 'deploy-unit':
+        return `deployed ${this.unitName((action.payload as any).unitId)}`;
       case 'activate-unit':
         return `activated ${this.unitName((action.payload as any).unitId)}`;
       case 'hold':
@@ -1300,13 +1568,69 @@ export class GameHUD {
     const dataCardSlot = `<div class="sl-hud-datacard-slot">${this.renderDataCard()}</div>`;
 
     if (this.flow.mode === 'confirming') {
+      let casualtySelectorHtml = '';
+      if (
+        this.state &&
+        active &&
+        active.models &&
+        active.models.filter((m) => !m.isDestroyed).length > 1
+      ) {
+        const path = (this.flow.action.payload as any)?.path;
+        if (path && isPathDangerous(this.state, path, active)) {
+          const livingModels = active.models.filter((m) => !m.isDestroyed);
+          casualtySelectorHtml = `
+            <div class="sl-hud-casualty-selector" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #ffd54f;">
+              <span>Hazard Casualty Priority:</span>
+              <div style="display: flex; gap: 6px;">
+                ${livingModels
+                  .map(
+                    (m, idx) => `
+                  <button class="sl-hud-btn sl-hud-chip ${
+                    (this.selectedCasualtyModelId ?? livingModels[0].id) === m.id ? 'primary' : ''
+                  }" data-casualty-model-id="${m.id}" style="padding: 2px 8px; font-size: 11px;">
+                    ${m.name ?? `Model ${idx + 1}`} (${m.wounds}W)
+                  </button>`
+                  )
+                  .join('')}
+              </div>
+            </div>`;
+        }
+      }
+
       return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
-          <div class="sl-hud-bottom sl-hud-confirm">
-            <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
-            <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
-            <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+          <div class="sl-hud-bottom sl-hud-confirm" style="display: flex; flex-direction: column; align-items: center;">
+            ${casualtySelectorHtml}
+            <div style="display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center;">
+              <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
+              <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
+              <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    if (this.state.turnState.phase === 'deployment') {
+      const deployable = getDeployableUnits(this.state, this.localPlayerId);
+      const selectedUnit =
+        (this.selectedDeployUnitId
+          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
+          : null) ?? deployable[0];
+
+      return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-deployment-bar" style="display: flex; align-items: center; justify-content: center; padding: 12px 20px; background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px;">
+            <span class="sl-hud-deploy-prompt" style="font-size: 14px; color: #e0e6ed;">
+              ${
+                !this.myTurn
+                  ? `<span style="color: #ffd54f;">⏳ Waiting for opponent to deploy...</span>`
+                  : selectedUnit
+                  ? `📍 Deploying <strong style="color: #29b6f6;">${selectedUnit.name}</strong> — Click any legal position within your 12" deployment zone`
+                  : `Select an undeployed fighter from the left panel to place on the battlefield`
+              }
+            </span>
           </div>
         </div>`;
     }
@@ -1774,6 +2098,13 @@ export class GameHUD {
         }
       });
       el.addEventListener('click', () => {
+        if (this.state?.turnState.phase === 'deployment') {
+          if (el.classList.contains('deployable')) {
+            this.selectedDeployUnitId = unitId;
+            this.render();
+          }
+          return;
+        }
         if (this.flow.mode === 'targeting' && this.flow.action !== 'move') {
           this.prepareAttack(unitId);
         } else if (el.classList.contains('activatable')) {
@@ -1864,6 +2195,19 @@ export class GameHUD {
         }
       });
     }
+
+    const casualtyBtns = this.root.querySelectorAll<HTMLButtonElement>('[data-casualty-model-id]');
+    for (const btn of casualtyBtns) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const modelId = btn.dataset.casualtyModelId;
+        if (modelId && this.flow.mode === 'confirming') {
+          this.selectedCasualtyModelId = modelId;
+          (this.flow.action.payload as any).casualtyModelIds = [modelId];
+          this.render();
+        }
+      });
+    }
   }
 
   private emitMarkers(): void {
@@ -1907,7 +2251,34 @@ export class GameHUD {
       outcome,
       debugActive: this.terrainDebugEnabled,
       shootingDebugRay,
+      deploymentZones: null,
     };
+
+    if (this.state && this.state.turnState.phase === 'deployment') {
+      const hostZone = getDeploymentZoneBounds(this.state, this.state.hostId, false);
+      const guestZone = getDeploymentZoneBounds(this.state, this.state.guestId, false);
+      let previewUnitZone: (DeploymentZoneBounds & { color?: number }) | undefined = undefined;
+
+      const deployable = getDeployableUnits(this.state, this.localPlayerId);
+      const currentDeployUnit =
+        (this.selectedDeployUnitId
+          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
+          : null) ?? deployable[0];
+
+      if (this.myTurn && currentDeployUnit && hasTrait(currentDeployUnit.specialRules, 'vanguard')) {
+        const vBounds = getDeploymentZoneBounds(this.state, currentDeployUnit.ownerId, true);
+        previewUnitZone = {
+          ...vBounds,
+          color: currentDeployUnit.ownerId === this.state.hostId ? 0x29b6f6 : 0xef5350,
+        };
+      }
+
+      markers.deploymentZones = {
+        hostZone,
+        guestZone,
+        previewUnitZone,
+      };
+    }
 
     // If hovering an enemy unit, show the bright red target ring under that enemy.
     if (hoveredUnit && hoveredUnit.ownerId !== this.localPlayerId) {
@@ -1982,7 +2353,7 @@ export class GameHUD {
       markers.movementRangeUnitId = this.activeUnit.id;
       markers.movementRangeRadius = isRushMode
         ? this.activeUnit.speed * 2
-        : this.activeUnit.remainingMovement;
+        : this.activeUnit.speed;
       if (this.movePathPreview && this.movePathPreview.length >= 2) {
         markers.movePath = {
           from: this.movePathPreview[0],
@@ -2115,6 +2486,9 @@ export class GameHUD {
 .sl-hud-unit.team-red:hover { background: #351e24; }
 .sl-hud-unit.activatable { cursor: pointer; outline: 1px solid #69f0ae; }
 .sl-hud-unit.activatable:hover { background: #213028; }
+.sl-hud-unit.deployable { cursor: pointer; outline: 1px dashed #ffd54f; }
+.sl-hud-unit.deployable:hover { background: #332b1a; }
+.sl-hud-unit.deploy-selected { outline: 2px solid #ffd54f; background: #3d3215 !important; }
 .sl-hud-unit.enemy { cursor: pointer; }
 .sl-hud-unit.active { outline: 2px solid #69f0ae; }
 .sl-hud-unit.destroyed { opacity: 0.35; text-decoration: line-through; }

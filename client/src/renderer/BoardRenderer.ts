@@ -11,6 +11,13 @@ const TERRAIN_COLORS: Record<string, number> = {
   barricade: 0x7d6a4a,
   crate: 0x8a7a58,
   hill: 0x6b6b4a,
+  toxic: 0x33aa22,
+  hazard: 0xdd7700,
+  platform: 0x555555,
+  ladder: 0x888877,
+  stairs: 0x777777,
+  pipe: 0x556677,
+  'wall-low': 0x6e6a66,
 };
 const DEFAULT_TERRAIN_COLOR = 0x606058;
 

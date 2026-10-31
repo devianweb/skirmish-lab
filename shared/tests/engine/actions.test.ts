@@ -175,6 +175,47 @@ describe('applyAction: hold', () => {
   });
 });
 
+describe('applyAction: deploy-unit', () => {
+  it('places unit in deployment zone, sets isDeployed = true, and advances turn', () => {
+    const state = makeState([
+      makeUnit('h1', HOST, { isDeployed: false }),
+      makeUnit('g1', GUEST, { isDeployed: false }),
+    ]);
+    state.turnState.phase = 'deployment';
+    state.turnState.currentPlayerId = HOST;
+
+    const action = createAction(HOST, 'deploy-unit', {
+      type: 'deploy-unit',
+      unitId: 'h1',
+      position: { x: 0, y: 0, z: -12 },
+    });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+
+    const placed = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(placed.isDeployed).toBe(true);
+    expect(placed.position).toEqual({ x: 0, y: 0, z: -12 });
+    expect(outcome.state!.turnState.currentPlayerId).toBe(GUEST);
+  });
+
+  it('rejects deployment when not the player turn', () => {
+    const state = makeState([makeUnit('h1', HOST, { isDeployed: false })]);
+    state.turnState.phase = 'deployment';
+    state.turnState.currentPlayerId = GUEST;
+
+    const action = createAction(HOST, 'deploy-unit', {
+      type: 'deploy-unit',
+      unitId: 'h1',
+      position: { x: 0, y: 0, z: -12 },
+    });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toBe('Not your turn');
+  });
+});
+
 describe('applyAction: move-unit', () => {
   function moveState(): GameState {
     const state = makeState([makeUnit('h1', HOST), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } as Vector3 })]);
@@ -201,10 +242,10 @@ describe('applyAction: move-unit', () => {
     const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
     expect(unit.position).toEqual({ x: 3, y: 0, z: 4 });
     expect(unit.hasMoved).toBe(true);
-    expect(unit.remainingMovement).toBe(1); // 6 - 5
+    expect(unit.remainingMovement).toBe(0);
   });
 
-  it('rejects moving further than the remaining movement', () => {
+  it('rejects moving further than unit speed', () => {
     const state = moveState();
     const action = createAction(HOST, 'move-unit', {
       type: 'move-unit',
@@ -212,7 +253,31 @@ describe('applyAction: move-unit', () => {
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 7 }],
       finalPosition: { x: 0, y: 0, z: 7 },
     });
-    expect(act(state, action).reason).toBe('Move exceeds remaining movement');
+    expect(act(state, action).reason).toBe('Move exceeds unit speed');
+  });
+
+  it('rejects moving if the unit has already moved this activation', () => {
+    const state = moveState();
+    state.units.find((u) => u.id === 'h1')!.hasMoved = true;
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
+      finalPosition: { x: 0, y: 0, z: 2 },
+    });
+    expect(act(state, action).reason).toBe('Unit has already moved or attacked this activation');
+  });
+
+  it('rejects moving if the unit has already attacked this activation', () => {
+    const state = moveState();
+    state.units.find((u) => u.id === 'h1')!.hasAttacked = true;
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
+      finalPosition: { x: 0, y: 0, z: 2 },
+    });
+    expect(act(state, action).reason).toBe('Unit has already moved or attacked this activation');
   });
 
   it('rejects moves that leave the board', () => {
@@ -275,6 +340,76 @@ describe('applyAction: move-unit', () => {
     expect(outcome.ok).toBe(true);
     const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
     expect(moved.rotation.y).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('translates all squad models rigidly when modelPositions is omitted', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4 }],
+      finalPosition: { x: 0, y: 0, z: 4 },
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(moved.position).toEqual({ x: 0, y: 0, z: 4 });
+    expect(moved.models[0].position).toEqual({ x: 0, y: 0, z: 4 });
+    expect(moved.models[1].position).toEqual({ x: 0.8, y: 0, z: 4 });
+  });
+
+  it('applies explicit coherent modelPositions and sets centroid', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    const explicitPositions: Vector3[] = [
+      { x: 0, y: 0, z: 3 },
+      { x: 0, y: 0, z: 3.7 },
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.35 }],
+      finalPosition: { x: 0, y: 0, z: 3.35 },
+      modelPositions: explicitPositions,
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(moved.position).toEqual({ x: 0, y: 0, z: 3.35 });
+    expect(moved.models[0].position).toEqual({ x: 0, y: 0, z: 3 });
+    expect(moved.models[1].position).toEqual({ x: 0, y: 0, z: 3.7 });
+  });
+
+  it('rejects move-unit when explicit modelPositions violate coherency', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    const incoherentPositions: Vector3[] = [
+      { x: 0, y: 0, z: 3 },
+      { x: 2.5, y: 0, z: 3 }, // 2.5" apart > 1.0"
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 1.25, y: 0, z: 3 }],
+      finalPosition: { x: 1.25, y: 0, z: 3 },
+      modelPositions: incoherentPositions,
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('exceeds 1" limit');
   });
 });
 
@@ -410,6 +545,128 @@ describe('applyAction: shoot', () => {
     // Further actions are rejected.
     const after = createAction(GUEST, 'hold', { type: 'hold', unitId: 'g1' });
     expect(act(outcome.state!, after).reason).toBe('Game is over');
+  });
+
+  it('resolves multi-weapon firing with multiple weapons on a single target', () => {
+    const state = shootState();
+    // Add pistol to h1
+    state.units[0].weapons.push({
+      id: 'pistol',
+      weaponType: 'pistol',
+      name: 'Pistol',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 2, specialRules: [] },
+    });
+    // Add another enemy so game doesn't end immediately
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }));
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'pistol', targetId: 'g1' },
+      ],
+    });
+
+    const specs = getDiceSpecs(state, action)!;
+    expect(specs.length).toBeGreaterThanOrEqual(4);
+    expect(specs[0].purpose).toBe('alloc_0_to-hit');
+    expect(specs[1].purpose).toBe('alloc_0_defense');
+
+    const multiDice: DiceResult[] = [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_0_to-hit' },
+      { rolls: [3], total: 3, finalTotal: 3, purpose: 'alloc_0_defense' }, // unsaved
+      { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'alloc_1_to-hit' },
+      { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'alloc_1_defense' }, // blocked
+    ];
+
+    const outcome = act(state, action, multiDice);
+    expect(outcome.ok).toBe(true);
+    const diceRes = outcome.state!.actionLog[0].dice!;
+    expect(diceRes.outcome.allocations).toHaveLength(2);
+    expect(diceRes.outcome.allocations![0].weaponId).toBe('rifle');
+    expect(diceRes.outcome.allocations![0].wounds).toBe(1);
+    expect(diceRes.outcome.allocations![1].weaponId).toBe('pistol');
+    expect(diceRes.outcome.allocations![1].wounds).toBe(0);
+    expect(diceRes.outcome.hitCount).toBe(3); // 1 + 2
+    expect(diceRes.outcome.blockedCount).toBe(2); // 0 + 2
+  });
+
+  it('resolves split-fire across up to 2 distinct targets', () => {
+    const state = shootState();
+    state.units[0].weapons.push({
+      id: 'pistol',
+      weaponType: 'pistol',
+      name: 'Pistol',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] },
+    });
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }));
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'pistol', targetId: 'g2' },
+      ],
+    });
+
+    const multiDice: DiceResult[] = [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_0_to-hit' },
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_0_defense' },
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'alloc_1_to-hit' },
+      { rolls: [2], total: 2, finalTotal: 2, purpose: 'alloc_1_defense' },
+    ];
+
+    const outcome = act(state, action, multiDice);
+    expect(outcome.ok).toBe(true);
+    const diceRes = outcome.state!.actionLog[0].dice!;
+    expect(diceRes.outcome.allocations).toHaveLength(2);
+    expect(diceRes.outcome.allocations![0].targetId).toBe('g1');
+    expect(diceRes.outcome.allocations![1].targetId).toBe('g2');
+    expect(diceRes.outcome.allocations![1].wounds).toBe(1);
+  });
+
+  it('rejects split fire when more than 2 distinct targets are allocated', () => {
+    const state = shootState();
+    state.units[0].weapons.push(
+      { id: 'w2', weaponType: 'pistol', name: 'W2', isEquipped: true, profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] } },
+      { id: 'w3', weaponType: 'pistol', name: 'W3', isEquipped: true, profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] } }
+    );
+    state.units.push(
+      makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }),
+      makeUnit('g3', GUEST, { position: { x: -5, y: 0, z: 10 } as Vector3 })
+    );
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'w2', targetId: 'g2' },
+        { weaponId: 'w3', targetId: 'g3' },
+      ],
+    });
+
+    expect(act(state, action).reason).toBe('Cannot split fire across more than 2 distinct targets');
+  });
+
+  it('rejects allocating the same weapon multiple times in one salvo', () => {
+    const state = shootState();
+    state.units.push(makeUnit('g2', GUEST, { position: { x: 5, y: 0, z: 10 } as Vector3 }));
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      allocations: [
+        { weaponId: 'rifle', targetId: 'g1' },
+        { weaponId: 'rifle', targetId: 'g2' },
+      ],
+    });
+
+    expect(act(state, action).reason).toBe('A weapon cannot be fired multiple times');
   });
 });
 
@@ -840,6 +1097,43 @@ describe('applyAction: charge', () => {
     expect(specs?.some((s) => s.purpose === 'retaliation-to-hit')).toBe(false);
     expect(specs?.some((s) => s.purpose === 'retaliation-defense')).toBe(false);
   });
+
+  it('Phase 9B: defending squad members consolidate up to 3" into contact when charged', () => {
+    const state = chargeState();
+    const defender = state.units.find((u) => u.id === 'g1')!;
+    // Target squad with front model at (0, 0, 5.0) and rear model at (0, 0, 5.8)
+    // Centroid is (0, 0, 5.4)
+    defender.models = [
+      { id: 'gm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.0 } },
+      { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.8 } },
+    ];
+    defender.position = { x: 0, y: 0, z: 5.4 };
+
+    // Charger ends at z=4.5 (0.9" from defender centroid, <= 1.0" engagement range)
+    const action = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4.5 }],
+      weaponId: 'blade',
+    });
+
+    const diceResults: DiceResult[] = [
+      { purpose: 'to-hit', rolls: [1, 1] } as any, // Misses
+      { purpose: 'defense', rolls: [6, 6] } as any,
+      { purpose: 'trauma', rolls: [1] } as any,
+    ];
+
+    const outcome = applyAction(state, action, diceResults);
+    expect(outcome.ok).toBe(true);
+
+    const postDefender = outcome.state!.units.find((u) => u.id === 'g1')!;
+    // Front model was already at z=5.0 (0.5" from charger at z=4.5) -> <= 1.0" so stays in place
+    expect(postDefender.models[0].position?.z).toBeCloseTo(5.0, 1);
+    // Rear model was at z=5.8 (1.3" from charger at z=4.5) -> consolidates into base contact (z=5.1)
+    expect(postDefender.models[1].position?.z).toBeLessThan(5.8);
+    expect(postDefender.models[1].position?.z).toBeCloseTo(5.1, 1);
+  });
 });
 
 describe('applyAction: rush', () => {
@@ -1143,6 +1437,72 @@ describe('applyAction invariants', () => {
     ]);
     const g1After3 = thirdShot.state!.units.find((u) => u.id === 'g1')!;
     expect(g1After3.isDestroyed).toBe(true);
+  });
+
+  it('Phase 9B: multi-model squad casualty cascade and centroid recomputation', () => {
+    // 3-model squad: m1 at (0, 0, 10), m2 at (0.7, 0, 10), m3 at (1.4, 0, 10) -> Centroid is (0.7, 0, 10)
+    const state = makeState([
+      makeUnit('h1', HOST, { weapons: [weapon('rifle')] }),
+      makeUnit('g-squad', GUEST, {
+        position: { x: 0.7, y: 0, z: 10 } as Vector3,
+        wounds: 3,
+        maxWounds: 3,
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 10 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.7, y: 0, z: 10 } },
+          { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1.4, y: 0, z: 10 } },
+        ],
+      }),
+    ]);
+    state.turnState.activeUnitId = 'h1';
+    state.units[0].isActivated = true;
+
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g-squad',
+      weaponId: 'rifle',
+    });
+
+    // 1st wound: eliminates m1 outright. 2 models remain (m2 at 0.7, m3 at 1.4 -> centroid moves to 1.05)
+    const shot1 = act(state, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const squad1 = shot1.state!.units.find((u) => u.id === 'g-squad')!;
+    expect(squad1.isDestroyed).toBe(false);
+    expect(squad1.models.filter((m) => !m.isDestroyed)).toHaveLength(2);
+    expect(squad1.models[0].isDestroyed).toBe(true);
+    expect(squad1.wounds).toBe(2);
+    expect(squad1.position.x).toBeCloseTo(1.05, 2);
+    expect(shot1.logEntry.dice?.outcome.traumaRoll).toBeUndefined(); // No trauma rolled!
+
+    // 2nd wound: eliminates m2 outright. Only m3 remains at 1.4
+    shot1.state!.units[0].hasAttacked = false;
+    const shot2 = act(shot1.state!, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const squad2 = shot2.state!.units.find((u) => u.id === 'g-squad')!;
+    expect(squad2.isDestroyed).toBe(false);
+    expect(squad2.models.filter((m) => !m.isDestroyed)).toHaveLength(1);
+    expect(squad2.wounds).toBe(1);
+    expect(squad2.position.x).toBeCloseTo(1.4, 2);
+    expect(shot2.logEntry.dice?.outcome.traumaRoll).toBeUndefined(); // Still no trauma rolled!
+
+    // 3rd wound: strikes final surviving model (m3). Trauma roll = 6 + 1 token = 7 >= 6 -> Knocked Out!
+    shot2.state!.units[0].hasAttacked = false;
+    const shot3 = act(shot2.state!, shootAction, [
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
+    ]);
+    const squad3 = shot3.state!.units.find((u) => u.id === 'g-squad')!;
+    expect(squad3.isDestroyed).toBe(true);
+    expect(squad3.models.every((m) => m.isDestroyed)).toBe(true);
+    expect(shot3.logEntry.dice?.outcome.traumaOutcome).toBe('knocked-out');
   });
 
   it('Tough(3) / Resilient(3) accumulates wounds without rolling until 3 wounds, and uses KO threshold 8+', () => {

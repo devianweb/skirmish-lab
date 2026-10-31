@@ -221,7 +221,41 @@ describe('GameHUD', () => {
       attackerId: attacker.id,
       targetId: target.id,
       weaponId: 'rifle',
+      allocations: [{ weaponId: 'rifle', targetId: target.id }],
     });
+  });
+
+  it('shoot flow: fires multiple equipped ranged weapons in range', () => {
+    const state = scenarioState();
+    const attacker = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged')
+    )!;
+    // Add second ranged weapon
+    attacker.weapons.push({
+      id: 'pistol-sidearm',
+      weaponType: 'pistol',
+      name: 'Sidearm',
+      isEquipped: true,
+      profile: { type: 'ranged', range: 12, attacks: 2, specialRules: [] },
+    });
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 }; // within range 12 of both weapons
+
+    activateUnit(state, HOST, attacker.id);
+    const { hud, container, controller } = setup(HOST, state);
+
+    clickByText(container, 'Shoot');
+    hud.handleBoardPick({ kind: 'unit', unitId: target.id });
+
+    expect(container.textContent).toContain('fires Hand Cannon & Sidearm');
+    clickByText(container, 'Confirm');
+
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('shoot');
+    expect(action.payload.allocations).toEqual([
+      { weaponId: 'handcannon', targetId: target.id },
+      { weaponId: 'pistol-sidearm', targetId: target.id },
+    ]);
   });
 
   it('shoot flow: out-of-range target is refused locally', () => {
@@ -1077,5 +1111,226 @@ describe('GameHUD', () => {
     const { hud } = setup(HOST, state);
     const range = (hud as any).actionMaxRange(unit, 'charge');
     expect(range).toBe(unit.speed * 2);
+  });
+
+  describe('Phase 10C: Interactive Deployment HUD', () => {
+    function deploymentState(): GameState {
+      const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
+      applyDefaultScenario(state, {
+        hostArmyId: 'frontier-wardens-starter',
+        guestArmyId: 'rust-raiders-starter',
+        useDeploymentPhase: true,
+      });
+      return state;
+    }
+
+    it('renders deployment header badge and deployment prompt during deployment phase', () => {
+      const state = deploymentState();
+      const { container } = setup(HOST, state);
+
+      expect(container.querySelector('.sl-hud-round')?.textContent).toContain('Deployment');
+      expect(container.querySelector('.sl-hud-turn')?.textContent).toContain('Your turn to deploy');
+      expect(container.querySelector('.sl-hud-deployment-bar')).toBeTruthy();
+      expect(container.querySelector('.sl-hud-deploy-prompt')?.textContent).toContain('Deploying');
+    });
+
+    it('displays undeployed status tags on units and highlights deployable fighters', () => {
+      const state = deploymentState();
+      const { container } = setup(HOST, state);
+
+      const hostRows = Array.from(container.querySelectorAll('.sl-hud-unit.team-blue'));
+      expect(hostRows.length).toBe(4);
+
+      // Patrol squad has drop-reserve
+      const dropReserveRow = hostRows.find((r) => r.textContent?.includes('DROP RESERVE'));
+      expect(dropReserveRow).toBeTruthy();
+
+      // Standard and vanguard units show UNDEPLOYED or VANGUARD
+      const deployableRow = hostRows.find((r) => r.classList.contains('deployable'));
+      expect(deployableRow).toBeTruthy();
+    });
+
+    it('allows board picking within 12" zone, showing confirm bar and submitting deploy-unit', () => {
+      const state = deploymentState();
+      const { hud, controller, container } = setup(HOST, state);
+
+      // Click at a valid host deployment position: x: 0, z: -12
+      hud.handleBoardPick({
+        kind: 'position',
+        position: { x: 0, y: 0, z: -12 },
+      });
+
+      const confirmBar = container.querySelector('.sl-hud-confirm');
+      expect(confirmBar).toBeTruthy();
+      expect(confirmBar?.textContent).toContain('Deploy');
+
+      // Click confirm
+      const confirmBtn = container.querySelector('button[data-action="confirm"]') as HTMLButtonElement;
+      confirmBtn.click();
+
+      expect(controller.submitAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'deploy-unit',
+          actorId: HOST,
+          payload: expect.objectContaining({
+            position: { x: 0, y: 0, z: -12 },
+          }),
+        })
+      );
+    });
+
+    it('rejects deployment outside 12" zone with toast error', () => {
+      const state = deploymentState();
+      const { hud, controller, container } = setup(HOST, state);
+
+      // Host deployment zone is z: -18..-6; z: 0 is in the middle of the board
+      hud.handleBoardPick({
+        kind: 'position',
+        position: { x: 0, y: 0, z: 0 },
+      });
+
+      expect(controller.submitAction).not.toHaveBeenCalled();
+      const toast = container.querySelector('.sl-hud-toast');
+      expect(toast?.textContent).toContain('outside');
+    });
+
+    it('emits deploymentZones marker data during deployment phase', () => {
+      const state = deploymentState();
+      const { hud } = setup(HOST, state);
+
+      let emittedMarkers: MarkerSnapshot | null = null;
+      hud.onMarkers((m) => {
+        emittedMarkers = m;
+      });
+
+      (hud as any).emitMarkers();
+
+      expect(emittedMarkers).toBeTruthy();
+      expect(emittedMarkers!.deploymentZones).toBeTruthy();
+      expect(emittedMarkers!.deploymentZones!.hostZone.maxZ).toBe(-6);
+      expect(emittedMarkers!.deploymentZones!.guestZone.minZ).toBe(6);
+    });
+  });
+
+  describe('Phase 11C: Traversal HUD Warnings & Casualty Allocation', () => {
+    it('displays high drop warning in confirmation bar when dropping > 3.0"', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: 0, y: 4.0, z: 0 };
+      activateUnit(state, HOST, unit.id);
+      const { hud, container } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
+
+      expect(container.textContent).toContain('HIGH DROP');
+      expect(container.textContent).toContain('Falling damage');
+    });
+
+    it('displays dangerous terrain hazard warning and allocates squad casualties', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      // Convert to multi-model squad
+      squad.wounds = 2;
+      squad.maxWounds = 2;
+      squad.models = [
+        { id: 'm1', name: 'Trooper 1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -3 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', name: 'Trooper 2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.5, y: 0, z: -3 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+      squad.position = { x: 0, y: 0, z: -3 };
+      // toxic sludge is at (0, 0, 0)
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 0 } });
+
+      expect(container.textContent).toContain('DANGEROUS TERRAIN');
+      expect(container.textContent).toContain('Hazard Casualty Priority');
+
+      // Click Trooper 2 casualty chip
+      const trooper2Btn = container.querySelector<HTMLButtonElement>('[data-casualty-model-id="m2"]');
+      expect(trooper2Btn).toBeTruthy();
+      trooper2Btn!.click();
+
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.payload.casualtyModelIds).toEqual(['m2']);
+    });
+
+    it('rejects charge when target is on elevated ledge outside vertical melee reach (> 1.0")', () => {
+      const state = scenarioState();
+      const attacker = state.units.find((u) => u.ownerId === HOST)!;
+      const target = state.units.find((u) => u.ownerId === GUEST)!;
+      activateUnit(state, HOST, attacker.id);
+      attacker.position = { x: 0, y: 0, z: 0 };
+      target.position = { x: 1.0, y: 2.5, z: 0 }; // 2.5" tall ledge
+
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Charge');
+      hud.handleBoardPick({ kind: 'unit', unitId: target.id });
+
+      expect(controller.submitAction).not.toHaveBeenCalled();
+      const toast = container.querySelector('.sl-hud-toast');
+      expect(toast?.textContent).toContain('outside vertical melee reach');
+    });
+
+    it('displays difficult terrain speed cap warning in move confirmation bar', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: 0, y: 0, z: 0 };
+      activateUnit(state, HOST, unit.id);
+      // toxic sludge at (0, 0, 0) is isDifficult: true
+      const { hud, container } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0.5, y: 0, z: 0.5 } });
+
+      expect(container.textContent).toContain('Difficult Terrain: 6.0" speed cap');
+    });
+
+    it('displays gap jump risk warning in move confirmation bar when traversing platform gap > 1.0"', () => {
+      const state = scenarioState();
+      state.terrain = [
+        {
+          id: 'plat1',
+          type: 'building',
+          name: 'Platform 1',
+          position: { x: -2, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 2, y: 2.5, z: 2 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+        {
+          id: 'plat2',
+          type: 'building',
+          name: 'Platform 2',
+          position: { x: 2, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 2, y: 2.5, z: 2 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+      ];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: -2, y: 2.5, z: 0 };
+      activateUnit(state, HOST, unit.id);
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 2, y: 2.5, z: 0 } });
+
+      expect(container.textContent).toContain('GAP JUMP');
+      expect(container.textContent).toContain(`Quality Q${unit.quality}+ check required`);
+
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.payload.gapJump).toBeDefined();
+      expect(action.payload.gapJump.gapDistance).toBe(4);
+    });
   });
 });

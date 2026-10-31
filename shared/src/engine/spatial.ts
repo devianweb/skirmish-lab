@@ -457,12 +457,85 @@ export function clampMoveDestinationWithObstacles(
 }
 
 /**
+ * Finds a walkable elevated platform terrain piece at `point`.
+ */
+export function findWalkablePlatformAt(state: GameState, point: Vector3): TerrainPiece | null {
+  for (const piece of state.terrain) {
+    if (
+      piece.isWalkable ||
+      piece.terrainType === 'platform' ||
+      piece.terrainType === 'floor' ||
+      (piece.elevation !== undefined && piece.elevation > 0)
+    ) {
+      const { hx, hz } = terrainHalfExtents(piece);
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const dx = point.x - piece.position.x;
+      const dz = point.z - piece.position.z;
+      const localX = dx * cos - dz * sin;
+      const localZ = dx * sin + dz * cos;
+      if (Math.abs(localX) <= hx + 0.1 && Math.abs(localZ) <= hz + 0.1) {
+        return piece;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Distance from an elevated point on a platform to the platform's perimeter edge
+ * in the direction toward another point on the XZ plane.
+ */
+export function getPlatformEdgeDistance(
+  point: Vector3,
+  toward: Vector3,
+  platform: TerrainPiece
+): number {
+  const { hx, hz } = terrainHalfExtents(platform);
+  const yaw = platform.rotation.y || 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+
+  const dx = toward.x - point.x;
+  const dz = toward.z - point.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-4) return 0;
+
+  const dirX = dx / dist;
+  const dirZ = dz / dist;
+
+  const ox = point.x - platform.position.x;
+  const oz = point.z - platform.position.z;
+  const localOx = ox * cos - oz * sin;
+  const localOz = ox * sin + oz * cos;
+  const localDx = dirX * cos - dirZ * sin;
+  const localDz = dirX * sin + dirZ * cos;
+
+  let tExit = Infinity;
+  if (localDx > 1e-6) {
+    tExit = Math.min(tExit, (hx - localOx) / localDx);
+  } else if (localDx < -1e-6) {
+    tExit = Math.min(tExit, (-hx - localOx) / localDx);
+  }
+
+  if (localDz > 1e-6) {
+    tExit = Math.min(tExit, (hz - localOz) / localDz);
+  } else if (localDz < -1e-6) {
+    tExit = Math.min(tExit, (-hz - localOz) / localDz);
+  }
+
+  return Math.max(0, tExit === Infinity ? 0 : tExit);
+}
+
+/**
  * OPR-style Line of Sight check between `attacker` and `target`.
  *
  * Line of Sight is blocked by:
  *   1. Any terrain piece with `blocksLineOfSight: true` (walls, columns).
  *   2. Any other living fighter on the board (friendly or enemy not part of
  *      the attacker/target pair).
+ *   3. 3D roof floor plane blind spots for models set back > 1.0" from platform edges.
  */
 export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): boolean {
   const dx = target.position.x - attacker.position.x;
@@ -470,40 +543,76 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
   const dist = Math.hypot(dx, dz);
   if (dist < 1e-4) return true;
 
+  const attackerY = attacker.position.y ?? 0;
+  const targetY = target.position.y ?? 0;
+
+  // Setback Blind Spot:
+  // If target is elevated >= 1.0" above attacker, check if target is set back from platform edge
+  if (targetY >= attackerY + 1.0) {
+    const platform = findWalkablePlatformAt(state, target.position);
+    if (platform) {
+      const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
+      if (setback > 1.05) {
+        return false; // Ground shooter's sight is blocked by the floor plane
+      }
+    }
+  }
+
+  // If attacker is elevated >= 1.0" above target, check if attacker is set back from platform edge
+  if (attackerY >= targetY + 1.0) {
+    const platform = findWalkablePlatformAt(state, attacker.position);
+    if (platform) {
+      const setback = getPlatformEdgeDistance(attacker.position, target.position, platform);
+      if (setback > 1.05) {
+        return false; // Elevated shooter cannot see over floor lip to ground below
+      }
+    }
+  }
+
   const dirX = dx / dist;
   const dirZ = dz / dist;
 
   for (const piece of state.terrain) {
     if (!piece.blocksLineOfSight) continue;
 
-    if (piece.terrainType === 'wall-doorway') {
-      const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-      if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
-        return false;
-      }
-      continue;
-    }
-
-    if (piece.terrainType === 'wall-window') {
-      const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-      if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
-        return false;
-      }
-      if (ap.passesAperture) {
-        const { hx, hz } = terrainHalfExtents(piece);
-        const pieceRadius = Math.hypot(hx, hz);
-        const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
-        const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
-        if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
-          continue; // Peeking / manning the firing port allows sight
-        }
-        return false; // Distant window blocks sight
-      }
-      continue;
-    }
-
     const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0);
     if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+      // Check 3D vertical ray clearance
+      const tMid = (hit.tEntry + hit.tExit) / 2;
+      const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
+      const pieceBottom = piece.position.y ?? 0;
+      const pieceTop = pieceBottom + (piece.scale?.y ?? 1.5);
+      if (rayY > pieceTop + 0.05 || rayY < pieceBottom - 0.05) {
+        // Ray passes completely above or below the piece
+        continue;
+      }
+
+      if (piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+        if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
+          return false;
+        }
+        continue;
+      }
+
+      if (piece.terrainType === 'wall-window') {
+        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
+        if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
+          return false;
+        }
+        if (ap.passesAperture) {
+          const { hx, hz } = terrainHalfExtents(piece);
+          const pieceRadius = Math.hypot(hx, hz);
+          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
+          const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
+          if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
+            continue; // Peeking / manning the firing port allows sight
+          }
+          return false; // Distant window blocks sight
+        }
+        continue;
+      }
+
       return false;
     }
   }
@@ -521,6 +630,12 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
       LOS_UNIT_RADIUS
     );
     if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+      const tMid = (hit.tEntry + hit.tExit) / 2;
+      const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
+      const otherY = other.position.y ?? 0;
+      if (rayY > otherY + 1.5 || rayY < otherY - 0.1) {
+        continue; // Ray passes above the intermediate fighter
+      }
       return false;
     }
   }
@@ -534,15 +649,14 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
  *
  * Cover applies when:
  *   1. `target.status` explicitly includes `'in-cover'`, OR
- *   2. The attack ray passes across a non-LoS-blocking `providesCover` terrain
+ *   2. `target` is on an elevated platform within 1.0" of the edge facing the shooter (Parapet Cover), OR
+ *   3. The attack ray passes across a non-LoS-blocking `providesCover` terrain
  *      piece (e.g. crates, barricades) situated between attacker and target,
  *      excluding cover adjacent to the attacker (shooting out of cover does
- *      not grant cover to the open target), OR
- *   3. For LoS-blocking cover (walls, columns): `target` is within 1.0" of the
- *      piece AND the piece partially obscures the target (at least one edge
- *      ray to the target's flank is blocked while center LoS remains open).
- *      Terrain behind or beside the target that does not obscure the model
- *      does not grant cover.
+ *      not grant cover to the open target), and excluding low ground cover against
+ *      plunging fire (attacker elevated >= 2.0"), OR
+ *   4. For LoS-blocking cover (walls, columns): `target` is within 1.0" of the
+ *      piece AND the piece partially obscures the target.
  */
 export function hasCoverAgainstAttack(
   state: GameState,
@@ -550,6 +664,23 @@ export function hasCoverAgainstAttack(
   target: Unit
 ): boolean {
   if (target.status.includes('in-cover')) return true;
+
+  const attackerY = attacker.position.y ?? 0;
+  const targetY = target.position.y ?? 0;
+
+  // 1. Parapet / Ledge Cover:
+  // If target is on an elevated platform >= 1.0" above attacker, and within 1.0" of the edge facing attacker
+  if (targetY >= attackerY + 1.0) {
+    const platform = findWalkablePlatformAt(state, target.position);
+    if (platform) {
+      const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
+      if (setback <= 1.05) {
+        return true; // Target claims Parapet Cover (+1 Defense)
+      }
+    }
+  }
+
+  const isPlungingFire = attackerY >= targetY + 2.0;
 
   const dx = target.position.x - attacker.position.x;
   const dz = target.position.z - attacker.position.z;
@@ -563,6 +694,15 @@ export function hasCoverAgainstAttack(
 
   for (const piece of state.terrain) {
     if (!piece.providesCover) continue;
+
+    // Plunging fire looks over ground-level low cover (crates, low barricades <= 1.5")
+    if (
+      isPlungingFire &&
+      (piece.scale?.y ?? 1.0) <= 1.5 &&
+      (piece.position.y ?? 0) < targetY + 0.5
+    ) {
+      continue;
+    }
 
     const { hx, hz } = terrainHalfExtents(piece);
     const pieceRadius = Math.hypot(hx, hz);
@@ -1133,14 +1273,16 @@ export function findNavPath(
   maxDistance: number = unit.remainingMovement,
   options: { ignoreUnitId?: string } = {}
 ): Vector3[] {
-  const from: Vector3 = { x: unit.position.x, y: 0, z: unit.position.z };
+  const startY = unit.position.y ?? 0;
+  const endY = destination.y ?? 0;
+  const from: Vector3 = { x: unit.position.x, y: startY, z: unit.position.z };
 
   // 1. Board clamping: ensure destination is within board boundaries
   const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
   const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
   const target: Vector3 = {
     x: Math.max(-halfW, Math.min(halfW, destination.x)),
-    y: 0,
+    y: endY,
     z: Math.max(-halfH, Math.min(halfH, destination.z)),
   };
 
@@ -1156,7 +1298,7 @@ export function findNavPath(
       from,
       {
         x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
-        y: 0,
+        y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
         z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
       },
     ];
@@ -1356,15 +1498,17 @@ export function findNavPath(
     if (segLen <= distLeft + 1e-4) {
       result.push({
         x: Math.round(p2.x * 100) / 100,
-        y: 0,
+        y: Math.round((p2.y ?? 0) * 100) / 100,
         z: Math.round(p2.z * 100) / 100,
       });
       distLeft -= segLen;
     } else {
       const ratio = distLeft / segLen;
+      const y1 = p1.y ?? 0;
+      const y2 = p2.y ?? 0;
       result.push({
         x: Math.round((p1.x + (p2.x - p1.x) * ratio) * 100) / 100,
-        y: 0,
+        y: Math.round((y1 + (y2 - y1) * ratio) * 100) / 100,
         z: Math.round((p1.z + (p2.z - p1.z) * ratio) * 100) / 100,
       });
       break;
@@ -1422,3 +1566,331 @@ export function computePushBackPosition(
   };
   return clampMoveDestinationWithObstacles(state, attacker, directCandidate, separationDistance);
 }
+
+// ============================================================================
+// Multi-Model Squad Coherency & Formation Engine (Phase 9A)
+// ============================================================================
+
+export interface SquadCoherencyResult {
+  coherent: boolean;
+  reason?: string;
+  maxDistanceBetweenModels?: number;
+  maxDistanceToNearestMember?: number;
+}
+
+/**
+ * Validates tabletop squad coherency according to Section 2.1:
+ * 1. Every model must remain within 1.0" horizontal of at least one other squad member.
+ * 2. The squad formation must form a connected graph (no isolated split clusters).
+ * 3. All models in the squad must remain within 6.0" horizontal of all other squad members.
+ */
+export function validateSquadCoherency(
+  positions: Vector3[],
+  options: {
+    maxMemberDistance?: number;
+    maxSquadSpread?: number;
+  } = {}
+): SquadCoherencyResult {
+  const maxMemberDist = options.maxMemberDistance ?? 1.0;
+  const maxSpread = options.maxSquadSpread ?? 6.0;
+  const tolerance = 0.02; // Small floating-point margin for tabletop movement
+
+  if (positions.length <= 1) {
+    return { coherent: true, maxDistanceBetweenModels: 0, maxDistanceToNearestMember: 0 };
+  }
+
+  // 1. Check all pairs max squad spread (<= 6.0")
+  let maxPairDist = 0;
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      const dx = positions[i].x - positions[j].x;
+      const dz = positions[i].z - positions[j].z;
+      const d = Math.hypot(dx, dz);
+      if (d > maxPairDist) maxPairDist = d;
+      if (d > maxSpread + tolerance) {
+        return {
+          coherent: false,
+          reason: `Squad model spread of ${d.toFixed(2)}" exceeds max coherency limit of ${maxSpread}"`,
+          maxDistanceBetweenModels: d,
+        };
+      }
+    }
+  }
+
+  // 2. Check every model is within maxMemberDistance (<= 1.0") of at least one other member
+  // and construct an adjacency graph for connectivity
+  const n = positions.length;
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  let maxNearestDist = 0;
+
+  for (let i = 0; i < n; i++) {
+    let nearestDist = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const dx = positions[i].x - positions[j].x;
+      const dz = positions[i].z - positions[j].z;
+      const d = Math.hypot(dx, dz);
+      if (d < nearestDist) nearestDist = d;
+      if (d <= maxMemberDist + tolerance) {
+        adj[i].push(j);
+      }
+    }
+    if (nearestDist > maxNearestDist) maxNearestDist = nearestDist;
+    if (nearestDist > maxMemberDist + tolerance) {
+      return {
+        coherent: false,
+        reason: `Model ${i + 1} is ${nearestDist.toFixed(2)}" from nearest squad member (exceeds ${maxMemberDist}" limit)`,
+        maxDistanceToNearestMember: nearestDist,
+      };
+    }
+  }
+
+  // 3. Check graph connectivity: start BFS from model 0
+  const visited = new Set<number>();
+  const queue = [0];
+  visited.add(0);
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    for (const neighbor of adj[curr]) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  if (visited.size < n) {
+    return {
+      coherent: false,
+      reason: 'Squad formation is disconnected into separate clusters',
+    };
+  }
+
+  return {
+    coherent: true,
+    maxDistanceBetweenModels: Math.round(maxPairDist * 100) / 100,
+    maxDistanceToNearestMember: Math.round(maxNearestDist * 100) / 100,
+  };
+}
+
+/**
+ * Computes the geometric centroid (average position) of squad model positions.
+ */
+export function computeSquadCentroid(positions: Vector3[]): Vector3 {
+  if (positions.length === 0) {
+    return { x: 0, y: 0, z: 0 };
+  }
+  let sumX = 0;
+  let sumY = 0;
+  let sumZ = 0;
+  for (const pos of positions) {
+    sumX += pos.x;
+    sumY += pos.y ?? 0;
+    sumZ += pos.z;
+  }
+  const n = positions.length;
+  return {
+    x: Math.round((sumX / n) * 100) / 100,
+    y: Math.round((sumY / n) * 100) / 100,
+    z: Math.round((sumZ / n) * 100) / 100,
+  };
+}
+
+/**
+ * Retrieves the current world positions of all living models in a unit.
+ * If models have not yet been assigned individual positions, returns the unit anchor.
+ */
+export function getSquadModelPositions(unit: Unit): Vector3[] {
+  if (!unit.models || unit.models.length === 0) {
+    return [{ ...unit.position }];
+  }
+  const activeModels = unit.models.filter((m) => !m.isDestroyed);
+  if (activeModels.length === 0) {
+    return [{ ...unit.position }];
+  }
+  return activeModels.map((m) => (m.position ? { ...m.position } : { ...unit.position }));
+}
+
+/**
+ * Procedurally generates coherent starting positions for a squad of `count` models
+ * centered at `center`.
+ * - 1 model: at `center`.
+ * - 2 models: side-by-side with separation `spacing`.
+ * - 3 models: equilateral triangle with edge length `spacing`.
+ * - 4+ models: 1 central leader with remaining models arranged in a circle of radius `spacing`.
+ */
+export function createSquadPositions(
+  center: Vector3,
+  count: number,
+  spacing: number = 0.8
+): Vector3[] {
+  if (count <= 1) {
+    return [{ ...center }];
+  }
+  if (count === 2) {
+    const half = Math.round((spacing / 2) * 100) / 100;
+    return [
+      { x: Math.round((center.x - half) * 100) / 100, y: center.y ?? 0, z: center.z },
+      { x: Math.round((center.x + half) * 100) / 100, y: center.y ?? 0, z: center.z },
+    ];
+  }
+  if (count === 3) {
+    const radius = Math.round((spacing / Math.sqrt(3)) * 100) / 100;
+    const angles = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
+    return angles.map((a) => ({
+      x: Math.round((center.x + Math.sin(a) * radius) * 100) / 100,
+      y: center.y ?? 0,
+      z: Math.round((center.z + Math.cos(a) * radius) * 100) / 100,
+    }));
+  }
+  // 4+ models: 1 leader in center, others in ring
+  const ringCount = count - 1;
+  const positions: Vector3[] = [{ ...center }];
+  for (let i = 0; i < ringCount; i++) {
+    const a = (i * 2 * Math.PI) / ringCount;
+    positions.push({
+      x: Math.round((center.x + Math.sin(a) * spacing) * 100) / 100,
+      y: center.y ?? 0,
+      z: Math.round((center.z + Math.cos(a) * spacing) * 100) / 100,
+    });
+  }
+  return positions;
+}
+
+export interface FormationMoveResult {
+  valid: boolean;
+  reason?: string;
+  destination: Vector3;
+  modelPositions: Vector3[];
+}
+
+/**
+ * Validates movement destination and formation positions for a multi-model squad.
+ * If modelPositions are omitted, performs rigid translation from the squad's current positions.
+ */
+export function validateFormationMove(
+  state: GameState,
+  unit: Unit,
+  destination: Vector3,
+  modelPositions?: Vector3[],
+  maxDistance: number = unit.remainingMovement
+): FormationMoveResult {
+  const currentPositions = getSquadModelPositions(unit);
+  let resolvedPositions: Vector3[];
+
+  if (modelPositions && modelPositions.length > 0) {
+    if (modelPositions.length !== currentPositions.length) {
+      return {
+        valid: false,
+        reason: `Formation count mismatch: received ${modelPositions.length} positions for ${currentPositions.length} active models`,
+        destination,
+        modelPositions: currentPositions,
+      };
+    }
+    const coherency = validateSquadCoherency(modelPositions);
+    if (!coherency.coherent) {
+      return {
+        valid: false,
+        reason: coherency.reason ?? 'Formation violates coherency',
+        destination,
+        modelPositions,
+      };
+    }
+    resolvedPositions = modelPositions;
+  } else {
+    // Rigid translation
+    const deltaX = destination.x - unit.position.x;
+    const deltaZ = destination.z - unit.position.z;
+    resolvedPositions = currentPositions.map((pos) => ({
+      x: Math.round((pos.x + deltaX) * 100) / 100,
+      y: destination.y ?? pos.y ?? 0,
+      z: Math.round((pos.z + deltaZ) * 100) / 100,
+    }));
+  }
+
+  // Check board boundaries for all models
+  const halfW = (state.board.width * state.board.gridSize) / 2;
+  const halfH = (state.board.height * state.board.gridSize) / 2;
+  for (let i = 0; i < resolvedPositions.length; i++) {
+    const p = resolvedPositions[i];
+    if (Math.abs(p.x) > halfW || Math.abs(p.z) > halfH) {
+      return {
+        valid: false,
+        reason: `Model ${i + 1} position leaves the battlefield`,
+        destination,
+        modelPositions: resolvedPositions,
+      };
+    }
+  }
+
+  const finalCentroid = computeSquadCentroid(resolvedPositions);
+  const moveDist = Math.hypot(finalCentroid.x - unit.position.x, finalCentroid.z - unit.position.z);
+  if (moveDist > maxDistance + 0.02) {
+    return {
+      valid: false,
+      reason: `Formation move distance of ${moveDist.toFixed(2)}" exceeds allowance of ${maxDistance}"`,
+      destination: finalCentroid,
+      modelPositions: resolvedPositions,
+    };
+  }
+
+  return {
+    valid: true,
+    destination: finalCentroid,
+    modelPositions: resolvedPositions,
+  };
+}
+
+/**
+ * Consolidates surviving models in a unit up to `maxDistance` toward `targetPosition`,
+ * stopping at base contact (`UNIT_SEPARATION_DISTANCE = 0.6"`).
+ */
+export function consolidateSquadToward(
+  state: GameState,
+  unit: Unit,
+  targetPosition: Vector3,
+  maxDistance: number = 3.0
+): void {
+  // Only consolidate models that are not yet in contact (> 1.0" engagement range)
+  const contactThreshold = 1.0;
+  const targetContactDist = UNIT_SEPARATION_DISTANCE; // 0.6" base contact
+
+  if (!unit.models || unit.models.length <= 1) {
+    const dx = targetPosition.x - unit.position.x;
+    const dz = targetPosition.z - unit.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > contactThreshold) {
+      const allowed = Math.min(maxDistance, dist - targetContactDist);
+      const targetCandidate: Vector3 = {
+        x: Math.round((unit.position.x + (dx / dist) * allowed) * 100) / 100,
+        y: unit.position.y ?? 0,
+        z: Math.round((unit.position.z + (dz / dist) * allowed) * 100) / 100,
+      };
+      unit.position = clampMoveDestinationWithObstacles(state, unit, targetCandidate, maxDistance);
+    }
+    return;
+  }
+
+  let movedAny = false;
+  for (const model of unit.models) {
+    if (model.isDestroyed) continue;
+    const mPos = model.position ?? unit.position;
+    const dx = targetPosition.x - mPos.x;
+    const dz = targetPosition.z - mPos.z;
+    const dist = Math.hypot(dx, dz);
+    // Only models outside contact (> 1.0") consolidate into contact
+    if (dist > contactThreshold) {
+      movedAny = true;
+      const allowed = Math.min(maxDistance, dist - targetContactDist);
+      model.position = {
+        x: Math.round((mPos.x + (dx / dist) * allowed) * 100) / 100,
+        y: mPos.y ?? 0,
+        z: Math.round((mPos.z + (dz / dist) * allowed) * 100) / 100,
+      };
+    }
+  }
+  if (movedAny) {
+    unit.position = computeSquadCentroid(getSquadModelPositions(unit));
+  }
+}
+

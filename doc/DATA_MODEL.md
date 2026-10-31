@@ -137,6 +137,7 @@ interface Unit {
   maxWounds: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
+  isDeployed?: boolean;      // Deployed to board (false during placement / drop-reserves)
   
   // Game State
   models: Model[];
@@ -153,6 +154,8 @@ interface Model {
   wounds: number;
   maxWounds: number;
   isDestroyed: boolean;
+  position?: Vector3;
+  rotation?: Vector3;
 }
 
 interface Vector3 {
@@ -250,11 +253,22 @@ type ActionType =
 
 ### Action Payloads
 ```typescript
+interface WeaponAllocation {
+  weaponId: string;
+  targetId: string;
+}
+
 type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
   | { type: 'rush', unitId: string, path: Vector3[] }
-  | { type: 'shoot', attackerId: string, targetId: string, weaponId: string }
+  | {
+      type: 'shoot';
+      attackerId: string;
+      targetId?: string;
+      weaponId?: string;
+      allocations?: WeaponAllocation[];
+    }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }

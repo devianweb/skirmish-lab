@@ -579,21 +579,37 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
   };
 }
 
-/** Extract the to-hit, defense, ward, and trauma roll values from server-rolled results. */
-export function extractAttackRolls(results: DiceResult[]): AttackRolls {
-  const toHit = results.find((r) => r.purpose === 'to-hit');
-  const defense = results.find((r) => r.purpose === 'defense');
-  if (!toHit || !defense) {
-    throw new Error("Dice results must include 'to-hit' and 'defense' purposes");
+/** Extract attack roll values for a specific allocation index from server-rolled results. */
+export function extractAllocationRolls(results: DiceResult[], index: number = 0): AttackRolls {
+  const prefix = `alloc_${index}_`;
+  let toHit = results.find((r) => r.purpose === `${prefix}to-hit`);
+  let defense = results.find((r) => r.purpose === `${prefix}defense`);
+  let ward = results.find((r) => r.purpose === `${prefix}ward`);
+  let trauma = results.find((r) => r.purpose === `${prefix}trauma`);
+
+  // Fallback to unprefixed purposes for single-attack resolutions (legacy / melee / index 0)
+  if (!toHit && index === 0) {
+    toHit = results.find((r) => r.purpose === 'to-hit');
+    defense = results.find((r) => r.purpose === 'defense');
+    ward = results.find((r) => r.purpose === 'ward');
+    trauma = results.find((r) => r.purpose === 'trauma');
   }
-  const ward = results.find((r) => r.purpose === 'ward');
-  const trauma = results.find((r) => r.purpose === 'trauma');
+
+  if (!toHit || !defense) {
+    throw new Error(`Dice results must include 'to-hit' and 'defense' purposes for allocation ${index}`);
+  }
+
   return {
     toHit: toHit.rolls,
     defense: defense.rolls,
     ...(ward ? { ward: ward.rolls } : {}),
     ...(trauma ? { trauma: trauma.rolls } : {}),
   };
+}
+
+/** Extract the to-hit, defense, ward, and trauma roll values from server-rolled results. */
+export function extractAttackRolls(results: DiceResult[]): AttackRolls {
+  return extractAllocationRolls(results, 0);
 }
 
 /** Extract defender retaliation roll values from server-rolled results (if present). */
