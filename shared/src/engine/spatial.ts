@@ -97,6 +97,9 @@ export function findTerrainAtPosition(
   point: Vector3,
   margin: number = 0.15
 ): TerrainPiece | null {
+  let bestPiece: TerrainPiece | null = null;
+  let minVertDiff = Infinity;
+
   for (const piece of state.terrain) {
     const { hx, hz } = terrainHalfExtents(piece);
     const yaw = piece.rotation.y || 0;
@@ -107,10 +110,25 @@ export function findTerrainAtPosition(
     const localX = dx * cos - dz * sin;
     const localZ = dx * sin + dz * cos;
     if (Math.abs(localX) <= hx + margin && Math.abs(localZ) <= hz + margin) {
-      return piece;
+      if (point.y === undefined) {
+        return piece;
+      }
+      const pieceBaseY = piece.position.y ?? 0;
+      const pieceHeight = piece.scale.y ?? 1.0;
+      const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+
+      if (point.y >= pieceBaseY - 0.25 && point.y <= pieceTopY + 0.6) {
+        const vertDiff = Math.abs(point.y - pieceTopY);
+        if (vertDiff < minVertDiff) {
+          minVertDiff = vertDiff;
+          bestPiece = piece;
+        }
+      } else if (!bestPiece) {
+        bestPiece = piece;
+      }
     }
   }
-  return null;
+  return bestPiece;
 }
 
 /**
@@ -330,8 +348,35 @@ export function findMoveBlocker(
     const dirX = dx / segLen;
     const dirZ = dz / segLen;
 
+    const fromY = from.y ?? 0;
+    const toY = to.y ?? 0;
+    const minSegY = Math.min(fromY, toY);
+    const maxSegY = Math.max(fromY, toY);
+
     for (const piece of state.terrain) {
       if (!piece.isObstacle) continue;
+
+      const pieceBaseY = piece.position.y ?? 0;
+      const pieceHeight = piece.scale.y ?? 1.0;
+      const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+
+      // 1. If piece is walkable or an elevated platform, moving on top does not collide with the obstacle
+      if (piece.isWalkable || piece.elevation !== undefined) {
+        if (minSegY >= (piece.elevation ?? pieceTopY) - 0.15) {
+          continue;
+        }
+      }
+
+      // 2. If movement is entirely above the obstacle (e.g. moving across an elevated walkway or jumping)
+      if (minSegY >= pieceTopY - 0.05) {
+        continue;
+      }
+
+      // 3. If obstacle is entirely overhead (e.g. high overhead pipe or roof above standard model height ~1.2")
+      if (pieceBaseY >= maxSegY + 1.2) {
+        continue;
+      }
+
       if (piece.terrainType === 'wall-doorway') {
         const ap = intersectAperturePiece(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
         if (
@@ -356,6 +401,12 @@ export function findMoveBlocker(
       if (other.isDestroyed || other.id === movingUnit.id || other.id === options.ignoreUnitId) {
         continue;
       }
+      const otherY = other.position.y ?? 0;
+      // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
+      if (Math.abs(minSegY - otherY) >= 1.8 && Math.abs(maxSegY - otherY) >= 1.8) {
+        continue;
+      }
+
       const hit = intersectRayCircle(
         from,
         dirX,
@@ -387,16 +438,21 @@ export function clampMoveDestinationWithObstacles(
   raw: Vector3,
   maxDistance: number = unit.remainingMovement
 ): Vector3 {
+  const startY = unit.position.y ?? 0;
+  const rawY = raw.y ?? startY;
   const dx = raw.x - unit.position.x;
+  const dy = rawY - startY;
   const dz = raw.z - unit.position.z;
-  const rawDist = Math.hypot(dx, dz);
+  const rawDist = Math.hypot(dx, dy, dz);
   const maxMove = Math.max(0, maxDistance);
 
   let x = raw.x;
+  let y = rawY;
   let z = raw.z;
   if (rawDist > maxMove && rawDist > 0) {
     const ratio = maxMove / rawDist;
     x = unit.position.x + dx * ratio;
+    y = startY + dy * ratio;
     z = unit.position.z + dz * ratio;
   }
 
@@ -415,6 +471,22 @@ export function clampMoveDestinationWithObstacles(
 
     for (const piece of state.terrain) {
       if (!piece.isObstacle) continue;
+      const pieceBaseY = piece.position.y ?? 0;
+      const pieceHeight = piece.scale.y ?? 1.0;
+      const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+
+      if (piece.isWalkable || piece.elevation !== undefined) {
+        if (Math.min(startY, y) >= (piece.elevation ?? pieceTopY) - 0.15) {
+          continue;
+        }
+      }
+      if (Math.min(startY, y) >= pieceTopY - 0.05) {
+        continue;
+      }
+      if (pieceBaseY >= Math.max(startY, y) + 1.2) {
+        continue;
+      }
+
       const hit = intersectRayTerrain(
         unit.position,
         dirX,
@@ -430,6 +502,10 @@ export function clampMoveDestinationWithObstacles(
 
     for (const other of state.units) {
       if (other.isDestroyed || other.id === unit.id) continue;
+      const otherY = other.position.y ?? 0;
+      if (Math.abs(startY - otherY) >= 1.8 && Math.abs(y - otherY) >= 1.8) {
+        continue;
+      }
       const hit = intersectRayCircle(
         unit.position,
         dirX,
@@ -444,14 +520,25 @@ export function clampMoveDestinationWithObstacles(
     }
 
     if (allowedDist < segLen) {
+      const frac = allowedDist / segLen;
       x = unit.position.x + dirX * allowedDist;
+      y = startY + (y - startY) * frac;
       z = unit.position.z + dirZ * allowedDist;
     }
   }
 
+  // Snap y to walkable surface if point is on a platform
+  const candPoint = { x, y, z };
+  const platform = findWalkablePlatformAt(state, candPoint);
+  if (platform && platform.elevation !== undefined && y >= platform.elevation - 0.5) {
+    y = platform.elevation;
+  } else if (!platform && y < 0.5) {
+    y = 0;
+  }
+
   return {
     x: Math.round(x * 100) / 100,
-    y: 0,
+    y: Math.round(y * 100) / 100,
     z: Math.round(z * 100) / 100,
   };
 }
@@ -1308,12 +1395,53 @@ export function findNavPath(
   const clearance = UNIT_COLLISION_RADIUS + 0.12; // ~0.47" clearance
   const candidateWaypoints: Vector3[] = [];
 
+  const getSurfaceY = (x: number, z: number, refY: number = 0): number => {
+    const plat = findWalkablePlatformAt(state, { x, y: refY, z });
+    if (plat && plat.elevation !== undefined && plat.elevation > 0) {
+      return plat.elevation;
+    }
+    return 0;
+  };
+
   for (const piece of state.terrain) {
+    if (
+      piece.terrainType === 'stairs' ||
+      piece.terrainType === 'ladder' ||
+      piece.climbType === 'stairs' ||
+      piece.climbType === 'ladder'
+    ) {
+      const topY = piece.elevation ?? piece.scale.y ?? 2.5;
+      candidateWaypoints.push({ x: piece.position.x, y: 0, z: piece.position.z });
+      candidateWaypoints.push({ x: piece.position.x, y: topY, z: piece.position.z });
+    }
+
+    if (piece.isWalkable || piece.terrainType === 'platform') {
+      const { hx, hz } = terrainHalfExtents(piece);
+      const platY = piece.elevation ?? piece.position.y ?? 0;
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const corners = [
+        { x: -hx + 0.2, z: -hz + 0.2 },
+        { x: hx - 0.2, z: -hz + 0.2 },
+        { x: hx - 0.2, z: hz - 0.2 },
+        { x: -hx + 0.2, z: hz - 0.2 },
+      ];
+      for (const c of corners) {
+        const wx = piece.position.x + c.x * cos - c.z * sin;
+        const wz = piece.position.z + c.x * sin + c.z * cos;
+        if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
+          candidateWaypoints.push({ x: wx, y: platY, z: wz });
+        }
+      }
+    }
+
     if (!piece.isObstacle) continue;
     const { hx, hz } = terrainHalfExtents(piece);
     const yaw = piece.rotation.y || 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
+    const pieceBaseY = piece.position.y ?? 0;
 
     const addLocalBoxCorners = (minX: number, maxX: number, minZ: number, maxZ: number) => {
       const corners = [
@@ -1326,7 +1454,8 @@ export function findNavPath(
         const wx = piece.position.x + c.x * cos - c.z * sin;
         const wz = piece.position.z + c.x * sin + c.z * cos;
         if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
-          candidateWaypoints.push({ x: wx, y: 0, z: wz });
+          const wy = getSurfaceY(wx, wz, pieceBaseY);
+          candidateWaypoints.push({ x: wx, y: wy, z: wz });
         }
       }
     };
@@ -1338,7 +1467,7 @@ export function findNavPath(
       // Doorway center waypoint for smooth passage through opening
       candidateWaypoints.push({
         x: piece.position.x,
-        y: 0,
+        y: pieceBaseY,
         z: piece.position.z,
       });
     } else {
@@ -1351,6 +1480,7 @@ export function findNavPath(
     if (other.isDestroyed || other.id === unit.id || other.id === options.ignoreUnitId) {
       continue;
     }
+    const otherY = other.position.y ?? 0;
     const fR = UNIT_SEPARATION_DISTANCE + 0.12;
     const offsets = [
       { x: fR, z: 0 },
@@ -1362,7 +1492,7 @@ export function findNavPath(
       const wx = other.position.x + off.x;
       const wz = other.position.z + off.z;
       if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
-        candidateWaypoints.push({ x: wx, y: 0, z: wz });
+        candidateWaypoints.push({ x: wx, y: otherY, z: wz });
       }
     }
   }
@@ -1370,7 +1500,8 @@ export function findNavPath(
   // Filter out any waypoint that is inside an obstacle
   const validWaypoints: Vector3[] = [];
   for (const wp of candidateWaypoints) {
-    const blk = findMoveBlocker(state, unit, [wp, { x: wp.x + 0.001, y: 0, z: wp.z }], options);
+    const wpY = wp.y ?? 0;
+    const blk = findMoveBlocker(state, unit, [wp, { x: wp.x + 0.001, y: wpY, z: wp.z }], options);
     if (!blk.blocked) {
       validWaypoints.push(wp);
     }
@@ -1388,7 +1519,7 @@ export function findNavPath(
   const startNode: Node = {
     pos: from,
     g: 0,
-    h: Math.hypot(target.x - from.x, target.z - from.z),
+    h: Math.hypot(target.x - from.x, endY - startY, target.z - from.z),
     f: 0,
   };
   startNode.f = startNode.h;
@@ -1400,7 +1531,7 @@ export function findNavPath(
     ...validWaypoints.map((p) => ({
       pos: p,
       g: Infinity,
-      h: Math.hypot(target.x - p.x, target.z - p.z),
+      h: Math.hypot(target.x - p.x, endY - (p.y ?? 0), target.z - p.z),
       f: Infinity,
     })),
   ];
@@ -1414,7 +1545,11 @@ export function findNavPath(
     const current = openSet.shift()!;
     if (
       current === targetNode ||
-      Math.hypot(current.pos.x - target.x, current.pos.z - target.z) < 0.05
+      Math.hypot(
+        current.pos.x - target.x,
+        (current.pos.y ?? 0) - endY,
+        current.pos.z - target.z
+      ) < 0.05
     ) {
       foundTarget = current;
       break;
@@ -1426,7 +1561,12 @@ export function findNavPath(
       const directBlk = findMoveBlocker(state, unit, [current.pos, targetNode.pos], options);
       if (!directBlk.blocked) {
         const tentG =
-          current.g + Math.hypot(targetNode.pos.x - current.pos.x, targetNode.pos.z - current.pos.z);
+          current.g +
+          Math.hypot(
+            targetNode.pos.x - current.pos.x,
+            (targetNode.pos.y ?? 0) - (current.pos.y ?? 0),
+            targetNode.pos.z - current.pos.z
+          );
         if (tentG < targetNode.g) {
           targetNode.g = tentG;
           targetNode.f = tentG;
@@ -1438,7 +1578,11 @@ export function findNavPath(
 
     for (const neighbor of allNodes) {
       if (neighbor === current || closedSet.has(neighbor) || neighbor === startNode) continue;
-      const d = Math.hypot(neighbor.pos.x - current.pos.x, neighbor.pos.z - current.pos.z);
+      const d = Math.hypot(
+        neighbor.pos.x - current.pos.x,
+        (neighbor.pos.y ?? 0) - (current.pos.y ?? 0),
+        neighbor.pos.z - current.pos.z
+      );
       if (d > 16.0) continue;
 
       const blk = findMoveBlocker(state, unit, [current.pos, neighbor.pos], options);

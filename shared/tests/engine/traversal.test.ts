@@ -207,6 +207,22 @@ describe('Phase 11A: Shared Traversal Engine', () => {
         { x: 1, y: 0, z: 0 }, // 4.5" drop
       ];
       expect(detectPathFall(dangerousPath).maxDrop).toBe(4.5);
+
+      // Descending stairs should NOT count as a free fall drop
+      const stairs: TerrainPiece = {
+        id: 'stairs-1',
+        terrainType: 'stairs',
+        climbType: 'stairs',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 2, y: 4.5, z: 2 },
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+      };
+      const stairsState = makeState();
+      stairsState.terrain = [stairs];
+      expect(detectPathFall(dangerousPath, stairsState).maxDrop).toBe(0);
     });
   });
 
