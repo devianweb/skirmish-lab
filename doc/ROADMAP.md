@@ -428,14 +428,14 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 > - **Sub-phase 11C (HUD Traversal Controls, Hazard Modals & 3D Visual Rendering — `client/`):** HUD gap jump risk warnings in movement confirmation bar, interactive player choice modal for multi-model squad hazard casualties, 3D platform rendering, vertical movement path preview lines, and falling damage feedback tokens.
 
 ### Sub-phase 11A: Shared Traversal Engine & Hazard Rules (`shared/`)
-- [ ] Difficult terrain movement speed cap: caps total activation movement at **6.0″ maximum** (negates speed bonuses for Rush and Charge).
-- [ ] Dangerous terrain hazard checks: roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 unsaved wound.
-- [ ] 3D movement distance math: ladders/stairs traverse at 1:1 cost; free-climbing sheer walls classifies move as Difficult Terrain (caps at 6.0″).
-- [ ] Elevation drop thresholds: safe drops $\le 3.0″$ consume normal vertical distance; voluntary or involuntary drops $> 3.0″$ inflict Falling Damage (1 automatic hit with AP 1 per full 3.0″ fallen) and terminate activation immediately.
-- [ ] Horizontal gap jumping: gaps $\le 1.0″$ step across freely; gaps $> 1.0″$ up to 6.0″ require a Jump test (Quality $Q$+) with failed checks falling to the bottom with falling damage.
-- [ ] Strict vertical melee reach: models cannot initiate melee contact or strike across a vertical difference $> 1.0″$ without climbing to base contact.
-- [ ] Ledge knockback: pushing models over ledges $> 3.0″$ causes them to plummet to the ground with falling damage.
-- [ ] Pure engine unit tests in `shared/tests/engine/`.
+- [x] Difficult terrain movement speed cap: caps total activation movement at **6.0″ maximum** (negates speed bonuses for Rush and Charge).
+- [x] Dangerous terrain hazard checks: roll 1d6 per model entering or activating inside; rolls of 1 inflict 1 unsaved wound.
+- [x] 3D movement distance math: ladders/stairs traverse at 1:1 cost; free-climbing sheer walls classifies move as Difficult Terrain (caps at 6.0″).
+- [x] Elevation drop thresholds: safe drops $\le 3.0″$ consume normal vertical distance; voluntary or involuntary drops $> 3.0″$ inflict Falling Damage (1 automatic hit with AP 1 per full 3.0″ fallen) and terminate activation immediately.
+- [x] Horizontal gap jumping: gaps $\le 1.0″$ step across freely; gaps $> 1.0″$ up to 6.0″ require a Jump test (Quality $Q$+) with failed checks falling to the bottom with falling damage.
+- [x] Strict vertical melee reach: models cannot initiate melee contact or strike across a vertical difference $> 1.0″$ without climbing to base contact.
+- [x] Ledge knockback: pushing models over ledges $> 3.0″$ causes them to plummet to the ground with falling damage.
+- [x] Pure engine unit tests in `shared/tests/engine/`.
 
 ### Sub-phase 11B: Elevation Geometry, 3D Line of Sight & Expanded Testing Map (`shared/` & `client/`)
 - [ ] Extend `TerrainPiece` schema with elevation attributes: `isDifficult`, `isDangerous`, `elevation`, `walkable`, and climb access points.
