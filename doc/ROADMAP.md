@@ -378,15 +378,15 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests in `shared/tests/engine/actions.test.ts`.
 
 ### Sub-phase 9C: 3D Multi-Mesh Rendering & Centroid Badges (`client/`)
-- [ ] `UnitRenderer` instantiates, updates, and disposes multiple 3D meshes per squad.
-- [ ] Status badges and wound markers follow the squad centroid.
-- [ ] Interactive selection highlights the entire squad.
+- [x] `UnitRenderer` instantiates, updates, and disposes multiple 3D meshes per squad.
+- [x] Status badges and wound markers follow the squad centroid.
+- [x] Interactive selection highlights the entire squad.
 
 ### Acceptance Criteria
-- [ ] Squads render and move with multiple 3D models while adhering to 1" coherency.
-- [ ] Unsaved wounds remove individual squad models until 1 remains.
-- [ ] Wound Effects table is only rolled for the last surviving model in a squad.
-- [ ] Melee 3" consolidation pulls squad members into contact.
+- [x] Squads render and move with multiple 3D models while adhering to 1" coherency.
+- [x] Unsaved wounds remove individual squad models until 1 remains.
+- [x] Wound Effects table is only rolled for the last surviving model in a squad.
+- [x] Melee 3" consolidation pulls squad members into contact.
 
 ## Phase 10: Interactive Deployment & Pre-Canned Starter Armies
 **Goal:** Provide quickplay point-balanced starter forces for instant match play and an alternating pre-match deployment phase.

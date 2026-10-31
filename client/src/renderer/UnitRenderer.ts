@@ -41,17 +41,68 @@ export class UnitRenderer {
       }
       visibleIds.add(unit.id);
 
-      let mesh = this.meshes.get(unit.id);
-      if (!mesh) {
-        mesh = this.modelLoader.createUnitMesh(unit.unitType);
-        mesh.userData.unitId = unit.id;
-        this.meshes.set(unit.id, mesh);
-        this.unitGroup.add(mesh);
+      let unitRoot = this.meshes.get(unit.id) as THREE.Group | undefined;
+      if (!unitRoot) {
+        unitRoot = new THREE.Group();
+        unitRoot.name = `unit-${unit.id}`;
+        unitRoot.userData.unitId = unit.id;
+        unitRoot.userData.modelMeshes = new Map<string, THREE.Object3D>();
+        this.meshes.set(unit.id, unitRoot);
+        this.unitGroup.add(unitRoot);
       }
 
-      mesh.position.set(unit.position.x, unit.position.y, unit.position.z);
-      mesh.rotation.set(unit.rotation.x, unit.rotation.y, unit.rotation.z);
-      this.applyOwnerColor(mesh, unit.ownerId, state);
+      unitRoot.position.set(unit.position.x, unit.position.y, unit.position.z);
+      unitRoot.rotation.set(unit.rotation.x, unit.rotation.y, unit.rotation.z);
+
+      const modelMeshes: Map<string, THREE.Object3D> = unitRoot.userData.modelMeshes;
+      const activeModelIds = new Set<string>();
+
+      const activeModels =
+        unit.models && unit.models.length > 0
+          ? unit.models.filter((m) => !m.isDestroyed)
+          : [
+              {
+                id: `${unit.id}-model-1`,
+                wounds: unit.wounds,
+                maxWounds: unit.maxWounds,
+                isDestroyed: false,
+                position: unit.position,
+                rotation: unit.rotation,
+              },
+            ];
+
+      for (const model of activeModels) {
+        activeModelIds.add(model.id);
+        let modelMesh = modelMeshes.get(model.id);
+        if (!modelMesh) {
+          modelMesh = this.modelLoader.createUnitMesh(unit.unitType);
+          modelMesh.userData.modelId = model.id;
+          modelMeshes.set(model.id, modelMesh);
+          unitRoot.add(modelMesh);
+        }
+
+        const modelPos = model.position ?? unit.position;
+        // Local offset relative to unitRoot squad centroid
+        const localX = modelPos.x - unit.position.x;
+        const localY = (modelPos.y ?? 0) - (unit.position.y ?? 0);
+        const localZ = modelPos.z - unit.position.z;
+        modelMesh.position.set(localX, localY, localZ);
+
+        if (model.rotation) {
+          modelMesh.rotation.set(model.rotation.x, model.rotation.y, model.rotation.z);
+        }
+      }
+
+      // Remove and dispose any meshes for destroyed or removed models in this squad
+      for (const [mId, mMesh] of modelMeshes) {
+        if (!activeModelIds.has(mId)) {
+          unitRoot.remove(mMesh);
+          disposeObject3D(mMesh);
+          modelMeshes.delete(mId);
+        }
+      }
+
+      this.applyOwnerColor(unitRoot, unit.ownerId, state);
     }
 
     for (const [unitId, mesh] of this.meshes) {
@@ -80,6 +131,7 @@ export class UnitRenderer {
     let bestDistance = Infinity;
 
     for (const [unitId, mesh] of this.meshes) {
+      mesh.updateMatrixWorld(true);
       const hits = raycaster.intersectObject(mesh, true);
       if (hits.length > 0 && hits[0].distance < bestDistance) {
         bestDistance = hits[0].distance;
