@@ -91,6 +91,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
   }
   gameView.setShootingDebugRayMarker(markers.shootingDebugRay ?? null);
   gameView.setUnitsDebugMarker(markers.debugActive && latestState ? latestState.units : null);
+  gameView.setObjectivesDebugMarker(markers.debugActive && latestState ? latestState.objectives ?? null : null);
   gameView.setDeploymentZonesMarker(markers.deploymentZones ?? null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);

@@ -1370,5 +1370,75 @@ describe('GameHUD', () => {
       expect(action.payload.gapJump).toBeDefined();
       expect(action.payload.gapJump.gapDistance).toBe(4);
     });
+
+    it('melee-consolidation reaction: picks destination, locks path preview on hover while confirming, and submits', () => {
+      const state = scenarioState();
+      const victor = state.units.find((u) => u.ownerId === HOST)!;
+      victor.position = { x: 0, y: 0, z: 0 };
+      state.turnState.pendingReaction = {
+        id: 'rx-1',
+        type: 'melee-consolidation',
+        promptingPlayerId: HOST,
+        title: 'Victory Consolidation',
+        description: 'Move up to 3.0" in any direction, or stay put.',
+        data: {
+          unitId: victor.id,
+          destroyedUnitId: 'enemy-1',
+          maxDistance: 3.0,
+        },
+        options: [{ id: 'stay', label: 'Stay Put', style: 'secondary' }],
+        deadline: Date.now() + 15000,
+      };
+
+      const { hud, container, controller } = setup(HOST, state);
+      expect(container.textContent).toContain('Victory Consolidation');
+
+      // Click destination 2" away
+      const dest = { x: 2, y: 0, z: 0 };
+      hud.handleBoardPick({ kind: 'position', position: dest });
+
+      expect(container.textContent).toContain('Consolidate');
+      expect(container.textContent).toContain('Confirm');
+
+      let emittedMovePath: any = null;
+      hud.onMarkers((markers) => {
+        emittedMovePath = markers.movePath;
+      });
+
+      // Hover elsewhere (e.g. over the confirm button / board at x: -5)
+      hud.handleBoardHover({ kind: 'position', position: { x: -5, y: 0, z: 0 } });
+
+      // Path should remain locked to the picked destination (x: 2), not dragged to x: -5
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('consolidate-move');
+      expect(action.payload.unitId).toBe(victor.id);
+      expect(action.payload.path[action.payload.path.length - 1].x).toBeCloseTo(2, 1);
+    });
+
+    it('objective card inspection respects horizontal and vertical cylinder bounds', () => {
+      const state = scenarioState();
+      state.objectives = [
+        {
+          id: 'obj-test',
+          name: 'Objective Test',
+          position: { x: 5, y: 0, z: 5 },
+          controllingPlayerId: null,
+          isContested: false,
+        },
+      ];
+
+      const { hud, container } = setup(HOST, state);
+
+      // Hover within 3" horizontal and <= 3" vertical -> shows card
+      hud.handleBoardHover({ kind: 'position', position: { x: 6, y: 1.5, z: 5 } });
+      expect(container.textContent).toContain('Objective Test');
+      expect(container.textContent).toContain('Objective (3.0" control radius, ±3.0" vertical)');
+
+      // Hover within 3" horizontal but > 3" vertical (e.g. elevated roof at y = 4.0) -> does not show card
+      hud.handleBoardHover({ kind: 'position', position: { x: 6, y: 4.0, z: 5 } });
+      expect(container.textContent).not.toContain('Objective Test');
+    });
   });
 });

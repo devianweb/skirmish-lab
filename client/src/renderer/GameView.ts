@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, ShootingRayDebugInfo, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
+import { GameState, Objective, ShootingRayDebugInfo, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
@@ -210,6 +210,10 @@ export class GameView {
 
   setUnitsDebugMarker(units: Unit[] | null): void {
     this.markerRenderer.setUnitsDebug(units);
+  }
+
+  setObjectivesDebugMarker(objectives: Objective[] | null): void {
+    this.markerRenderer.setObjectivesDebug(objectives);
   }
 
   setDeploymentZonesMarker(zones: DeploymentZoneMarker | null): void {

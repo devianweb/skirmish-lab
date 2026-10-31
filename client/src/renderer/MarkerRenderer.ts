@@ -6,6 +6,9 @@ import {
   Unit,
   LOS_UNIT_RADIUS,
   ShootingRayDebugInfo,
+  Objective,
+  OBJECTIVE_CONTROL_RADIUS,
+  OBJECTIVE_CONTROL_MAX_VERTICAL,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
@@ -79,6 +82,7 @@ export class MarkerRenderer {
   private unitsDebug: THREE.Object3D | null = null;
   private shootingDebug: THREE.Object3D | null = null;
   private deploymentZones: THREE.Object3D | null = null;
+  private objectivesDebug: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -438,6 +442,65 @@ export class MarkerRenderer {
   }
 
   /**
+   * Wireframe cylinders showing the 3.0" horizontal and 3.0" vertical control volume
+   * for each objective when F9 debug is active.
+   */
+  setObjectivesDebug(objectives: Objective[] | null): void {
+    this.removeMarker('objectivesDebug');
+    if (!objectives || objectives.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-objectives-debug';
+
+    const radius = OBJECTIVE_CONTROL_RADIUS;
+    const halfH = OBJECTIVE_CONTROL_MAX_VERTICAL;
+
+    for (const obj of objectives) {
+      const objGroup = new THREE.Group();
+      objGroup.name = `marker-objective-debug-${obj.id}`;
+      const objY = obj.position.y ?? 0;
+      objGroup.position.set(obj.position.x, objY, obj.position.z);
+
+      const mat = new THREE.LineBasicMaterial({
+        color: 0xffd54f, // warm gold / amber
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+      });
+
+      // Rings at +3.0", 0", and -3.0" relative to the objective center
+      const segments = 32;
+      for (const yLevel of [halfH, 0, -halfH]) {
+        const pts: THREE.Vector3[] = [];
+        for (let i = 0; i <= segments; i++) {
+          const theta = (i / segments) * Math.PI * 2;
+          pts.push(new THREE.Vector3(Math.cos(theta) * radius, yLevel, Math.sin(theta) * radius));
+        }
+        const ringGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        objGroup.add(new THREE.Line(ringGeo, mat));
+      }
+
+      // Vertical struts at 8 compass angles
+      const strutPts: THREE.Vector3[] = [];
+      const numStruts = 8;
+      for (let i = 0; i < numStruts; i++) {
+        const theta = (i / numStruts) * Math.PI * 2;
+        const x = Math.cos(theta) * radius;
+        const z = Math.sin(theta) * radius;
+        strutPts.push(new THREE.Vector3(x, -halfH, z));
+        strutPts.push(new THREE.Vector3(x, halfH, z));
+      }
+      const strutGeo = new THREE.BufferGeometry().setFromPoints(strutPts);
+      objGroup.add(new THREE.LineSegments(strutGeo, mat));
+
+      group.add(objGroup);
+    }
+
+    this.markerGroup.add(group);
+    this.objectivesDebug = group;
+  }
+
+  /**
    * Renders translucent floor boundaries and border outlines for deployment zones
    * during the pre-match deployment phase.
    */
@@ -552,6 +615,7 @@ export class MarkerRenderer {
     this.removeMarker('unitsDebug');
     this.removeMarker('shootingDebug');
     this.removeMarker('deploymentZones');
+    this.removeMarker('objectivesDebug');
     this.clearOutcome();
   }
 
@@ -589,6 +653,7 @@ export class MarkerRenderer {
       | 'unitsDebug'
       | 'shootingDebug'
       | 'deploymentZones'
+      | 'objectivesDebug'
   ): void {
     const current = this[kind];
     if (current) {
