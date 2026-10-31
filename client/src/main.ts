@@ -11,6 +11,7 @@ import { GameView, PickTarget } from './renderer/GameView';
 import { ModelLoader } from './renderer/ModelLoader';
 import { registerAssetManifest } from './renderer/assetManifest';
 import { MarkerUnit } from './renderer/MarkerRenderer';
+import { defaultSessionStore } from './storage/SessionStore';
 import { GameHUD, MarkerSnapshot } from './ui/GameHUD';
 import { Lobby } from './ui/Lobby';
 
@@ -124,6 +125,16 @@ const lobby = new Lobby(lobbyContainer, {
     const isHost = role === 'host';
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
 
+    // Save active session for instant reconnection upon reload or network drop
+    defaultSessionStore.saveActiveSession({
+      roomCode,
+      role,
+      playerId: localPlayerId,
+      playerName: isHost ? 'Host' : 'Guest',
+      armyId: isHost ? hostArmyId : guestArmyId,
+      timestamp: Date.now(),
+    });
+
     // If the host already has a game in progress and the guest rejoined the
     // room over a fresh WebRTC data channel, re-bind the existing GameManager
     // to the new WebRTCClient and re-broadcast the current confirmed state.
@@ -141,6 +152,8 @@ const lobby = new Lobby(lobbyContainer, {
     // Host rolls dice through the signaling server (never client-side).
     gameManager = new GameManager(webrtcClient, isHost, {
       diceProvider: new SignalingDiceProvider(signalingClient),
+      sessionStore: defaultSessionStore,
+      roomCode,
     });
 
     hud?.dispose();
@@ -157,6 +170,8 @@ const lobby = new Lobby(lobbyContainer, {
           gameManager = null;
           latestState = null;
           gameView.clear();
+          defaultSessionStore.clearActiveSession();
+          defaultSessionStore.clearSnapshot(roomCode);
           lobby.reset();
         },
       },

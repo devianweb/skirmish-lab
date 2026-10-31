@@ -1289,7 +1289,7 @@ export function findNavPath(
   // 2. Fast path: check if straight line [from, target] is unblocked
   const directCheck = findMoveBlocker(state, unit, [from, target], options);
   if (!directCheck.blocked) {
-    const dist = Math.hypot(target.x - from.x, target.z - from.z);
+    const dist = Math.hypot(target.x - from.x, endY - startY, target.z - from.z);
     if (dist <= maxDistance + 1e-4) {
       return [from, target];
     }
@@ -1494,7 +1494,7 @@ export function findNavPath(
   for (let i = 1; i < smoothed.length; i++) {
     const p1 = smoothed[i - 1];
     const p2 = smoothed[i];
-    const segLen = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+    const segLen = Math.hypot(p2.x - p1.x, (p2.y ?? 0) - (p1.y ?? 0), p2.z - p1.z);
     if (segLen <= distLeft + 1e-4) {
       result.push({
         x: Math.round(p2.x * 100) / 100,

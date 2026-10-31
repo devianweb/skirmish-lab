@@ -483,11 +483,11 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Vitest integration tests for heartbeat timeouts, disconnect state transitions, and timer suspension.
 
 ### Sub-phase 12B: Snapshot Persistence & SessionStore Management (`client/`)
-- [ ] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.
-- [ ] Save active session metadata (`roomCode`, `role`, `playerId`, `playerName`, `armyId`, timestamp) and latest confirmed `GameState`.
-- [ ] Auto-save state on both Host and Guest after every confirmed action execution.
-- [ ] Auto-cleanup session data when game reaches `status: 'game-over'` or when player clicks "Leave Room".
-- [ ] Unit tests for storage operations, versioning, error handling, and quota safety.
+- [x] Implement `SessionStore` helper in `client/src/storage/SessionStore.ts` wrapping `localStorage`.
+- [x] Save active session metadata (`roomCode`, `role`, `playerId`, `playerName`, `armyId`, timestamp) and latest confirmed `GameState`.
+- [x] Auto-save state on both Host and Guest after every confirmed action execution.
+- [x] Auto-cleanup session data when game reaches `status: 'game-over'` or when player clicks "Leave Room".
+- [x] Unit tests for storage operations, versioning, error handling, and quota safety.
 
 ### Sub-phase 12C: Reconnection Handshake, Peer Fallback & Lobby Resume UI (`client/` & `server/`)
 - [ ] URL query parameter support: automatically append `?room=XXX-XXX` to URL and read it on launch.

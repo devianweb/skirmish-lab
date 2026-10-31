@@ -13,6 +13,7 @@ import {
   createAction,
 } from '@skirmish-lab/shared';
 import { WebRTCClient, GameMessage } from '../network/WebRTCClient';
+import { SessionStore } from '../storage/SessionStore';
 
 /** Source of server-rolled dice for the host's confirmed attack actions. */
 export interface DiceProvider {
@@ -22,6 +23,10 @@ export interface DiceProvider {
 export interface GameManagerOptions {
   /** Dice provider (host needs one to resolve shoot/fight actions). */
   diceProvider?: DiceProvider;
+  /** Session store for persisting GameState snapshots across reloads. */
+  sessionStore?: SessionStore;
+  /** Active room code for keyed snapshot persistence. */
+  roomCode?: string;
 }
 
 export interface ActionRejection {
@@ -38,6 +43,8 @@ export class GameManager {
   private stateUpdateHandlers: Array<(state: GameState) => void> = [];
   private rejectionHandlers: Array<(rejection: ActionRejection) => void> = [];
   private diceProvider: DiceProvider | undefined;
+  private sessionStore: SessionStore | undefined;
+  private roomCode: string | undefined;
   /** Action currently being processed (guards concurrent host processing). */
   private pendingActionId: string | null = null;
   /** Reaction countdown timer on host for auto-resolving timeouts / anti-griefing. */
@@ -51,6 +58,8 @@ export class GameManager {
     this.webrtcClient = webrtcClient;
     this.isHost = isHost;
     this.diceProvider = options.diceProvider;
+    this.sessionStore = options.sessionStore;
+    this.roomCode = options.roomCode;
     this.setupHandlers();
   }
 
@@ -340,10 +349,26 @@ export class GameManager {
   }
 
   private saveSnapshot(state: GameState): void {
-    this.snapshots.push(JSON.parse(JSON.stringify(state)));
+    const copy = JSON.parse(JSON.stringify(state));
+    this.snapshots.push(copy);
     if (this.snapshots.length > this.maxSnapshots) {
       this.snapshots.shift();
     }
+    if (this.sessionStore && this.roomCode) {
+      this.sessionStore.saveSnapshot(this.roomCode, copy);
+      if (copy.status === 'game-over') {
+        this.sessionStore.clearSnapshot(this.roomCode);
+        this.sessionStore.clearActiveSession();
+      }
+    }
+  }
+
+  setRoomCode(roomCode: string): void {
+    this.roomCode = roomCode;
+  }
+
+  setSessionStore(store: SessionStore): void {
+    this.sessionStore = store;
   }
 
   getLatestSnapshot(): GameState | null {
