@@ -137,6 +137,7 @@ interface Unit {
   maxWounds: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
+  isDeployed?: boolean;      // Deployed to board (false during placement / drop-reserves)
   
   // Game State
   models: Model[];

@@ -6,7 +6,11 @@ import {
   createDefaultScenarioTerrain,
   createDefaultScenarioUnits,
 } from '../../src/data/scenario';
-import { DEFAULT_ARMIES } from '../../src/data/armies';
+import {
+  DEFAULT_ARMIES,
+  STARTER_ARMIES,
+  createUnitsFromStarterArmy,
+} from '../../src/data/armies';
 import { WEAPONS } from '../../src/data/weapons';
 import { getActivatableUnits, isRoundComplete } from '../../src/engine/activation';
 
@@ -127,5 +131,46 @@ describe('scenario data pack', () => {
         expect(dist).toBeGreaterThanOrEqual(9.0);
       }
     }
+  });
+
+  describe('Phase 10A: Point-Balanced Pre-Canned Starter Forces', () => {
+    it('ships balanced 300-point starter armies for Frontier Wardens and Rust Raiders', () => {
+      expect(STARTER_ARMIES['frontier-wardens-starter']).toBeDefined();
+      expect(STARTER_ARMIES['rust-raiders-starter']).toBeDefined();
+
+      for (const key of ['frontier-wardens-starter', 'rust-raiders-starter'] as const) {
+        const force = STARTER_ARMIES[key];
+        expect(force.totalPoints).toBe(300);
+        const calculatedPoints = force.fighters.reduce((acc, f) => acc + f.points, 0);
+        expect(calculatedPoints).toBe(300);
+
+        // Contains vanguard and drop-reserve
+        const allRules = force.fighters.flatMap((f) => f.specialRules);
+        expect(allRules).toContain('vanguard');
+        expect(allRules).toContain('drop-reserve');
+      }
+    });
+
+    it('creates deployable units from starter forces with support for undeployed state', () => {
+      const force = STARTER_ARMIES['frontier-wardens-starter'];
+      const units = createUnitsFromStarterArmy(force, HOST, {
+        startUndeployed: true,
+        defaultZ: -12,
+        facing: 0,
+      });
+
+      expect(units).toHaveLength(4);
+      for (const unit of units) {
+        expect(unit.ownerId).toBe(HOST);
+        expect(unit.isDeployed).toBe(false);
+        expect(unit.weapons.length).toBeGreaterThan(0);
+        expect(unit.models.length).toBeGreaterThanOrEqual(1);
+      }
+
+      // Check multi-model squad
+      const patrol = units.find((u) => u.models.length === 2);
+      expect(patrol).toBeDefined();
+      expect(patrol!.specialRules).toContain('drop-reserve');
+    });
   });
 });

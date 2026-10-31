@@ -100,6 +100,8 @@ export interface Unit {
   traumaTokens?: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
+  /** Whether this unit has been deployed to the board (false during pre-match deployment / drop-reserves). */
+  isDeployed?: boolean;
 
   // Game State
   models: Model[];
