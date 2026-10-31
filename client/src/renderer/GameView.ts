@@ -173,7 +173,7 @@ export class GameView {
     this.markerRenderer.setSelection(unit);
   }
 
-  setTargetMarker(unit: MarkerUnit | null): void {
+  setTargetMarker(unit: MarkerUnit | MarkerUnit[] | null): void {
     this.markerRenderer.setTarget(unit);
   }
 

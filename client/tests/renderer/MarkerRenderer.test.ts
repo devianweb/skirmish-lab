@@ -149,6 +149,30 @@ describe('MarkerRenderer', () => {
     expect(renderer.getRenderedMarkerNames()).toHaveLength(0);
   });
 
+  it('renders concentric range rings on attack range fan and multiple target rings for split-targeting', () => {
+    const renderer = makeRenderer();
+    renderer.setAttackRange({
+      position: { x: 0, y: 0, z: 0 },
+      range: 24,
+      concentricRanges: [12, 24],
+    });
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-attack-range');
+    const attackGroup = (renderer as any).attackRange as THREE.Group;
+    expect(attackGroup.getObjectByName('attack-concentric-ring-12')).toBeDefined();
+    expect(attackGroup.getObjectByName('attack-concentric-ring-24')).toBeDefined();
+
+    // Split target rings
+    renderer.setTarget([
+      { id: 'target-1', position: { x: 5, y: 0, z: 5 } },
+      { id: 'target-2', position: { x: -5, y: 0, z: 5 } },
+    ]);
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-target');
+    const targetGroup = (renderer as any).target as THREE.Group;
+    expect(targetGroup.children).toHaveLength(2);
+    expect(targetGroup.getObjectByName('marker-target-target-1')).toBeDefined();
+    expect(targetGroup.getObjectByName('marker-target-target-2')).toBeDefined();
+  });
+
   it('renders attack-range ring, LoS shadow fan, reachable-target rings, and move-path line, and orients outcome tokens toward the camera', () => {
     const renderer = makeRenderer();
     renderer.setAttackRange({
