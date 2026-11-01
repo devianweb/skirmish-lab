@@ -449,26 +449,33 @@ export function findMoveBlocker(
       if (other.isDestroyed || other.id === movingUnit.id || other.id === options.ignoreUnitId) {
         continue;
       }
-      const otherY = other.position.y ?? 0;
-      // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
-      if (Math.abs(minSegY - otherY) >= 1.8 && Math.abs(maxSegY - otherY) >= 1.8) {
-        continue;
-      }
+      const otherModels = other.models && other.models.length > 0
+        ? other.models.filter((m) => !m.isDestroyed)
+        : [{ position: other.position }];
 
-      const hit = intersectRayCircle(
-        from,
-        dirX,
-        dirZ,
-        segLen,
-        other.position,
-        UNIT_SEPARATION_DISTANCE
-      );
-      const endDist = Math.hypot(to.x - other.position.x, to.z - other.position.z);
-      if (
-        endDist < UNIT_SEPARATION_DISTANCE - 0.01 ||
-        (hit && hit.tExit > 0.02 && hit.tEntry > 0.001)
-      ) {
-        return { blocked: true, reason: 'Move path is blocked by another fighter' };
+      for (const m of otherModels) {
+        const mPos = m.position ?? other.position;
+        const otherY = mPos.y ?? other.position.y ?? 0;
+        // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
+        if (Math.abs(minSegY - otherY) >= 1.8 && Math.abs(maxSegY - otherY) >= 1.8) {
+          continue;
+        }
+
+        const hit = intersectRayCircle(
+          from,
+          dirX,
+          dirZ,
+          segLen,
+          mPos,
+          UNIT_SEPARATION_DISTANCE
+        );
+        const endDist = Math.hypot(to.x - mPos.x, to.z - mPos.z);
+        if (
+          endDist < UNIT_SEPARATION_DISTANCE - 0.01 ||
+          (hit && hit.tExit > 0.02 && hit.tEntry > 0.001)
+        ) {
+          return { blocked: true, reason: 'Move path is blocked by another fighter' };
+        }
       }
     }
   }
@@ -776,22 +783,29 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
     if (other.isDestroyed || other.id === attacker.id || other.id === target.id) {
       continue;
     }
-    const hit = intersectRayCircle(
-      attacker.position,
-      dirX,
-      dirZ,
-      dist,
-      other.position,
-      LOS_UNIT_RADIUS
-    );
-    if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
-      const tMid = (hit.tEntry + hit.tExit) / 2;
-      const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
-      const otherY = other.position.y ?? 0;
-      if (rayY > otherY + 1.5 || rayY < otherY - 0.1) {
-        continue; // Ray passes above the intermediate fighter
+    const otherModels = other.models && other.models.length > 0
+      ? other.models.filter((m) => !m.isDestroyed)
+      : [{ position: other.position }];
+
+    for (const m of otherModels) {
+      const mPos = m.position ?? other.position;
+      const hit = intersectRayCircle(
+        attacker.position,
+        dirX,
+        dirZ,
+        dist,
+        mPos,
+        LOS_UNIT_RADIUS
+      );
+      if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+        const tMid = (hit.tEntry + hit.tExit) / 2;
+        const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
+        const otherY = mPos.y ?? other.position.y ?? 0;
+        if (rayY > otherY + 1.5 || rayY < otherY - 0.1) {
+          continue; // Ray passes above the intermediate fighter
+        }
+        return false;
       }
-      return false;
     }
   }
 
@@ -1142,19 +1156,26 @@ export function computeShootingRayDebug(
     ) {
       continue;
     }
-    const hit = intersectRayCircle(
-      attacker.position,
-      dirX,
-      dirZ,
-      distance,
-      other.position,
-      LOS_UNIT_RADIUS
-    );
-    if (hit && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
-      if (hit.tEntry < earliestLoSBlockDist) {
-        earliestLoSBlockDist = hit.tEntry;
-        blockedByUnitId = other.id;
-        blockedByPieceId = undefined;
+    const otherModels = other.models && other.models.length > 0
+      ? other.models.filter((m) => !m.isDestroyed)
+      : [{ position: other.position }];
+
+    for (const m of otherModels) {
+      const mPos = m.position ?? other.position;
+      const hit = intersectRayCircle(
+        attacker.position,
+        dirX,
+        dirZ,
+        distance,
+        mPos,
+        LOS_UNIT_RADIUS
+      );
+      if (hit && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
+        if (hit.tEntry < earliestLoSBlockDist) {
+          earliestLoSBlockDist = hit.tEntry;
+          blockedByUnitId = other.id;
+          blockedByPieceId = undefined;
+        }
       }
     }
   }

@@ -867,6 +867,18 @@ export class GameHUD {
       return;
     }
 
+    // Minimum model separation check: models cannot physically overlap (bases must not overlap)
+    for (let i = 0; i < alive.length; i++) {
+      const m = alive[i];
+      if (m.id === currentModel.id) continue;
+      const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
+      const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
+      if (dist < 0.45) {
+        this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
+        return;
+      }
+    }
+
     // Coherency checks against other placed models
     const otherPlaced: Array<{ id: string; pos: Vector3; name: string }> = [];
     for (let i = 0; i < alive.length; i++) {

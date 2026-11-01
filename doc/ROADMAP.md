@@ -621,6 +621,49 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Stairs render as triangular prism wireframes and compute continuous sloped elevation without synthetic waypoint hacks, and vertical ladders require reaching the deck.
 - [x] Consolidated verification checklist accurately reflects actual armies and verified mechanics.
 
+## Phase 13.6: Procedural Wargaming Terrain System (Replacing Kenney Assets)
+**Goal:** Replace non-standard, inconsistent Kenney prototype terrain GLBs with a clean, mathematically exact procedural wargaming terrain library built to a 1:1 inch scale ($1.0\text{ unit} = 1.0\text{ inch}$).
+
+> **Recommended AI Model:** **4.0** *(3D procedural BufferGeometry, collision parity, raycast bounds, and wargaming scale alignment)*
+
+### Sub-phase 13.6A: Kenney Terrain Asset Removal & Baseline Procedural Foundation (`client/` & `doc/`)
+- [x] Remove all 28 legacy Kenney terrain `.glb` files from `client/public/models/`, keeping only unit figurines (`figurine*.glb`), UI markers (`indicator*.glb`), outcome damage tokens (`number*.glb`), and objective beacon crate (`crate-medium.glb`).
+- [x] Update `client/src/renderer/assetManifest.ts` to retire `TERRAIN_ASSETS`, removing GLB network load overhead for terrain.
+- [x] Update `client/src/renderer/ModelLoader.ts` to provide clean, normalized procedural geometry for all terrain types without attempting to load retired GLBs.
+- [x] Update `doc/ASSETS.md` asset inventory and terrain mapping tables to document procedural geometry and the clean separation from prototype GLBs.
+- [x] Verify test suite passes across all workspaces (shared, server, client).
+
+### Sub-phase 13.6B: High Sight-Blockers & Industrial Ruins (`client/` & `shared/`)
+- [x] Procedural **L-Corner Ruin** ($4" \times 3" \times 4"$, wall thickness $0.25"$): classic wargaming tournament staple with modeled return wall, second-floor L-ledge ($y = 3.0"$), and firing apertures.
+- [x] Procedural **Modular Solid Walls** ($4" \times 2.5" \times 0.3"$ and $6" \times 2.5" \times 0.3"$): beveled top coping and inset vertical panel seams.
+- [x] Procedural **Window Walls** ($4" \times 2.5" \times 0.3"$): solid $1.0"$ lower breastwork (grants Cover) with open upper firing apertures.
+- [x] Procedural **Doorway Walls** ($4" \times 2.5" \times 0.3"$): solid wall with central $1.2" \times 2.2"$ walk-through opening (allows infantry passage without climbing).
+- [x] Procedural **Structural Columns / Pillars** ($1.2" \times 3.0" \times 1.2"$): square and octagonal beveled pillars supporting elevated platforms.
+
+### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
+- [ ] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).
+- [ ] Procedural **Walkable Platforms** ($4" \times 4" \times 0.25"$ and $6" \times 4" \times 0.25"$): industrial diamond-tread / grate floor, safety kick-plates, and pillar mounting sockets at $y = 3.0"$.
+- [ ] Procedural **Catwalks / Skybridges** ($6" \times 2" \times 0.2"$): suspended walkways spanning gaps between platforms.
+- [ ] Procedural **Wall Ladders** ($0.6" \times 3.0" \times 0.15"$): vertical side-rails with modeled horizontal rungs snapped to vertical wall/platform faces.
+- [ ] Enhanced procedural **Stair / Ramp Wedges** ($2" \times 3.0" \times 4"$): wargaming step risers and side stringers matching continuous ramp physics 1:1.
+
+### Sub-phase 13.6D: Low Cover, Barricades & Scatter (`client/` & `shared/`)
+- [ ] Procedural **Waist Barricades** ($3.0" \times 0.9" \times 0.3"$): chamfered concrete jersey barriers / armored barricades providing low cover (+1 Defense).
+- [ ] Procedural **Supply Crates** ($1.0" \times 1.0" \times 1.0"$): reinforced corner brackets and hazard markings.
+- [ ] Procedural **Shipping Containers** ($5.0" \times 2.2" \times 2.2"$): corrugated steel side panels and walkable flat roof ($y \approx 2.2"$).
+- [ ] Procedural **Industrial Pipes / Conduits** ($4.0" \times 0.8" \times 0.8"$): cylindrical pipelines with pipe-coupling flanges.
+
+### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
+- [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
+- [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.
+- [ ] Update map editor palette to display the new procedural wargaming terrain catalog.
+
+### Acceptance Criteria
+- [ ] Zero Kenney terrain `.glb` files loaded or downloaded in the client.
+- [ ] Visual terrain matches mathematical collision geometry and F9 debug wireframes down to the millimeter across all pieces.
+- [ ] Standardized $1.0\text{ unit} = 1.0\text{ inch}$ wargaming dimensions across all platforms, ruins, barricades, and ramps.
+- [ ] All unit, integration, and renderer tests pass across all workspaces.
+
 ## Phase 14: Polish, Audio & Release Hardening
 **Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
 
@@ -656,6 +699,7 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 | **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
 | **Phase 13: Custom Map Editor & Presets** | **3.8** | Visual 3D scene editing, snap tools, localStorage | Drag-and-drop 3D asset placement, elevation stepping, and map schema serialization. |
 | **Phase 13.5: Tactical Combat & Movement Refinements** | **4.0** | 3D surface pathfinding, sequential squad state machine, split-targeting UI, movement budgeting | Requires 3D spatial geometry for stairs/ramps, sequential model movement UX, multi-move budgeting, and multi-weapon target allocation. |
+| **Phase 13.6: Procedural Wargaming Terrain System** | **4.0** | Procedural BufferGeometry, 1:1 collision parity, 3D wargaming scale ($1.0" = 1.0\text{ unit}$) | Requires exact mathematical alignment between procedural meshes, spatial collision wedges/boxes, LoS raycasts, and modular wargaming piece dimensions. |
 | **Phase 14: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
 
 > [!TIP]

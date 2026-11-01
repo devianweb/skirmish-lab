@@ -2,7 +2,7 @@ import {
   CustomMapDefinition,
   MapValidationNotice,
   Objective,
-  STANDARD_MAP_PRESETS,
+  createBlankMap,
   TerrainCategory,
   TERRAIN_PALETTE_CATALOG,
   TerrainPiece,
@@ -60,7 +60,7 @@ export class MapEditor {
 
     this.currentMap = options.initialMap
       ? JSON.parse(JSON.stringify(options.initialMap))
-      : JSON.parse(JSON.stringify(STANDARD_MAP_PRESETS['frontier-outpost']));
+      : createBlankMap();
 
     this.rootElement = document.createElement('div');
     this.rootElement.id = 'map-editor-overlay';
@@ -381,26 +381,15 @@ export class MapEditor {
     URL.revokeObjectURL(url);
   }
 
-  loadMap(idOrPreset: string): boolean {
-    if (!idOrPreset) return false;
-    if (idOrPreset.startsWith('preset:')) {
-      const presetKey = idOrPreset.replace('preset:', '');
-      const preset = STANDARD_MAP_PRESETS[presetKey];
-      if (preset) {
-        this.setMap(preset);
-        return true;
-      }
-    } else {
-      const customId = idOrPreset.startsWith('custom:')
-        ? idOrPreset.replace('custom:', '')
-        : idOrPreset;
-      const custom = this.mapStore.getMap(customId);
-      if (custom) {
-        this.setMap(custom);
-        return true;
-      }
-    }
-    return false;
+  loadMap(idOrCustom: string): boolean {
+    if (!idOrCustom) return false;
+    const customId = idOrCustom.startsWith('custom:')
+      ? idOrCustom.replace('custom:', '')
+      : idOrCustom;
+    const custom = this.mapStore.getMap(customId);
+    if (!custom) return false;
+    this.setMap(custom);
+    return true;
   }
 
   saveToStore(): void {
@@ -691,12 +680,7 @@ export class MapEditor {
               <button id="snapFreeBtn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0 ? '#12161c' : '#cfd8dc'};">Free</button>
             </div>
             <select id="loadMapSelect" style="padding: 6px 8px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 12px;">
-              <option value="">Load Map / Preset...</option>
-              <optgroup label="Standard Presets">
-                <option value="preset:frontier-outpost">Frontier Outpost</option>
-                <option value="preset:industrial-refinery">Industrial Refinery</option>
-                <option value="preset:sector-7-catwalks">Sector 7 Catwalks</option>
-              </optgroup>
+              <option value="">Load Map...</option>
               ${savedMapsGroupHtml}
             </select>
             <button id="validationBadgeBtn" style="padding: 5px 8px; font-size: 11px; font-weight: bold; background: ${warningBadgeColor}; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">

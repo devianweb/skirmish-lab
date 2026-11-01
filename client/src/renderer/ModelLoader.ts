@@ -125,9 +125,26 @@ export class ModelLoader {
    * fallback), unscaled — callers position/scale it from game state data.
    */
   createTerrainMesh(terrainType: string): THREE.Object3D {
+    if (
+      terrainType === 'stairs' ||
+      terrainType === 'stairs-open' ||
+      terrainType === 'stairs-closed-short' ||
+      terrainType === 'stairs-sides' ||
+      terrainType === 'ramp'
+    ) {
+      const container = new THREE.Group();
+      container.name = `terrain-${terrainType}`;
+      container.add(createProceduralStairWedge());
+      return container;
+    }
     const asset = this.terrainAssets.get(terrainType);
     const container = new THREE.Group();
     container.name = `terrain-${terrainType}`;
+    const builder = PROCEDURAL_TERRAIN_BUILDERS[terrainType];
+    if (!asset && builder) {
+      container.add(builder());
+      return container;
+    }
     if (asset) {
       this.addSwappingAsset(container, asset, () => createProceduralTerrainBlock());
     } else {
@@ -244,12 +261,187 @@ function createLowPolyFighter(): THREE.Object3D {
   return group;
 }
 
-/** Procedural terrain fallback: a plain block (1x1x1). */
+/** Procedural terrain block (1x1x1) with base origin at Y = 0. */
 function createProceduralTerrainBlock(): THREE.Object3D {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
+  geometry.translate(0, 0.5, 0);
   const material = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.1 });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
 }
+
+/**
+ * Procedural right-angled triangular prism (wedge) for stairs and ramps.
+ * Matches the mathematical collision geometry and F9 wireframe 1:1:
+ * - Local Z = -0.5: Ground level foot (Y = 0)
+ * - Local Z = +0.5: Elevated platform head (Y = 1.0)
+ * - Local X = [-0.5, +0.5]: Width
+ */
+function createProceduralStairWedge(): THREE.Object3D {
+  const group = new THREE.Group();
+
+  const positions = new Float32Array([
+    // 1. Sloped Hypotenuse (from Z=-0.5, Y=0 to Z=+0.5, Y=1)
+    -0.5, 0.0, -0.5,
+     0.5, 0.0, -0.5,
+     0.5, 1.0,  0.5,
+    -0.5, 0.0, -0.5,
+     0.5, 1.0,  0.5,
+    -0.5, 1.0,  0.5,
+
+    // 2. Vertical Rear Wall (at Z = +0.5, from Y=0 to Y=1)
+     0.5, 0.0,  0.5,
+    -0.5, 0.0,  0.5,
+    -0.5, 1.0,  0.5,
+     0.5, 0.0,  0.5,
+    -0.5, 1.0,  0.5,
+     0.5, 1.0,  0.5,
+
+    // 3. Flat Bottom Base (at Y = 0.0, from Z=-0.5 to Z=+0.5)
+    -0.5, 0.0,  0.5,
+     0.5, 0.0,  0.5,
+     0.5, 0.0, -0.5,
+    -0.5, 0.0,  0.5,
+     0.5, 0.0, -0.5,
+    -0.5, 0.0, -0.5,
+
+    // 4. Left Triangular Side (at X = -0.5)
+    -0.5, 0.0, -0.5,
+    -0.5, 1.0,  0.5,
+    -0.5, 0.0,  0.5,
+
+    // 5. Right Triangular Side (at X = +0.5)
+     0.5, 0.0, -0.5,
+     0.5, 0.0,  0.5,
+     0.5, 1.0,  0.5,
+  ]);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x5a5d64, // Industrial weathered steel / dark concrete
+    roughness: 0.75,
+    metalness: 0.25,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  // Add subtle step tread grooves / risers for a wargaming staircase feel
+  const stepCount = 6;
+  const treadPoints: THREE.Vector3[] = [];
+  for (let s = 1; s <= stepCount; s++) {
+    const t = s / stepCount;
+    const z = -0.5 + t * 1.0;
+    const y = t * 1.0;
+    treadPoints.push(new THREE.Vector3(-0.49, y, z), new THREE.Vector3(0.49, y, z));
+  }
+  if (treadPoints.length > 0) {
+    const treadGeo = new THREE.BufferGeometry().setFromPoints(treadPoints);
+    const treadMat = new THREE.LineBasicMaterial({ color: 0x222428 });
+    const lines = new THREE.LineSegments(treadGeo, treadMat);
+    group.add(lines);
+  }
+
+  return group;
+}
+
+type Part = [cx: number, cy: number, cz: number, w: number, h: number, d: number];
+
+/**
+ * Build a unit-box (x,z in [-0.5,0.5], y in [0,1]) piece from box parts.
+ * Callers scale the result by the terrain piece's scale, so openings are
+ * expressed as fractions of the collision box (e.g. 4"x2.5"x0.3" wall).
+ * Each part is [centreX, baseY, centreZ, width, height, depth].
+ */
+function buildFromParts(parts: Part[]): THREE.Object3D {
+  const group = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.1 });
+  for (const [cx, by, cz, w, h, d] of parts) {
+    const geometry = new THREE.BoxGeometry(w, h, d);
+    geometry.translate(cx, by + h / 2, cz);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
+}
+
+/** Solid wall: body plus a slightly proud coping strip and panel seams (all inside the unit box). */
+export function createProceduralSolidWall(): THREE.Object3D {
+  const parts: Part[] = [
+    [0, 0, 0, 1, 0.94, 0.9],
+    [0, 0.94, 0, 1, 0.06, 1],
+  ];
+  for (const x of [-0.25, 0.25]) parts.push([x, 0.05, 0.47, 0.015, 0.85, 0.06]);
+  return buildFromParts(parts);
+}
+
+/** Window wall: solid 40% breastwork, side piers and lintel framing an open aperture. */
+export function createProceduralWindowWall(): THREE.Object3D {
+  return buildFromParts([
+    [0, 0, 0, 1, 0.4, 1],
+    [-0.4, 0.4, 0, 0.2, 0.5, 1],
+    [0.4, 0.4, 0, 0.2, 0.5, 1],
+    [0, 0.9, 0, 1, 0.1, 1],
+  ]);
+}
+
+/** Doorway wall: 0.3-wide x 0.88-tall central opening (1.2" x 2.2" on a 4" x 2.5" wall). */
+export function createProceduralDoorwayWall(): THREE.Object3D {
+  const jamb = (1 - 0.3) / 2;
+  const x = 0.15 + jamb / 2;
+  return buildFromParts([
+    [-x, 0, 0, jamb, 1, 1],
+    [x, 0, 0, jamb, 1, 1],
+    [0, 0.88, 0, 0.3, 0.12, 1],
+  ]);
+}
+
+/** Structural column: plinth, shaft and cap. */
+export function createProceduralColumn(): THREE.Object3D {
+  return buildFromParts([
+    [0, 0, 0, 1, 0.08, 1],
+    [0, 0.08, 0, 0.8, 0.84, 0.8],
+    [0, 0.92, 0, 1, 0.08, 1],
+  ]);
+}
+
+/**
+ * L-corner ruin: two perpendicular walls (north and west edges), a second-floor
+ * L-ledge at y = 0.75 (3" of 4"), and a firing slit in each wall.
+ */
+export function createProceduralLCornerRuin(): THREE.Object3D {
+  const t = 0.0625; // 0.25" on a 4" footprint
+  return buildFromParts([
+    // North wall with a slit gap (split in two + lintel)
+    [-0.3, 0, 0.5 - t / 2, 0.4, 0.75, t],
+    [0.3, 0, 0.5 - t / 2, 0.4, 0.75, t],
+    [0, 0.5, 0.5 - t / 2, 0.2, 0.25, t],
+    [0, 0, 0.5 - t / 2, 0.2, 0.3, t],
+    // West wall with a slit
+    [-0.5 + t / 2, 0, -0.3, t, 0.75, 0.4],
+    [-0.5 + t / 2, 0, 0.3, t, 0.75, 0.4],
+    [-0.5 + t / 2, 0.5, 0, t, 0.25, 0.2],
+    [-0.5 + t / 2, 0, 0, t, 0.3, 0.2],
+    // L-shaped ledge
+    [0, 0.75, 0.5 - 0.15, 1, 0.04, 0.3],
+    [-0.5 + 0.15, 0.75, -0.15, 0.3, 0.04, 0.7],
+  ]);
+}
+
+const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
+  wall: createProceduralSolidWall,
+  'wall-window': createProceduralWindowWall,
+  'wall-doorway': createProceduralDoorwayWall,
+  column: createProceduralColumn,
+  ruin: createProceduralLCornerRuin,
+  'ruin-l': createProceduralLCornerRuin,
+};

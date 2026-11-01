@@ -7,7 +7,6 @@ import {
   createUnitsFromStarterArmy,
 } from './armies';
 import { CustomMapDefinition } from './mapSchema';
-import { STANDARD_MAP_PRESETS } from './mapPresets';
 
 /**
  * Default v1 scenario data: each player deploys a five-fighter force on
@@ -266,8 +265,19 @@ export interface ScenarioOptions {
   hostArmyId?: string;
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
-  mapId?: string;
   customMap?: CustomMapDefinition;
+}
+
+/** Empty 44"x30" battlefield with the standard objectives — the default when no custom map is chosen. */
+export function createBlankMap(): CustomMapDefinition {
+  return {
+    id: 'blank',
+    name: 'Empty Battlefield',
+    version: 1,
+    board: { width: 44, height: 30 },
+    terrain: [],
+    objectives: createDefaultScenarioObjectives(),
+  };
 }
 
 /** Apply the default scenario to a fresh game state (host-side, at start). */
@@ -281,9 +291,7 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
 
   const selectedMap: CustomMapDefinition =
     options.customMap ??
-    (options.mapId && options.mapId in STANDARD_MAP_PRESETS
-      ? STANDARD_MAP_PRESETS[options.mapId]
-      : STANDARD_MAP_PRESETS['frontier-outpost']);
+    createBlankMap();
 
   const mapTerrain: TerrainPiece[] = selectedMap.terrain.map((t) => ({
     ...t,

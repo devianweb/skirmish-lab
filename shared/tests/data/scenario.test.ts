@@ -13,7 +13,6 @@ import {
 } from '../../src/data/armies';
 import {
   CustomMapDefinition,
-  STANDARD_MAP_PRESETS,
   TERRAIN_PALETTE_CATALOG,
   validateMapDefinition,
 } from '../../src/index';
@@ -88,7 +87,7 @@ describe('scenario data pack', () => {
     expect(state.status).toBe('in-progress');
     expect(state.turnState.phase).toBe('activation');
     expect(state.units).toHaveLength(10);
-    expect(state.terrain.length).toBeGreaterThan(0);
+    expect(state.terrain).toHaveLength(0); // no presets: default is an empty battlefield
     expect(state.objectives).toHaveLength(4);
 
     // Round 1 has not started: both players have all units activatable.
@@ -209,39 +208,11 @@ describe('scenario data pack', () => {
   });
 
   describe('Phase 13A: Map Schema, Presets & Validation', () => {
-    it('ships standard map presets (Frontier Outpost, Industrial Refinery, Sector 7 Catwalks)', () => {
-      expect(STANDARD_MAP_PRESETS['frontier-outpost']).toBeDefined();
-      expect(STANDARD_MAP_PRESETS['industrial-refinery']).toBeDefined();
-      expect(STANDARD_MAP_PRESETS['sector-7-catwalks']).toBeDefined();
-
-      for (const [id, preset] of Object.entries(STANDARD_MAP_PRESETS)) {
-        expect(preset.id).toBe(id);
-        expect(preset.name.length).toBeGreaterThan(0);
-        expect(preset.terrain.length).toBeGreaterThanOrEqual(10);
-        expect(preset.objectives).toHaveLength(4);
-        expect(preset.board?.width).toBe(44);
-        expect(preset.board?.height).toBe(30);
-
-        // Every piece has valid scale and position
-        for (const piece of preset.terrain) {
-          expect(piece.id).toBeDefined();
-          expect(piece.position).toBeDefined();
-          expect(piece.scale.x).toBeGreaterThan(0);
-          expect(piece.scale.y).toBeGreaterThan(0);
-          expect(piece.scale.z).toBeGreaterThan(0);
-          expect(typeof piece.blocksLineOfSight).toBe('boolean');
-          expect(typeof piece.providesCover).toBe('boolean');
-        }
-      }
-    });
-
-    it('applies map presets to game state via mapId', () => {
+    it('falls back to an empty battlefield with standard objectives when no map is given', () => {
       const state = createInitialGameState(HOST, GUEST);
-      applyDefaultScenario(state, { mapId: 'industrial-refinery' });
-
-      expect(state.terrain.some((t) => t.id === 'refinery-main-facility')).toBe(true);
-      expect(state.terrain.some((t) => t.terrainType === 'building-c')).toBe(true);
-      expect(state.objectives.some((o) => o.name.includes('Refinery Rooftop'))).toBe(true);
+      applyDefaultScenario(state);
+      expect(state.terrain).toHaveLength(0);
+      expect(state.objectives).toHaveLength(4);
     });
 
     it('applies custom map directly to game state via customMap option', () => {
@@ -354,13 +325,6 @@ describe('scenario data pack', () => {
 
       // Warning 4: Objective inside obstacle piece
       expect(notices.some((n) => n.message.includes('appears inside obstacle terrain piece'))).toBe(true);
-    });
-
-    it('validates standard map presets have 0 warnings', () => {
-      for (const preset of Object.values(STANDARD_MAP_PRESETS)) {
-        const notices = validateMapDefinition(preset);
-        expect(notices).toHaveLength(0);
-      }
     });
   });
 });
