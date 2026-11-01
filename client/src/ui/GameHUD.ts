@@ -77,6 +77,7 @@ export interface MarkerSnapshot {
   movementRangeUnitId: string | null;
   movementRangePosition?: Vector3;
   movementRangeRadius?: number;
+  movementRangeColor?: number;
   attackRange?: { unitId: string; range: number; concentricRanges?: number[] } | null;
   movePath?: MovePathMarker | null;
   engagedTargetId?: string | null;
@@ -897,7 +898,7 @@ export class GameHUD {
       createAction(this.localPlayerId, actionKind === 'rush' ? 'rush' : 'move-unit', {
         type: actionKind === 'rush' ? 'rush' : 'move-unit',
         unitId: active.id,
-        path: this.stagedSquadPaths[0] ?? [active.position, finalCentroid],
+        path: [active.position, finalCentroid],
         finalPosition: finalCentroid,
         modelPositions: [...this.stagedSquadPositions],
         modelPaths: [...this.stagedSquadPaths],
@@ -3162,11 +3163,16 @@ export class GameHUD {
       }
     } else if ((isMoveMode || isRushMode) && this.activeUnit) {
       markers.movementRangeUnitId = this.activeUnit.id;
-      markers.movementRangeRadius = this.activeUnit.isRushing
-        ? this.activeUnit.remainingMovement
-        : isRushMode
-          ? (this.activeUnit.remainingMovement ?? this.activeUnit.speed * 2)
-          : (this.activeUnit.remainingMovement ?? this.activeUnit.speed);
+      if (isRushMode) {
+        const remainingRush = this.activeUnit.isRushing
+          ? this.activeUnit.remainingMovement
+          : this.activeUnit.speed * 2 - (this.activeUnit.hasMoved ? (this.activeUnit.speed - this.activeUnit.remainingMovement) : 0);
+        markers.movementRangeRadius = Math.max(0, remainingRush);
+        markers.movementRangeColor = 0xffb74d; // Distinct gold/amber ring for Rush
+      } else {
+        markers.movementRangeRadius = this.activeUnit.remainingMovement ?? this.activeUnit.speed;
+        markers.movementRangeColor = undefined; // Default cyan for Advance move
+      }
 
       const alive = this.activeAliveSquadModels;
       if (alive.length > 1 && this.flow.mode === 'targeting') {

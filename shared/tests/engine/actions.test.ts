@@ -600,6 +600,97 @@ describe('applyAction: move-unit', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.reason).toContain('Squad model 1 move path is blocked');
   });
+
+  it('moves a multi-model squad successfully when constituent models start away from the squad centroid', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.speed = 6;
+    unit.position = { x: 0, y: 0, z: 0 };
+    unit.remainingMovement = 6;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -0.9, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.9, y: 0, z: 0 } },
+    ];
+
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 3 },
+      ],
+      finalPosition: { x: 0, y: 0, z: 3 },
+      modelPositions: [
+        { x: -0.9, y: 0, z: 3 },
+        { x: 0.9, y: 0, z: 3 },
+      ],
+      modelPaths: [
+        [
+          { x: -0.9, y: 0, z: 0 },
+          { x: -0.9, y: 0, z: 3 },
+        ],
+        [
+          { x: 0.9, y: 0, z: 0 },
+          { x: 0.9, y: 0, z: 3 },
+        ],
+      ],
+    });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const postUnit = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(postUnit.position).toEqual({ x: 0, y: 0, z: 3 });
+    expect(postUnit.models[0].position).toEqual({ x: -0.9, y: 0, z: 3 });
+    expect(postUnit.models[1].position).toEqual({ x: 0.9, y: 0, z: 3 });
+    expect(postUnit.remainingMovement).toBe(3);
+  });
+
+  it('rushes a multi-model squad successfully with individual model paths and deducts double speed budget', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.speed = 6;
+    unit.position = { x: 0, y: 0, z: 0 };
+    unit.remainingMovement = 6;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -0.8, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+
+    const action = createAction(HOST, 'rush', {
+      type: 'rush',
+      unitId: 'h1',
+      path: [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 8 },
+      ],
+      finalPosition: { x: 0, y: 0, z: 8 },
+      modelPositions: [
+        { x: -0.8, y: 0, z: 8 },
+        { x: 0.8, y: 0, z: 8 },
+      ],
+      modelPaths: [
+        [
+          { x: -0.8, y: 0, z: 0 },
+          { x: -0.8, y: 0, z: 8 },
+        ],
+        [
+          { x: 0.8, y: 0, z: 0 },
+          { x: 0.8, y: 0, z: 8 },
+        ],
+      ],
+    });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const postUnit = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(postUnit.isRushing).toBe(true);
+    expect(postUnit.hasAttacked).toBe(true);
+    expect(postUnit.position).toEqual({ x: 0, y: 0, z: 8 });
+    expect(postUnit.models[0].position).toEqual({ x: -0.8, y: 0, z: 8 });
+    expect(postUnit.models[1].position).toEqual({ x: 0.8, y: 0, z: 8 });
+    // Total rush budget was 12", moved 8", remaining budget is 4"
+    expect(postUnit.remainingMovement).toBe(4);
+  });
 });
 
 describe('applyAction: shoot', () => {

@@ -155,16 +155,18 @@ export class MarkerRenderer {
   }
 
   /** Thin movement-range ring sized to the unit's remaining movement (or override radius, e.g. for Rush). */
-  setMovementRange(unit: MarkerUnit | null, overrideRadius?: number): void {
+  setMovementRange(unit: MarkerUnit | null, overrideRadius?: number, color?: number): void {
     this.removeMarker('range');
     if (!unit) return;
     const radius = Math.max(overrideRadius ?? unit.remainingMovement ?? 0, 0);
     if (radius <= 0) return;
 
+    const ringColor = color ?? RANGE_COLOR;
     const normalizedThickness = Math.min(0.25, 0.08 / radius);
-    const marker = this.modelLoader.createMarkerMesh('movement-range', () =>
-      this.createRangeRing(RANGE_COLOR, 1, normalizedThickness)
+    const marker = this.modelLoader.createMarkerMesh(`movement-range-${ringColor.toString(16)}`, () =>
+      this.createRangeRing(ringColor, 1, normalizedThickness)
     );
+    this.applyTint(marker, ringColor);
     marker.name = 'marker-movement-range';
     const unitY = (unit.position.y ?? 0) + 0.03;
     marker.position.set(unit.position.x, unitY, unit.position.z);
