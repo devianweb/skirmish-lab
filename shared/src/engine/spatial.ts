@@ -223,9 +223,6 @@ export function getApertureProfile(
   return null;
 }
 
-/** Eye height above a fighter's base used for sight lines through window openings. */
-export const FIGHTER_EYE_HEIGHT = 1.0;
-
 export interface ApertureRayResult {
   hitPiece: boolean;
   passesAperture: boolean;
@@ -790,12 +787,14 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
           return false;
         }
         if (ap.passesAperture) {
-          // The opening is real: sight passes if the eye-level ray clears the sill and lintel.
-          const profile = getApertureProfile(piece)!;
-          const eyeRayY = rayY + FIGHTER_EYE_HEIGHT;
-          if (eyeRayY < profile.bottom - 0.05 || eyeRayY > profile.top + 0.05) {
-            return false;
+          const { hx, hz } = terrainHalfExtents(piece);
+          const pieceRadius = Math.hypot(hx, hz);
+          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
+          const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
+          if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
+            continue; // Peeking / manning the firing port allows sight
           }
+          return false; // Distant window blocks sight
         }
         continue;
       }
@@ -1102,6 +1101,17 @@ export function computeShootingRayDebug(
             earliestLoSBlockDist = hit.tEntry;
             blockedByPieceId = piece.id;
           }
+        } else if (ap.passesAperture) {
+          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
+          const distTarget = Math.hypot(targetPos.x - piece.position.x, targetPos.z - piece.position.z);
+          const canPeek = distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0;
+          if (!canPeek) {
+            isLoSBlocker = true;
+            if (hit.tEntry < earliestLoSBlockDist) {
+              earliestLoSBlockDist = hit.tEntry;
+              blockedByPieceId = piece.id;
+            }
+          }
         }
       } else {
         isLoSBlocker = true;
@@ -1403,6 +1413,14 @@ export function computeLosVisibilityPolygon(
         const ap = intersectAperturePiece(origin, dirX, dirZ, bestDist, piece, 0);
         if (ap.hitsJamb && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
           bestDist = Math.min(bestDist, ap.tEntry);
+        } else if (ap.passesAperture) {
+          const { hx, hz } = terrainHalfExtents(piece);
+          const pieceRadius = Math.hypot(hx, hz);
+          const distShooter = Math.hypot(origin.x - piece.position.x, origin.z - piece.position.z);
+          // Only shooters manning the firing port (within 1.0" past radius) can project LoS through the window
+          if (distShooter > pieceRadius + 1.0 && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
+            bestDist = Math.min(bestDist, ap.tEntry);
+          }
         }
         continue;
       }
