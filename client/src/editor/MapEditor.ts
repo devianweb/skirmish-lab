@@ -538,7 +538,13 @@ export class MapEditor {
       { id: 'objectives', label: 'Objectives', icon: '🎯' },
     ];
 
-    const categoryButtonsHtml = categories
+    // Hide categories that have no procedural pieces yet (objectives always shown).
+    const visibleCategories = categories.filter(
+      (cat) =>
+        cat.id === 'objectives' ||
+        Object.values(TERRAIN_PALETTE_CATALOG).some((m) => m.category === cat.id)
+    );
+    const categoryButtonsHtml = visibleCategories
       .map(
         (cat) => `
         <button class="editor-cat-btn" data-category="${cat.id}" style="

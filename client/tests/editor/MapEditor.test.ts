@@ -35,7 +35,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     // Default category is structures
     let paletteItems = container.querySelectorAll('.editor-palette-item');
     expect(paletteItems.length).toBeGreaterThan(0);
-    expect(container.textContent).toContain('Industrial Warehouse');
+    expect(container.textContent).toContain('L-Corner Ruin');
 
     // Click Walls category
     const wallsBtn = container.querySelector('button[data-category="walls"]') as HTMLButtonElement;
@@ -43,7 +43,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     wallsBtn.click();
 
     expect(container.textContent).toContain('Solid Wall');
-    expect(container.textContent).toContain('Corner Wall');
+    expect(container.textContent).toContain('Window Wall');
 
     // Click Objectives category
     const objBtn = container.querySelector('button[data-category="objectives"]') as HTMLButtonElement;
@@ -57,11 +57,11 @@ describe('MapEditor 3D Battlefield Builder', () => {
     const editor = new MapEditor(container);
     editor.show();
 
-    const buildingItem = container.querySelector('.editor-palette-item[data-type="building-c"]') as HTMLButtonElement;
+    const buildingItem = container.querySelector('.editor-palette-item[data-type="ruin-l"]') as HTMLButtonElement;
     expect(buildingItem).toBeTruthy();
     buildingItem.click();
 
-    expect(editor.getActivePlacementType()).toBe('building-c');
+    expect(editor.getActivePlacementType()).toBe('ruin-l');
 
     // Clicking again cancels placement
     buildingItem.click();
@@ -91,16 +91,15 @@ describe('MapEditor 3D Battlefield Builder', () => {
     const editor = new MapEditor(container);
     editor.clearBoard();
 
-    const placed = editor.placePieceAt('building-c', { x: 4.2, y: 0, z: -2.8 });
+    const placed = editor.placePieceAt('ruin-l', { x: 4.2, y: 0, z: -2.8 });
 
     expect(placed).toBeTruthy();
-    expect(placed!.terrainType).toBe('building-c');
+    expect(placed!.terrainType).toBe('ruin-l');
     expect(placed!.position.x).toBe(4.0); // snapped 1.0"
     expect(placed!.position.z).toBe(-3.0); // snapped 1.0"
     expect(placed!.blocksLineOfSight).toBe(true);
     expect(placed!.providesCover).toBe(true);
-    expect(placed!.isWalkable).toBe(true);
-    expect(placed!.elevation).toBe(3.0);
+    expect(placed!.scale).toEqual({ x: 4, y: 3, z: 4 });
 
     const map = editor.getMap();
     expect(map.terrain).toHaveLength(1);
