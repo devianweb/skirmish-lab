@@ -637,7 +637,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Procedural **L-Corner Ruin** ($4" \times 3" \times 4"$, wall thickness $0.25"$): classic wargaming tournament staple with modeled return wall, second-floor L-ledge ($y = 3.0"$), and firing apertures.
 - [x] Procedural **Modular Solid Walls** ($4" \times 2.5" \times 0.3"$ and $6" \times 2.5" \times 0.3"$): beveled top coping and inset vertical panel seams.
 - [x] Procedural **Window Walls** ($4" \times 2.5" \times 0.3"$): solid $1.0"$ lower breastwork (grants Cover) with open upper firing apertures.
-- [x] Procedural **Doorway Walls** ($4" \times 2.5" \times 0.3"$): solid wall with central $1.2" \times 2.2"$ walk-through opening (allows infantry passage without climbing).
+- [x] Procedural **Doorway Walls** ($4" \times 2.5" \times 0.3"$): solid wall with central $1.2" \times 2.2"$ walk-through opening (allows infantry passage without climbing; opening and window sill/lintel heights in `getApertureProfile` match the meshes).
 - [x] Procedural **Structural Columns / Pillars** ($1.2" \times 3.0" \times 1.2"$): square and octagonal beveled pillars supporting elevated platforms.
 
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
