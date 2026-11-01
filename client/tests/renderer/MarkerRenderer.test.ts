@@ -377,4 +377,54 @@ describe('MarkerRenderer', () => {
     renderer.setDeploymentZones(null);
     expect(renderer.getRenderedMarkerNames()).not.toContain('marker-deployment-zones');
   });
+
+  it('renders individual base rings under each model for multi-model squad selection and targeting', () => {
+    const renderer = makeRenderer();
+    const squadUnit: MarkerUnit = {
+      id: 'squad-1',
+      position: { x: 5, y: 0, z: 5 },
+      models: [
+        { id: 'm1', position: { x: 4, y: 0, z: 5 } },
+        { id: 'm2', position: { x: 5, y: 0, z: 4 } },
+        { id: 'm3', position: { x: 6, y: 0, z: 5 } },
+        { id: 'm4', position: { x: 5, y: 0, z: 6 } },
+      ],
+    };
+
+    // Selection
+    renderer.setSelection(squadUnit);
+    const selGroup = scene.getObjectByName('marker-selection')!;
+    expect(selGroup).toBeDefined();
+    expect(selGroup.children).toHaveLength(4);
+    expect(selGroup.children[0].position.x).toBe(4);
+    expect(selGroup.children[2].position.x).toBe(6);
+
+    // Targeting
+    renderer.setTarget(squadUnit);
+    const targetGroup = scene.getObjectByName('marker-target')!;
+    expect(targetGroup).toBeDefined();
+    expect(targetGroup.children).toHaveLength(4);
+    expect(targetGroup.children[1].position.z).toBe(4);
+
+    // Melee Contact
+    renderer.setMeleeContact(squadUnit);
+    const meleeGroup = scene.getObjectByName('marker-melee-contact')!;
+    expect(meleeGroup).toBeDefined();
+    expect(meleeGroup.children).toHaveLength(4);
+  });
+
+  it('renders thin crisp coherency border ring matching range indicators', () => {
+    const renderer = makeRenderer();
+    renderer.setSquadCoherency([{ x: 0, y: 0, z: 0 }], 2.0);
+
+    const group = scene.getObjectByName('marker-squad-coherency')!;
+    expect(group).toBeDefined();
+    // Boundary ring (child 0), fill disc (child 1), center pip (child 2)
+    expect(group.children.length).toBe(3);
+    const boundaryRing = group.children[0] as THREE.Mesh;
+    const geo = boundaryRing.geometry as THREE.RingGeometry;
+    // Ring outer radius is 2.0, inner radius is 2.0 - 0.06 = 1.94 (0.06 thin border)
+    expect(geo.parameters.outerRadius).toBeCloseTo(2.0, 2);
+    expect(geo.parameters.innerRadius).toBeCloseTo(1.94, 2);
+  });
 });

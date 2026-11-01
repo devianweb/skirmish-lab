@@ -19,6 +19,7 @@ export interface MarkerUnit {
   id: string;
   position: Vector3;
   remainingMovement?: number;
+  models?: Array<{ id: string; position: Vector3 }>;
 }
 
 export interface AttackRangeMarker {
@@ -96,14 +97,45 @@ export class MarkerRenderer {
     scene.add(this.markerGroup);
   }
 
-  /** Indicator under the selected/active/hovered unit (blue circle). */
+  /** Indicator under the selected/active/hovered unit (blue circle under each model's feet). */
   setSelection(unit: MarkerUnit | null): void {
-    this.replaceMarker('selection', unit, SELECTION_COLOR, () =>
-      this.createFlatRing(SELECTION_COLOR, 0.55, 0.02)
-    );
+    this.removeMarker('selection');
+    if (!unit) return;
+
+    const positions =
+      unit.models && unit.models.length > 0
+        ? unit.models.map((m) => m.position)
+        : [unit.position];
+
+    if (positions.length === 1) {
+      const pos = positions[0];
+      const marker = this.modelLoader.createMarkerMesh('selection', () =>
+        this.createFlatRing(SELECTION_COLOR, 0.55, 0.02)
+      );
+      this.applyTint(marker, SELECTION_COLOR);
+      marker.name = 'marker-selection';
+      marker.position.set(pos.x, (pos.y ?? 0) + 0.02, pos.z);
+      this.markerGroup.add(marker);
+      this.selection = marker;
+      return;
+    }
+
+    const group = new THREE.Group();
+    group.name = 'marker-selection';
+    for (const pos of positions) {
+      const ring = this.modelLoader.createMarkerMesh('selection', () =>
+        this.createFlatRing(SELECTION_COLOR, 0.55, 0.02)
+      );
+      this.applyTint(ring, SELECTION_COLOR);
+      ring.name = `marker-selection-${unit.id}`;
+      ring.position.set(pos.x, (pos.y ?? 0) + 0.02, pos.z);
+      group.add(ring);
+    }
+    this.markerGroup.add(group);
+    this.selection = group;
   }
 
-  /** Indicator under hovered or selected attack targets (bright red floor ring). Supports single or split targets. */
+  /** Indicator under hovered or selected attack targets (bright red floor ring under each model). Supports single or split targets. */
   setTarget(unit: MarkerUnit | MarkerUnit[] | null): void {
     this.removeMarker('target');
     if (!unit) return;
@@ -111,29 +143,41 @@ export class MarkerRenderer {
     const targets = Array.isArray(unit) ? unit : [unit];
     if (targets.length === 0) return;
 
-    if (targets.length === 1) {
-      this.replaceMarker('target', targets[0], TARGET_COLOR, () =>
+    if (targets.length === 1 && (!targets[0].models || targets[0].models.length <= 1)) {
+      const pos = targets[0].models?.[0]?.position ?? targets[0].position;
+      const marker = this.modelLoader.createMarkerMesh('target', () =>
         this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
       );
+      this.applyTint(marker, TARGET_COLOR);
+      marker.name = 'marker-target';
+      marker.position.set(pos.x, (pos.y ?? 0) + 0.025, pos.z);
+      this.markerGroup.add(marker);
+      this.target = marker;
       return;
     }
 
     const group = new THREE.Group();
     group.name = 'marker-target';
     for (const t of targets) {
-      const ring = this.modelLoader.createMarkerMesh('target', () =>
-        this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
-      );
-      this.applyTint(ring, TARGET_COLOR);
-      ring.name = `marker-target-${t.id}`;
-      ring.position.set(t.position.x, (t.position.y ?? 0) + 0.02, t.position.z);
-      group.add(ring);
+      const positions =
+        t.models && t.models.length > 0
+          ? t.models.map((m) => m.position)
+          : [t.position];
+      for (const pos of positions) {
+        const ring = this.modelLoader.createMarkerMesh('target', () =>
+          this.createFlatRing(TARGET_COLOR, 0.6, 0.025)
+        );
+        this.applyTint(ring, TARGET_COLOR);
+        ring.name = `marker-target-${t.id}`;
+        ring.position.set(pos.x, (pos.y ?? 0) + 0.025, pos.z);
+        group.add(ring);
+      }
     }
     this.markerGroup.add(group);
     this.target = group;
   }
 
-  /** Darker red floor rings under all enemy units within attack range. */
+  /** Darker red floor rings under all enemy units within attack range (under each model's feet). */
   setReachableTargets(units: MarkerUnit[]): void {
     this.removeMarker('reachableTargets');
     if (!units || units.length === 0) return;
@@ -141,14 +185,20 @@ export class MarkerRenderer {
     const group = new THREE.Group();
     group.name = 'marker-reachable-targets';
     for (const unit of units) {
-      const ring = this.modelLoader.createMarkerMesh('reachable-target', () =>
-        this.createFlatRing(REACHABLE_TARGET_COLOR, 0.55, 0.018)
-      );
-      this.applyTint(ring, REACHABLE_TARGET_COLOR);
-      ring.name = `marker-reachable-${unit.id}`;
-      const unitY = (unit.position.y ?? 0) + 0.018;
-      ring.position.set(unit.position.x, unitY, unit.position.z);
-      group.add(ring);
+      const positions =
+        unit.models && unit.models.length > 0
+          ? unit.models.map((m) => m.position)
+          : [unit.position];
+      for (const pos of positions) {
+        const ring = this.modelLoader.createMarkerMesh('reachable-target', () =>
+          this.createFlatRing(REACHABLE_TARGET_COLOR, 0.55, 0.018)
+        );
+        this.applyTint(ring, REACHABLE_TARGET_COLOR);
+        ring.name = `marker-reachable-${unit.id}`;
+        const unitY = (pos.y ?? 0) + 0.018;
+        ring.position.set(pos.x, unitY, pos.z);
+        group.add(ring);
+      }
     }
     this.markerGroup.add(group);
     this.reachableTargets = group;
@@ -267,7 +317,7 @@ export class MarkerRenderer {
 
   /**
    * Melee engagement visual contact highlight: bright pulsing double ring
-   * under an opposing unit in 1.0" base contact.
+   * under an opposing unit in 1.0" base contact (under each model's feet).
    */
   setMeleeContact(unit: MarkerUnit | null): void {
     this.removeMarker('meleeContact');
@@ -276,11 +326,28 @@ export class MarkerRenderer {
     const group = new THREE.Group();
     group.name = 'marker-melee-contact';
 
-    const outerRing = this.createFlatRing(0xff5252, 0.75, 0.08);
-    const innerRing = this.createFlatRing(0xffab40, 0.55, 0.06);
-    group.add(outerRing);
-    group.add(innerRing);
-    group.position.set(unit.position.x, (unit.position.y ?? 0) + 0.02, unit.position.z);
+    const positions =
+      unit.models && unit.models.length > 0
+        ? unit.models.map((m) => m.position)
+        : [unit.position];
+
+    if (positions.length === 1) {
+      const outerRing = this.createFlatRing(0xff5252, 0.75, 0.08);
+      const innerRing = this.createFlatRing(0xffab40, 0.55, 0.06);
+      group.add(outerRing);
+      group.add(innerRing);
+      group.position.set(positions[0].x, (positions[0].y ?? 0) + 0.02, positions[0].z);
+    } else {
+      for (const pos of positions) {
+        const outerRing = this.createFlatRing(0xff5252, 0.75, 0.08);
+        const innerRing = this.createFlatRing(0xffab40, 0.55, 0.06);
+        const pairGroup = new THREE.Group();
+        pairGroup.add(outerRing);
+        pairGroup.add(innerRing);
+        pairGroup.position.set(pos.x, (pos.y ?? 0) + 0.02, pos.z);
+        group.add(pairGroup);
+      }
+    }
 
     this.markerGroup.add(group);
     this.meleeContact = group;
@@ -639,8 +706,8 @@ export class MarkerRenderer {
 
     const COHERENCY_COLOR = 0x26c6da;
     for (const pos of positions) {
-      // 1. Boundary ring
-      const ring = this.createFlatRing(COHERENCY_COLOR, radius, 0.025);
+      // 1. Crisp thin boundary ring matching movement/rush circles
+      const ring = this.createRangeRing(COHERENCY_COLOR, radius, 0.06);
       ring.position.set(pos.x, (pos.y ?? 0) + 0.025, pos.z);
       group.add(ring);
 
@@ -760,23 +827,6 @@ export class MarkerRenderer {
       disposeObject3D(current);
       this[kind] = null;
     }
-  }
-
-  private replaceMarker(
-    kind: 'selection' | 'target',
-    unit: MarkerUnit | null,
-    tintColor: number,
-    fallbackFactory: () => THREE.Object3D
-  ): void {
-    this.removeMarker(kind);
-    if (!unit) return;
-
-    const marker = this.modelLoader.createMarkerMesh(kind, fallbackFactory);
-    this.applyTint(marker, tintColor);
-    marker.name = `marker-${kind}`;
-    marker.position.set(unit.position.x, (unit.position.y ?? 0) + 0.02, unit.position.z);
-    this.markerGroup.add(marker);
-    this[kind] = marker;
   }
 
   private applyTint(marker: THREE.Object3D, color: number): void {

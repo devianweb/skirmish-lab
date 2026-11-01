@@ -822,17 +822,15 @@ export class GameHUD {
       this.showToast('Difficult Terrain / Climb: Rush capped at 6.0" (speed bonus negated)');
     }
 
-    if (actionKind === 'rush') {
-      const wouldEngage = this.enemyUnits.some(
-        (e) =>
-          !e.isDestroyed &&
-          Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
-          Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
-      );
-      if (wouldEngage) {
-        this.showToast('Rush cannot end in melee contact — use Charge instead');
-        return;
-      }
+    const wouldEngage = this.enemyUnits.some(
+      (e) =>
+        !e.isDestroyed &&
+        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+    );
+    if (wouldEngage) {
+      this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Move'} cannot end in melee contact — use Charge instead`);
+      return;
     }
 
     // Coherency check if placing Model 2+
@@ -932,6 +930,17 @@ export class GameHUD {
     const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
+      return;
+    }
+
+    const wouldEngage = this.enemyUnits.some(
+      (e) =>
+        !e.isDestroyed &&
+        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+    );
+    if (wouldEngage) {
+      this.showToast('Move cannot end in melee contact — use Charge instead');
       return;
     }
 
@@ -1286,7 +1295,8 @@ export class GameHUD {
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
       const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-      const attacks = weapon.profile.attacks;
+      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const attacks = (weapon.profile.attacks as number) * livingCount;
       const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
 
       this.movePreview = end;
@@ -1342,7 +1352,8 @@ export class GameHUD {
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
       const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-      const attacks = weapon.profile.attacks;
+      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const attacks = (weapon.profile.attacks as number) * livingCount;
       const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'fight', {
@@ -1390,7 +1401,8 @@ export class GameHUD {
         !hasTrait(weapon.profile.specialRules, 'blast') &&
         (target.status.includes('in-cover') ||
           (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
-      const attacks = weapon.profile.attacks;
+      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const attacks = (weapon.profile.attacks as number) * livingCount;
       const mods = computeCombatModifiers(
         {
           quality: active.quality,

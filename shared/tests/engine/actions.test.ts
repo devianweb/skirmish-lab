@@ -1954,4 +1954,127 @@ describe('applyAction invariants', () => {
     expect(outcome.state!.status).toBe('game-over');
     expect(outcome.state!.winner).toBe(HOST);
   });
+
+  describe('Multi-Model Squad Attacks and Movement Fidelity', () => {
+    it('scales shoot attack dice by the count of living models in the attacker squad', () => {
+      const state = makeState([
+        makeUnit('h-squad', HOST, {
+          weapons: [weapon('rifle', { profile: { attacks: 1, range: 24, type: 'ranged', specialRules: [] } })],
+          models: [
+            { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+            { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 0 } },
+            { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 1 } },
+            { id: 'm4', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 1 } },
+          ],
+        }),
+        makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10 } as Vector3 }),
+      ]);
+      state.turnState.activeUnitId = 'h-squad';
+      state.units[0].isActivated = true;
+
+      const shootAction = createAction(HOST, 'shoot', {
+        type: 'shoot',
+        attackerId: 'h-squad',
+        targetId: 'g1',
+        weaponId: 'rifle',
+      });
+
+      // 4 living models * 1 attack = 4 dice
+      const specs4 = getDiceSpecs(state, shootAction);
+      expect(specs4?.find((s) => s.purpose === 'to-hit')?.count).toBe(4);
+
+      // Kill 1 model -> 3 living models * 1 attack = 3 dice
+      state.units[0].models![0].isDestroyed = true;
+      const specs3 = getDiceSpecs(state, shootAction);
+      expect(specs3?.find((s) => s.purpose === 'to-hit')?.count).toBe(3);
+    });
+
+    it('scales fight and retaliation attack dice by living models count', () => {
+      const state = makeState([
+        makeUnit('h-squad', HOST, {
+          status: ['engaged'] as any,
+          position: { x: 0, y: 0, z: 0 } as Vector3,
+          weapons: [weapon('blade', { profile: { attacks: 2, range: 0, type: 'melee', specialRules: [] } })],
+          models: [
+            { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+            { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 0 } },
+            { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 1 } },
+          ],
+        }),
+        makeUnit('g-squad', GUEST, {
+          status: ['engaged'] as any,
+          position: { x: 0, y: 0, z: 1 } as Vector3,
+          weapons: [weapon('fists')],
+          models: [
+            { id: 'gm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 1 } },
+            { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 1 } },
+          ],
+        }),
+      ]);
+      state.turnState.activeUnitId = 'h-squad';
+      state.units[0].isActivated = true;
+
+      const fightAction = createAction(HOST, 'fight', {
+        type: 'fight',
+        attackerId: 'h-squad',
+        targetId: 'g-squad',
+        weaponId: 'blade',
+      });
+
+      // 3 living models * 2 attacks = 6 dice
+      const fightSpecs = getDiceSpecs(state, fightAction);
+      expect(fightSpecs?.find((s) => s.purpose === 'to-hit')?.count).toBe(6);
+
+      // Retaliation: setup pending reaction for g-squad (2 living models * 1 attack = 2 dice)
+      state.turnState.pendingReaction = {
+        id: 'reaction-test',
+        type: 'melee-retaliation',
+        promptingPlayerId: GUEST,
+        sourceUnitId: 'h-squad',
+        targetUnitId: 'g-squad',
+        title: 'Retaliation',
+        description: 'Strike back',
+        options: [],
+        expiresAt: Date.now() + 10000,
+        durationMs: 10000,
+        data: { weaponId: 'fists' },
+      };
+
+      const retAction = createAction(GUEST, 'respond-reaction', {
+        reactionId: 'reaction-test',
+        choiceId: 'strike-back',
+      });
+      const retSpecs = getDiceSpecs(state, retAction);
+      expect(retSpecs?.find((s) => s.purpose === 'to-hit')?.count).toBe(2);
+    });
+
+    it('rejects move-unit advance when ending within 1.0" engagement range of an enemy', () => {
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } as Vector3, speed: 6 }),
+        makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } as Vector3 }),
+      ]);
+      state.turnState.activeUnitId = 'h1';
+      state.units[0].isActivated = true;
+
+      // Moving to z = 4.2 leaves distance 0.8" <= 1.0" -> rejected!
+      const invalidMove = createAction(HOST, 'move-unit', {
+        type: 'move-unit',
+        unitId: 'h1',
+        path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4.2 }],
+        finalPosition: { x: 0, y: 0, z: 4.2 },
+      });
+      const res = validateAction(state, invalidMove);
+      expect(res.valid).toBe(false);
+      expect(res.reason).toBe('Move cannot end in melee contact (use Charge instead)');
+
+      // Moving to z = 3.0 leaves distance 2.0" > 1.5" -> allowed!
+      const validMove = createAction(HOST, 'move-unit', {
+        type: 'move-unit',
+        unitId: 'h1',
+        path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.0 }],
+        finalPosition: { x: 0, y: 0, z: 3.0 },
+      });
+      expect(validateAction(state, validMove).valid).toBe(true);
+    });
+  });
 });
