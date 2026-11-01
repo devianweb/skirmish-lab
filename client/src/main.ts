@@ -44,7 +44,16 @@ let latestState: GameState | null = null;
 function unitForMarkers(unitId: string | null): MarkerUnit | null {
   if (!latestState || !unitId) return null;
   const unit = latestState.units.find((u) => u.id === unitId && !u.isDestroyed);
-  return unit ? { id: unit.id, position: { ...unit.position }, remainingMovement: unit.remainingMovement } : null;
+  if (!unit) return null;
+  const models = unit.models
+    ?.filter((m) => !m.isDestroyed && m.position)
+    .map((m) => ({ id: m.id, position: { x: m.position!.x, y: m.position!.y ?? 0, z: m.position!.z } }));
+  return {
+    id: unit.id,
+    position: { ...unit.position },
+    remainingMovement: unit.remainingMovement,
+    ...(models && models.length > 0 ? { models } : {}),
+  };
 }
 
 function applyMarkers(markers: MarkerSnapshot): void {
