@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CustomMapDefinition,
-  STANDARD_MAP_PRESETS,
+  createBlankMap,
+  createDefaultScenarioTerrain,
   TERRAIN_PALETTE_CATALOG,
 } from '@skirmish-lab/shared';
 import { MapEditor } from '../../src/editor/MapEditor';
@@ -218,7 +219,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(badge.textContent).toContain('Notice');
 
     // Place a valid preset map with 0 warnings
-    editor.setMap(STANDARD_MAP_PRESETS['frontier-outpost']);
+    editor.setMap({ ...createBlankMap(), terrain: createDefaultScenarioTerrain() });
     notices = editor.getValidationNotices();
     expect(notices).toHaveLength(0);
 
@@ -316,7 +317,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
 
     const json = editor.exportJson();
     expect(typeof json).toBe('string');
-    expect(json).toContain('Frontier Outpost');
+    expect(json).toContain('Empty Battlefield');
 
     const customJson = JSON.stringify({
       id: 'custom-export-test',
@@ -339,19 +340,10 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(editor.getMap().terrain).toHaveLength(1);
   });
 
-  it('loads map presets and stored maps via loadMap', () => {
+  it('loadMap returns false for unknown ids', () => {
     const editor = new MapEditor(container);
     editor.show();
-
-    // Load Industrial Refinery Preset
-    expect(editor.loadMap('preset:industrial-refinery')).toBe(true);
-    expect(editor.getMap().name).toBe('Industrial Refinery');
-
-    // Load Sector 7 Catwalks Preset
-    expect(editor.loadMap('preset:sector-7-catwalks')).toBe(true);
-    expect(editor.getMap().name).toBe('Sector 7 Catwalks');
-
-    // Non-existent preset returns false
-    expect(editor.loadMap('preset:invalid')).toBe(false);
+    expect(editor.loadMap('custom:does-not-exist')).toBe(false);
+    expect(editor.loadMap('')).toBe(false);
   });
 });

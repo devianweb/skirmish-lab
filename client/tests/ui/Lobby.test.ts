@@ -238,11 +238,7 @@ describe('Lobby UI', () => {
 
     const mapSelect = container.querySelector('#mapSelect') as HTMLSelectElement;
     expect(mapSelect).toBeTruthy();
-    expect(mapSelect.value).toBe('preset:frontier-outpost');
-
-    // Change to Industrial Refinery
-    mapSelect.value = 'preset:industrial-refinery';
-    mapSelect.dispatchEvent(new Event('change'));
+    expect(mapSelect.value).toBe('blank');
 
     (lobby as any).roomCode = 'MAP-123';
     (lobby as any).role = 'host';
@@ -250,6 +246,6 @@ describe('Lobby UI', () => {
     (lobby as any).maybeFirePeerReady();
 
     expect(capturedContext).toBeTruthy();
-    expect(capturedContext?.mapId).toBe('industrial-refinery');
+    expect(capturedContext?.customMap).toBeUndefined();
   });
 });

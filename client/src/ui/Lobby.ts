@@ -15,7 +15,6 @@ export interface PeerReadyContext {
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
   isCreatedRoom?: boolean;
-  mapId?: string;
   customMap?: CustomMapDefinition;
 }
 
@@ -45,7 +44,7 @@ export class Lobby {
   private useDeploymentPhase: boolean = true;
   private sessionStore: SessionStore;
   private mapStore: MapStore;
-  private selectedMapSelection: string = 'preset:frontier-outpost';
+  private selectedMapSelection: string = 'blank';
   private initialRoomCode: string | null = null;
   private isCreatedRoom: boolean = false;
 
@@ -230,9 +229,7 @@ export class Lobby {
   }
 
   private getMapDisplayName(selection: string): string {
-    if (selection === 'preset:frontier-outpost') return 'Frontier Outpost (Preset)';
-    if (selection === 'preset:industrial-refinery') return 'Industrial Refinery (Preset)';
-    if (selection === 'preset:sector-7-catwalks') return 'Sector 7 Catwalks (Preset)';
+    if (selection === 'blank') return 'Empty Battlefield';
     if (selection.startsWith('custom:')) {
       const customId = selection.replace('custom:', '');
       const map = this.mapStore.getMap(customId);
@@ -250,15 +247,11 @@ export class Lobby {
     if (!this.webrtcClient.isConnected()) return;
     this.peerReadyFired = true;
 
-    let mapId: string | undefined;
     let customMap: CustomMapDefinition | undefined;
 
-    if (this.selectedMapSelection.startsWith('preset:')) {
-      mapId = this.selectedMapSelection.replace('preset:', '');
-    } else if (this.selectedMapSelection.startsWith('custom:')) {
+    if (this.selectedMapSelection.startsWith('custom:')) {
       const customId = this.selectedMapSelection.replace('custom:', '');
       customMap = this.mapStore.getMap(customId) ?? undefined;
-      mapId = customId;
     }
 
     this.options.onPeerReady?.({
@@ -271,7 +264,6 @@ export class Lobby {
       guestArmyId: this.guestArmyId,
       useDeploymentPhase: this.useDeploymentPhase,
       isCreatedRoom: this.isCreatedRoom,
-      mapId,
       customMap,
     });
   }
@@ -333,11 +325,7 @@ export class Lobby {
             <div style="margin-bottom: 14px;">
               <label style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Battlefield Map:</label>
               <select id="mapSelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
-                <optgroup label="Standard Presets">
-                  <option value="preset:frontier-outpost" ${this.selectedMapSelection === 'preset:frontier-outpost' ? 'selected' : ''}>Frontier Outpost (Preset - 44"x30")</option>
-                  <option value="preset:industrial-refinery" ${this.selectedMapSelection === 'preset:industrial-refinery' ? 'selected' : ''}>Industrial Refinery (Preset - 44"x30")</option>
-                  <option value="preset:sector-7-catwalks" ${this.selectedMapSelection === 'preset:sector-7-catwalks' ? 'selected' : ''}>Sector 7 Catwalks (Preset - 44"x30")</option>
-                </optgroup>
+                <option value="blank" ${this.selectedMapSelection === 'blank' ? 'selected' : ''}>Empty Battlefield (44"x30")</option>
                 ${customOptionsHtml}
               </select>
             </div>
