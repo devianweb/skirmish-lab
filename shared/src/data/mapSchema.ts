@@ -36,7 +36,7 @@ export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
     blocksLineOfSight: true,
     providesCover: true,
     isObstacle: true,
-    description: 'Two perpendicular ruined walls with firing slits and a second-floor ledge.',
+    description: 'Two perpendicular ruined walls with firing ports around an open courtyard.',
   },
   wall: {
     type: 'wall',

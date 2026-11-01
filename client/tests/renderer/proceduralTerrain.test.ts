@@ -8,6 +8,7 @@ import {
   createProceduralColumn,
   createProceduralLCornerRuin,
 } from '../../src/renderer/ModelLoader';
+import { resolveTerrainStructure } from '@skirmish-lab/shared';
 
 function bounds(o: THREE.Object3D): THREE.Box3 {
   return new THREE.Box3().setFromObject(o);
@@ -62,5 +63,45 @@ describe('procedural wargaming terrain', () => {
     const solid = loader.createTerrainMesh('wall');
     expect(door.children[0].children.length).toBe(3);
     expect(solid.children[0].children.length).toBeGreaterThan(3);
+  });
+
+  it('window, doorway and ruin meshes are exactly the shared structure solids (no drift from collision)', () => {
+    for (const [type, build] of [
+      ['wall-window', createProceduralWindowWall],
+      ['wall-doorway', createProceduralDoorwayWall],
+      ['ruin-l', createProceduralLCornerRuin],
+    ] as const) {
+      const solids = resolveTerrainStructure({
+        id: 'u',
+        terrainType: type,
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      }).solids;
+      const group = build();
+      group.updateMatrixWorld(true);
+      const meshes: THREE.Box3[] = [];
+      group.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) meshes.push(new THREE.Box3().setFromObject(c));
+      });
+      expect(meshes).toHaveLength(solids.length);
+      for (const s of solids) {
+        const match = meshes.some(
+          (m) =>
+            Math.abs(m.min.x - s.minX) < 1e-6 && Math.abs(m.max.x - s.maxX) < 1e-6 &&
+            Math.abs(m.min.y - s.minY) < 1e-6 && Math.abs(m.max.y - s.maxY) < 1e-6 &&
+            Math.abs(m.min.z - s.minZ) < 1e-6 && Math.abs(m.max.z - s.maxZ) < 1e-6
+        );
+        expect(match, `${type} solid ${s.id}`).toBe(true);
+      }
+    }
+  });
+
+  it('ruin has an open courtyard: no mesh in the interior', () => {
+    const ruin = createProceduralLCornerRuin();
+    expect(occupied(ruin, new THREE.Box3(new THREE.Vector3(-0.3, 0, -0.4), new THREE.Vector3(0.4, 1, 0.3)))).toBe(false);
   });
 });

@@ -282,10 +282,10 @@ Terrain pieces resolve to **solids** (walls, jambs, sills, lintels, columns) and
 
 ### LoS & Cover Debugger (F9)
 Pressing `F9` in-game activates the real-time spatial debugger:
-- **Shooting Ray Trace:** Renders the 3D trajectory from shooter eye level (`y = 0.45"`) to target or aim point, color-coded by obstruction (Cyan = clear LoS, Amber = passing through cover, Red = blocked LoS).
+- **Shooting Ray Trace:** Renders the 3D trajectory from shooter eye level (1.1" above its feet) to the target's eye/aim point, color-coded by obstruction (Cyan = clear LoS, Amber = passing through cover, Red = blocked LoS).
 - **Boundary Intersections:** 3D disc rings highlight exact entry and exit coordinates where the shooting line breaches terrain bounding boxes.
-- **Flank Rays:** Shows left and right rays (±0.3" from target center) to verify partial corner obscuration for low cover and wall corners.
-- **Cover Map Wireframes:** Renders full-table wireframe boundaries for all terrain pieces (Cyan = solid LoS blockers, Amber = low cover, Gold highlight = piece actively granting cover to target).
+- **Flank Rays:** Shows left and right torso-height rays (±0.3" from target center, 0.6" up) to verify partial obscuration by walls, jambs and sills.
+- **Cover Map Wireframes:** Renders one wireframe per terrain solid and aperture (Cyan = solid LoS blockers, Amber = low cover, Green = firing-port apertures, Gold highlight = piece actively granting cover to target).
 - **HUD Analysis Card:** Displays real-time calculations: distance, Line of Sight status, cover reason, piece IDs, and coordinate breakdown of all intersected pieces.
 
 ## Game State Transitions

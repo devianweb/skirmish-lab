@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { resolveTerrainStructure, ResolvedSolid } from '@skirmish-lab/shared';
 import { cloneObject3D, disposeObject3D } from './utils';
 
 /** Minimal shape of a parsed GLTF result the loader cares about. */
@@ -451,35 +452,55 @@ function buildFromParts(parts: Part[]): THREE.Object3D {
   return group;
 }
 
-/** Solid wall: body plus a slightly proud coping strip and panel seams (all inside the unit box). */
-export function createProceduralSolidWall(): THREE.Object3D {
-  const parts: Part[] = [
-    [0, 0, 0, 1, 0.94, 0.9],
-    [0, 0.94, 0, 1, 0.06, 1],
-  ];
-  for (const x of [-0.25, 0.25]) parts.push([x, 0.05, 0.47, 0.015, 0.85, 0.06]);
+/**
+ * Solids of a terrain type in unit-box fractions (x/z in [-0.5, 0.5], y in [0, 1]), straight from
+ * the shared structure definitions the rules engine uses, so mesh and collision cannot drift apart.
+ */
+function structureSolids(terrainType: string): ResolvedSolid[] {
+  return resolveTerrainStructure({
+    id: `unit-${terrainType}`,
+    terrainType,
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    blocksLineOfSight: true,
+    providesCover: true,
+    isObstacle: true,
+  }).solids;
+}
+
+/** Build a piece from the shared structure solids (apertures are open air, so they have no mesh). */
+function buildFromStructure(terrainType: string): THREE.Object3D {
+  const parts: Part[] = structureSolids(terrainType).map((s) => [
+    (s.minX + s.maxX) / 2,
+    s.minY,
+    (s.minZ + s.maxZ) / 2,
+    s.maxX - s.minX,
+    s.maxY - s.minY,
+    s.maxZ - s.minZ,
+  ]);
   return buildFromParts(parts);
 }
 
-/** Window wall: solid 40% breastwork, side piers and lintel framing an open aperture. */
-export function createProceduralWindowWall(): THREE.Object3D {
-  return buildFromParts([
-    [0, 0, 0, 1, 0.4, 1],
-    [-0.4, 0.4, 0, 0.2, 0.5, 1],
-    [0.4, 0.4, 0, 0.2, 0.5, 1],
-    [0, 0.9, 0, 1, 0.1, 1],
-  ]);
+/** Solid wall: three panels with thin seams under a continuous coping strip (all inside the unit box). */
+export function createProceduralSolidWall(): THREE.Object3D {
+  const gap = 0.01;
+  const panelW = (1 - 2 * gap) / 3;
+  const parts: Part[] = [[0, 0.94, 0, 1, 0.06, 1]];
+  for (let i = 0; i < 3; i++) {
+    parts.push([-0.5 + panelW / 2 + i * (panelW + gap), 0, 0, panelW, 0.94, 1]);
+  }
+  return buildFromParts(parts);
 }
 
-/** Doorway wall: 0.3-wide x 0.88-tall central opening (1.2" x 2.2" on a 4" x 2.5" wall). */
+/** Window wall: sill, two piers and a lintel framing the open port (shared structure). */
+export function createProceduralWindowWall(): THREE.Object3D {
+  return buildFromStructure('wall-window');
+}
+
+/** Doorway wall: two jambs and a lintel around an open doorway (shared structure). */
 export function createProceduralDoorwayWall(): THREE.Object3D {
-  const jamb = (1 - 0.3) / 2;
-  const x = 0.15 + jamb / 2;
-  return buildFromParts([
-    [-x, 0, 0, jamb, 1, 1],
-    [x, 0, 0, jamb, 1, 1],
-    [0, 0.88, 0, 0.3, 0.12, 1],
-  ]);
+  return buildFromStructure('wall-doorway');
 }
 
 /** Structural column: plinth, shaft and cap. */
@@ -492,26 +513,11 @@ export function createProceduralColumn(): THREE.Object3D {
 }
 
 /**
- * L-corner ruin: two perpendicular walls (north and west edges), a second-floor
- * L-ledge at y = 0.75 (3" of 4"), and a firing slit in each wall.
+ * L-corner ruin: two perpendicular port walls (north and west edges) around an open courtyard,
+ * built from the shared structure. The second-floor ledge arrives with 13.6C.
  */
 export function createProceduralLCornerRuin(): THREE.Object3D {
-  const t = 0.0625; // 0.25" on a 4" footprint
-  return buildFromParts([
-    // North wall with a slit gap (split in two + lintel)
-    [-0.3, 0, 0.5 - t / 2, 0.4, 0.75, t],
-    [0.3, 0, 0.5 - t / 2, 0.4, 0.75, t],
-    [0, 0.5, 0.5 - t / 2, 0.2, 0.25, t],
-    [0, 0, 0.5 - t / 2, 0.2, 0.3, t],
-    // West wall with a slit
-    [-0.5 + t / 2, 0, -0.3, t, 0.75, 0.4],
-    [-0.5 + t / 2, 0, 0.3, t, 0.75, 0.4],
-    [-0.5 + t / 2, 0.5, 0, t, 0.25, 0.2],
-    [-0.5 + t / 2, 0, 0, t, 0.3, 0.2],
-    // L-shaped ledge
-    [0, 0.75, 0.5 - 0.15, 1, 0.04, 0.3],
-    [-0.5 + 0.15, 0.75, -0.15, 0.3, 0.04, 0.7],
-  ]);
+  return buildFromStructure('ruin-l');
 }
 
 const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {

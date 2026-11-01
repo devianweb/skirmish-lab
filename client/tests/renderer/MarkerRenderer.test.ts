@@ -254,6 +254,25 @@ describe('MarkerRenderer', () => {
     expect(debugGroup.getObjectByName('marker-terrain-crate-1')).toBeDefined();
   });
 
+  it('draws one wireframe per solid and aperture so F9 matches the collision structure', () => {
+    const renderer = makeRenderer();
+    renderer.setTerrainDebug({
+      id: 'win-1',
+      terrainType: 'wall-window',
+      position: { x: 0, y: 0, z: 5 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 2.5, z: 0.3 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    });
+    const piece = scene.getObjectByName('marker-terrain-win-1')!;
+    // sill + two piers + lintel (4 solids) and one firing-port aperture
+    expect(piece.children).toHaveLength(5);
+    const colors = piece.children.map((c) => ((c as THREE.LineSegments).material as THREE.LineBasicMaterial).color.getHex());
+    expect(colors.filter((c) => c === 0x76ff03)).toHaveLength(1);
+  });
+
   it('renders 3D shooting line, intersection rings, and flank rays for shooting debug', () => {
     const renderer = makeRenderer();
     renderer.setShootingDebugRay({
