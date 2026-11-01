@@ -302,6 +302,19 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
+        const wouldEngage = state.units.some(
+          (u) =>
+            !u.isDestroyed &&
+            u.ownerId !== action.actorId &&
+            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+            Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+        );
+        if (wouldEngage) {
+          return {
+            valid: false,
+            reason: 'Move cannot end in melee contact (use Charge instead)',
+          };
+        }
         return { valid: true };
       }
 
@@ -365,6 +378,22 @@ export function validateAction(state: GameState, action: GameAction): Validation
             reason: `Squad model ${i + 1} move path is blocked: ${mBlocker.reason}`,
           };
         }
+      }
+      const wouldEngage = state.units.some(
+        (u) =>
+          !u.isDestroyed &&
+          u.ownerId !== action.actorId &&
+          modelPositions!.some(
+            (pos) =>
+              boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
+              Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+          )
+      );
+      if (wouldEngage) {
+        return {
+          valid: false,
+          reason: 'Move cannot end in melee contact (use Charge instead)',
+        };
       }
       return { valid: true };
     }
@@ -804,7 +833,9 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     }
 
     const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
-    return getAttackDiceSpecs(defenderMelee.profile.attacks, {
+    const livingDefenderModels = Math.max(1, defender.models?.filter((m) => !m.isDestroyed).length ?? 1);
+    const totalAttacks = (defenderMelee.profile.attacks as number) * livingDefenderModels;
+    return getAttackDiceSpecs(totalAttacks, {
       attackerRules: defender.specialRules,
       weaponRules: defenderMelee.profile.specialRules,
       defenderRules: charger.specialRules,
@@ -835,12 +866,14 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       if (typeof attacks !== 'number' || attacks < 1) return;
 
       const distance = boardDistance(attacker.position, target.position);
-      const aliveModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const specs = getAttackDiceSpecs(attacks, {
+      const aliveDefenderModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const totalAttacks = attacks * aliveAttackerModels;
+      const specs = getAttackDiceSpecs(totalAttacks, {
         attackerRules: attacker.specialRules,
         weaponRules: weapon.profile.specialRules,
         defenderRules: target.specialRules ?? [],
-        defenderModelCount: aliveModels,
+        defenderModelCount: aliveDefenderModels,
         isMelee: false,
         isCharging: false,
         distance,
@@ -886,8 +919,10 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   const aliveModels = target
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
     : 1;
+  const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
+  const totalAttacks = attacks * aliveAttackerModels;
 
-  const attackSpecs = getAttackDiceSpecs(attacks, {
+  const attackSpecs = getAttackDiceSpecs(totalAttacks, {
     attackerRules: attacker.specialRules,
     weaponRules: weapon.profile.specialRules,
     defenderRules: target?.specialRules ?? [],
@@ -1254,6 +1289,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           target.status.includes('in-cover') ||
           (!isLobbed && hasCoverAgainstAttack(newState, attacker, target));
         const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
+        const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
+        const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
 
         let outcome: CombatOutcome;
         let traumaRolls: number[] | undefined;
@@ -1278,7 +1315,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
               modelCount: aliveModels,
               hasMoved: target.hasMoved,
             },
-            weapon.profile.attacks as number,
+            totalAttacks,
             rolls
           );
         } catch (error) {
@@ -1396,6 +1433,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const isMelee = true;
       const distance = boardDistance(attacker.position, target.position);
       const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
+      const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
       const isFatigued =
         attacker.status.includes('fatigued') || attacker.status.includes('shaken');
 
@@ -1430,7 +1469,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             modelCount: aliveModels,
             hasMoved: target.hasMoved,
           },
-          weapon.profile.attacks as number,
+          totalAttacks,
           rolls
         );
       } catch (error) {
@@ -1462,7 +1501,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       diceResolution = {
         rollId: action.id,
-        specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(weapon.profile.attacks as number),
+        specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
         results: dice,
         context: {
           attackerId,
@@ -1666,6 +1705,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (weapon && dice) {
         const rolls = extractAttackRolls(dice);
         const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
+        const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
+        const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
         const outcome = resolveAttack(
           {
             quality: attacker.quality,
@@ -1684,7 +1725,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             hasMoved: target.hasMoved,
             modelCount: aliveModels,
           },
-          weapon.profile.attacks as number,
+          totalAttacks,
           rolls
         );
 
@@ -1769,7 +1810,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         diceResolution = {
           rollId: action.id,
-          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(weapon.profile.attacks as number),
+          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
           results: dice,
           context: {
             attackerId,
@@ -1848,6 +1889,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const retRolls = extractAttackRolls(dice);
         const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
         const retAliveModels = charger.models?.filter((m) => !m.isDestroyed).length ?? 1;
+        const aliveDefenderModels = Math.max(1, defender.models?.filter((m) => !m.isDestroyed).length ?? 1);
+        const totalRetAttacks = (defenderMelee.profile.attacks as number) * aliveDefenderModels;
         retCombat = resolveAttack(
           {
             quality: defender.quality,
@@ -1866,7 +1909,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             hasMoved: charger.hasMoved,
             modelCount: retAliveModels,
           },
-          defenderMelee.profile.attacks as number,
+          totalRetAttacks,
           retRolls
         );
 
@@ -1922,9 +1965,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       let diceResolution: DiceResolution | undefined;
       if (retCombat && dice && defenderMelee) {
+        const aliveDefenderModels = Math.max(1, defender.models?.filter((m) => !m.isDestroyed).length ?? 1);
+        const totalRetAttacks = (defenderMelee.profile.attacks as number) * aliveDefenderModels;
         diceResolution = {
           rollId: action.id,
-          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(defenderMelee.profile.attacks as number),
+          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalRetAttacks),
           results: dice,
           context: {
             attackerId: defender.id,

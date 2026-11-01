@@ -185,7 +185,7 @@ describe('scenario data pack', () => {
       }
 
       // Check multi-model squad
-      const patrol = units.find((u) => u.models.length === 2);
+      const patrol = units.find((u) => u.models.length === 4);
       expect(patrol).toBeDefined();
       expect(patrol!.specialRules).toContain('drop-reserve');
     });

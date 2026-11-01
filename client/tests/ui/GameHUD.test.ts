@@ -1809,5 +1809,51 @@ describe('GameHUD', () => {
       expect(container.textContent).toContain('Place Model 1 of 2');
       expect(lastMarkers?.squadCoherency).toBeUndefined();
     });
+
+    it('multiplies attack dice by living models count in shoot confirmation summary', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -10 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -10 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -9 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm4', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -9 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+      squad.position = { x: 0, y: 0, z: -10 };
+      const enemy = state.units.find((u) => u.ownerId === GUEST)!;
+      enemy.position = { x: 0, y: 0, z: -5 };
+
+      const { hud, container } = setup(HOST, state);
+
+      clickByText(container, 'Shoot');
+      hud.handleBoardPick({ kind: 'unit', unitId: enemy.id });
+
+      // Confirmation summary must reflect 4 living models * 1 attack = 4d6
+      expect(container.textContent).toContain('4d6');
+    });
+
+    it('rejects move ending in melee contact with toast and does not confirm', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST && (!u.models || u.models.length <= 1))!;
+      activateUnit(state, HOST, unit.id);
+      unit.position = { x: 0, y: 0, z: -5 };
+      unit.speed = 6;
+      unit.remainingMovement = 6;
+
+      const enemy = state.units.find((u) => u.ownerId === GUEST)!;
+      enemy.position = { x: 0, y: 0, z: 0 };
+
+      const { hud, container } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      // Pick position at z = -0.6 (distance 0.6" <= 1.0" engagement range)
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -0.6 } });
+
+      expect(container.querySelector('.sl-hud-toast')?.textContent).toBe(
+        'Move cannot end in melee contact — use Charge instead'
+      );
+      expect(container.textContent).not.toContain('Confirm Move');
+    });
   });
 });
