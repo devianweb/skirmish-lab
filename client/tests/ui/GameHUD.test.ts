@@ -1335,6 +1335,7 @@ describe('GameHUD', () => {
 
       clickByText(container, 'Move');
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 0 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 0.5, y: 0, z: 0 } });
 
       expect(container.textContent).toContain('DANGEROUS TERRAIN');
       expect(container.textContent).toContain('Hazard Casualty Priority');
@@ -1492,6 +1493,139 @@ describe('GameHUD', () => {
       // Hover within 3" horizontal but > 3" vertical (e.g. elevated roof at y = 4.0) -> does not show card
       hud.handleBoardHover({ kind: 'position', position: { x: 6, y: 4.0, z: 5 } });
       expect(container.textContent).not.toContain('Objective Test');
+    });
+
+    it('displays squad model counts in friendly and enemy roster rows and DataCard', () => {
+      const state = scenarioState();
+      const friendlySquad = state.units.find((u) => u.ownerId === HOST)!;
+      friendlySquad.name = 'Warden Patrol Squad';
+      friendlySquad.models = [
+        { id: 'fm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -2, y: 0, z: -12 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'fm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -1, y: 0, z: -12 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+
+      const enemySquad = state.units.find((u) => u.ownerId === GUEST)!;
+      enemySquad.name = 'Rust Runner Mob';
+      enemySquad.models = [
+        { id: 'em1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 2, y: 0, z: 12 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'em2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 3, y: 0, z: 12 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+
+      const { hud, container } = setup(HOST, state);
+
+      // Verify friendly roster displays active and total models
+      const friendlyRow = container.querySelector(`[data-unit-id="${friendlySquad.id}"]`)!;
+      expect(friendlyRow.textContent).toContain('Models: 2/2');
+
+      // Verify enemy roster displays active and total models
+      const enemyRow = container.querySelector(`[data-unit-id="${enemySquad.id}"]`)!;
+      expect(enemyRow.textContent).toContain('Models: 2/2');
+
+      // Inspect friendly squad -> DataCard
+      hud.handleBoardHover({ kind: 'unit', unitId: friendlySquad.id });
+      const dataCard = container.querySelector('.sl-hud-datacard')!;
+      expect(dataCard.textContent).toContain('Models: 2/2');
+      expect(dataCard.textContent).toContain('Models'); // Header column
+
+      // Inflict a casualty on friendly model 1
+      friendlySquad.models[0].isDestroyed = true;
+      friendlySquad.models[0].wounds = 0;
+      hud.syncFromState(state);
+
+      const updatedFriendlyRow = container.querySelector(`[data-unit-id="${friendlySquad.id}"]`)!;
+      expect(updatedFriendlyRow.textContent).toContain('Models: 1/2 (1 casualty)');
+      expect(container.querySelector('.sl-hud-datacard')!.textContent).toContain('Models: 1/2 (1 casualty)');
+    });
+
+    it('sequential model placement enforces 2.0" coherency and submits staged positions', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.speed = 6;
+      squad.remainingMovement = 6;
+      squad.position = { x: 0, y: 0, z: -4 };
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+
+      const { hud, container, controller } = setup(HOST, state);
+
+      let lastMarkers: any = null;
+      hud.onMarkers((m) => {
+        lastMarkers = m;
+      });
+
+      // 1. Click Move -> activates Model 1 placement
+      clickByText(container, 'Move');
+      expect(container.textContent).toContain('Place Model 1 of 2 (Warden Patrol Squad) within 6"');
+
+      // 2. Click to place Model 1 at (0, 0, -1) [3.0" move]
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -1 } });
+
+      // Model 1 placed! Should now prompt for Model 2 and display coherency circle around Model 1
+      expect(container.textContent).toContain('Place Model 2 of 2 within 2.0" coherency of placed models');
+      expect(lastMarkers?.squadCoherency).toBeDefined();
+      expect(lastMarkers?.squadCoherency?.positions).toHaveLength(1);
+      expect(lastMarkers?.squadCoherency?.positions[0].z).toBeCloseTo(-1, 1);
+      expect(lastMarkers?.squadCoherency?.radius).toBe(2.0);
+
+      // 3. Try placing Model 2 at (0, 0, 3) (> 2.0" from Model 1 at z = -1)
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 3 } });
+      // Should reject with toast
+      expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/exceeds 2" limit|coherency/i);
+      expect(controller.submitAction).not.toHaveBeenCalled();
+
+      // 4. Place Model 2 legally within 2.0" coherency at (1, 0, -1) [1.0" distance from Model 1]
+      hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -1 } });
+
+      // Both models placed -> enters confirmation
+      expect(container.textContent).toContain('Move Warden Patrol Squad (2 models)');
+      expect(container.textContent).toContain('Confirm');
+
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('move-unit');
+      expect(action.payload.modelPositions).toHaveLength(2);
+      expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -1 });
+      expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -1 });
+      expect(action.payload.finalPosition.x).toBeCloseTo(0.5, 1);
+      expect(action.payload.finalPosition.z).toBeCloseTo(-1, 1);
+    });
+
+    it('can reset sequential model placement midway through', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.position = { x: 0, y: 0, z: -4 };
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+
+      const { hud, container } = setup(HOST, state);
+
+      let lastMarkers: any = null;
+      hud.onMarkers((m) => {
+        lastMarkers = m;
+      });
+
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -1 } });
+
+      expect(container.textContent).toContain('Place Model 2 of 2');
+      expect(container.querySelector('[data-action="reset-squad-move"]')).toBeTruthy();
+
+      // Click Reset Placement
+      const resetBtn = container.querySelector<HTMLButtonElement>('[data-action="reset-squad-move"]')!;
+      resetBtn.click();
+
+      // Should return to Model 1 placement
+      expect(container.textContent).toContain('Place Model 1 of 2');
+      expect(lastMarkers?.squadCoherency).toBeUndefined();
     });
   });
 });

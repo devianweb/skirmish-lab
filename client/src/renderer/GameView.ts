@@ -220,6 +220,10 @@ export class GameView {
     this.markerRenderer.setDeploymentZones(zones);
   }
 
+  setSquadCoherencyMarker(positions: Vector3[] | null, radius?: number): void {
+    this.markerRenderer.setSquadCoherency(positions, radius);
+  }
+
   showOutcomeToken(position: Vector3, wounds: number): void {
     this.markerRenderer.showOutcome(position, wounds);
   }

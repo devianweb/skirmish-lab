@@ -64,7 +64,9 @@ function applyMarkers(markers: MarkerSnapshot): void {
     .filter((u): u is MarkerUnit => u !== null);
   gameView.setReachableTargetsMarker(reachable);
   gameView.setMovementRangeMarker(
-    unitForMarkers(markers.movementRangeUnitId),
+    markers.movementRangePosition
+      ? { id: 'move-center', position: markers.movementRangePosition }
+      : unitForMarkers(markers.movementRangeUnitId),
     markers.movementRangeRadius
   );
   const attackRangeUnit = markers.attackRange
@@ -103,6 +105,10 @@ function applyMarkers(markers: MarkerSnapshot): void {
   gameView.setUnitsDebugMarker(markers.debugActive && latestState ? latestState.units : null);
   gameView.setObjectivesDebugMarker(markers.debugActive && latestState ? latestState.objectives ?? null : null);
   gameView.setDeploymentZonesMarker(markers.deploymentZones ?? null);
+  gameView.setSquadCoherencyMarker(
+    markers.squadCoherency?.positions ?? null,
+    markers.squadCoherency?.radius ?? 2.0
+  );
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }

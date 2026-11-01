@@ -82,11 +82,10 @@ export class UnitRenderer {
         }
 
         const modelPos = model.position ?? unit.position;
-        // Local offset relative to unitRoot squad centroid (single-model units are always at root 0,0,0)
-        const isMultiModel = activeModels.length > 1;
-        const localX = isMultiModel ? modelPos.x - unit.position.x : 0;
-        const localY = isMultiModel ? (modelPos.y ?? 0) - (unit.position.y ?? 0) : 0;
-        const localZ = isMultiModel ? modelPos.z - unit.position.z : 0;
+        // Local offset relative to unitRoot squad centroid
+        const localX = modelPos.x - unit.position.x;
+        const localY = (modelPos.y ?? 0) - (unit.position.y ?? 0);
+        const localZ = modelPos.z - unit.position.z;
         modelMesh.position.set(localX, localY, localZ);
 
         if (model.rotation) {

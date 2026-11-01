@@ -1,7 +1,7 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { findTerrainAtPosition, isSegmentOnRampOrStairs } from './spatial';
+import { findTerrainAtPosition, isSegmentOnRampOrStairs, computeSquadCentroid } from './spatial';
 
 /** 3D Euclidean distance between two points. */
 export function distance3D(a: Vector3, b: Vector3): number {
@@ -458,6 +458,13 @@ export function allocateSquadCasualties(
     modelsDestroyed.push(victim);
     unit.wounds = Math.max(1, unit.wounds - 1);
     unallocated--;
+  }
+
+  if (modelsDestroyed.length > 0) {
+    const surviving = unit.models.filter((m) => !m.isDestroyed);
+    if (surviving.length > 0 && surviving.some((m) => m.position)) {
+      unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
+    }
   }
 
   return { modelsDestroyed, remainingWounds: unallocated };

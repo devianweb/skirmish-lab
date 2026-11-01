@@ -85,6 +85,7 @@ export class MarkerRenderer {
   private shootingDebug: THREE.Object3D | null = null;
   private deploymentZones: THREE.Object3D | null = null;
   private objectivesDebug: THREE.Object3D | null = null;
+  private squadCoherency: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -624,6 +625,48 @@ export class MarkerRenderer {
   }
 
   /**
+   * Coherency zone rings (radius 2.0") around previously staged squad models
+   * during sequential squad movement.
+   */
+  setSquadCoherency(positions: Vector3[] | null, radius: number = 2.0): void {
+    this.removeMarker('squadCoherency');
+    if (!positions || positions.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-squad-coherency';
+
+    const COHERENCY_COLOR = 0x26c6da;
+    for (const pos of positions) {
+      // 1. Boundary ring
+      const ring = this.createFlatRing(COHERENCY_COLOR, radius, 0.025);
+      ring.position.set(pos.x, (pos.y ?? 0) + 0.025, pos.z);
+      group.add(ring);
+
+      // 2. Soft translucent fill disc
+      const discGeo = new THREE.CircleGeometry(radius, 32);
+      const discMat = new THREE.MeshBasicMaterial({
+        color: COHERENCY_COLOR,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const discMesh = new THREE.Mesh(discGeo, discMat);
+      discMesh.rotation.x = -Math.PI / 2;
+      discMesh.position.set(pos.x, (pos.y ?? 0) + 0.024, pos.z);
+      group.add(discMesh);
+
+      // 3. Staged model placement pip
+      const pip = this.createFlatRing(COHERENCY_COLOR, 0.35, 0.028);
+      pip.position.set(pos.x, (pos.y ?? 0) + 0.028, pos.z);
+      group.add(pip);
+    }
+
+    this.markerGroup.add(group);
+    this.squadCoherency = group;
+  }
+
+  /**
    * Floating wound-count token above a position (supports 0 wounds for clean
    * attack feedback), auto-cleared after a short delay.
    */
@@ -668,6 +711,7 @@ export class MarkerRenderer {
     this.removeMarker('shootingDebug');
     this.removeMarker('deploymentZones');
     this.removeMarker('objectivesDebug');
+    this.removeMarker('squadCoherency');
     this.clearOutcome();
   }
 
@@ -706,6 +750,7 @@ export class MarkerRenderer {
       | 'shootingDebug'
       | 'deploymentZones'
       | 'objectivesDebug'
+      | 'squadCoherency'
   ): void {
     const current = this[kind];
     if (current) {
