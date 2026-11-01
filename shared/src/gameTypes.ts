@@ -112,6 +112,7 @@ export interface Unit {
   // Movement/Action State
   hasMoved: boolean;
   hasAttacked?: boolean;
+  isRushing?: boolean;
   remainingMovement: number;
 }
 

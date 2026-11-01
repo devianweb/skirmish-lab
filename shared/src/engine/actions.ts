@@ -255,8 +255,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (hasTrait(unit.result.specialRules, 'stationary')) {
         return { valid: false, reason: 'Stationary units cannot move or charge' };
       }
-      if (unit.result.hasMoved || unit.result.hasAttacked) {
+      if (unit.result.hasAttacked && !unit.result.isRushing) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
+      if (unit.result.remainingMovement <= 0.01) {
+        return { valid: false, reason: 'Unit has no remaining movement this activation' };
       }
       if (isEngaged(unit.result)) {
         return { valid: false, reason: 'Engaged units cannot move away' };
@@ -273,16 +276,18 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       const isDifficult = isPathDifficult(state, path, unit.result);
       const distance = pathLength3D(path);
-      const maxMove = Math.min(
-        getEffectiveMaxMovement(unit.result, 'move', isDifficult),
-        Math.max(unit.result.speed, unit.result.remainingMovement)
+      const effectiveCap = getEffectiveMaxMovement(
+        unit.result,
+        unit.result.isRushing ? 'rush' : 'move',
+        isDifficult
       );
+      const maxMove = Math.min(effectiveCap, unit.result.remainingMovement);
       if (distance > maxMove + 0.01) {
         return {
           valid: false,
-          reason: isDifficult
+          reason: isDifficult && effectiveCap === 6.0
             ? 'Move exceeds Difficult Terrain speed cap (6.0")'
-            : 'Move exceeds unit speed',
+            : (distance > unit.result.speed ? 'Move exceeds unit speed' : 'Move exceeds unit remaining movement allowance'),
         };
       }
       for (const point of path) {
@@ -335,6 +340,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if ('reason' in attacker) return attacker;
       if (attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already attacked this activation' };
+      }
+      if (attacker.result.isRushing) {
+        return { valid: false, reason: 'Rushing units cannot shoot' };
       }
       if (isEngaged(attacker.result)) {
         return { valid: false, reason: 'Engaged units must fight instead of shooting' };
@@ -460,8 +468,14 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (hasTrait(unit.specialRules, 'stationary')) {
         return { valid: false, reason: 'Stationary units cannot move or rush' };
       }
-      if (unit.hasMoved || unit.hasAttacked) {
+      if (unit.hasMoved && !unit.isRushing) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
+      if (unit.hasAttacked && !unit.isRushing) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
+      if (unit.isRushing && unit.remainingMovement <= 0.01) {
+        return { valid: false, reason: 'Unit has no remaining movement this activation' };
       }
       if (isEngaged(unit)) {
         return { valid: false, reason: 'Engaged units cannot rush' };
@@ -475,13 +489,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
           : [{ ...unit.position }, ...path];
       const isDifficult = isPathDifficult(state, fullPath, unit);
       const dist = pathLength3D(fullPath);
-      const maxRush = getEffectiveMaxMovement(unit, 'rush', isDifficult);
+      const currentRushBudget = unit.isRushing ? unit.remainingMovement : unit.speed * 2;
+      const effectiveCap = getEffectiveMaxMovement(unit, 'rush', isDifficult);
+      const maxRush = Math.min(effectiveCap, currentRushBudget);
       if (dist > maxRush + 0.01) {
         return {
           valid: false,
-          reason: isDifficult
+          reason: isDifficult && maxRush === 6.0
             ? 'Rush in Difficult Terrain is capped at 6.0" (speed bonus negated)'
-            : `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`,
+            : (dist > unit.speed * 2
+                ? `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`
+                : `Rush distance exceeds remaining rush allowance (${dist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`),
         };
       }
       const blocker = findMoveBlocker(state, unit, fullPath);
@@ -1054,8 +1072,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.position = targetPos;
       }
 
+      const distanceMoved = pathLength3D(path);
       unit.hasMoved = true;
-      unit.remainingMovement = 0;
+      unit.remainingMovement = Math.max(
+        0,
+        Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
+      );
       const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
       if (traversal.terminated) {
         logEntry = acceptedEntry(action);
@@ -1192,6 +1214,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       attacker.hasAttacked = true;
+      attacker.remainingMovement = 0;
       refreshEngagements(newState);
 
       const firstAlloc = allocationOutcomes[0];
@@ -1290,6 +1313,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       attacker.hasAttacked = true;
+      attacker.remainingMovement = 0;
       if (hasTrait(weapon.profile.specialRules, 'expendable')) {
         weapon.isEquipped = false;
       }
@@ -1362,6 +1386,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         modelPositions?: Vector3[];
       };
       const unit = getUnit(newState, unitId)!;
+      const startPos = { ...unit.position };
+      const fullPath =
+        path.length > 0 && boardDistance(path[0], startPos) < 0.01
+          ? path
+          : [startPos, ...path];
+      const distMoved = pathLength3D(fullPath);
+      const currentBudget = unit.isRushing ? unit.remainingMovement : unit.speed * 2;
       const end = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
       const dx = end.x - unit.position.x;
       const dz = end.z - unit.position.z;
@@ -1392,9 +1423,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       } else {
         unit.position = { ...end };
       }
+      unit.isRushing = true;
       unit.hasMoved = true;
       unit.hasAttacked = true;
-      unit.remainingMovement = 0;
+      unit.remainingMovement = Math.max(
+        0,
+        Math.round((currentBudget - distMoved) * 100) / 100
+      );
       refreshEngagements(newState);
       const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
       if (traversal.terminated) {
@@ -1882,6 +1917,10 @@ function engagementPosition(target: Unit, fromPosition: Vector3): Vector3 {
 
 function beginActivation(state: GameState, unit: Unit): void {
   unit.isActivated = true;
+  unit.hasMoved = false;
+  unit.hasAttacked = false;
+  unit.isRushing = false;
+  unit.remainingMovement = unit.speed;
   unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;

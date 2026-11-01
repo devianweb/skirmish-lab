@@ -242,7 +242,24 @@ describe('applyAction: move-unit', () => {
     const unit = outcome.state!.units.find((u) => u.id === 'h1')!;
     expect(unit.position).toEqual({ x: 3, y: 0, z: 4 });
     expect(unit.hasMoved).toBe(true);
-    expect(unit.remainingMovement).toBe(0);
+    // Speed is 6, moved 5 -> 1 inch remains for a subsequent micro-move
+    expect(unit.remainingMovement).toBe(1);
+
+    // Second micro-move spending the remaining 1 inch
+    const action2 = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [
+        { x: 3, y: 0, z: 4 },
+        { x: 3, y: 0, z: 5 },
+      ],
+      finalPosition: { x: 3, y: 0, z: 5 },
+    });
+    const outcome2 = act(outcome.state!, action2);
+    expect(outcome2.ok).toBe(true);
+    const unit2 = outcome2.state!.units.find((u) => u.id === 'h1')!;
+    expect(unit2.position).toEqual({ x: 3, y: 0, z: 5 });
+    expect(unit2.remainingMovement).toBe(0);
   });
 
   it('rejects moving further than unit speed', () => {
@@ -256,16 +273,74 @@ describe('applyAction: move-unit', () => {
     expect(act(state, action).reason).toBe('Move exceeds unit speed');
   });
 
-  it('rejects moving if the unit has already moved this activation', () => {
+  it('rejects moving when remaining movement is exhausted', () => {
     const state = moveState();
-    state.units.find((u) => u.id === 'h1')!.hasMoved = true;
+    state.units.find((u) => u.id === 'h1')!.remainingMovement = 0;
     const action = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
       finalPosition: { x: 0, y: 0, z: 2 },
     });
-    expect(act(state, action).reason).toBe('Unit has already moved or attacked this activation');
+    expect(act(state, action).reason).toBe('Unit has no remaining movement this activation');
+  });
+
+  it('supports move -> move -> shoot flow and closes movement window upon shooting', () => {
+    const state = moveState();
+    const h1 = state.units.find((u) => u.id === 'h1')!;
+    h1.weapons = [weapon('rifle', { type: 'ranged', range: 24, attacks: 1 })];
+    state.units.find((u) => u.id === 'g1')!.position = { x: 5, y: 0, z: 5 };
+
+    // Move 1: 2.0"
+    const move1 = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+      ],
+      finalPosition: { x: 2, y: 0, z: 0 },
+    });
+    const s1 = act(state, move1).state!;
+    expect(s1.units.find((u) => u.id === 'h1')!.remainingMovement).toBe(4);
+
+    // Move 2: 1.5"
+    const move2 = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [
+        { x: 2, y: 0, z: 0 },
+        { x: 3.5, y: 0, z: 0 },
+      ],
+      finalPosition: { x: 3.5, y: 0, z: 0 },
+    });
+    const s2 = act(s1, move2).state!;
+    expect(s2.units.find((u) => u.id === 'h1')!.remainingMovement).toBe(2.5);
+
+    // Shoot target g1
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'rifle',
+    });
+    const s3 = act(s2, shootAction, dice(1, [5], [5])).state!;
+    const postShooter = s3.units.find((u) => u.id === 'h1')!;
+    expect(postShooter.hasAttacked).toBe(true);
+    // Shooting immediately closes movement window
+    expect(postShooter.remainingMovement).toBe(0);
+
+    // Further move is now rejected
+    const move3 = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [
+        { x: 3.5, y: 0, z: 0 },
+        { x: 4.5, y: 0, z: 0 },
+      ],
+      finalPosition: { x: 4.5, y: 0, z: 0 },
+    });
+    expect(act(s3, move3).reason).toBe('Unit has already moved or attacked this activation');
   });
 
   it('rejects moving if the unit has already attacked this activation', () => {
@@ -1195,7 +1270,7 @@ describe('applyAction: charge', () => {
 });
 
 describe('applyAction: rush', () => {
-  it('allows moving up to double speed and finishes activation without attacks', () => {
+  it('allows moving up to double speed, tracks remaining rush movement, and prohibits shooting', () => {
     const state = chargeState();
     const action = createAction(HOST, 'rush', {
       type: 'rush',
@@ -1209,7 +1284,31 @@ describe('applyAction: rush', () => {
     expect(unit.position.x).toBe(10);
     expect(unit.hasMoved).toBe(true);
     expect(unit.hasAttacked).toBe(true);
-    expect(unit.remainingMovement).toBe(0);
+    expect(unit.isRushing).toBe(true);
+    // Double speed is 12, moved 10 -> 2 inches remain
+    expect(unit.remainingMovement).toBe(2);
+
+    // Second rush move spending the remaining 2 inches
+    const action2 = createAction(HOST, 'rush', {
+      type: 'rush',
+      unitId: 'h1',
+      path: [{ x: 12, y: 0, z: 0 }],
+      finalPosition: { x: 12, y: 0, z: 0 },
+    });
+    const outcome2 = act(outcome.state!, action2);
+    expect(outcome2.ok).toBe(true);
+    const unit2 = outcome2.state!.units.find((u) => u.id === 'h1')!;
+    expect(unit2.position.x).toBe(12);
+    expect(unit2.remainingMovement).toBe(0);
+
+    // Rushing unit cannot shoot
+    const shootAction = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'blade',
+    });
+    expect(act(outcome2.state!, shootAction).reason).toBe('Unit has already attacked this activation');
   });
 
   it('rejects rush exceeding double speed', () => {
