@@ -1383,7 +1383,7 @@ describe('GameHUD', () => {
       expect(container.textContent).toContain('Difficult Terrain: 6.0" speed cap');
     });
 
-    it('clamps rush preview to 6.0" and shows targeting warning and amber marker when hovering difficult terrain', () => {
+    it('stops rush preview at wall base and shows info banner when hovering elevated obstacle', () => {
       const state = scenarioState();
       state.terrain = [
         {
@@ -1402,38 +1402,28 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, unit.id);
       const { hud, container } = setup(HOST, state);
 
-      let emittedMarker: any = null;
-      hud.onMarkers((m) => {
-        emittedMarker = m;
-      });
-
       clickByText(container, 'Rush');
       expect(container.textContent).toContain('Click a destination to Rush');
 
       // Hover over destination on sheer platform (approx 8.4" away)
       hud.handleBoardHover({ kind: 'position', position: { x: 0, y: 2.5, z: 8 } });
 
-      // Live hover warning displayed
+      // Live hover info banner displayed
       const warningEl = container.querySelector('.sl-hud-move-warning') as HTMLElement;
       expect(warningEl.style.display).toBe('block');
-      expect(warningEl.textContent).toContain('Difficult Terrain / Vertical Climb');
-      expect(warningEl.textContent).toContain('capped at 6.0"');
+      expect(warningEl.textContent).toContain('Rushing to wall base');
+      expect(warningEl.textContent).toContain('Stops before sheer climb');
 
-      // Marker line color set to amber (0xffa726)
-      expect(emittedMarker?.movePath?.color).toBe(0xffa726);
-
-      // Path length clamped <= 6.0"
+      // Path ends at the base of the wall (y = 0) on open ground
       const preview = (hud as any).movePathPreview;
       expect(preview.length).toBeGreaterThanOrEqual(2);
-      const pathDist = Math.hypot(
-        preview[preview.length - 1].x - preview[0].x,
-        (preview[preview.length - 1].y ?? 0) - (preview[0].y ?? 0),
-        preview[preview.length - 1].z - preview[0].z
-      );
-      expect(pathDist).toBeLessThanOrEqual(6.01);
+      const endPoint = preview[preview.length - 1];
+      expect(endPoint.y).toBe(0);
+      expect(endPoint.z).toBeGreaterThanOrEqual(5.8);
+      expect(endPoint.z).toBeLessThanOrEqual(6.2);
     });
 
-    it('clamps rush destination to 6.0" and displays confirmation warning badge when scaling sheer elevation', () => {
+    it('stops rush destination at wall base and displays confirmation info badge when scaling sheer elevation', () => {
       const state = scenarioState();
       state.terrain = [
         {
@@ -1457,24 +1447,57 @@ describe('GameHUD', () => {
 
       // Toast feedback
       const toast = container.querySelector('.sl-hud-toast');
-      expect(toast?.textContent).toContain('Rush capped at 6.0"');
+      expect(toast?.textContent).toContain('Rushed to wall base (sheer climb deferred to next turn)');
 
-      // Warning badge in confirmation bar
+      // Info badge in confirmation bar
       const badge = container.querySelector('.sl-hud-warning-badge');
-      expect(badge?.textContent).toContain('Difficult Terrain / Vertical Climb');
-      expect(badge?.textContent).toContain('total movement capped at 6.0"');
+      expect(badge?.textContent).toContain('Rush to Obstacle');
+      expect(badge?.textContent).toContain('sheer climb / crossing deferred to next turn');
 
       // Summary text
-      expect(container.textContent).toContain('Difficult Terrain: capped at 6.0" (Rush speed bonus negated)');
+      expect(container.textContent).toContain('Stops at wall base; sheer climb deferred to next turn');
 
-      // Confirm submits clamped rush action
+      // Confirm submits rush action stopping at wall base
       clickByText(container, 'Confirm');
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
       const action = controller.submitAction.mock.calls[0][0];
       expect(action.type).toBe('rush');
       const finalPos = action.payload.finalPosition;
-      const totalDist = Math.hypot(finalPos.x - unit.position.x, (finalPos.y ?? 0) - unit.position.y, finalPos.z - unit.position.z);
-      expect(totalDist).toBeLessThanOrEqual(6.01);
+      expect(finalPos.y).toBe(0);
+      expect(finalPos.z).toBeGreaterThanOrEqual(5.8);
+      expect(finalPos.z).toBeLessThanOrEqual(6.2);
+    });
+
+    it('allows climbing onto platform deck on turn 2 when starting from wall base', () => {
+      const state = scenarioState();
+      state.terrain = [
+        {
+          id: 'plat1',
+          type: 'building',
+          name: 'Platform 1',
+          position: { x: 0, y: 0, z: 8 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 2.5, z: 4 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+      ];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      // Starting from the base of the wall at (0, 0, 6)
+      unit.position = { x: 0, y: 0, z: 6 };
+      activateUnit(state, HOST, unit.id);
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Rush');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 2.5, z: 8 } });
+
+      // Because the unit starts at the wall base, climbing 2.5" is within the 6.0" difficult terrain cap
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('rush');
+      const finalPos = action.payload.finalPosition;
+      expect(finalPos.y).toBe(2.5);
     });
 
     it('displays gap jump risk warning in move confirmation bar when traversing platform gap > 1.0"', () => {

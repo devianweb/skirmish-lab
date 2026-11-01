@@ -496,15 +496,43 @@ export class GameHUD {
         const alive = this.activeAliveSquadModels;
         const currentModel = alive.length > 1 ? alive[this.squadPlacementIndex] : null;
         const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
-        const nominalMax = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
-        let path = findNavPath(this.state, active, target.position, nominalMax, { startPosition: startPos });
+        const isRush = this.flow.action === 'rush';
+        const nominalMax = isRush ? active.speed * 2 : active.speed;
+        let path = findNavPath(this.state, active, target.position, nominalMax, {
+          startPosition: startPos,
+          stopBeforeDifficult: isRush,
+        });
+
+        const targetTerrain = findTerrainAtPosition(this.state, target.position);
+        const isTargetDifficult =
+          targetTerrain &&
+          (targetTerrain.isDifficult ||
+            targetTerrain.terrainType === 'mud' ||
+            targetTerrain.terrainType === 'trench' ||
+            targetTerrain.terrainType === 'forest');
+
+        const isElevationObstacle =
+          path.length > 0 && (target.position.y ?? 0) - (path[path.length - 1].y ?? 0) > 0.5;
+
+        const stoppedAtBase =
+          isRush &&
+          path.length > 0 &&
+          !hasTrait(active.specialRules, 'airborne') &&
+          (isElevationObstacle ||
+            (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], target.position) > 0.1));
 
         const isDifficult =
-          (path.length > 0 && isPathDifficult(this.state, path, active)) ||
-          isPathDifficult(this.state, [startPos, target.position], active);
-        const cappedAllowance = this.flow.action === 'rush' ? 6.0 : Math.min(active.speed, 6.0);
+          !stoppedAtBase &&
+          (path.length > 0
+            ? isPathDifficult(this.state, path, active)
+            : isPathDifficult(this.state, [startPos, target.position], active));
+
+        const cappedAllowance = isRush ? 6.0 : Math.min(active.speed, 6.0);
         if (isDifficult && nominalMax > cappedAllowance) {
-          path = findNavPath(this.state, active, target.position, cappedAllowance, { startPosition: startPos });
+          path = findNavPath(this.state, active, target.position, cappedAllowance, {
+            startPosition: startPos,
+            stopBeforeDifficult: isRush,
+          });
         }
 
         this.movePreviewDifficult = isDifficult;
@@ -523,13 +551,13 @@ export class GameHUD {
         } else {
           this.hoveredEngagedTargetId = null;
         }
-        this.updateMoveWarning(isDifficult, this.flow.action);
+        this.updateMoveWarning(isDifficult, this.flow.action, stoppedAtBase, isElevationObstacle);
       } else {
         this.movePreview = null;
         this.movePathPreview = null;
         this.movePreviewDifficult = false;
         this.hoveredEngagedTargetId = null;
-        this.updateMoveWarning(false, this.flow.action);
+        this.updateMoveWarning(false, this.flow.action, false);
       }
       if (terrainChanged) {
         this.updateDataCardSlot();
@@ -748,13 +776,20 @@ export class GameHUD {
     const currentModel = alive[this.squadPlacementIndex];
     const startPos = currentModel.position ?? active.position;
 
-    let maxAllowance = actionKind === 'rush' ? active.speed * 2 : active.speed;
-    let path = findNavPath(this.state, active, rawDestination, maxAllowance, { startPosition: startPos });
+    const isRush = actionKind === 'rush';
+    let maxAllowance = isRush ? active.speed * 2 : active.speed;
+    let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+      startPosition: startPos,
+      stopBeforeDifficult: isRush,
+    });
     const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
-    const cappedAllowance = actionKind === 'rush' ? 6.0 : Math.min(active.speed, 6.0);
+    const cappedAllowance = isRush ? 6.0 : Math.min(active.speed, 6.0);
     if (isDifficult && maxAllowance > cappedAllowance) {
       maxAllowance = cappedAllowance;
-      path = findNavPath(this.state, active, rawDestination, maxAllowance, { startPosition: startPos });
+      path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+        startPosition: startPos,
+        stopBeforeDifficult: isRush,
+      });
     }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the model');
@@ -926,13 +961,37 @@ export class GameHUD {
     if (!active || !this.state) return;
 
     let maxAllowance = active.speed * 2;
-    let path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+      stopBeforeDifficult: true,
+    });
+
+    const targetTerrain = findTerrainAtPosition(this.state, rawDestination);
+    const isTargetDifficult =
+      targetTerrain &&
+      (targetTerrain.isDifficult ||
+        targetTerrain.terrainType === 'mud' ||
+        targetTerrain.terrainType === 'trench' ||
+        targetTerrain.terrainType === 'forest');
+
+    const isElevationObstacle =
+      path.length > 0 && (rawDestination.y ?? 0) - (path[path.length - 1].y ?? 0) > 0.5;
+
+    const stoppedAtBase =
+      path.length > 0 &&
+      !hasTrait(active.specialRules, 'airborne') &&
+      (isElevationObstacle ||
+        (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], rawDestination) > 0.1));
+
     const isDifficult =
-      (path.length > 0 && isPathDifficult(this.state, path, active)) ||
-      isPathDifficult(this.state, [active.position, rawDestination], active);
+      !stoppedAtBase &&
+      path.length > 0 &&
+      isPathDifficult(this.state, path, active);
+
     if (isDifficult && maxAllowance > 6.0) {
       maxAllowance = 6.0;
-      path = findNavPath(this.state, active, rawDestination, maxAllowance);
+      path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+        stopBeforeDifficult: true,
+      });
     }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
@@ -957,13 +1016,25 @@ export class GameHUD {
       return;
     }
 
-    if (isDifficult) {
+    if (stoppedAtBase) {
+      if (isElevationObstacle) {
+        this.showToast('Rushed to wall base (sheer climb deferred to next turn)');
+      } else {
+        this.showToast('Rushed to obstacle edge (difficult terrain deferred to next turn)');
+      }
+    } else if (isDifficult) {
       this.showToast('Difficult Terrain / Climb: Rush capped at 6.0" (speed bonus negated)');
     }
 
     const maxRushStr = Number.isInteger(maxRush) ? `${maxRush}` : maxRush.toFixed(1);
     let summary = `Rush ${active.name} ${distance.toFixed(1)}" (max ${maxRushStr}") · double move (activation ends)`;
-    if (isDifficult) {
+    if (stoppedAtBase) {
+      if (isElevationObstacle) {
+        summary += ' · [Stops at wall base; sheer climb deferred to next turn]';
+      } else {
+        summary += ' · [Stops at obstacle edge; difficult terrain deferred to next turn]';
+      }
+    } else if (isDifficult) {
       summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
     }
     const fall = detectPathFall(path, this.state);
@@ -2060,7 +2131,18 @@ export class GameHUD {
         this.movePreviewDifficult ||
         (this.state && active && payloadPath ? isPathDifficult(this.state, payloadPath, active) : false);
 
-      if (isActionDifficult && active) {
+      const stoppedAtBase =
+        this.flow.action.type === 'rush' &&
+        (this.flow.summary.includes('Stops at wall base') ||
+          this.flow.summary.includes('Stops at obstacle edge'));
+
+      if (stoppedAtBase) {
+        difficultWarningHtml = `
+          <div class="sl-hud-warning-badge" style="background: rgba(41, 182, 246, 0.18); border: 1px solid #29b6f6; color: #81d4fa; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <span>ℹ️</span>
+            <span><strong>Rush to Obstacle:</strong> Moving at full Rush speed to obstacle; sheer climb / crossing deferred to next turn.</span>
+          </div>`;
+      } else if (isActionDifficult && active) {
         if (this.flow.action.type === 'rush' || this.flow.action.type === 'charge') {
           const actionLabel = this.flow.action.type === 'rush' ? 'Rush' : 'Charge';
           difficultWarningHtml = `
@@ -2656,16 +2738,39 @@ export class GameHUD {
     }
   }
 
-  private updateMoveWarning(isDifficult: boolean, actionKind: string): void {
+  private updateMoveWarning(
+    isDifficult: boolean,
+    actionKind: string,
+    stoppedAtBase: boolean = false,
+    isElevationObstacle: boolean = true
+  ): void {
     const warningEl = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!warningEl) return;
-    if (isDifficult && (actionKind === 'rush' || actionKind === 'charge')) {
+    if (stoppedAtBase && actionKind === 'rush') {
+      if (isElevationObstacle) {
+        warningEl.innerHTML =
+          'ℹ️ <strong>Rushing to wall base:</strong> Stops before sheer climb (climb available next turn with full movement)';
+      } else {
+        warningEl.innerHTML =
+          'ℹ️ <strong>Rushing to obstacle edge:</strong> Stops before difficult terrain (crossing available next turn with full movement)';
+      }
+      warningEl.style.display = 'block';
+      warningEl.style.background = 'rgba(41, 182, 246, 0.2)';
+      warningEl.style.borderColor = '#29b6f6';
+      warningEl.style.color = '#81d4fa';
+    } else if (isDifficult && (actionKind === 'rush' || actionKind === 'charge')) {
       const actionLabel = actionKind === 'rush' ? 'Rush' : 'Charge';
       warningEl.innerHTML = `⚠️ <strong>Difficult Terrain / Vertical Climb:</strong> ${actionLabel} speed bonus negated (maximum movement capped at 6.0")`;
       warningEl.style.display = 'block';
+      warningEl.style.background = 'rgba(255, 152, 0, 0.2)';
+      warningEl.style.borderColor = '#ff9800';
+      warningEl.style.color = '#ffb74d';
     } else if (isDifficult && actionKind === 'move' && (this.activeUnit?.speed ?? 6) > 6) {
       warningEl.innerHTML = '⚠️ <strong>Difficult Terrain / Vertical Climb:</strong> Movement capped at 6.0"';
       warningEl.style.display = 'block';
+      warningEl.style.background = 'rgba(255, 152, 0, 0.2)';
+      warningEl.style.borderColor = '#ff9800';
+      warningEl.style.color = '#ffb74d';
     } else {
       warningEl.style.display = 'none';
       warningEl.textContent = '';

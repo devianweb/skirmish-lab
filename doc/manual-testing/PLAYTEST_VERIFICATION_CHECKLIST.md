@@ -69,6 +69,8 @@
     - [ ] Verify both constituent 3D figurine models walk to their respective placed positions.
     - [ ] Verify the squad centroid is updated correctly between both models.
 
+Notes: I think terrain is interacting weirdly with multi unit movement. It's saying it's blocking it? I think we need to move one unit, then do another proper movement with pathing for next etc etc until they've all moved within the coherency rules.
+
 ### 2.4 Restart Placement Control ("Reset Placement")
 - [ ] In a new activation, start **Move** with a multi-model squad.
 - [ ] Click to place Model 1.
