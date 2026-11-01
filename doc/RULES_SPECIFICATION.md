@@ -42,6 +42,20 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
   - Suppressed / Shaken units cannot seize or contest objectives.
 - **Match Duration:** Exactly **4 rounds**. The player controlling the most objectives at the end of round 4 wins.
 
+### 2.3 Vertical Traversal: Stairs, Ladders & Ramps
+- **Stair Ramps (Triangular Prism Geometry):**
+  - Stairs and access ramps are modeled as solid right-angled triangular prisms (wedges).
+  - The side faces and rear risers are impassable solid obstacles.
+  - The sloped hypotenuse surface provides a smooth continuous walkable plane: elevation $y(t) = y_{\text{foot}} + t \cdot (y_{\text{head}} - y_{\text{foot}})$ scales linearly as the model traverses the horizontal length.
+  - Traversal proceeds at normal 1:1 speed (no Difficult Terrain penalty). Units may halt mid-slope if movement allowance is exhausted.
+- **Vertical Ladders:**
+  - Ladders provide 1:1 vertical climb speed.
+  - In physical tabletop play, miniatures cannot balance suspended on vertical rungs. A climbing model must have sufficient movement allowance to reach the landing platform deck; if insufficient movement remains, the model halts at the ladder foot.
+- **Multi-Model Squad Traversal:**
+  - Constituent models in a squad navigate along independent physical pathfinding trajectories avoiding terrain.
+  - Terrain collision is evaluated per model path rather than an abstract squad centroid ray, allowing squad members to legally flank obstacles and cover without false collision blocks.
+  - Sequential placement enforces $\le 2.0″$ coherency relative to already staged models.
+
 ---
 
 ## 3. Turn & Activation Flow
@@ -72,6 +86,12 @@ A player selects one ready unit that has not yet activated this round. The unit 
 | **Advance (Standard Move)** | Up to Base Speed ($6"$) | May fire ranged weapons after completing move. |
 | **Rush (Dash)** | Up to $2 \times$ Base Speed ($12"$) | Ineligible to shoot. |
 | **Charge (Assault)** | Up to $2 \times$ Base Speed ($12"$) | Must reach base contact with enemy; initiates Melee. |
+
+### 3.3 Movement Budget & Incremental Micro-Moves
+- **Movement Allowance Budgeting:** At activation start, a unit possesses a movement allowance (`remainingMovement`) equal to its speed ($6.0″$ for Advance, or $12.0″$ for Rush).
+- **Incremental Micro-Moves:** Players may spend from this budget across multiple sequential move actions (e.g. advance $2.5″$ to peek around a corner, verify Line of Sight, and advance another $3.5″$).
+- **Shooting Window Closure:** Firing a ranged weapon immediately exhausts all remaining movement allowance (`remainingMovement = 0`), ending the movement phase for that activation.
+- **Rush Commitment:** Choosing Rush grants double movement allowance ($12.0″$) and immediately locks out shooting (`hasAttacked = true`), permitting incremental micro-moves until the full budget is spent or the player concludes the activation.
 
 ---
 
