@@ -634,11 +634,11 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Verify test suite passes across all workspaces (shared, server, client).
 
 ### Sub-phase 13.6B: High Sight-Blockers & Industrial Ruins (`client/` & `shared/`)
-- [ ] Procedural **L-Corner Ruin** ($4" \times 3" \times 4"$, wall thickness $0.25"$): classic wargaming tournament staple with modeled return wall, second-floor L-ledge ($y = 3.0"$), and firing apertures.
-- [ ] Procedural **Modular Solid Walls** ($4" \times 2.5" \times 0.3"$ and $6" \times 2.5" \times 0.3"$): beveled top coping and inset vertical panel seams.
-- [ ] Procedural **Window Walls** ($4" \times 2.5" \times 0.3"$): solid $1.0"$ lower breastwork (grants Cover) with open upper firing apertures.
-- [ ] Procedural **Doorway Walls** ($4" \times 2.5" \times 0.3"$): solid wall with central $1.2" \times 2.2"$ walk-through opening (allows infantry passage without climbing).
-- [ ] Procedural **Structural Columns / Pillars** ($1.2" \times 3.0" \times 1.2"$): square and octagonal beveled pillars supporting elevated platforms.
+- [x] Procedural **L-Corner Ruin** ($4" \times 3" \times 4"$, wall thickness $0.25"$): classic wargaming tournament staple with modeled return wall, second-floor L-ledge ($y = 3.0"$), and firing apertures.
+- [x] Procedural **Modular Solid Walls** ($4" \times 2.5" \times 0.3"$ and $6" \times 2.5" \times 0.3"$): beveled top coping and inset vertical panel seams.
+- [x] Procedural **Window Walls** ($4" \times 2.5" \times 0.3"$): solid $1.0"$ lower breastwork (grants Cover) with open upper firing apertures.
+- [x] Procedural **Doorway Walls** ($4" \times 2.5" \times 0.3"$): solid wall with central $1.2" \times 2.2"$ walk-through opening (allows infantry passage without climbing).
+- [x] Procedural **Structural Columns / Pillars** ($1.2" \times 3.0" \times 1.2"$): square and octagonal beveled pillars supporting elevated platforms.
 
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
 - [ ] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).

@@ -140,6 +140,11 @@ export class ModelLoader {
     const asset = this.terrainAssets.get(terrainType);
     const container = new THREE.Group();
     container.name = `terrain-${terrainType}`;
+    const builder = PROCEDURAL_TERRAIN_BUILDERS[terrainType];
+    if (!asset && builder) {
+      container.add(builder());
+      return container;
+    }
     if (asset) {
       this.addSwappingAsset(container, asset, () => createProceduralTerrainBlock());
     } else {
@@ -346,3 +351,97 @@ function createProceduralStairWedge(): THREE.Object3D {
 
   return group;
 }
+
+type Part = [cx: number, cy: number, cz: number, w: number, h: number, d: number];
+
+/**
+ * Build a unit-box (x,z in [-0.5,0.5], y in [0,1]) piece from box parts.
+ * Callers scale the result by the terrain piece's scale, so openings are
+ * expressed as fractions of the collision box (e.g. 4"x2.5"x0.3" wall).
+ * Each part is [centreX, baseY, centreZ, width, height, depth].
+ */
+function buildFromParts(parts: Part[]): THREE.Object3D {
+  const group = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.1 });
+  for (const [cx, by, cz, w, h, d] of parts) {
+    const geometry = new THREE.BoxGeometry(w, h, d);
+    geometry.translate(cx, by + h / 2, cz);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
+}
+
+/** Solid wall: body plus a slightly proud coping strip and panel seams (all inside the unit box). */
+export function createProceduralSolidWall(): THREE.Object3D {
+  const parts: Part[] = [
+    [0, 0, 0, 1, 0.94, 0.9],
+    [0, 0.94, 0, 1, 0.06, 1],
+  ];
+  for (const x of [-0.25, 0.25]) parts.push([x, 0.05, 0.47, 0.015, 0.85, 0.06]);
+  return buildFromParts(parts);
+}
+
+/** Window wall: solid 40% breastwork, side piers and lintel framing an open aperture. */
+export function createProceduralWindowWall(): THREE.Object3D {
+  return buildFromParts([
+    [0, 0, 0, 1, 0.4, 1],
+    [-0.4, 0.4, 0, 0.2, 0.5, 1],
+    [0.4, 0.4, 0, 0.2, 0.5, 1],
+    [0, 0.9, 0, 1, 0.1, 1],
+  ]);
+}
+
+/** Doorway wall: 0.3-wide x 0.88-tall central opening (1.2" x 2.2" on a 4" x 2.5" wall). */
+export function createProceduralDoorwayWall(): THREE.Object3D {
+  const jamb = (1 - 0.3) / 2;
+  const x = 0.15 + jamb / 2;
+  return buildFromParts([
+    [-x, 0, 0, jamb, 1, 1],
+    [x, 0, 0, jamb, 1, 1],
+    [0, 0.88, 0, 0.3, 0.12, 1],
+  ]);
+}
+
+/** Structural column: plinth, shaft and cap. */
+export function createProceduralColumn(): THREE.Object3D {
+  return buildFromParts([
+    [0, 0, 0, 1, 0.08, 1],
+    [0, 0.08, 0, 0.8, 0.84, 0.8],
+    [0, 0.92, 0, 1, 0.08, 1],
+  ]);
+}
+
+/**
+ * L-corner ruin: two perpendicular walls (north and west edges), a second-floor
+ * L-ledge at y = 0.75 (3" of 4"), and a firing slit in each wall.
+ */
+export function createProceduralLCornerRuin(): THREE.Object3D {
+  const t = 0.0625; // 0.25" on a 4" footprint
+  return buildFromParts([
+    // North wall with a slit gap (split in two + lintel)
+    [-0.3, 0, 0.5 - t / 2, 0.4, 0.75, t],
+    [0.3, 0, 0.5 - t / 2, 0.4, 0.75, t],
+    [0, 0.5, 0.5 - t / 2, 0.2, 0.25, t],
+    [0, 0, 0.5 - t / 2, 0.2, 0.3, t],
+    // West wall with a slit
+    [-0.5 + t / 2, 0, -0.3, t, 0.75, 0.4],
+    [-0.5 + t / 2, 0, 0.3, t, 0.75, 0.4],
+    [-0.5 + t / 2, 0.5, 0, t, 0.25, 0.2],
+    [-0.5 + t / 2, 0, 0, t, 0.3, 0.2],
+    // L-shaped ledge
+    [0, 0.75, 0.5 - 0.15, 1, 0.04, 0.3],
+    [-0.5 + 0.15, 0.75, -0.15, 0.3, 0.04, 0.7],
+  ]);
+}
+
+const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
+  wall: createProceduralSolidWall,
+  'wall-window': createProceduralWindowWall,
+  'wall-doorway': createProceduralDoorwayWall,
+  column: createProceduralColumn,
+  ruin: createProceduralLCornerRuin,
+  'ruin-l': createProceduralLCornerRuin,
+};
