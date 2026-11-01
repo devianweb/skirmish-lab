@@ -25,7 +25,7 @@ export class ObjectiveRenderer {
   private objectiveGroup: THREE.Group;
   private currentSignature: string | null = null;
 
-  constructor(scene: THREE.Scene, private modelLoader?: ModelLoader) {
+  constructor(scene: THREE.Scene, _modelLoader?: ModelLoader) {
     this.objectiveGroup = new THREE.Group();
     this.objectiveGroup.name = 'objectives';
     scene.add(this.objectiveGroup);
@@ -105,26 +105,19 @@ export class ObjectiveRenderer {
     discMesh.position.y = 0.012;
     group.add(discMesh);
 
-    // 3. Central supply crate base
-    const baseGroup = new THREE.Group();
-    baseGroup.name = `objective-${obj.id}-base`;
-    if (this.modelLoader) {
-      const crateMesh = this.modelLoader.createTerrainMesh('crate-medium');
-      crateMesh.scale.set(1.0, 1.0, 1.0);
-      crateMesh.position.y = 0;
-      baseGroup.add(crateMesh);
-    } else {
-      const boxGeo = new THREE.BoxGeometry(0.7, 0.5, 0.7);
-      const boxMat = new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.6,
-        metalness: 0.2,
-      });
-      const boxMesh = new THREE.Mesh(boxGeo, boxMat);
-      boxMesh.position.y = 0.25;
-      baseGroup.add(boxMesh);
-    }
-    group.add(baseGroup);
+    // 3. Subtle central marker pip on the ground (no 3D mesh obstruction)
+    const pipGeo = new THREE.CircleGeometry(0.3, 32);
+    const pipMat = new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.6,
+    });
+    const pipMesh = new THREE.Mesh(pipGeo, pipMat);
+    pipMesh.name = `objective-${obj.id}-pip`;
+    pipMesh.rotation.x = -Math.PI / 2;
+    pipMesh.position.y = 0.016;
+    group.add(pipMesh);
 
     return group;
   }

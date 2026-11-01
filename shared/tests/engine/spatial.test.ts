@@ -13,11 +13,15 @@ import {
   findWalkablePlatformAt,
   getPlatformEdgeDistance,
   getSquadModelPositions,
+  getStairWaypoints,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  isSegmentOnRampOrStairs,
+  isSegmentSurfaceConstrained,
   validateFormationMove,
   validateSquadCoherency,
 } from '../../src/engine/spatial';
+import { isPathDifficult } from '../../src/engine/traversal';
 import { WEAPONS } from '../../src/data/weapons';
 
 const HOST = 'host-1';
@@ -875,6 +879,201 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       expect(path.length).toBeGreaterThanOrEqual(2);
       expect(path[0].y).toBe(2.5);
       expect(path[path.length - 1].y).toBe(2.5);
+    });
+
+    describe('Sub-phase 13.5C: 3D Surface-Constrained Navigation & Stair Traversal', () => {
+      const platformEast: TerrainPiece = {
+        id: 'plat-east',
+        terrainType: 'platform',
+        position: { x: 6, y: 2.5, z: -2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 3, y: 0.3, z: 3 },
+        elevation: 2.5,
+        isWalkable: true,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+
+      const stairsEast: TerrainPiece = {
+        id: 'stairs-east',
+        terrainType: 'stairs',
+        climbType: 'stairs',
+        position: { x: 4.5, y: 0, z: -2 },
+        rotation: { x: 0, y: Math.PI / 2, z: 0 },
+        scale: { x: 1.5, y: 2.5, z: 1.0 },
+        elevation: 2.5,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+
+      const ladderWest: TerrainPiece = {
+        id: 'ladder-west',
+        terrainType: 'ladder',
+        climbType: 'ladder',
+        position: { x: -4.5, y: 0, z: 2 },
+        rotation: { x: 0, y: -Math.PI / 2, z: 0 },
+        scale: { x: 0.5, y: 2.5, z: 1.0 },
+        elevation: 2.5,
+        blocksLineOfSight: false,
+        providesCover: true,
+        isObstacle: false,
+      };
+
+      it('computes accurate foot and head connectors for stairs and ladders', () => {
+        const state = makeState([], [platformEast, stairsEast, ladderWest]);
+
+        const stairConn = getStairWaypoints(state, stairsEast);
+        expect(stairConn.foot.y).toBe(0);
+        expect(stairConn.head.y).toBe(2.5);
+        // With yaw = PI/2, +Z points towards +X (platform), -Z points towards -X (ground foot)
+        expect(stairConn.foot.x).toBeLessThan(stairsEast.position.x);
+        expect(stairConn.head.x).toBeGreaterThan(stairsEast.position.x);
+
+        const ladderConn = getStairWaypoints(state, ladderWest);
+        expect(ladderConn.foot.y).toBe(0);
+        expect(ladderConn.head.y).toBe(2.5);
+        expect(ladderConn.foot.x).toBe(-4.5);
+        expect(ladderConn.head.x).toBe(-4.5);
+      });
+
+      it('recognizes line segments on stairs and ladders as ramp traversals', () => {
+        const state = makeState([], [platformEast, stairsEast, ladderWest]);
+        const stairConn = getStairWaypoints(state, stairsEast);
+
+        expect(isSegmentOnRampOrStairs(state, stairConn.foot, stairConn.head)).toBe(true);
+        // Points outside stair footprint are not on stairs
+        expect(isSegmentOnRampOrStairs(state, { x: 0, y: 0, z: 0 }, { x: 6, y: 2.5, z: -2 })).toBe(false);
+      });
+
+      it('enforces surface constraints prohibiting non-airborne diagonal flight through open air', () => {
+        const state = makeState([], [platformEast, stairsEast]);
+        const groundUnit = makeUnit('ground-1', HOST, { x: 0, y: 0, z: 0 });
+        const airborneUnit = makeUnit('air-1', HOST, { x: 0, y: 0, z: 0 });
+        airborneUnit.specialRules = ['airborne'];
+
+        // Ground point to roof point (4" horizontal, 2.5" vertical, no stairs)
+        const pGround = { x: 0, y: 0, z: -2 };
+        const pRoof = { x: 6, y: 2.5, z: -2 };
+
+        // Prohibited for ground unit
+        expect(isSegmentSurfaceConstrained(state, pGround, pRoof, groundUnit)).toBe(false);
+        // Permitted for airborne unit
+        expect(isSegmentSurfaceConstrained(state, pGround, pRoof, airborneUnit)).toBe(true);
+
+        // Pure horizontal movement is permitted for ground unit
+        expect(isSegmentSurfaceConstrained(state, { x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }, groundUnit)).toBe(true);
+        // Pure vertical climb (e.g. against sheer wall, dh <= 0.7") is permitted for ground unit
+        expect(isSegmentSurfaceConstrained(state, { x: 4.5, y: 0, z: -2 }, { x: 4.5, y: 2.5, z: -2 }, groundUnit)).toBe(true);
+      });
+
+      it('routes ground units via stairs at 1:1 speed with no Difficult Terrain penalty when available', () => {
+        const unit = makeUnit('u-stair', HOST, { x: 0, y: 0, z: -2 });
+        unit.speed = 12; // Rush allowance
+        unit.remainingMovement = 12;
+        const state = makeState([unit], [platformEast, stairsEast]);
+
+        // Destination is on the platform deck at (6, 2.5, -2)
+        const path = findNavPath(state, unit, { x: 6, y: 2.5, z: -2 }, 12.0);
+
+        expect(path.length).toBeGreaterThanOrEqual(3);
+        // Starts on ground
+        expect(path[0].y).toBe(0);
+        // Reaches platform elevation at destination
+        expect(path[path.length - 1].y).toBe(2.5);
+        expect(path[path.length - 1].x).toBeCloseTo(6, 0.5);
+
+        // Path must pass through stairs (segment traverses stairs connector)
+        const hasStairsSegment = path.some(
+          (p, idx) => idx > 0 && isSegmentOnRampOrStairs(state, path[idx - 1], p)
+        );
+        expect(hasStairsSegment).toBe(true);
+
+        // Clamped path partially ascends stairs when distance allowance is limited
+        const clampedPath = findNavPath(state, unit, { x: 6, y: 2.5, z: -2 }, 5.5);
+        const lastPt = clampedPath[clampedPath.length - 1];
+        expect(lastPt.y).toBeGreaterThan(0.2);
+        expect(lastPt.y).toBeLessThan(2.4);
+
+        // Taking stairs does NOT count as Difficult Terrain
+        expect(isPathDifficult(state, path, unit)).toBe(false);
+      });
+
+      it('falls back to wall-base ascent when climbing sheer walls without stairs and applies Difficult Terrain cap', () => {
+        const sheerPlatform: TerrainPiece = {
+          id: 'plat-sheer',
+          terrainType: 'platform',
+          position: { x: 5, y: 2.5, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 0.3, z: 4 },
+          elevation: 2.5,
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: true,
+          isObstacle: true,
+        };
+        const unit = makeUnit('u-wall', HOST, { x: 0, y: 0, z: 0 });
+        unit.speed = 12;
+        unit.remainingMovement = 12;
+        // State has platform but NO stairs/ladders
+        const state = makeState([unit], [sheerPlatform]);
+
+        const path = findNavPath(state, unit, { x: 5, y: 2.5, z: 0 }, 12.0);
+        expect(path.length).toBeGreaterThanOrEqual(3);
+        expect(path[0].y).toBe(0);
+        expect(path[path.length - 1].y).toBe(2.5);
+
+        // Sheer wall climb must route along ground to wall base, then ascend vertically
+        const hasVerticalAscent = path.some(
+          (p, idx) => idx > 0 && (p.y ?? 0) - (path[idx - 1].y ?? 0) > 1.5
+        );
+        expect(hasVerticalAscent).toBe(true);
+
+        // Sheer wall climb IS Difficult Terrain
+        expect(isPathDifficult(state, path, unit)).toBe(true);
+      });
+
+      it('allows airborne units to fly diagonally directly to elevated platforms', () => {
+        const sheerPlatform: TerrainPiece = {
+          id: 'plat-sheer-air',
+          terrainType: 'platform',
+          position: { x: 4, y: 2.5, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 3, y: 0.3, z: 3 },
+          elevation: 2.5,
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: true,
+          isObstacle: false,
+        };
+        const airUnit = makeUnit('u-air', HOST, { x: 0, y: 0, z: 0 });
+        airUnit.specialRules = ['airborne'];
+        airUnit.speed = 12;
+        airUnit.remainingMovement = 12;
+        const state = makeState([airUnit], [sheerPlatform]);
+
+        const path = findNavPath(state, airUnit, { x: 4, y: 2.5, z: 0 }, 12.0);
+        // Airborne flies directly in 2 points [from, target]
+        expect(path.length).toBe(2);
+        expect(path[0]).toEqual({ x: 0, y: 0, z: 0 });
+        expect(path[1].y).toBe(2.5);
+      });
+
+      it('routes units down stairs from platform to ground cleanly without falling drops', () => {
+        const unit = makeUnit('u-descend', HOST, { x: 6, y: 2.5, z: -2 });
+        unit.speed = 12;
+        unit.remainingMovement = 12;
+        const state = makeState([unit], [platformEast, stairsEast]);
+
+        // Destination is on the ground at (0, 0, -2)
+        const path = findNavPath(state, unit, { x: 0, y: 0, z: -2 }, 12.0);
+        expect(path[0].y).toBe(2.5);
+        expect(path[path.length - 1].y).toBe(0);
+
+        // Descending stairs is not difficult terrain and not a dangerous drop
+        expect(isPathDifficult(state, path, unit)).toBe(false);
+      });
     });
   });
 });
