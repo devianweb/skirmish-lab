@@ -18,12 +18,15 @@ function model(file: string, scale?: number): AssetDefinition {
   return { url: `${MODELS_BASE}${file}`, scale };
 }
 
-export const UNIT_ASSETS: Record<string, AssetDefinition> = {
-  trooper: model('figurine.glb', 1.15),
-  specialist: model('figurine-cube.glb', 0.95),
-  heavy: model('figurine-cube-detailed.glb', 1.0),
-  leader: model('figurine-large.glb', 1.0),
-};
+/**
+ * Unit models in SkirmishLab are rendered procedurally by ModelLoader
+ * at true 28–32mm Hero Scale mounted on 1.0" tournament wargaming bases
+ * with squad-identifying colored rims.
+ *
+ * UNIT_ASSETS is maintained as an optional extension registry for custom
+ * community GLBs or mods.
+ */
+export const UNIT_ASSETS: Record<string, AssetDefinition> = {};
 
 /**
  * Terrain pieces in SkirmishLab are rendered procedurally by ModelLoader

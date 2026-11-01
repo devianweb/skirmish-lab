@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GameState } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
+import { getUnitRimColor } from './rimColors';
 
 // Original palette: player 0 (host) blue, player 1 (guest) red — generic colors.
 const PLAYER_COLORS = [0x3a7bd5, 0xd54a3a];
@@ -112,7 +113,7 @@ export class UnitRenderer {
         }
       }
 
-      this.applyOwnerColor(unitRoot, unit.ownerId, state);
+      this.applyOwnerColor(unitRoot, unit.ownerId, state, unit.id);
     }
 
     for (const [unitId, mesh] of this.meshes) {
@@ -169,15 +170,31 @@ export class UnitRenderer {
     return bestUnitId ? { unitId: bestUnitId, modelId: bestModelId } : null;
   }
 
-  /** Color every mesh in a unit by its owning player's index in the state. */
-  private applyOwnerColor(mesh: THREE.Object3D, ownerId: string, state: GameState): void {
+  /** Color meshes: player team tint on miniature body, squad-identifying rim color on base rim, dark slate on base top. */
+  private applyOwnerColor(mesh: THREE.Object3D, ownerId: string, state: GameState, unitId?: string): void {
     const playerIndex = state.players.findIndex((p) => p.id === ownerId);
     const color = playerIndex === -1 ? UNKNOWN_PLAYER_COLOR : PLAYER_COLORS[playerIndex];
     mesh.userData.tintColor = color;
+    const rimColor = unitId ? getUnitRimColor(unitId) : undefined;
 
     mesh.traverse((child) => {
-      const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-      if (material && material.color) {
+      const node = child as THREE.Mesh;
+      if (!node.isMesh) return;
+      const material = node.material as THREE.MeshStandardMaterial | undefined;
+      if (!material || !material.color) return;
+
+      if (node.userData?.isBaseRim) {
+        if (rimColor !== undefined) {
+          material.color.setHex(rimColor);
+        }
+      } else if (node.userData?.isBaseTop) {
+        material.color.setHex(0x212529); // Dark tournament slate
+      } else if (node.userData?.isVisor) {
+        material.color.setHex(0x102027); // Dark tinted visor
+      } else if (node.userData?.isWeapon) {
+        material.color.setHex(0x37474f); // Gunmetal
+      } else {
+        // Miniature body / armor takes player team color
         material.color.setHex(color);
       }
     });

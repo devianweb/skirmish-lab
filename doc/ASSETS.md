@@ -12,29 +12,30 @@ All terrain pieces are generated procedurally by [`client/src/renderer/ModelLoad
 
 | File Name | Size | Category | Asset Manifest Key | Description & Role |
 | :--- | :---: | :--- | :--- | :--- |
-| `figurine-large.glb` | 118 KB | Fighter | `UNIT_ASSETS.leader` | Heavy commander figurine with raised shoulder armor and distinct silhouette. |
-| `figurine.glb` | 117 KB | Fighter | `UNIT_ASSETS.trooper` | Standard infantry figurine with rounded helmet. |
-| `figurine-cube.glb` | 118 KB | Fighter | `UNIT_ASSETS.specialist` | Specialist figurine with angular visor and modular combat frame. |
-| `figurine-cube-detailed.glb` | 125 KB | Fighter | `UNIT_ASSETS.heavy` | Armored heavy trooper figurine with reinforced back battery and plating. |
 | `crate-medium.glb` | 59 KB | Objective | `OBJECTIVE_ASSETS.beacon` | Central tactical objective container marker beacon. |
 | `indicator-round-b.glb` | 4.5 KB | Marker | `MARKER_ASSETS.selection` / `target` | Flat circular floor beacon used for selection (blue) and enemy target (red). |
 | `indicator-round-a.glb` | 6.4 KB | Marker | *(Alternate Indicator)* | Thick rim alternate circular floor marker. |
 | `indicator-square-a.glb` | 2.0 KB | Marker | *(Alternate Indicator)* | Square perimeter floor marker. |
 | `number-1.glb` .. `number-5.glb` | 4–7 KB | Outcome | `OUTCOME_ASSETS['outcome-N']` | 3D billboard digits (1 to 5) indicating wound damage count dealt on attack. |
-| `Textures/colormap.png` | 4.0 KB | Texture | *(Shared Texture)* | Global texture palette referenced by all figurine and marker materials. |
+| `Textures/colormap.png` | 4.0 KB | Texture | *(Shared Texture)* | Global texture palette referenced by marker materials. |
 
 ---
 
-## 1. Fighter 3D Model Mapping
+## 1. Fighter 3D Model Mapping (Procedural Hero Scale)
 
-Fighters are mapped to 3D models via their `modelType` attribute defined in [`shared/src/data/armies.ts`](../shared/src/data/armies.ts). Meshes are instantiated by [`client/src/renderer/UnitRenderer.ts`](../client/src/renderer/UnitRenderer.ts) and tinted dynamically per owning player (Host = Blue `#29b6f6` / `0x3a7bd5`, Guest = Red `#ef5350` / `0xd54a3a`):
+Fighters in SkirmishLab are rendered procedurally by [`client/src/renderer/ModelLoader.ts`](../client/src/renderer/ModelLoader.ts) at true **28–32mm Hero Scale** mounted on **1.0" tournament wargaming bases**. Meshes are instantiated by [`client/src/renderer/UnitRenderer.ts`](../client/src/renderer/UnitRenderer.ts).
 
-| Role (`modelType`) | 3D Model File | Manifest Scale | Frontier Wardens Units | Rust Raiders Units |
+- **Standard 1.0" Base:** $1.0"$ diameter ($25.4\text{ mm}$, radius $0.50"$) with beveled tournament lip (height $0.10"$). Base top surface is dark tournament slate (`#212529`).
+- **Squad Rim Identification:** Each unit/squad receives a distinct, high-contrast base rim accent color generated deterministically from its `unit.id` via `getUnitRimColor()` in [`client/src/renderer/rimColors.ts`](../client/src/renderer/rimColors.ts).
+- **Team Tinting:** Miniature body/armor dynamically tints to the player's team color (Host = Blue `#29b6f6` / `0x3a7bd5`, Guest = Red `#ef5350` / `0xd54a3a`).
+- **Dimensions:** Standing height $1.12"$ above base $\implies$ **total model height $\approx 1.22"$ ($31\text{ mm}$)** with $0.72"$ shoulder span, fitting $1:1$ with terrain doorframes, window sills, and elevations.
+
+| Role (`modelType`) | Geometry Type | Dimensions | Frontier Wardens Units | Rust Raiders Units |
 | :--- | :--- | :---: | :--- | :--- |
-| **`leader`** | `figurine-large.glb` | `1.0` | **Warden Captain** (`warden-captain`), **Warden Storm Commander** (`warden-storm-commander`), **Marshal Vance** (`marshal-vance`) | **Raid Boss** (`raider-boss`) |
-| **`trooper`** | `figurine.glb` | `1.15` | **Warden Trooper** (`warden-trooper`), **Warden Patrol Squad** (`warden-patrol-squad`), **Line Trooper Squad** (`line-trooper-squad`), **Sentry Automaton** (`sentry-automaton`), **Warden Veteran** (`warden-veteran`) | **Rust Runner** (`raider-trooper`), **Rust Patrol Mob** (`raider-patrol-mob`) |
-| **`specialist`** | `figurine-cube.glb` | `0.95` | **Warden Marksman** (`warden-marksman`), **Warden Breacher** (`warden-breacher`), **Warden Demolitionist** (`warden-demolitionist`), **Shock Trooper** (`shock-trooper`), **Warden Sharpshooter** (`warden-sharpshooter`) | **Rust Skirmisher** (`raider-skirmisher`), **Rust Sapper** (`raider-sapper`) |
-| **`heavy`** | `figurine-cube-detailed.glb` | `1.0` | **Warden Gun Crew** (`warden-gun-crew`), **Heavy Ordnance Crew** (`heavy-ordnance-crew`), **Goliath Automaton** (`goliath-automaton`) | **Rust Bruiser** (`raider-bruiser`) |
+| **`leader`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Captain** (`warden-captain`), **Warden Storm Commander** (`warden-storm-commander`), **Marshal Vance** (`marshal-vance`) | **Raid Boss** (`raider-boss`) |
+| **`trooper`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Trooper** (`warden-trooper`), **Warden Patrol Squad** (`warden-patrol-squad`), **Line Trooper Squad** (`line-trooper-squad`), **Sentry Automaton** (`sentry-automaton`), **Warden Veteran** (`warden-veteran`) | **Rust Runner** (`raider-trooper`), **Rust Patrol Mob** (`raider-patrol-mob`) |
+| **`specialist`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Marksman** (`warden-marksman`), **Warden Breacher** (`warden-breacher`), **Warden Demolitionist** (`warden-demolitionist`), **Shock Trooper** (`shock-trooper`), **Warden Sharpshooter** (`warden-sharpshooter`) | **Rust Skirmisher** (`raider-skirmisher`), **Rust Sapper** (`raider-sapper`) |
+| **`heavy`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Gun Crew** (`warden-gun-crew`), **Heavy Ordnance Crew** (`heavy-ordnance-crew`), **Goliath Automaton** (`goliath-automaton`) | **Rust Bruiser** (`raider-bruiser`) |
 
 ---
 
