@@ -361,7 +361,7 @@ describe('spatial: shooting ray debug calculations', () => {
 describe('spatial: apertures (doorways and windows)', () => {
   it('allows model movement and line of sight through wall-doorway opening', () => {
     const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
-    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
+    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 7 });
     const doorway: TerrainPiece = {
       id: 'd1',
       terrainType: 'wall-doorway',

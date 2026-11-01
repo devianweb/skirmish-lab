@@ -873,7 +873,7 @@ export class GameHUD {
       if (m.id === currentModel.id) continue;
       const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
       const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
-      if (dist < 0.45) {
+      if (dist < 0.90) {
         this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
         return;
       }

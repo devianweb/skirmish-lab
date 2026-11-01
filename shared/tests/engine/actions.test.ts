@@ -443,25 +443,25 @@ describe('applyAction: move-unit', () => {
     const unit = state.units.find((u) => u.id === 'h1')!;
     unit.models = [
       { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
-      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1.0, y: 0, z: 0 } },
     ];
     const explicitPositions: Vector3[] = [
       { x: 0, y: 0, z: 3 },
-      { x: 0, y: 0, z: 3.7 },
+      { x: 0, y: 0, z: 4 },
     ];
     const action = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'h1',
-      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.35 }],
-      finalPosition: { x: 0, y: 0, z: 3.35 },
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.5 }],
+      finalPosition: { x: 0, y: 0, z: 3.5 },
       modelPositions: explicitPositions,
     });
     const outcome = act(state, action);
     expect(outcome.ok).toBe(true);
     const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
-    expect(moved.position).toEqual({ x: 0, y: 0, z: 3.35 });
+    expect(moved.position).toEqual({ x: 0, y: 0, z: 3.5 });
     expect(moved.models[0].position).toEqual({ x: 0, y: 0, z: 3 });
-    expect(moved.models[1].position).toEqual({ x: 0, y: 0, z: 3.7 });
+    expect(moved.models[1].position).toEqual({ x: 0, y: 0, z: 4 });
   });
 
   it('rejects move-unit when explicit modelPositions violate coherency', () => {
@@ -1480,9 +1480,9 @@ describe('applyAction: charge', () => {
     const postDefender = outcome.state!.units.find((u) => u.id === 'g1')!;
     // Front model was already at z=5.0 (0.5" from charger at z=4.5) -> <= 1.0" so stays in place
     expect(postDefender.models[0].position?.z).toBeCloseTo(5.0, 1);
-    // Rear model was at z=5.8 (1.3" from charger at z=4.5) -> consolidates into base contact (z=5.1)
+    // Rear model was at z=5.8 (1.3" from charger at z=4.5) -> consolidates into base contact (z=5.5)
     expect(postDefender.models[1].position?.z).toBeLessThan(5.8);
-    expect(postDefender.models[1].position?.z).toBeCloseTo(5.1, 1);
+    expect(postDefender.models[1].position?.z).toBeCloseTo(5.5, 1);
   });
 });
 
