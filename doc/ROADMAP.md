@@ -640,6 +640,13 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Procedural **Doorway Walls** ($4" \times 2.5" \times 0.3"$): solid wall with central $1.2" \times 2.2"$ walk-through opening (allows infantry passage without climbing; opening widths in `getApertureProfile` match the meshes).
 - [x] Procedural **Structural Columns / Pillars** ($1.2" \times 3.0" \times 1.2"$): square and octagonal beveled pillars supporting elevated platforms.
 
+### Sub-phase 13.6C-0: Terrain Structure — Solids + Apertures (`shared/` & `client/`)
+- [x] `TerrainSolid` / `TerrainAperture` / `TerrainGroup` types and a data-driven catalog (`shared/src/data/terrainStructures.ts`) for walls, window/doorway walls, columns and the L-corner ruin; nested groups with offsets. The second-floor ledge is deferred to 13.6C.
+- [x] Engine reads only solids and apertures for movement, line of sight, cover, nav waypoints and the visibility fan (no per-building special cases). Fixes movement into `ruin-l` and window-port LoS on ruins.
+- [x] 3D line of sight from a 1.1" eye to any visible part of the target (head/torso/feet); manning = base edge within 1.0" of the port; doorways are open air with no port cover.
+- [x] Unit tests for ruin movement, manned/distant ports, lintel/sill heights, nested groups and the F9 debug trace.
+- [ ] Client: build meshes from the shared structure definitions, per-box F9 wireframes and eye-level rays, courtyard picking.
+
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
 - [ ] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).
 - [ ] Procedural **Walkable Platforms** ($4" \times 4" \times 0.25"$ and $6" \times 4" \times 0.25"$): industrial diamond-tread / grate floor, safety kick-plates, and pillar mounting sockets at $y = 3.0"$.

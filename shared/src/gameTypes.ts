@@ -116,6 +116,52 @@ export interface Unit {
   remainingMovement: number;
 }
 
+/**
+ * Axis-aligned box in terrain-structure space. In a `TerrainGroup` the bounds are fractions of
+ * the piece's scale (x/z in [-0.5, 0.5], y in [0, 1]); once resolved they are inches in the
+ * piece's local frame (x/z centered on the piece, y measured up from the piece base).
+ */
+export interface TerrainBox {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/**
+ * A physical box: wall section, jamb, sill, lintel, column. Lintels sit above head height, so
+ * they block sight but not movement beneath them (the movement check honours box heights).
+ */
+export interface TerrainSolid extends TerrainBox {
+  id?: string;
+  /** Blocks model movement. Default true. */
+  isObstacle?: boolean;
+  /** Blocks line of sight. Default true. */
+  blocksLineOfSight?: boolean;
+  /** Provides partial (sight-blocker) cover to a model standing behind it. Default true. */
+  providesCover?: boolean;
+}
+
+/**
+ * A firing port / window opening. Not walkable. Sight passes through it only while the shooter
+ * or the target is manning it (base edge within 1.0"). Grants Cover to a defender manning it.
+ */
+export interface TerrainAperture extends TerrainBox {
+  id?: string;
+  providesCover?: boolean;
+}
+
+/** A bundle of solids, apertures and nested groups, shifted by an optional offset (fractions of scale). */
+export interface TerrainGroup {
+  id?: string;
+  offset?: { x: number; z: number };
+  solids?: TerrainSolid[];
+  apertures?: TerrainAperture[];
+  groups?: TerrainGroup[];
+}
+
 export interface TerrainPiece {
   id: string;
   terrainType: string;
@@ -135,6 +181,8 @@ export interface TerrainPiece {
   isWalkable?: boolean;
   /** Type of climb access: 'ladder' | 'stairs' | 'ramp' | 'sheer'. */
   climbType?: 'ladder' | 'stairs' | 'ramp' | 'sheer';
+  /** Optional structure override (solids, apertures, nested groups). Defaults to the catalog definition for `terrainType`. */
+  structure?: TerrainGroup;
   data?: Record<string, any>;
 }
 

@@ -207,9 +207,40 @@ interface TerrainPiece {
   blocksLineOfSight: boolean;
   providesCover: boolean;
   isObstacle: boolean;
+  structure?: TerrainGroup;  // Optional override of the catalog structure (see below)
   data?: Record<string, any>;
 }
 ```
+
+### Terrain Structure: Solids + Apertures
+Buildings are composed from two primitives, defined as data in `shared/src/data/terrainStructures.ts` and shared by the rules engine and the renderer (so meshes and collision cannot drift apart):
+
+```typescript
+interface TerrainBox { minX; maxX; minY; maxY; minZ; maxZ }   // fractions of scale (x/z in [-0.5, 0.5], y in [0, 1])
+
+interface TerrainSolid extends TerrainBox {   // wall section, jamb, sill, lintel, column
+  id?: string;
+  isObstacle?: boolean;        // blocks model movement (default true)
+  blocksLineOfSight?: boolean; // blocks sight at the heights it spans (default true)
+  providesCover?: boolean;     // sight-blocker cover to a model manning it (default true)
+}
+interface TerrainAperture extends TerrainBox { // firing port / window opening
+  id?: string;
+  providesCover?: boolean;
+}
+interface TerrainGroup {                       // bundle of solids, apertures and child groups
+  id?: string;
+  offset?: { x: number; z: number };          // fractions of scale
+  solids?: TerrainSolid[];
+  apertures?: TerrainAperture[];
+  groups?: TerrainGroup[];
+}
+```
+
+- `resolveTerrainStructure(piece)` (`shared/src/engine/terrainStructure.ts`) flattens a piece's `structure` (or the catalog definition for its `terrainType`, or a single solid body as a fallback) into inch-sized boxes in the piece's local frame; groups nest and can be offset.
+- Catalog: `wall`, `wall-long` (one solid), `column`, `wall-window` (sill, two piers, lintel + one aperture), `wall-doorway` (two jambs + lintel, **no aperture**: open air), `ruin` / `ruin-l` (a group of two port walls; the courtyard is empty space).
+- Lintels are ordinary solids that sit above head height, so they block sight but not movement beneath them. Heights come from the boxes, not special cases.
+- Piece state stays serializable: a stored piece only needs its `terrainType` (plus an optional `structure`).
 
 ## Game Markers
 ```typescript
