@@ -38,8 +38,10 @@ import {
   consolidateSquadToward,
   createSquadPositions,
   findMoveBlocker,
+  getStairWaypoints,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  isLadderPiece,
   validateSquadCoherency,
 } from './spatial';
 import {
@@ -302,6 +304,22 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
+        for (const piece of state.terrain) {
+          if (!isLadderPiece(piece)) continue;
+          const { foot, head } = getStairWaypoints(state, piece);
+          const distToLadder = Math.hypot(end.x - foot.x, end.z - foot.z);
+          if (distToLadder <= 0.6) {
+            const minY = Math.min(foot.y, head.y);
+            const maxY = Math.max(foot.y, head.y);
+            const endY = end.y ?? 0;
+            if (endY > minY + 0.2 && endY < maxY - 0.2) {
+              return {
+                valid: false,
+                reason: 'Models cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot',
+              };
+            }
+          }
+        }
         const wouldEngage = state.units.some(
           (u) =>
             !u.isDestroyed &&
@@ -377,6 +395,23 @@ export function validateAction(state: GameState, action: GameAction): Validation
             valid: false,
             reason: `Squad model ${i + 1} move path is blocked: ${mBlocker.reason}`,
           };
+        }
+        const mEnd = modelPositions![i];
+        for (const piece of state.terrain) {
+          if (!isLadderPiece(piece)) continue;
+          const { foot, head } = getStairWaypoints(state, piece);
+          const distToLadder = Math.hypot(mEnd.x - foot.x, mEnd.z - foot.z);
+          if (distToLadder <= 0.6) {
+            const minY = Math.min(foot.y, head.y);
+            const maxY = Math.max(foot.y, head.y);
+            const endY = mEnd.y ?? 0;
+            if (endY > minY + 0.2 && endY < maxY - 0.2) {
+              return {
+                valid: false,
+                reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot`,
+              };
+            }
+          }
         }
       }
       const wouldEngage = state.units.some(
@@ -579,6 +614,22 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
           return { valid: false, reason: 'Final position does not match path end' };
         }
+        for (const piece of state.terrain) {
+          if (!isLadderPiece(piece)) continue;
+          const { foot, head } = getStairWaypoints(state, piece);
+          const distToLadder = Math.hypot(end.x - foot.x, end.z - foot.z);
+          if (distToLadder <= 0.6) {
+            const minY = Math.min(foot.y, head.y);
+            const maxY = Math.max(foot.y, head.y);
+            const endY = end.y ?? 0;
+            if (endY > minY + 0.2 && endY < maxY - 0.2) {
+              return {
+                valid: false,
+                reason: 'Models cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot',
+              };
+            }
+          }
+        }
         const wouldEngage = state.units.some(
           (u) =>
             !u.isDestroyed &&
@@ -650,6 +701,23 @@ export function validateAction(state: GameState, action: GameAction): Validation
             valid: false,
             reason: `Squad model ${i + 1} rush path is blocked: ${mBlocker.reason}`,
           };
+        }
+        const mEnd = modelPositions![i];
+        for (const piece of state.terrain) {
+          if (!isLadderPiece(piece)) continue;
+          const { foot, head } = getStairWaypoints(state, piece);
+          const distToLadder = Math.hypot(mEnd.x - foot.x, mEnd.z - foot.z);
+          if (distToLadder <= 0.6) {
+            const minY = Math.min(foot.y, head.y);
+            const maxY = Math.max(foot.y, head.y);
+            const endY = mEnd.y ?? 0;
+            if (endY > minY + 0.2 && endY < maxY - 0.2) {
+              return {
+                valid: false,
+                reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot`,
+              };
+            }
+          }
         }
       }
       const wouldEngage = state.units.some(

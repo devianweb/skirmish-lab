@@ -190,7 +190,7 @@ describe('GameView', () => {
       gameView.onPick((target) => picks.push(target));
       click(inputElement, 100, 100); // board center -> unit at origin
 
-      expect(picks).toEqual([{ kind: 'unit', unitId: 'a' }]);
+      expect(picks).toEqual([{ kind: 'unit', unitId: 'a', modelId: 'a-model-1' }]);
     });
 
     it('picks a ground position when no unit is hit', () => {

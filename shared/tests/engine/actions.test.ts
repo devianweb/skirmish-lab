@@ -2113,5 +2113,46 @@ describe('applyAction invariants', () => {
       });
       expect(validateAction(state, validMove).valid).toBe(true);
     });
+
+    it('rejects moves that end suspended mid-air on a ladder rung (deck arrival rule)', () => {
+      const ladder: TerrainPiece = {
+        id: 'test-ladder',
+        terrainType: 'ladder',
+        climbType: 'ladder',
+        position: { x: 0, y: 0, z: 2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 3.0, z: 0.2 },
+        elevation: 3.0,
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+      };
+      const state = makeState([
+        makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } as Vector3, speed: 6 }),
+      ]);
+      state.terrain = [ladder];
+      state.turnState.activeUnitId = 'h1';
+      state.units[0].isActivated = true;
+
+      // Ending at y = 1.5 (suspended midway on the ladder rungs) is rejected
+      const midRungMove = createAction(HOST, 'move-unit', {
+        type: 'move-unit',
+        unitId: 'h1',
+        path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }, { x: 0, y: 1.5, z: 2 }],
+        finalPosition: { x: 0, y: 1.5, z: 2 },
+      });
+      const res = validateAction(state, midRungMove);
+      expect(res.valid).toBe(false);
+      expect(res.reason).toMatch(/suspended on ladder rungs/i);
+
+      // Ending at head deck (y = 3.0) is valid!
+      const deckMove = createAction(HOST, 'move-unit', {
+        type: 'move-unit',
+        unitId: 'h1',
+        path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }, { x: 0, y: 3.0, z: 2 }],
+        finalPosition: { x: 0, y: 3.0, z: 2 },
+      });
+      expect(validateAction(state, deckMove).valid).toBe(true);
+    });
   });
 });

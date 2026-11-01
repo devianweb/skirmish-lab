@@ -293,9 +293,13 @@ export class GameView {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(ndc, this.camera);
 
-    const unitId = this.unitRenderer.raycastUnit(raycaster);
-    if (unitId) {
-      return { kind: 'unit', unitId };
+    const unitHit = this.unitRenderer.raycastUnitHit(raycaster);
+    if (unitHit) {
+      return {
+        kind: 'unit',
+        unitId: unitHit.unitId,
+        ...(unitHit.modelId ? { modelId: unitHit.modelId } : {}),
+      };
     }
 
     const terrainHit = this.boardRenderer.raycastTerrainHit?.(raycaster) ?? null;

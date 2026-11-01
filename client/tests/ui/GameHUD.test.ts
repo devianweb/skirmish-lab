@@ -1883,6 +1883,104 @@ describe('GameHUD', () => {
       expect(action.payload.modelPositions[3]).toEqual({ x: 4.8, y: 0, z: -2 });
     });
 
+    it('allows player to select squad models to move in any arbitrary order via chips or board clicks', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.position = { x: 0, y: 0, z: -5 };
+      squad.speed = 6;
+      squad.remainingMovement = 6;
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm4', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+
+      // 1. Player chooses to move Model 3 FIRST by clicking its HUD chip
+      const m3Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m3"]');
+      expect(m3Chip).toBeTruthy();
+      m3Chip!.click();
+      expect(container.textContent).toContain('Place Model 3 of 4');
+
+      // Place Model 3 at (0, 0, -2)
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
+
+      // 2. Next unplaced model (Model 1) auto-selected, but player clicks Model 4 on the board to move it next!
+      hud.handleBoardPick({ kind: 'unit', unitId: squad.id, modelId: 'm4' });
+      expect(container.textContent).toContain('Place Model 4 of 4');
+
+      // Place Model 4 at (0.8, 0, -2) [buddy to M3]
+      hud.handleBoardPick({ kind: 'position', position: { x: 0.8, y: 0, z: -2 } });
+
+      // 3. Player clicks Model 1 chip and places it at (4.0, 0, -2)
+      const m1Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]');
+      expect(m1Chip).toBeTruthy();
+      m1Chip!.click();
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -2 } });
+
+      // 4. Finally place Model 2 at (4.8, 0, -2) [buddy to M1]
+      expect(container.textContent).toContain('Place Model 2 of 4');
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.8, y: 0, z: -2 } });
+
+      // All 4 models placed in arbitrary order (M3 -> M4 -> M1 -> M2)!
+      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      clickByText(container, 'Confirm');
+
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('move-unit');
+      // Payload positions must be indexed according to living model order [m1, m2, m3, m4]
+      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -2 }); // m1
+      expect(action.payload.modelPositions[1]).toEqual({ x: 4.8, y: 0, z: -2 }); // m2
+      expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -2 });   // m3
+      expect(action.payload.modelPositions[3]).toEqual({ x: 0.8, y: 0, z: -2 }); // m4
+    });
+
+    it('allows repositioning an already placed squad model before confirmation', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.position = { x: 0, y: 0, z: -4 };
+      squad.speed = 6;
+      squad.remainingMovement = 6;
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+
+      const { hud, container, controller } = setup(HOST, state);
+      clickByText(container, 'Move');
+
+      // Place M1 at (0, 0, -2)
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
+
+      // Decide to change M1 placement by clicking M1 chip again
+      const m1Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]');
+      expect(m1Chip).toBeTruthy();
+      m1Chip!.click();
+
+      // Reposition M1 to (0, 0, -1)
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -1 } });
+
+      // Place M2 at (1, 0, -1)
+      hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -1 } });
+
+      expect(container.textContent).toContain('Confirm');
+      clickByText(container, 'Confirm');
+
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -1 });
+      expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -1 });
+    });
+
     it('rejects move ending in melee contact with toast and does not confirm', () => {
       const state = scenarioState();
       const unit = state.units.find((u) => u.ownerId === HOST && (!u.models || u.models.length <= 1))!;

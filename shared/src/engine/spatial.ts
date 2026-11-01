@@ -356,6 +356,25 @@ export function findMoveBlocker(
     const isOnStairs = isSegmentOnRampOrStairs(state, from, to);
 
     for (const piece of state.terrain) {
+      if (isStairPiece(piece)) {
+        if (isOnStairs) {
+          continue;
+        }
+        // Check if movement segment intersects the solid triangular wedge body of the stairs
+        const hit = intersectRayTerrain(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
+        if (hit && hit.tExit > 0.02 && (hit.tEntry > 0.001 || hit.tExit >= segLen - 0.02)) {
+          const entryT = Math.max(0, hit.tEntry);
+          const entryX = from.x + dirX * entryT;
+          const entryZ = from.z + dirZ * entryT;
+          const entryY = fromY + (toY - fromY) * (segLen > 1e-6 ? entryT / segLen : 0);
+          const slopeY = getStairSurfaceHeight(piece, { x: entryX, y: entryY, z: entryZ }, state);
+          if (slopeY !== null && entryY < slopeY - 0.15) {
+            return { blocked: true, reason: 'Move path is blocked by stairs' };
+          }
+        }
+        continue;
+      }
+
       if (!piece.isObstacle) continue;
 
       if (isOnStairs) {
@@ -364,8 +383,8 @@ export function findMoveBlocker(
           piece.climbType === 'stairs' ||
           piece.climbType === 'ladder' ||
           piece.climbType === 'ramp' ||
-          piece.terrainType.includes('stairs') ||
-          piece.terrainType.includes('ladder')
+          piece.terrainType?.includes('stairs') ||
+          piece.terrainType?.includes('ladder')
         ) {
           continue;
         }
@@ -380,7 +399,7 @@ export function findMoveBlocker(
         }
 
         // Low walls or parapet railings at stair access points do not block access
-        if (piece.terrainType === 'wall-low' || piece.terrainType.includes('wall')) {
+        if (piece.terrainType === 'wall-low' || piece.terrainType?.includes('wall')) {
           continue;
         }
       }
@@ -499,6 +518,26 @@ export function clampMoveDestinationWithObstacles(
     let allowedDist = segLen;
 
     for (const piece of state.terrain) {
+      if (isStairPiece(piece)) {
+        const segOnStairs = isSegmentOnRampOrStairs(state, unit.position, { x, y, z });
+        if (segOnStairs) {
+          continue;
+        }
+        // Check if movement segment intersects the solid triangular wedge body of the stairs
+        const hit = intersectRayTerrain(unit.position, dirX, dirZ, allowedDist, piece, UNIT_COLLISION_RADIUS);
+        if (hit && hit.tExit > 0.02 && (hit.tEntry > 0.001 || hit.tExit >= allowedDist - 0.02)) {
+          const entryT = Math.max(0, hit.tEntry);
+          const entryX = unit.position.x + dirX * entryT;
+          const entryZ = unit.position.z + dirZ * entryT;
+          const entryY = startY + (y - startY) * (segLen > 1e-6 ? entryT / segLen : 0);
+          const slopeY = getStairSurfaceHeight(piece, { x: entryX, y: entryY, z: entryZ }, state);
+          if (slopeY !== null && entryY < slopeY - 0.15) {
+            allowedDist = Math.min(allowedDist, Math.max(0, entryT - 0.05));
+          }
+        }
+        continue;
+      }
+
       if (!piece.isObstacle) continue;
       const pieceBaseY = piece.position.y ?? 0;
       const pieceHeight = piece.scale.y ?? 1.0;
@@ -1383,6 +1422,121 @@ export function computeLosVisibilityPolygon(
  * the returned path stops cleanly at the exact maximum movement allowed.
  */
 /**
+ * Identifies whether a terrain piece is an inclined stair or ramp.
+ */
+export function isStairPiece(piece: TerrainPiece): boolean {
+  if (!piece) return false;
+  return (
+    piece.terrainType === 'stairs' ||
+    piece.climbType === 'stairs' ||
+    piece.terrainType === 'stairs-open' ||
+    piece.terrainType === 'stairs-closed-short' ||
+    piece.terrainType === 'stairs-sides' ||
+    piece.terrainType === 'ramp' ||
+    piece.climbType === 'ramp' ||
+    Boolean(piece.terrainType && piece.terrainType.includes('stairs'))
+  );
+}
+
+/**
+ * Identifies whether a terrain piece is a vertical ladder.
+ */
+export function isLadderPiece(piece: TerrainPiece): boolean {
+  if (!piece) return false;
+  return (
+    piece.terrainType === 'ladder' ||
+    piece.climbType === 'ladder' ||
+    Boolean(piece.terrainType && piece.terrainType.includes('ladder'))
+  );
+}
+
+/**
+ * Calculates the continuous elevation along the sloped hypotenuse surface of a triangular stair/ramp.
+ * Returns null if the point is horizontally outside the stair footprint.
+ */
+export function getStairSurfaceHeight(
+  piece: TerrainPiece,
+  point: Vector3,
+  state?: GameState
+): number | null {
+  if (!isStairPiece(piece)) return null;
+
+  const { hx, hz } = terrainHalfExtents(piece);
+  const yaw = piece.rotation.y || 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+
+  const dx = point.x - piece.position.x;
+  const dz = point.z - piece.position.z;
+  const lx = dx * cos + dz * sin;
+  const lz = -dx * sin + dz * cos;
+
+  // Margin around stairs footprint
+  if (Math.abs(lx) > hx + 0.35 || Math.abs(lz) > hz + 0.35) {
+    return null;
+  }
+
+  const botY = piece.position.y ?? 0;
+  const topY = piece.elevation !== undefined ? piece.elevation : botY + (piece.scale.y ?? 2.5);
+
+  let footLocalZ = -hz;
+  let headLocalZ = hz;
+  if (state) {
+    const waypoints = getStairWaypoints(state, piece);
+    const fdx = waypoints.foot.x - piece.position.x;
+    const fdz = waypoints.foot.z - piece.position.z;
+    const flz = -fdx * sin + fdz * cos;
+    if (flz > 0) {
+      footLocalZ = hz;
+      headLocalZ = -hz;
+    }
+  }
+
+  const t = (lz - footLocalZ) / (headLocalZ - footLocalZ);
+  const clampedT = Math.max(0, Math.min(1, t));
+  return botY + clampedT * (topY - botY);
+}
+
+/**
+ * Checks whether a 3D line segment traverses an active vertical ladder.
+ */
+export function isSegmentOnLadder(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3
+): boolean {
+  for (const piece of state.terrain) {
+    if (!isLadderPiece(piece)) continue;
+
+    const { hx, hz } = terrainHalfExtents(piece);
+    const yaw = piece.rotation.y || 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const margin = 0.5;
+    const botY = Math.min(0, piece.position.y ?? 0);
+    const topY = Math.max(
+      piece.elevation ?? 0,
+      (piece.position.y ?? 0) + (piece.scale.y ?? 2.5),
+      (piece as any).size?.y ?? 0
+    );
+
+    const testPoints = [p1, p2];
+    const onLadder = testPoints.every((pt) => {
+      const py = pt.y ?? 0;
+      if (py < botY - 0.5 || py > topY + 0.5) return false;
+      const dx = pt.x - piece.position.x;
+      const dz = pt.z - piece.position.z;
+      const lx = dx * cos + dz * sin;
+      const lz = -dx * sin + dz * cos;
+      return Math.abs(lx) <= hx + margin && Math.abs(lz) <= hz + margin;
+    });
+
+    if (onLadder) return true;
+  }
+  return false;
+}
+
+/**
  * Checks whether a 3D line segment traverses an active staircase, ladder, or ramp.
  */
 export function isSegmentOnRampOrStairs(
@@ -1391,12 +1545,7 @@ export function isSegmentOnRampOrStairs(
   p2: Vector3
 ): boolean {
   for (const piece of state.terrain) {
-    const isRampOrStairs =
-      piece.terrainType === 'stairs' ||
-      piece.terrainType === 'ladder' ||
-      piece.climbType === 'stairs' ||
-      piece.climbType === 'ladder' ||
-      piece.climbType === 'ramp';
+    const isRampOrStairs = isStairPiece(piece) || isLadderPiece(piece);
     if (!isRampOrStairs) continue;
 
     const { hx, hz } = terrainHalfExtents(piece);
@@ -1428,7 +1577,9 @@ export function isSegmentOnRampOrStairs(
       const dz = pt.z - piece.position.z;
       const lx = dx * cos + dz * sin;
       const lz = -dx * sin + dz * cos;
-      return Math.abs(lx) <= hx + margin && Math.abs(lz) <= hz + margin;
+      if (Math.abs(lx) > hx + margin || Math.abs(lz) > hz + margin) return false;
+
+      return true;
     });
 
     if (allInFootprint) {
@@ -2152,6 +2303,15 @@ export function findNavPath(
         !isSegmentOnRampOrStairs(state, p1, p2);
       if (isSheerWallClimb) {
         // Cannot end activation suspended in mid-air on a sheer vertical wall; stop at the wall base (p1)
+        break;
+      }
+      const isLadderClimb =
+        Math.abs(y2 - y1) > 0.5 &&
+        !hasTrait(unit.specialRules, 'airborne') &&
+        isSegmentOnLadder(state, p1, p2);
+      if (isLadderClimb) {
+        // Tabletop ladder rules: models scaling vertical ladders must have sufficient movement budget to reach the landing platform deck;
+        // if movement is insufficient, the model remains at the ladder foot (p1) rather than hanging suspended on rungs.
         break;
       }
       const ratio = distLeft / segLen;
