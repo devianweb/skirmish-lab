@@ -487,29 +487,118 @@ describe('applyAction: move-unit', () => {
     expect(outcome.reason).toContain('exceeds 2" limit');
   });
 
-  it('rejects move-unit when an individual squad model exceeds its speed allowance', () => {
+  it('permits a multi-model squad to flank obstacles without centroid terrain collision false-positives', () => {
     const state = moveState();
+    // Add a solid crate obstacle at x: 0, z: 2, extent [-0.5, 0.5] in x
+    state.terrain = [
+      {
+        id: 'crate-center',
+        terrainType: 'crate',
+        position: { x: 0, y: 0, z: 2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1.0, y: 1.0, z: 1.0 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
     const unit = state.units.find((u) => u.id === 'h1')!;
     unit.speed = 6;
+    unit.position = { x: 0, y: 0, z: 0 };
     unit.models = [
-      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
-      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -0.9, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.9, y: 0, z: 0 } },
     ];
-    // Model 2 tries to move from z: 0 to z: 7.0" (speed is 6")
-    const overreachingPositions: Vector3[] = [
-      { x: 0, y: 0, z: 5.5 },
-      { x: 0.8, y: 0, z: 7.0 },
+
+    // Both models flank on either side of the crate (x: -0.9 and x: 0.9), staying coherent (1.8" <= 2.0")
+    // Centroid line goes from (0, 0, 0) to (0, 0, 4) straight through the crate at (0, 0, 2)
+    const flankingPositions: Vector3[] = [
+      { x: -0.9, y: 0, z: 4 },
+      { x: 0.9, y: 0, z: 4 },
     ];
+    const flankingPaths: Vector3[][] = [
+      [
+        { x: -0.9, y: 0, z: 0 },
+        { x: -0.9, y: 0, z: 4 },
+      ],
+      [
+        { x: 0.9, y: 0, z: 0 },
+        { x: 0.9, y: 0, z: 4 },
+      ],
+    ];
+
     const action = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'h1',
-      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 5.0 }],
-      finalPosition: { x: 0, y: 0, z: 5.0 },
-      modelPositions: overreachingPositions,
+      path: [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 4 },
+      ],
+      finalPosition: { x: 0, y: 0, z: 4 },
+      modelPositions: flankingPositions,
+      modelPaths: flankingPaths,
     });
+
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(true);
+    const postUnit = outcome.state!.units.find((u) => u.id === 'h1')!;
+    expect(postUnit.models[0].position).toEqual({ x: -0.9, y: 0, z: 4 });
+    expect(postUnit.models[1].position).toEqual({ x: 0.9, y: 0, z: 4 });
+  });
+
+  it('rejects move-unit if an individual squad model path intersects an obstacle', () => {
+    const state = moveState();
+    state.terrain = [
+      {
+        id: 'crate-center',
+        terrainType: 'crate',
+        position: { x: 0, y: 0, z: 2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1.0, y: 1.0, z: 1.0 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      },
+    ];
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.speed = 6;
+    unit.position = { x: 0.45, y: 0, z: 0 };
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.9, y: 0, z: 0 } },
+    ];
+
+    // Model 1 moves straight through the crate at (0, 0, 2)
+    const blockedPositions: Vector3[] = [
+      { x: 0, y: 0, z: 4 },
+      { x: 0.9, y: 0, z: 4 },
+    ];
+    const blockedPaths: Vector3[][] = [
+      [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 4 },
+      ],
+      [
+        { x: 0.9, y: 0, z: 0 },
+        { x: 0.9, y: 0, z: 4 },
+      ],
+    ];
+
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [
+        { x: 0.45, y: 0, z: 0 },
+        { x: 0.45, y: 0, z: 4 },
+      ],
+      finalPosition: { x: 0.45, y: 0, z: 4 },
+      modelPositions: blockedPositions,
+      modelPaths: blockedPaths,
+    });
+
     const outcome = act(state, action);
     expect(outcome.ok).toBe(false);
-    expect(outcome.reason).toContain('exceeds speed allowance');
+    expect(outcome.reason).toContain('Squad model 1 move path is blocked');
   });
 });
 

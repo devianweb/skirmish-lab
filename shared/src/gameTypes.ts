@@ -196,8 +196,8 @@ export type ActionType =
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'deploy-unit', unitId: string, position: Vector3, rotation?: Vector3 }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[] }
-  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[] }
+  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
+  | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | {
       type: 'shoot';
       attackerId: string;
