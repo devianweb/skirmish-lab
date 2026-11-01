@@ -260,13 +260,20 @@ Track all modifiers to rolls:
 - **Standard Checks:** Line of sight is drawn directly between attacker and target on the board plane.
 - **Sight-Blockers:** Blocked by solid terrain with `blocksLineOfSight: true` (e.g. solid walls, columns) and by other living fighters (`LOS_UNIT_RADIUS = 0.4`).
 - **Apertures (Windows & Doorways):**
-  - **Doorways (`wall-doorway`):** The central 1.0" opening allows unobstructed Line of Sight and model movement. Models within 1.0" of the door frame claim Cover (+1 Defense) against shots passing through the door.
-  - **Windows / Firing Ports (`wall-window`):** Windows block model movement. Line of Sight can be drawn through the central 1.0" window aperture if at least one model (shooter or target) is within 1.0" of the opening ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains +1 Defense (Cover). If both models are >1.0" from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
+  - **Doorways (`wall-doorway`):** A doorway is open air between two jambs under a lintel (1.4" opening on a 4" wall). Line of Sight and movement pass freely; there is no port, so standing in a doorway gives no cover by itself. A model tucked behind a jamb gets ordinary sight-blocker cover.
+  - **Windows / Firing Ports (`wall-window`, ruin ports):** Windows block model movement. A ray that goes through the aperture is allowed only if at least one model (shooter or target) has its base edge within 1.0" of the opening ("manning the port"). A defender manning a port that the shot passes through gains +1 Defense (Cover). If both models are further away, the aperture blocks sight (preventing distant keyholing); rays that clip the sill or lintel are blocked as ordinary solids.
+
+### Terrain Structure: Solids + Apertures
+Terrain pieces resolve to **solids** (walls, jambs, sills, lintels, columns) and **apertures** (window firing ports); see [DATA_MODEL.md](./DATA_MODEL.md). The engine reads only those boxes, with no per-building special cases:
+- **Movement:** solids with `isObstacle` block, by their height range (a lintel above head height does not block walking beneath it). Doorway gaps and the open courtyard of an L-corner ruin are walkable; window sills and apertures are not.
+- **Line of Sight (3D):** rays run from the attacker's eye (`EYE_HEIGHT` = 1.1" above its feet) to the target, sampled at head (1.1"), torso (0.6") and feet-top (0.1"). The target is visible if **any** sample ray is clear (one yes/no result). A ray is blocked by a solid it crosses at that height, or by an aperture it passes through unless the shooter or target is **manning** that port.
+- **Manning:** any model's base edge within 1.0" of the port box (centre within `MANNING_REACH + UNIT_BASE_RADIUS` = 1.5"; squads are tested per model).
+- **Visibility fan:** a slice of the 3D world at the shooter's eye height; overhead parts (lintels) don't shadow it.
 
 ### Cover Determination
 - **In-Cover Status:** Targets with `in-cover` status always receive +1 Defense.
 - **Low Cover Proximity Rule:** Intervening low cover (crates, low barricades) only grants +1 Defense if the defending target is within **1.0"** of the terrain piece along the line of fire (and the terrain is not adjacent to the shooter, i.e. `projDist > 1.0"`). Distant low crates in the middle of no-man's-land do not grant cover to targets standing in the open downrange, matching tabletop True-Line-of-Sight conventions.
-- **Sight-Blocking Partial Cover:** For walls and columns, the target must be within 1.0" of the piece and partially obscured (at least one ray to the model's flanks blocked while center LoS remains open).
+- **Sight-Blocking Partial Cover:** For walls, jambs, sills and columns, the target's base edge must be within 1.0" of the solid and partially obscured (a torso-height flank ray is blocked while LoS stays open).
 
 ### Targeting Restrictions
 - Must be in range
@@ -275,10 +282,10 @@ Track all modifiers to rolls:
 
 ### LoS & Cover Debugger (F9)
 Pressing `F9` in-game activates the real-time spatial debugger:
-- **Shooting Ray Trace:** Renders the 3D trajectory from shooter eye level (`y = 0.45"`) to target or aim point, color-coded by obstruction (Cyan = clear LoS, Amber = passing through cover, Red = blocked LoS).
+- **Shooting Ray Trace:** Renders the 3D trajectory from shooter eye level (1.1" above its feet) to the target's eye/aim point, color-coded by obstruction (Cyan = clear LoS, Amber = passing through cover, Red = blocked LoS).
 - **Boundary Intersections:** 3D disc rings highlight exact entry and exit coordinates where the shooting line breaches terrain bounding boxes.
-- **Flank Rays:** Shows left and right rays (±0.3" from target center) to verify partial corner obscuration for low cover and wall corners.
-- **Cover Map Wireframes:** Renders full-table wireframe boundaries for all terrain pieces (Cyan = solid LoS blockers, Amber = low cover, Gold highlight = piece actively granting cover to target).
+- **Flank Rays:** Shows left and right torso-height rays (±0.3" from target center, 0.6" up) to verify partial obscuration by walls, jambs and sills.
+- **Cover Map Wireframes:** Renders one wireframe per terrain solid and aperture (Cyan = solid LoS blockers, Amber = low cover, Green = firing-port apertures, Gold highlight = piece actively granting cover to target).
 - **HUD Analysis Card:** Displays real-time calculations: distance, Line of Sight status, cover reason, piece IDs, and coordinate breakdown of all intersected pieces.
 
 ## Game State Transitions

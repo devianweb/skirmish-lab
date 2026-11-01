@@ -1,6 +1,18 @@
 import { GameState, TerrainPiece, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
+import {
+  EYE_HEIGHT,
+  FLANK_RAY_HEIGHT,
+  TARGET_SAMPLE_HEIGHTS,
+  isManningBox,
+  localToWorldXZ,
+  resolveTerrainStructure,
+  segmentBoxIntersection,
+  worldToLocal,
+} from './terrainStructure';
+
+export * from './terrainStructure';
 
 /**
  * Pure 2D spatial geometry on the XZ board plane for movement collision,
@@ -204,121 +216,6 @@ export function intersectLocalBox(
 }
 
 /**
- * Opening geometry of aperture walls as fractions of the piece's scale, matching
- * the procedural meshes (ModelLoader): doorways are 0.3 wide and 0.88 tall;
- * windows are 0.6 wide, from a 0.4 high breastwork sill up to a 0.9 high lintel.
- */
-export function getApertureProfile(
-  piece: TerrainPiece
-): { halfWidth: number; bottom: number; top: number } | null {
-  const sx = Math.max(0.05, piece.scale.x);
-  const sy = piece.scale.y ?? 1;
-  const baseY = piece.position.y ?? 0;
-  if (piece.terrainType === 'wall-doorway') {
-    const doorHalfWidth = Math.max(0.70, 0.175 * sx);
-    return { halfWidth: doorHalfWidth, bottom: baseY, top: baseY + 0.88 * sy };
-  }
-  if (piece.terrainType === 'wall-window') {
-    return { halfWidth: 0.3 * sx, bottom: baseY + 0.4 * sy, top: baseY + 0.9 * sy };
-  }
-  return null;
-}
-
-export interface ApertureRayResult {
-  hitPiece: boolean;
-  passesAperture: boolean;
-  hitsJamb: boolean;
-  tEntry?: number;
-  tExit?: number;
-}
-
-/**
- * Check whether a ray hits the solid jambs of an aperture piece (wall-doorway or wall-window)
- * or passes through the central 1.0" opening (|localX| <= 0.5).
- */
-export function intersectAperturePiece(
-  origin: Vector3,
-  dirX: number,
-  dirZ: number,
-  maxDist: number,
-  piece: TerrainPiece,
-  margin: number = 0
-): ApertureRayResult {
-  const { hx, hz } = terrainHalfExtents(piece);
-  const yaw = piece.rotation.y || 0;
-  const cos = Math.cos(yaw);
-  const sin = Math.sin(yaw);
-  const dx = origin.x - piece.position.x;
-  const dz = origin.z - piece.position.z;
-
-  const localOx = dx * cos - dz * sin;
-  const localOz = dx * sin + dz * cos;
-  const localDx = dirX * cos - dirZ * sin;
-  const localDz = dirX * sin + dirZ * cos;
-
-  const overall = intersectLocalBox(
-    localOx,
-    localOz,
-    localDx,
-    localDz,
-    -hx - margin,
-    hx + margin,
-    -hz - margin,
-    hz + margin,
-    maxDist
-  );
-  if (!overall) {
-    return { hitPiece: false, passesAperture: false, hitsJamb: false };
-  }
-
-  const apertureHalfWidth = getApertureProfile(piece)?.halfWidth ?? 0.5;
-  const leftJamb = intersectLocalBox(
-    localOx,
-    localOz,
-    localDx,
-    localDz,
-    -hx - margin,
-    -apertureHalfWidth + margin,
-    -hz - margin,
-    hz + margin,
-    maxDist
-  );
-  const rightJamb = intersectLocalBox(
-    localOx,
-    localOz,
-    localDx,
-    localDz,
-    apertureHalfWidth - margin,
-    hx + margin,
-    -hz - margin,
-    hz + margin,
-    maxDist
-  );
-
-  const hitsJamb = !!(leftJamb || rightJamb);
-  const apertureHit = intersectLocalBox(
-    localOx,
-    localOz,
-    localDx,
-    localDz,
-    -apertureHalfWidth,
-    apertureHalfWidth,
-    -hz,
-    hz,
-    maxDist
-  );
-  const passesAperture = !!apertureHit && !hitsJamb;
-
-  return {
-    hitPiece: true,
-    passesAperture,
-    hitsJamb,
-    tEntry: overall.tEntry,
-    tExit: overall.tExit,
-  };
-}
-
-/**
  * Intersect a 2D ray `origin + t * (dirX, dirZ)` (`0 <= t <= maxDist`) with a
  * circle on the XZ plane.
  */
@@ -444,23 +341,43 @@ export function findMoveBlocker(
         continue;
       }
 
-      if (piece.terrainType === 'wall-doorway') {
-        const ap = intersectAperturePiece(from, dirX, dirZ, segLen, piece, 0.35);
-        if (
-          ap.hitsJamb &&
-          ap.tExit !== undefined &&
-          ap.tExit > 0.02 &&
-          (ap.tEntry === undefined || ap.tEntry > 0.001 || ap.tExit >= segLen - 0.02)
-        ) {
+      const broadHit = intersectRayTerrain(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
+      if (!broadHit) continue;
+
+      const parts = resolveTerrainStructure(piece).solids;
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const pDx = from.x - piece.position.x;
+      const pDz = from.z - piece.position.z;
+      const localOx = pDx * cos - pDz * sin;
+      const localOz = pDx * sin + pDz * cos;
+      const localDx = dirX * cos - dirZ * sin;
+      const localDz = dirX * sin + dirZ * cos;
+
+      for (const part of parts) {
+        if (!part.isObstacle) continue;
+
+        const partBaseY = pieceBaseY + part.minY;
+        const partTopY = pieceBaseY + part.maxY;
+        if (minSegY >= partTopY - 0.05) continue;
+        if (partBaseY >= maxSegY + 1.2) continue;
+
+        const margin = UNIT_COLLISION_RADIUS;
+        const hit = intersectLocalBox(
+          localOx,
+          localOz,
+          localDx,
+          localDz,
+          part.minX - margin,
+          part.maxX + margin,
+          part.minZ - margin,
+          part.maxZ + margin,
+          segLen
+        );
+        if (hit && hit.tExit > 0.02 && (hit.tEntry > 0.001 || hit.tExit >= segLen - 0.02)) {
           return { blocked: true, reason: 'Move path is blocked by terrain' };
         }
-        continue;
-      }
-      const hit = intersectRayTerrain(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
-      // Allow moving away if the start point happened to touch the margin,
-      // but block entering or crossing through the obstacle.
-      if (hit && hit.tExit > 0.02 && (hit.tEntry > 0.001 || hit.tExit >= segLen - 0.02)) {
-        return { blocked: true, reason: 'Move path is blocked by terrain' };
       }
     }
 
@@ -581,7 +498,7 @@ export function clampMoveDestinationWithObstacles(
         continue;
       }
 
-      let hit = intersectRayTerrain(
+      const broadHit = intersectRayTerrain(
         unit.position,
         dirX,
         dirZ,
@@ -589,14 +506,42 @@ export function clampMoveDestinationWithObstacles(
         piece,
         UNIT_COLLISION_RADIUS
       );
-      if (hit && piece.terrainType === 'wall-doorway') {
-        const ap = intersectAperturePiece(unit.position, dirX, dirZ, allowedDist, piece, UNIT_COLLISION_RADIUS);
-        // Walking through the opening is fine; only the solid jambs stop the move.
-        if (!ap.hitsJamb) hit = null;
-        else if (ap.tEntry !== undefined && ap.tExit !== undefined) hit = { tEntry: ap.tEntry, tExit: ap.tExit };
-      }
-      if (hit && hit.tExit > 0.02 && hit.tEntry > 0.001) {
-        allowedDist = Math.min(allowedDist, Math.max(0, hit.tEntry - 0.05));
+      if (!broadHit) continue;
+
+      const parts = resolveTerrainStructure(piece).solids;
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const pDx = unit.position.x - piece.position.x;
+      const pDz = unit.position.z - piece.position.z;
+      const localOx = pDx * cos - pDz * sin;
+      const localOz = pDx * sin + pDz * cos;
+      const localDx = dirX * cos - dirZ * sin;
+      const localDz = dirX * sin + dirZ * cos;
+
+      for (const part of parts) {
+        if (!part.isObstacle) continue;
+
+        const partBaseY = pieceBaseY + part.minY;
+        const partTopY = pieceBaseY + part.maxY;
+        if (Math.min(startY, y) >= partTopY - 0.05) continue;
+        if (partBaseY >= Math.max(startY, y) + 1.2) continue;
+
+        const margin = UNIT_COLLISION_RADIUS;
+        const hit = intersectLocalBox(
+          localOx,
+          localOz,
+          localDx,
+          localDz,
+          part.minX - margin,
+          part.maxX + margin,
+          part.minZ - margin,
+          part.maxZ + margin,
+          allowedDist
+        );
+        if (hit && hit.tExit > 0.02 && hit.tEntry > 0.001) {
+          allowedDist = Math.min(allowedDist, Math.max(0, hit.tEntry - 0.05));
+        }
       }
     }
 
@@ -715,20 +660,98 @@ export function getPlatformEdgeDistance(
   return Math.max(0, tExit === Infinity ? 0 : tExit);
 }
 
+type SpatialSubject = Pick<Unit, 'position'> & { id?: string; models?: Unit['models']; status?: Unit['status'] };
+
+export interface LineOfSightTrace {
+  clear: boolean;
+  blockedByPieceId?: string;
+  blockedByUnitId?: string;
+  /** Height on the target (inches above its feet) of the ray that got through, when clear. */
+  visibleSampleHeight?: number;
+}
+
+/** First LoS-blocking terrain piece crossed by the 3D segment `from` -> `to`, or null. */
+function terrainBlockingSegment(
+  state: GameState,
+  from: Vector3,
+  to: Vector3,
+  attacker: SpatialSubject,
+  target: SpatialSubject
+): string | null {
+  const segLen = Math.hypot(to.x - from.x, (to.y ?? 0) - (from.y ?? 0), to.z - from.z);
+  const eps = segLen > 1e-6 ? 0.05 / segLen : 0;
+  for (const piece of state.terrain) {
+    if (!piece.blocksLineOfSight) continue;
+    const structure = resolveTerrainStructure(piece);
+    const a = worldToLocal(piece, from);
+    const b = worldToLocal(piece, to);
+    for (const solid of structure.solids) {
+      if (!solid.blocksLineOfSight) continue;
+      const hit = segmentBoxIntersection(a, b, solid);
+      if (hit && hit.s1 > eps && hit.s0 < 1 - eps) return piece.id;
+    }
+    for (const ap of structure.apertures) {
+      const hit = segmentBoxIntersection(a, b, ap);
+      if (hit && hit.s1 > eps && hit.s0 < 1 - eps) {
+        // A port only passes sight while the shooter or the target is manning it.
+        if (!isManningBox(piece, ap, attacker) && !isManningBox(piece, ap, target)) return piece.id;
+      }
+    }
+  }
+  return null;
+}
+
+/** First intervening fighter (not attacker/target) whose body the 3D segment passes through, or null. */
+function unitBlockingSegment(
+  state: GameState,
+  from: Vector3,
+  to: Vector3,
+  attackerId: string,
+  targetId: string | undefined
+): string | null {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-4) return null;
+  const dirX = dx / dist;
+  const dirZ = dz / dist;
+  for (const other of state.units) {
+    if (other.isDestroyed || other.id === attackerId || other.id === targetId) continue;
+    const otherModels =
+      other.models && other.models.length > 0
+        ? other.models.filter((m) => !m.isDestroyed)
+        : [{ position: other.position }];
+    for (const m of otherModels) {
+      const mPos = m.position ?? other.position;
+      const hit = intersectRayCircle(from, dirX, dirZ, dist, mPos, LOS_UNIT_RADIUS);
+      if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
+        const tMid = (hit.tEntry + hit.tExit) / 2;
+        const rayY = (from.y ?? 0) + (tMid / dist) * ((to.y ?? 0) - (from.y ?? 0));
+        const otherY = mPos.y ?? other.position.y ?? 0;
+        if (rayY > otherY + 1.5 || rayY < otherY - 0.1) continue; // ray passes above/below the fighter
+        return other.id;
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * OPR-style Line of Sight check between `attacker` and `target`.
- *
- * Line of Sight is blocked by:
- *   1. Any terrain piece with `blocksLineOfSight: true` (walls, columns).
- *   2. Any other living fighter on the board (friendly or enemy not part of
- *      the attacker/target pair).
- *   3. 3D roof floor plane blind spots for models set back > 1.0" from platform edges.
+ * Trace Line of Sight in 3D from the attacker's eye to the target. The target is visible if a ray
+ * reaches any sampled part of it (head, torso or feet). Solids block by box height (lintels, sills,
+ * walls); a port (aperture) passes sight only while the shooter or target is manning it.
  */
-export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): boolean {
+export function traceLineOfSight(
+  state: GameState,
+  attacker: Unit,
+  targetOrPoint: SpatialSubject | Vector3
+): LineOfSightTrace {
+  const target: SpatialSubject =
+    'position' in targetOrPoint ? (targetOrPoint as SpatialSubject) : { position: targetOrPoint as Vector3 };
   const dx = target.position.x - attacker.position.x;
   const dz = target.position.z - attacker.position.z;
   const dist = Math.hypot(dx, dz);
-  if (dist < 1e-4) return true;
+  if (dist < 1e-4) return { clear: true };
 
   const attackerY = attacker.position.y ?? 0;
   const targetY = target.position.y ?? 0;
@@ -740,7 +763,7 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
     if (platform) {
       const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
       if (setback > 1.05) {
-        return false; // Ground shooter's sight is blocked by the floor plane
+        return { clear: false }; // Ground shooter's sight is blocked by the floor plane
       }
     }
   }
@@ -751,95 +774,54 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
     if (platform) {
       const setback = getPlatformEdgeDistance(attacker.position, target.position, platform);
       if (setback > 1.05) {
-        return false; // Elevated shooter cannot see over floor lip to ground below
+        return { clear: false }; // Elevated shooter cannot see over floor lip to ground below
       }
     }
   }
 
-  const dirX = dx / dist;
-  const dirZ = dz / dist;
-
-  for (const piece of state.terrain) {
-    if (!piece.blocksLineOfSight) continue;
-
-    const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0);
-    if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
-      // Check 3D vertical ray clearance
-      const tMid = (hit.tEntry + hit.tExit) / 2;
-      const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
-      const pieceBottom = piece.position.y ?? 0;
-      const pieceTop = pieceBottom + (piece.scale?.y ?? 1.5);
-      if (rayY > pieceTop + 0.05 || rayY < pieceBottom - 0.05) {
-        // Ray passes completely above or below the piece
-        continue;
-      }
-
-      if (piece.terrainType === 'wall-doorway') {
-        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-        if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
-          return false;
-        }
-        continue;
-      }
-
-      if (piece.terrainType === 'wall-window') {
-        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-        if (ap.hitsJamb && ap.tEntry !== undefined && ap.tEntry < dist - 0.05 && (ap.tExit ?? 0) > 0.05) {
-          return false;
-        }
-        if (ap.passesAperture) {
-          const { hx, hz } = terrainHalfExtents(piece);
-          const pieceRadius = Math.hypot(hx, hz);
-          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
-          const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
-          if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
-            continue; // Peeking / manning the firing port allows sight
-          }
-          return false; // Distant window blocks sight
-        }
-        continue;
-      }
-
-      return false;
-    }
-  }
-
-  for (const other of state.units) {
-    if (other.isDestroyed || other.id === attacker.id || other.id === target.id) {
+  const eye: Vector3 = { x: attacker.position.x, y: attackerY + EYE_HEIGHT, z: attacker.position.z };
+  let firstBlock: LineOfSightTrace = { clear: false };
+  let recorded = false;
+  for (const h of TARGET_SAMPLE_HEIGHTS) {
+    const to: Vector3 = { x: target.position.x, y: targetY + h, z: target.position.z };
+    const pieceId = terrainBlockingSegment(state, eye, to, attacker, target);
+    if (pieceId) {
+      if (!recorded) firstBlock = { clear: false, blockedByPieceId: pieceId };
+      recorded = true;
       continue;
     }
-    const otherModels = other.models && other.models.length > 0
-      ? other.models.filter((m) => !m.isDestroyed)
-      : [{ position: other.position }];
-
-    for (const m of otherModels) {
-      const mPos = m.position ?? other.position;
-      const hit = intersectRayCircle(
-        attacker.position,
-        dirX,
-        dirZ,
-        dist,
-        mPos,
-        LOS_UNIT_RADIUS
-      );
-      if (hit && hit.tEntry < dist - 0.05 && hit.tExit > 0.05) {
-        const tMid = (hit.tEntry + hit.tExit) / 2;
-        const rayY = attackerY + (tMid / dist) * (targetY - attackerY);
-        const otherY = mPos.y ?? other.position.y ?? 0;
-        if (rayY > otherY + 1.5 || rayY < otherY - 0.1) {
-          continue; // Ray passes above the intermediate fighter
-        }
-        return false;
-      }
+    const unitId = unitBlockingSegment(state, eye, to, attacker.id, target.id);
+    if (unitId) {
+      if (!recorded) firstBlock = { clear: false, blockedByUnitId: unitId };
+      recorded = true;
+      continue;
     }
+    return { clear: true, visibleSampleHeight: h };
   }
-
-  return true;
+  return firstBlock;
 }
 
 /**
- * Determine whether `target` receives a Cover bonus (+1 Defense) against a
- * ranged attack from `attacker`.
+ * OPR-style Line of Sight check between `attacker` and `target`, traced in 3D from the attacker's
+ * eye to any sampled part of the target (see `traceLineOfSight`). Blocked by:
+ *   1. Solid terrain boxes with `blocksLineOfSight` (walls, jambs, sills, lintels, columns) at the
+ *      height the ray actually crosses them.
+ *   2. Port apertures (windows) unless the shooter or target is manning the port.
+ *   3. Other living fighters between the pair.
+ *   4. Roof floor plane blind spots for models set back > 1.0" from platform edges.
+ */
+export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): boolean {
+  return traceLineOfSight(state, attacker, target).clear;
+}
+
+export interface CoverSource {
+  pieceId?: string;
+  reason: string;
+}
+
+/**
+ * Find why `target` receives a Cover bonus (+1 Defense) against a ranged attack from `attacker`,
+ * or null if it does not.
  *
  * Cover applies when:
  *   1. `target.status` explicitly includes `'in-cover'`, OR
@@ -849,15 +831,16 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
  *      excluding cover adjacent to the attacker (shooting out of cover does
  *      not grant cover to the open target), and excluding low ground cover against
  *      plunging fire (attacker elevated >= 2.0"), OR
- *   4. For LoS-blocking cover (walls, columns): `target` is within 1.0" of the
- *      piece AND the piece partially obscures the target.
+ *   4. The shot passes through a window port that `target` is manning, OR
+ *   5. `target` is manning a sight-blocking solid (wall, jamb, column, sill) that partially
+ *      obscures it (a torso-height flank ray is blocked). Doorway openings give no cover by themselves.
  */
-export function hasCoverAgainstAttack(
+export function findCoverSource(
   state: GameState,
   attacker: Unit,
-  target: Unit
-): boolean {
-  if (target.status.includes('in-cover')) return true;
+  target: SpatialSubject
+): CoverSource | null {
+  if (target.status?.includes('in-cover')) return { reason: 'Unit has in-cover status' };
 
   const attackerY = attacker.position.y ?? 0;
   const targetY = target.position.y ?? 0;
@@ -869,7 +852,7 @@ export function hasCoverAgainstAttack(
     if (platform) {
       const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
       if (setback <= 1.05) {
-        return true; // Target claims Parapet Cover (+1 Defense)
+        return { pieceId: platform.id, reason: 'Parapet cover (target within 1.0" of platform edge)' };
       }
     }
   }
@@ -879,12 +862,14 @@ export function hasCoverAgainstAttack(
   const dx = target.position.x - attacker.position.x;
   const dz = target.position.z - attacker.position.z;
   const dist = Math.hypot(dx, dz);
-  if (dist < 1e-4) return false;
+  if (dist < 1e-4) return null;
 
   const dirX = dx / dist;
   const dirZ = dz / dist;
   const perpX = -dirZ;
   const perpZ = dirX;
+
+  const eye: Vector3 = { x: attacker.position.x, y: attackerY + EYE_HEIGHT, z: attacker.position.z };
 
   for (const piece of state.terrain) {
     if (!piece.providesCover) continue;
@@ -920,67 +905,72 @@ export function hasCoverAgainstAttack(
       if (hit && hit.tEntry >= 0.8 && hit.tExit <= dist + 0.1 && hit.tEntry < dist - 0.05) {
         const distFromExitToTarget = dist - hit.tExit;
         if (distFromExitToTarget <= 1.0) {
-          return true;
+          return { pieceId: piece.id, reason: `Intervening low cover (${piece.terrainType}, defender within 1.0")` };
         }
       }
-    } else {
-      // Apertures (doorways and windows): if the shot passes through the opening,
-      // a target within 1.0" of the doorway/window claims Cover (+1 Defense).
-      if (piece.terrainType === 'wall-doorway' || piece.terrainType === 'wall-window') {
-        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, dist, piece, 0);
-        if (ap.passesAperture && ap.tExit !== undefined) {
-          const distToTarget = Math.hypot(
-            target.position.x - piece.position.x,
-            target.position.z - piece.position.z
-          );
-          if (distToTarget <= pieceRadius + 1.0 && dist - ap.tExit <= 1.0) {
-            return true;
+      continue;
+    }
+
+    const structure = resolveTerrainStructure(piece);
+    const localEye = worldToLocal(piece, eye);
+
+    // Window ports: the shot passes through the port and the defender is manning it.
+    for (const ap of structure.apertures) {
+      if (!ap.providesCover || !isManningBox(piece, ap, target)) continue;
+      const l = worldToLocal(piece, { x: attacker.position.x, y: 0, z: attacker.position.z });
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const hit2d = intersectLocalBox(
+        l.x,
+        l.z,
+        dirX * cos - dirZ * sin,
+        dirX * sin + dirZ * cos,
+        ap.minX,
+        ap.maxX,
+        ap.minZ,
+        ap.maxZ,
+        dist
+      );
+      if (!hit2d || hit2d.tExit <= 0.05 || hit2d.tEntry >= dist - 0.05 || dist - hit2d.tExit > 1.0) continue;
+      for (const h of TARGET_SAMPLE_HEIGHTS) {
+        const b = worldToLocal(piece, { x: target.position.x, y: targetY + h, z: target.position.z });
+        if (segmentBoxIntersection(localEye, b, ap)) {
+          return { pieceId: piece.id, reason: 'Window firing port cover (defender manning the port)' };
+        }
+      }
+    }
+
+    // Sight-blocking cover (walls, jambs, sills, columns): target's base edge within 1.0" of a solid
+    // and partially obscured by it (a torso-height flank ray is blocked).
+    const flankOffset = 0.3;
+    const flanks = [
+      { x: target.position.x + perpX * flankOffset, z: target.position.z + perpZ * flankOffset },
+      { x: target.position.x - perpX * flankOffset, z: target.position.z - perpZ * flankOffset },
+    ];
+    for (const solid of structure.solids) {
+      if (!solid.blocksLineOfSight || !solid.providesCover) continue;
+      if (!isManningBox(piece, solid, target)) continue;
+      for (const f of flanks) {
+        const b = worldToLocal(piece, { x: f.x, y: targetY + FLANK_RAY_HEIGHT, z: f.z });
+        const segLen = Math.hypot(b.x - localEye.x, b.y - localEye.y, b.z - localEye.z);
+        const hit = segmentBoxIntersection(localEye, b, solid);
+        if (hit) {
+          const entry = hit.s0 * segLen;
+          if (entry >= 0.8 && entry < segLen - 0.05) {
+            return { pieceId: piece.id, reason: `Sight-blocking partial cover (${piece.terrainType})` };
           }
         }
-      }
-
-      // Sight-blocking cover (walls, columns): target must be adjacent to the piece (within 1.0")
-      // and partially obscured by it from the shooter's vantage point.
-      const distToTarget = Math.hypot(
-        target.position.x - piece.position.x,
-        target.position.z - piece.position.z
-      );
-      if (distToTarget > pieceRadius + 1.0) continue;
-
-      // Cast rays to target's left and right flanks (±0.3" perpendicular to the line of fire).
-      const flankOffset = 0.3;
-      const leftX = target.position.x + perpX * flankOffset;
-      const leftZ = target.position.z + perpZ * flankOffset;
-      const rightX = target.position.x - perpX * flankOffset;
-      const rightZ = target.position.z - perpZ * flankOffset;
-
-      const leftDx = leftX - attacker.position.x;
-      const leftDz = leftZ - attacker.position.z;
-      const leftDist = Math.hypot(leftDx, leftDz);
-
-      const rightDx = rightX - attacker.position.x;
-      const rightDz = rightZ - attacker.position.z;
-      const rightDist = Math.hypot(rightDx, rightDz);
-
-      const hitLeft =
-        leftDist > 1e-4
-          ? intersectRayTerrain(attacker.position, leftDx / leftDist, leftDz / leftDist, leftDist, piece, 0)
-          : null;
-      const hitRight =
-        rightDist > 1e-4
-          ? intersectRayTerrain(attacker.position, rightDx / rightDist, rightDz / rightDist, rightDist, piece, 0)
-          : null;
-
-      const leftObscured = !!(hitLeft && hitLeft.tEntry >= 0.8 && hitLeft.tEntry < leftDist - 0.05);
-      const rightObscured = !!(hitRight && hitRight.tEntry >= 0.8 && hitRight.tEntry < rightDist - 0.05);
-
-      if (leftObscured || rightObscured) {
-        return true;
       }
     }
   }
 
-  return false;
+  return null;
+}
+
+/** Whether `target` receives a Cover bonus (+1 Defense) against a ranged attack from `attacker`. */
+export function hasCoverAgainstAttack(state: GameState, attacker: Unit, target: Unit): boolean {
+  return findCoverSource(state, attacker, target) !== null;
 }
 
 export interface TerrainIntersectionDebug {
@@ -1023,9 +1013,9 @@ export interface ShootingRayDebugInfo {
 
 /**
  * Compute exhaustive shooting ray debug information for the F9 debugger:
- * center line from attacker to target/aim position, entry and exit coordinates
+ * the eye-level center line from attacker to target/aim position, entry and exit coordinates
  * on all intersected terrain bounding boxes, LoS obstruction, cover provider,
- * and left/right flank rays showing partial corner obscuration.
+ * and left/right torso-height flank rays showing partial obscuration.
  */
 export function computeShootingRayDebug(
   state: GameState,
@@ -1036,8 +1026,10 @@ export function computeShootingRayDebug(
   const targetUnit = isTargetUnit ? (targetOrPoint as Unit) : null;
   const targetPos = isTargetUnit ? targetUnit!.position : (targetOrPoint as Vector3);
 
-  const from: Vector3 = { x: attacker.position.x, y: 0.45, z: attacker.position.z };
-  const to: Vector3 = { x: targetPos.x, y: 0.45, z: targetPos.z };
+  const attackerY = attacker.position.y ?? 0;
+  const targetY = targetPos.y ?? 0;
+  const from: Vector3 = { x: attacker.position.x, y: attackerY + EYE_HEIGHT, z: attacker.position.z };
+  const to: Vector3 = { x: targetPos.x, y: targetY + EYE_HEIGHT, z: targetPos.z };
 
   const dx = targetPos.x - attacker.position.x;
   const dz = targetPos.z - attacker.position.z;
@@ -1061,14 +1053,12 @@ export function computeShootingRayDebug(
   const perpX = -dirZ;
   const perpZ = dirX;
 
-  const intersections: TerrainIntersectionDebug[] = [];
-  let blockedByPieceId: string | undefined;
-  let blockedByUnitId: string | undefined;
-  let coverPieceId: string | undefined;
-  let coverReason: string | undefined;
-  let earliestLoSBlockDist = Infinity;
+  const subject: SpatialSubject = targetUnit ?? { position: targetPos };
+  const trace = traceLineOfSight(state, attacker, subject);
+  const cover = targetUnit ? findCoverSource(state, attacker, targetUnit) : null;
 
-  // 1. Raycast against all terrain pieces
+  // Footprint intersections along the ground-plane center line (for the debug overlay)
+  const intersections: TerrainIntersectionDebug[] = [];
   for (const piece of state.terrain) {
     const { hx, hz } = terrainHalfExtents(piece);
     const pieceRadius = Math.hypot(hx, hz);
@@ -1080,134 +1070,31 @@ export function computeShootingRayDebug(
     const hit = intersectRayTerrain(attacker.position, dirX, dirZ, distance, piece, margin);
     if (!hit) continue;
 
-    const isAdjacentShooterCover = projDist <= 1.0;
-    const isBehindTarget = projDist > distance + pieceRadius;
-
-    let isLoSBlocker = false;
-    if (piece.blocksLineOfSight && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
-      if (piece.terrainType === 'wall-doorway') {
-        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, distance, piece, 0);
-        if (ap.hitsJamb) {
-          isLoSBlocker = true;
-          if (hit.tEntry < earliestLoSBlockDist) {
-            earliestLoSBlockDist = hit.tEntry;
-            blockedByPieceId = piece.id;
-          }
-        }
-      } else if (piece.terrainType === 'wall-window') {
-        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, distance, piece, 0);
-        if (ap.hitsJamb) {
-          isLoSBlocker = true;
-          if (hit.tEntry < earliestLoSBlockDist) {
-            earliestLoSBlockDist = hit.tEntry;
-            blockedByPieceId = piece.id;
-          }
-        } else if (ap.passesAperture) {
-          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
-          const distTarget = Math.hypot(targetPos.x - piece.position.x, targetPos.z - piece.position.z);
-          const canPeek = distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0;
-          if (!canPeek) {
-            isLoSBlocker = true;
-            if (hit.tEntry < earliestLoSBlockDist) {
-              earliestLoSBlockDist = hit.tEntry;
-              blockedByPieceId = piece.id;
-            }
-          }
-        }
-      } else {
-        isLoSBlocker = true;
-        if (hit.tEntry < earliestLoSBlockDist) {
-          earliestLoSBlockDist = hit.tEntry;
-          blockedByPieceId = piece.id;
-        }
-      }
-    }
-
-    let isCoverProvider = false;
-    if (piece.providesCover && !isAdjacentShooterCover && !isBehindTarget) {
-      if (!piece.blocksLineOfSight) {
-        if (hit.tEntry >= 0.8 && hit.tExit <= distance + 0.1 && hit.tEntry < distance - 0.05) {
-          if (distance - hit.tExit <= 1.0) {
-            isCoverProvider = true;
-            coverPieceId = piece.id;
-            coverReason = `Intervening low cover (${piece.terrainType}, defender within 1.0")`;
-          }
-        }
-      } else if (piece.terrainType === 'wall-doorway' || piece.terrainType === 'wall-window') {
-        const ap = intersectAperturePiece(attacker.position, dirX, dirZ, distance, piece, 0);
-        if (ap.passesAperture && ap.tExit !== undefined) {
-          const distTarget = Math.hypot(targetPos.x - piece.position.x, targetPos.z - piece.position.z);
-          if (distTarget <= pieceRadius + 1.0 && distance - ap.tExit <= 1.0) {
-            isCoverProvider = true;
-            coverPieceId = piece.id;
-            coverReason = `${piece.terrainType === 'wall-doorway' ? 'Doorway' : 'Window firing port'} cover (defender within 1.0")`;
-          }
-        }
-      }
-    }
-
     intersections.push({
       pieceId: piece.id,
       terrainType: piece.terrainType,
       entryPoint: {
         x: Math.round((attacker.position.x + dirX * hit.tEntry) * 100) / 100,
-        y: 0.45,
+        y: from.y,
         z: Math.round((attacker.position.z + dirZ * hit.tEntry) * 100) / 100,
       },
       exitPoint: {
         x: Math.round((attacker.position.x + dirX * hit.tExit) * 100) / 100,
-        y: 0.45,
+        y: from.y,
         z: Math.round((attacker.position.z + dirZ * hit.tExit) * 100) / 100,
       },
       tEntry: Math.round(hit.tEntry * 100) / 100,
       tExit: Math.round(hit.tExit * 100) / 100,
       providesCover: piece.providesCover,
       blocksLineOfSight: piece.blocksLineOfSight,
-      isCoverProvider,
-      isLoSBlocker,
-      ignoredAsAdjacentShooterCover: isAdjacentShooterCover,
+      isCoverProvider: cover?.pieceId === piece.id,
+      isLoSBlocker: !trace.clear && trace.blockedByPieceId === piece.id,
+      ignoredAsAdjacentShooterCover: projDist <= 1.0 && projDist <= distance + pieceRadius,
     });
   }
-
-  // Sort intersections along the ray from shooter to target
   intersections.sort((a, b) => a.tEntry - b.tEntry);
 
-  // 2. Check intervening units for LoS blocking
-  for (const other of state.units) {
-    if (
-      other.isDestroyed ||
-      other.id === attacker.id ||
-      (targetUnit && other.id === targetUnit.id)
-    ) {
-      continue;
-    }
-    const otherModels = other.models && other.models.length > 0
-      ? other.models.filter((m) => !m.isDestroyed)
-      : [{ position: other.position }];
-
-    for (const m of otherModels) {
-      const mPos = m.position ?? other.position;
-      const hit = intersectRayCircle(
-        attacker.position,
-        dirX,
-        dirZ,
-        distance,
-        mPos,
-        LOS_UNIT_RADIUS
-      );
-      if (hit && hit.tEntry < distance - 0.05 && hit.tExit > 0.05) {
-        if (hit.tEntry < earliestLoSBlockDist) {
-          earliestLoSBlockDist = hit.tEntry;
-          blockedByUnitId = other.id;
-          blockedByPieceId = undefined;
-        }
-      }
-    }
-  }
-
-  const hasLineOfSight = !blockedByPieceId && !blockedByUnitId;
-
-  // 3. Flank rays for target units (partial wall obscuration)
+  // Torso-height flank rays for target units (partial obscuration)
   let flankRays: FlankRayDebug[] | undefined;
   if (targetUnit) {
     flankRays = [];
@@ -1218,64 +1105,28 @@ export function computeShootingRayDebug(
     ] as const) {
       const fX = targetPos.x + perpX * flankOffset * sgn;
       const fZ = targetPos.z + perpZ * flankOffset * sgn;
-      const fDx = fX - attacker.position.x;
-      const fDz = fZ - attacker.position.z;
-      const fDist = Math.hypot(fDx, fDz);
+      const flankTo: Vector3 = { x: fX, y: targetY + FLANK_RAY_HEIGHT, z: fZ };
+      const segLen = Math.hypot(flankTo.x - from.x, flankTo.y - from.y, flankTo.z - from.z);
       let blocked = false;
       let pieceBlocked: string | undefined;
-
-      if (fDist > 1e-4) {
-        const fDirX = fDx / fDist;
-        const fDirZ = fDz / fDist;
-        for (const piece of state.terrain) {
-          if (!piece.blocksLineOfSight) continue;
-          const hit = intersectRayTerrain(attacker.position, fDirX, fDirZ, fDist, piece, 0);
-          if (hit && hit.tEntry >= 0.8 && hit.tEntry < fDist - 0.05) {
+      for (const piece of state.terrain) {
+        if (!piece.blocksLineOfSight) continue;
+        const a = worldToLocal(piece, from);
+        const b = worldToLocal(piece, flankTo);
+        for (const solid of resolveTerrainStructure(piece).solids) {
+          if (!solid.blocksLineOfSight) continue;
+          const hit = segmentBoxIntersection(a, b, solid);
+          if (hit && hit.s0 * segLen >= 0.8 && hit.s0 * segLen < segLen - 0.05) {
             blocked = true;
             pieceBlocked = piece.id;
             break;
           }
         }
+        if (blocked) break;
       }
-
-      flankRays.push({
-        from,
-        to: { x: fX, y: 0.45, z: fZ },
-        side,
-        blocked,
-        blockedByPieceId: pieceBlocked,
-      });
-    }
-
-    if (!coverPieceId) {
-      const blockedFlank = flankRays.find((f) => f.blocked);
-      if (blockedFlank) {
-        // Target must be adjacent to the wall (within 1.0") to claim partial cover
-        const piece = state.terrain.find((p) => p.id === blockedFlank.blockedByPieceId);
-        if (piece) {
-          const { hx, hz } = terrainHalfExtents(piece);
-          const pieceRadius = Math.hypot(hx, hz);
-          const distToTarget = Math.hypot(
-            targetUnit.position.x - piece.position.x,
-            targetUnit.position.z - piece.position.z
-          );
-          if (distToTarget <= pieceRadius + 1.0) {
-            coverPieceId = piece.id;
-            coverReason = `Sight-blocking partial cover (${piece.terrainType} obscures ${blockedFlank.side} flank)`;
-          }
-        }
-      }
-    }
-
-    if (targetUnit.status.includes('in-cover') && !coverPieceId) {
-      coverReason = 'Unit has in-cover status';
+      flankRays.push({ from, to: flankTo, side, blocked, blockedByPieceId: pieceBlocked });
     }
   }
-
-  const providesCover =
-    targetUnit
-      ? hasCoverAgainstAttack(state, attacker, targetUnit)
-      : !!coverPieceId;
 
   return {
     attackerId: attacker.id,
@@ -1283,12 +1134,12 @@ export function computeShootingRayDebug(
     from,
     to,
     distance: Math.round(distance * 100) / 100,
-    hasLineOfSight,
-    blockedByUnitId,
-    blockedByPieceId,
-    providesCover,
-    coverReason,
-    coverPieceId,
+    hasLineOfSight: trace.clear,
+    blockedByUnitId: trace.clear ? undefined : trace.blockedByUnitId,
+    blockedByPieceId: trace.clear ? undefined : trace.blockedByPieceId,
+    providesCover: !!cover,
+    coverReason: cover?.reason,
+    coverPieceId: cover?.pieceId,
     intersections,
     flankRays,
   };
@@ -1342,25 +1193,24 @@ export function computeLosVisibilityPolygon(
   // Add corner angles of LoS-blocking terrain for crisp shadow edges.
   for (const piece of state.terrain) {
     if (!piece.blocksLineOfSight) continue;
-    const { hx, hz } = terrainHalfExtents(piece);
     const yaw = piece.rotation.y || 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
-    const corners = [
-      [-hx, -hz],
-      [hx, -hz],
-      [hx, hz],
-      [-hx, hz],
-    ];
-    if (piece.terrainType === 'wall-doorway' || piece.terrainType === 'wall-window') {
-      const apHalf = 0.5;
-      corners.push([-apHalf, -hz], [-apHalf, hz], [apHalf, -hz], [apHalf, hz]);
-    }
-    for (const [lx, lz] of corners) {
-      const wx = piece.position.x + lx * cos + lz * sin;
-      const wz = piece.position.z - lx * sin + lz * cos;
-      if (Math.hypot(wx - origin.x, wz - origin.z) <= maxRange + 2) {
-        addAngleWithJitter(Math.atan2(wz - origin.z, wx - origin.x));
+    const structure = resolveTerrainStructure(piece);
+    const boxes = [...structure.solids.filter((x) => x.blocksLineOfSight), ...structure.apertures];
+    for (const part of boxes) {
+      const partCorners = [
+        [part.minX, part.minZ],
+        [part.maxX, part.minZ],
+        [part.maxX, part.maxZ],
+        [part.minX, part.maxZ],
+      ];
+      for (const [lx, lz] of partCorners) {
+        const wx = piece.position.x + lx * cos + lz * sin;
+        const wz = piece.position.z - lx * sin + lz * cos;
+        if (Math.hypot(wx - origin.x, wz - origin.z) <= maxRange + 2) {
+          addAngleWithJitter(Math.atan2(wz - origin.z, wx - origin.x));
+        }
       }
     }
   }
@@ -1402,33 +1252,41 @@ export function computeLosVisibilityPolygon(
     for (const piece of state.terrain) {
       if (!piece.blocksLineOfSight) continue;
 
-      if (piece.terrainType === 'wall-doorway') {
-        const ap = intersectAperturePiece(origin, dirX, dirZ, bestDist, piece, 0);
-        if (ap.hitsJamb && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
-          bestDist = Math.min(bestDist, ap.tEntry);
-        }
-        continue;
-      }
+      const broadHit = intersectRayTerrain(origin, dirX, dirZ, bestDist, piece, 0);
+      if (!broadHit) continue;
 
-      if (piece.terrainType === 'wall-window') {
-        const ap = intersectAperturePiece(origin, dirX, dirZ, bestDist, piece, 0);
-        if (ap.hitsJamb && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
-          bestDist = Math.min(bestDist, ap.tEntry);
-        } else if (ap.passesAperture) {
-          const { hx, hz } = terrainHalfExtents(piece);
-          const pieceRadius = Math.hypot(hx, hz);
-          const distShooter = Math.hypot(origin.x - piece.position.x, origin.z - piece.position.z);
-          // Only shooters manning the firing port (within 1.0" past radius) can project LoS through the window
-          if (distShooter > pieceRadius + 1.0 && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
-            bestDist = Math.min(bestDist, ap.tEntry);
-          }
-        }
-        continue;
-      }
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const pDx = origin.x - piece.position.x;
+      const pDz = origin.z - piece.position.z;
+      const localOx = pDx * cos - pDz * sin;
+      const localOz = pDx * sin + pDz * cos;
+      const localDx = dirX * cos - dirZ * sin;
+      const localDz = dirX * sin + dirZ * cos;
 
-      const hit = intersectRayTerrain(origin, dirX, dirZ, bestDist, piece, 0);
-      if (hit && hit.tExit > 0.02) {
-        bestDist = Math.min(bestDist, hit.tEntry);
+      // The fan is a slice of the 3D world at the shooter's eye height.
+      const eyeLocalY = (origin.y ?? 0) + EYE_HEIGHT - (piece.position.y ?? 0);
+      const structure = resolveTerrainStructure(piece);
+      for (const solid of structure.solids) {
+        if (!solid.blocksLineOfSight || eyeLocalY < solid.minY || eyeLocalY > solid.maxY) continue;
+        const hit = intersectLocalBox(
+          localOx, localOz, localDx, localDz,
+          solid.minX, solid.maxX, solid.minZ, solid.maxZ, bestDist
+        );
+        if (hit && hit.tExit > 0.02) {
+          bestDist = Math.min(bestDist, hit.tEntry);
+        }
+      }
+      for (const ap of structure.apertures) {
+        if (eyeLocalY < ap.minY || eyeLocalY > ap.maxY) continue;
+        const hit = intersectLocalBox(
+          localOx, localOz, localDx, localDz,
+          ap.minX, ap.maxX, ap.minZ, ap.maxZ, bestDist
+        );
+        if (hit && hit.tExit > 0.02 && !isManningBox(piece, ap, { position: origin })) {
+          bestDist = Math.min(bestDist, hit.tEntry);
+        }
       }
     }
 
@@ -2064,17 +1922,25 @@ export function findNavPath(
       }
     };
 
+    for (const solid of resolveTerrainStructure(piece).solids) {
+      // Overhead boxes (lintels) don't obstruct walking beneath them.
+      if (!solid.isObstacle || solid.minY >= 1.2) continue;
+      addLocalBoxCorners(solid.minX, solid.maxX, solid.minZ, solid.maxZ);
+    }
+
     if (piece.terrainType === 'wall-doorway') {
-      const doorHalf = getApertureProfile(piece)?.halfWidth ?? 0.5;
-      addLocalBoxCorners(-hx, -doorHalf, -hz, hz);
-      addLocalBoxCorners(doorHalf, hx, -hz, hz);
       candidateWaypoints.push({
         x: piece.position.x,
         y: pieceBaseY,
         z: piece.position.z,
       });
-    } else {
-      addLocalBoxCorners(-hx, hx, -hz, hz);
+    } else if (piece.terrainType === 'ruin-l' || piece.terrainType === 'ruin') {
+      const court = localToWorldXZ(piece, 1.0, -1.0);
+      candidateWaypoints.push({
+        x: Math.round(court.x * 100) / 100,
+        y: pieceBaseY,
+        z: Math.round(court.z * 100) / 100,
+      });
     }
   }
 
