@@ -51,8 +51,15 @@ export class UnitRenderer {
         this.unitGroup.add(unitRoot);
       }
 
+      const isSquad = Boolean(unit.models && unit.models.length > 1);
+
       unitRoot.position.set(unit.position.x, unit.position.y, unit.position.z);
-      unitRoot.rotation.set(unit.rotation.x, unit.rotation.y, unit.rotation.z);
+      if (isSquad) {
+        // Multi-model squad: keep unitRoot container unrotated so child meshes match absolute world coordinates
+        unitRoot.rotation.set(0, 0, 0);
+      } else {
+        unitRoot.rotation.set(unit.rotation.x, unit.rotation.y, unit.rotation.z);
+      }
 
       const modelMeshes: Map<string, THREE.Object3D> = unitRoot.userData.modelMeshes;
       const activeModelIds = new Set<string>();
@@ -83,13 +90,16 @@ export class UnitRenderer {
 
         const modelPos = model.position ?? unit.position;
         // Local offset relative to unitRoot squad centroid
-        const localX = modelPos.x - unit.position.x;
-        const localY = (modelPos.y ?? 0) - (unit.position.y ?? 0);
-        const localZ = modelPos.z - unit.position.z;
+        const localX = isSquad ? modelPos.x - unit.position.x : 0;
+        const localY = isSquad ? (modelPos.y ?? 0) - (unit.position.y ?? 0) : 0;
+        const localZ = isSquad ? modelPos.z - unit.position.z : 0;
         modelMesh.position.set(localX, localY, localZ);
 
-        if (model.rotation) {
-          modelMesh.rotation.set(model.rotation.x, model.rotation.y, model.rotation.z);
+        if (isSquad) {
+          const mRot = model.rotation ?? unit.rotation;
+          modelMesh.rotation.set(mRot.x ?? 0, mRot.y ?? 0, mRot.z ?? 0);
+        } else {
+          modelMesh.rotation.set(0, 0, 0);
         }
       }
 

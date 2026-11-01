@@ -2232,8 +2232,9 @@ export interface SquadCoherencyResult {
 /**
  * Validates tabletop squad coherency according to Section 2.1:
  * 1. Every model must remain within 1.0" horizontal of at least one other squad member.
- * 2. The squad formation must form a connected graph (no isolated split clusters).
- * 3. All models in the squad must remain within 6.0" horizontal of all other squad members.
+ * 1. Every model must remain within maxMemberDistance (<= 1.0" base gap, 2.0" center-to-center) of at least one other member.
+ * 2. All models in the squad must remain within 6.0" horizontal of all other squad members (max pairwise spread <= 6.0").
+ * Models may form separate pairs/sub-groups as long as each model has a buddy within 1.0" and squad spread <= 6.0".
  */
 export function validateSquadCoherency(
   positions: Vector3[],
@@ -2269,22 +2270,16 @@ export function validateSquadCoherency(
   }
 
   // 2. Check every model is within maxMemberDistance (<= 1.0") of at least one other member
-  // and construct an adjacency graph for connectivity
-  const n = positions.length;
-  const adj: number[][] = Array.from({ length: n }, () => []);
   let maxNearestDist = 0;
 
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < positions.length; i++) {
     let nearestDist = Infinity;
-    for (let j = 0; j < n; j++) {
+    for (let j = 0; j < positions.length; j++) {
       if (i === j) continue;
       const dx = positions[i].x - positions[j].x;
       const dz = positions[i].z - positions[j].z;
       const d = Math.hypot(dx, dz);
       if (d < nearestDist) nearestDist = d;
-      if (d <= maxMemberDist + tolerance) {
-        adj[i].push(j);
-      }
     }
     if (nearestDist > maxNearestDist) maxNearestDist = nearestDist;
     if (nearestDist > maxMemberDist + tolerance) {
@@ -2294,27 +2289,6 @@ export function validateSquadCoherency(
         maxDistanceToNearestMember: nearestDist,
       };
     }
-  }
-
-  // 3. Check graph connectivity: start BFS from model 0
-  const visited = new Set<number>();
-  const queue = [0];
-  visited.add(0);
-  while (queue.length > 0) {
-    const curr = queue.shift()!;
-    for (const neighbor of adj[curr]) {
-      if (!visited.has(neighbor)) {
-        visited.add(neighbor);
-        queue.push(neighbor);
-      }
-    }
-  }
-
-  if (visited.size < n) {
-    return {
-      coherent: false,
-      reason: 'Squad formation is disconnected into separate clusters',
-    };
   }
 
   return {
