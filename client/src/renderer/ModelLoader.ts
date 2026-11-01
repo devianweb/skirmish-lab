@@ -439,6 +439,7 @@ export function createProceduralLCornerRuin(): THREE.Object3D {
 
 const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
   wall: createProceduralSolidWall,
+  'wall-long': createProceduralSolidWall,
   'wall-window': createProceduralWindowWall,
   'wall-doorway': createProceduralDoorwayWall,
   column: createProceduralColumn,

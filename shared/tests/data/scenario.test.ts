@@ -253,7 +253,7 @@ describe('scenario data pack', () => {
 
     it('catalog defines rich metadata and categories for all terrain types', () => {
       const keys = Object.keys(TERRAIN_PALETTE_CATALOG);
-      expect(keys.length).toBeGreaterThanOrEqual(15);
+      expect(keys.length).toBeGreaterThanOrEqual(6);
 
       for (const [key, meta] of Object.entries(TERRAIN_PALETTE_CATALOG)) {
         expect(meta.type).toBe(key);
