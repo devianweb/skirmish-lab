@@ -181,8 +181,8 @@ export class GameView {
     this.markerRenderer.setReachableTargets(units);
   }
 
-  setMovementRangeMarker(unit: MarkerUnit | null, overrideRadius?: number): void {
-    this.markerRenderer.setMovementRange(unit, overrideRadius);
+  setMovementRangeMarker(unit: MarkerUnit | null, overrideRadius?: number, color?: number): void {
+    this.markerRenderer.setMovementRange(unit, overrideRadius, color);
   }
 
   setAttackRangeMarker(spec: AttackRangeMarker | null): void {

@@ -265,84 +265,105 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isEngaged(unit.result)) {
         return { valid: false, reason: 'Engaged units cannot move away' };
       }
-      if (!path || path.length === 0) {
-        return { valid: false, reason: 'Move path is empty' };
-      }
-      if (boardDistance(path[0], unit.result.position) > 0.01) {
-        return { valid: false, reason: 'Move path must start at unit position' };
-      }
-      const end = path[path.length - 1];
-      if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
-        return { valid: false, reason: 'Final position does not match path end' };
-      }
-      const isDifficult = isPathDifficult(state, path, unit.result);
-      const distance = pathLength3D(path);
-      const effectiveCap = getEffectiveMaxMovement(
-        unit.result,
-        unit.result.isRushing ? 'rush' : 'move',
-        isDifficult
-      );
-      const maxMove = Math.min(effectiveCap, unit.result.remainingMovement);
-      if (distance > maxMove + 0.01) {
-        return {
-          valid: false,
-          reason: isDifficult && effectiveCap === 6.0
-            ? 'Move exceeds Difficult Terrain speed cap (6.0")'
-            : (distance > unit.result.speed ? 'Move exceeds unit speed' : 'Move exceeds unit remaining movement allowance'),
-        };
-      }
-      for (const point of path) {
-        if (!isWithinBoard(state, point)) {
-          return { valid: false, reason: 'Move leaves the board' };
-        }
-      }
-      const isSquad = modelPositions && modelPositions.length > 0;
+      const isSquad = Boolean(modelPositions && modelPositions.length > 0);
       if (!isSquad) {
+        if (!path || path.length === 0) {
+          return { valid: false, reason: 'Move path is empty' };
+        }
+        if (boardDistance(path[0], unit.result.position) > 0.01) {
+          return { valid: false, reason: 'Move path must start at unit position' };
+        }
+        const end = path[path.length - 1];
+        if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
+          return { valid: false, reason: 'Final position does not match path end' };
+        }
+        const isDifficult = isPathDifficult(state, path, unit.result);
+        const distance = pathLength3D(path);
+        const effectiveCap = getEffectiveMaxMovement(
+          unit.result,
+          unit.result.isRushing ? 'rush' : 'move',
+          isDifficult
+        );
+        const maxMove = Math.min(effectiveCap, unit.result.remainingMovement);
+        if (distance > maxMove + 0.01) {
+          return {
+            valid: false,
+            reason: isDifficult && effectiveCap === 6.0
+              ? 'Move exceeds Difficult Terrain speed cap (6.0")'
+              : (distance > unit.result.speed ? 'Move exceeds unit speed' : 'Move exceeds unit remaining movement allowance'),
+          };
+        }
+        for (const point of path) {
+          if (!isWithinBoard(state, point)) {
+            return { valid: false, reason: 'Move leaves the board' };
+          }
+        }
         const blocker = findMoveBlocker(state, unit.result, path);
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
+        return { valid: true };
       }
-      if (modelPositions && modelPositions.length > 0) {
-        const activeCount = unit.result.models
-          ? unit.result.models.filter((m) => !m.isDestroyed).length
-          : 1;
-        if (modelPositions.length !== activeCount && activeCount > 1) {
+
+      // Multi-model squad validation: constituent models move along individual paths
+      const activeCount = unit.result.models
+        ? unit.result.models.filter((m) => !m.isDestroyed).length
+        : 1;
+      if (modelPositions!.length !== activeCount && activeCount > 1) {
+        return {
+          valid: false,
+          reason: `Model positions count mismatch (${modelPositions!.length} vs ${activeCount} active models)`,
+        };
+      }
+      const coherency = validateSquadCoherency(modelPositions!);
+      if (!coherency.coherent) {
+        return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+      }
+      for (const pos of modelPositions!) {
+        if (!isWithinBoard(state, pos)) {
+          return { valid: false, reason: 'Squad model position leaves the board' };
+        }
+      }
+      const aliveModels = (unit.result.models ?? []).filter((m) => !m.isDestroyed);
+      for (let i = 0; i < aliveModels.length && i < modelPositions!.length; i++) {
+        const mStart = aliveModels[i].position ?? unit.result.position;
+        const mPath =
+          modelPaths && modelPaths[i] && modelPaths[i].length >= 2
+            ? modelPaths[i]
+            : [mStart, modelPositions![i]];
+        if (boardDistance(mPath[0], mStart) > 0.05) {
           return {
             valid: false,
-            reason: `Model positions count mismatch (${modelPositions.length} vs ${activeCount} active models)`,
+            reason: `Squad model ${i + 1} move path does not start at model position`,
           };
         }
-        const coherency = validateSquadCoherency(modelPositions);
-        if (!coherency.coherent) {
-          return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-        }
-        for (const pos of modelPositions) {
-          if (!isWithinBoard(state, pos)) {
-            return { valid: false, reason: 'Squad model position leaves the board' };
+        for (const pt of mPath) {
+          if (!isWithinBoard(state, pt)) {
+            return { valid: false, reason: `Squad model ${i + 1} move path leaves the board` };
           }
         }
-        const aliveModels = (unit.result.models ?? []).filter((m) => !m.isDestroyed);
-        for (let i = 0; i < aliveModels.length && i < modelPositions.length; i++) {
-          const mStart = aliveModels[i].position ?? unit.result.position;
-          const mDist = boardDistance(mStart, modelPositions[i]);
-          if (mDist > maxMove + 0.05) {
-            return {
-              valid: false,
-              reason: `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${maxMove.toFixed(1)}")`,
-            };
-          }
-          const mPath =
-            modelPaths && modelPaths[i] && modelPaths[i].length >= 2
-              ? modelPaths[i]
-              : [mStart, modelPositions[i]];
-          const mBlocker = findMoveBlocker(state, unit.result, mPath);
-          if (mBlocker.blocked) {
-            return {
-              valid: false,
-              reason: `Squad model ${i + 1} move path is blocked: ${mBlocker.reason}`,
-            };
-          }
+        const mDifficult = isPathDifficult(state, mPath, unit.result);
+        const mCap = getEffectiveMaxMovement(
+          unit.result,
+          unit.result.isRushing ? 'rush' : 'move',
+          mDifficult
+        );
+        const mMax = Math.min(mCap, unit.result.remainingMovement);
+        const mDist = pathLength3D(mPath);
+        if (mDist > mMax + 0.05) {
+          return {
+            valid: false,
+            reason: mDifficult && mCap === 6.0
+              ? `Squad model ${i + 1} exceeds Difficult Terrain speed cap (6.0")`
+              : `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${mMax.toFixed(1)}")`,
+          };
+        }
+        const mBlocker = findMoveBlocker(state, unit.result, mPath);
+        if (mBlocker.blocked) {
+          return {
+            valid: false,
+            reason: `Squad model ${i + 1} move path is blocked: ${mBlocker.reason}`,
+          };
         }
       }
       return { valid: true };
@@ -496,45 +517,117 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isEngaged(unit)) {
         return { valid: false, reason: 'Engaged units cannot rush' };
       }
-      if (!path || path.length === 0) {
-        return { valid: false, reason: 'Rush path is empty' };
-      }
-      const fullPath =
-        boardDistance(path[0], unit.position) < 0.01
-          ? path
-          : [{ ...unit.position }, ...path];
-      const isDifficult = isPathDifficult(state, fullPath, unit);
-      const dist = pathLength3D(fullPath);
+      const isSquad = Boolean(modelPositions && modelPositions.length > 0);
       const currentRushBudget = unit.isRushing ? unit.remainingMovement : unit.speed * 2;
-      const effectiveCap = getEffectiveMaxMovement(unit, 'rush', isDifficult);
-      const maxRush = Math.min(effectiveCap, currentRushBudget);
-      if (dist > maxRush + 0.01) {
-        return {
-          valid: false,
-          reason: isDifficult && maxRush === 6.0
-            ? 'Rush in Difficult Terrain is capped at 6.0" (speed bonus negated)'
-            : (dist > unit.speed * 2
-                ? `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`
-                : `Rush distance exceeds remaining rush allowance (${dist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`),
-        };
-      }
-      const isSquad = modelPositions && modelPositions.length > 0;
+
       if (!isSquad) {
+        if (!path || path.length === 0) {
+          return { valid: false, reason: 'Rush path is empty' };
+        }
+        const fullPath =
+          boardDistance(path[0], unit.position) < 0.01
+            ? path
+            : [{ ...unit.position }, ...path];
+        const isDifficult = isPathDifficult(state, fullPath, unit);
+        const dist = pathLength3D(fullPath);
+        const effectiveCap = getEffectiveMaxMovement(unit, 'rush', isDifficult);
+        const maxRush = Math.min(effectiveCap, currentRushBudget);
+        if (dist > maxRush + 0.01) {
+          return {
+            valid: false,
+            reason: isDifficult && maxRush === 6.0
+              ? 'Rush in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+              : (dist > unit.speed * 2
+                  ? `Rush distance exceeds double speed (${dist.toFixed(1)}" vs ${(unit.speed * 2).toFixed(1)}")`
+                  : `Rush distance exceeds remaining rush allowance (${dist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`),
+          };
+        }
         const blocker = findMoveBlocker(state, unit, fullPath);
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
+        const end = path[path.length - 1];
+        if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
+          return { valid: false, reason: 'Final position does not match path end' };
+        }
+        const wouldEngage = state.units.some(
+          (u) =>
+            !u.isDestroyed &&
+            u.ownerId !== action.actorId &&
+            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+            Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+        );
+        if (wouldEngage) {
+          return {
+            valid: false,
+            reason: 'Rush cannot end in melee contact (use Charge instead)',
+          };
+        }
+        return { valid: true };
       }
-      const end = path[path.length - 1];
-      if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
-        return { valid: false, reason: 'Final position does not match path end' };
+
+      // Multi-model squad validation for rush
+      const activeCount = unit.models
+        ? unit.models.filter((m) => !m.isDestroyed).length
+        : 1;
+      if (modelPositions!.length !== activeCount && activeCount > 1) {
+        return {
+          valid: false,
+          reason: `Model positions count mismatch (${modelPositions!.length} vs ${activeCount} active models)`,
+        };
       }
-      const positionsToCheck = isSquad ? modelPositions : [end];
+      const coherency = validateSquadCoherency(modelPositions!);
+      if (!coherency.coherent) {
+        return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+      }
+      for (const pos of modelPositions!) {
+        if (!isWithinBoard(state, pos)) {
+          return { valid: false, reason: 'Squad model position leaves the board' };
+        }
+      }
+      const aliveModels = (unit.models ?? []).filter((m) => !m.isDestroyed);
+      for (let i = 0; i < aliveModels.length && i < modelPositions!.length; i++) {
+        const mStart = aliveModels[i].position ?? unit.position;
+        const mPath =
+          modelPaths && modelPaths[i] && modelPaths[i].length >= 2
+            ? modelPaths[i]
+            : [mStart, modelPositions![i]];
+        if (boardDistance(mPath[0], mStart) > 0.05) {
+          return {
+            valid: false,
+            reason: `Squad model ${i + 1} rush path does not start at model position`,
+          };
+        }
+        for (const pt of mPath) {
+          if (!isWithinBoard(state, pt)) {
+            return { valid: false, reason: `Squad model ${i + 1} path leaves the board` };
+          }
+        }
+        const mDifficult = isPathDifficult(state, mPath, unit);
+        const mCap = getEffectiveMaxMovement(unit, 'rush', mDifficult);
+        const mMax = Math.min(mCap, currentRushBudget);
+        const mDist = pathLength3D(mPath);
+        if (mDist > mMax + 0.05) {
+          return {
+            valid: false,
+            reason: mDifficult && mCap === 6.0
+              ? `Squad model ${i + 1} exceeds Difficult Terrain speed cap (6.0")`
+              : `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${mMax.toFixed(1)}")`,
+          };
+        }
+        const mBlocker = findMoveBlocker(state, unit, mPath);
+        if (mBlocker.blocked) {
+          return {
+            valid: false,
+            reason: `Squad model ${i + 1} rush path is blocked: ${mBlocker.reason}`,
+          };
+        }
+      }
       const wouldEngage = state.units.some(
         (u) =>
           !u.isDestroyed &&
           u.ownerId !== action.actorId &&
-          positionsToCheck.some(
+          modelPositions!.some(
             (pos) =>
               boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
               Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
@@ -545,48 +638,6 @@ export function validateAction(state: GameState, action: GameAction): Validation
           valid: false,
           reason: 'Rush cannot end in melee contact (use Charge instead)',
         };
-      }
-      if (modelPositions && modelPositions.length > 0) {
-        const activeCount = unit.models
-          ? unit.models.filter((m) => !m.isDestroyed).length
-          : 1;
-        if (modelPositions.length !== activeCount && activeCount > 1) {
-          return {
-            valid: false,
-            reason: `Model positions count mismatch (${modelPositions.length} vs ${activeCount} active models)`,
-          };
-        }
-        const coherency = validateSquadCoherency(modelPositions);
-        if (!coherency.coherent) {
-          return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-        }
-        for (const pos of modelPositions) {
-          if (!isWithinBoard(state, pos)) {
-            return { valid: false, reason: 'Squad model position leaves the board' };
-          }
-        }
-        const aliveModels = (unit.models ?? []).filter((m) => !m.isDestroyed);
-        for (let i = 0; i < aliveModels.length && i < modelPositions.length; i++) {
-          const mStart = aliveModels[i].position ?? unit.position;
-          const mDist = boardDistance(mStart, modelPositions[i]);
-          if (mDist > maxRush + 0.05) {
-            return {
-              valid: false,
-              reason: `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`,
-            };
-          }
-          const mPath =
-            modelPaths && modelPaths[i] && modelPaths[i].length >= 2
-              ? modelPaths[i]
-              : [mStart, modelPositions[i]];
-          const mBlocker = findMoveBlocker(state, unit, mPath);
-          if (mBlocker.blocked) {
-            return {
-              valid: false,
-              reason: `Squad model ${i + 1} rush path is blocked: ${mBlocker.reason}`,
-            };
-          }
-        }
       }
       return { valid: true };
     }
@@ -1063,13 +1114,58 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'move-unit': {
       const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
         unitId: string;
-        path: Vector3[];
+        path?: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
       };
       const unit = getUnit(newState, unitId)!;
-      if (path.length >= 2) {
+      const isSquad = Boolean(modelPositions && modelPositions.length > 0);
+
+      if (isSquad && modelPositions) {
+        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
+        const prevPositions = activeModels.map((m) => ({ ...(m.position ?? unit.position) }));
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          activeModels[i].position = { ...modelPositions[i] };
+        }
+        unit.position = computeSquadCentroid(modelPositions);
+
+        if (modelPositions.length > 0 && prevPositions.length > 0) {
+          const m0dx = modelPositions[0].x - prevPositions[0].x;
+          const m0dz = modelPositions[0].z - prevPositions[0].z;
+          if (Math.hypot(m0dx, m0dz) > 1e-4) {
+            unit.rotation = { ...unit.rotation, y: Math.atan2(m0dx, m0dz) };
+          }
+        }
+
+        const modelDistances = modelPositions.map((pos, i) => {
+          if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
+            return pathLength3D(modelPaths[i]);
+          }
+          const mStart = prevPositions[i] ?? unit.position;
+          return boardDistance(mStart, pos);
+        });
+        const distanceMoved = Math.max(...modelDistances, 0);
+        unit.hasMoved = true;
+        unit.remainingMovement = Math.max(
+          0,
+          Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
+        );
+
+        if (modelPaths && modelPaths.length > 0) {
+          for (let i = 0; i < modelPaths.length; i++) {
+            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice);
+            if (traversal.terminated) break;
+          }
+        } else if (path && path.length > 0) {
+          applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+        }
+
+        logEntry = acceptedEntry(action);
+        break;
+      }
+
+      if (path && path.length >= 2) {
         const lastStep = path[path.length - 1];
         const prevStep = path[path.length - 2];
         const dx = lastStep.x - prevStep.x;
@@ -1078,17 +1174,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
         }
       }
-      const targetPos = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
+      const targetPos = finalPosition ? { ...finalPosition } : { ...(path ? path[path.length - 1] : unit.position) };
       const deltaX = targetPos.x - unit.position.x;
       const deltaZ = targetPos.z - unit.position.z;
 
-      if (modelPositions && modelPositions.length > 0) {
-        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
-        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
-          activeModels[i].position = { ...modelPositions[i] };
-        }
-        unit.position = computeSquadCentroid(modelPositions);
-      } else if (unit.models && unit.models.length > 0) {
+      if (unit.models && unit.models.length > 0) {
         for (const m of unit.models) {
           if (!m.isDestroyed) {
             if (m.position) {
@@ -1107,13 +1197,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.position = targetPos;
       }
 
-      const distanceMoved = pathLength3D(path);
+      const distanceMoved = path ? pathLength3D(path) : 0;
       unit.hasMoved = true;
       unit.remainingMovement = Math.max(
         0,
         Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
       );
-      const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      const traversal = applyTraversalHazardsAndFalls(newState, unit, path ?? [], action, dice);
       if (traversal.terminated) {
         logEntry = acceptedEntry(action);
         break;
@@ -1416,32 +1506,75 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'rush': {
       const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
         unitId: string;
-        path: Vector3[];
+        path?: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
       };
       const unit = getUnit(newState, unitId)!;
+      const isSquad = Boolean(modelPositions && modelPositions.length > 0);
+      const currentBudget = unit.isRushing ? unit.remainingMovement : unit.speed * 2;
+
+      if (isSquad && modelPositions) {
+        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
+        const prevPositions = activeModels.map((m) => ({ ...(m.position ?? unit.position) }));
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          activeModels[i].position = { ...modelPositions[i] };
+        }
+        unit.position = computeSquadCentroid(modelPositions);
+
+        if (modelPositions.length > 0 && prevPositions.length > 0) {
+          const m0dx = modelPositions[0].x - prevPositions[0].x;
+          const m0dz = modelPositions[0].z - prevPositions[0].z;
+          if (Math.hypot(m0dx, m0dz) > 1e-4) {
+            unit.rotation = { ...unit.rotation, y: Math.atan2(m0dx, m0dz) };
+          }
+        }
+
+        const modelDistances = modelPositions.map((pos, i) => {
+          if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
+            return pathLength3D(modelPaths[i]);
+          }
+          const mStart = prevPositions[i] ?? unit.position;
+          return boardDistance(mStart, pos);
+        });
+        const distMoved = Math.max(...modelDistances, 0);
+
+        unit.isRushing = true;
+        unit.hasMoved = true;
+        unit.hasAttacked = true;
+        unit.remainingMovement = Math.max(
+          0,
+          Math.round((currentBudget - distMoved) * 100) / 100
+        );
+        refreshEngagements(newState);
+
+        if (modelPaths && modelPaths.length > 0) {
+          for (let i = 0; i < modelPaths.length; i++) {
+            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice);
+            if (traversal.terminated) break;
+          }
+        } else if (path && path.length > 0) {
+          applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+        }
+
+        logEntry = acceptedEntry(action);
+        break;
+      }
+
       const startPos = { ...unit.position };
       const fullPath =
-        path.length > 0 && boardDistance(path[0], startPos) < 0.01
+        path && path.length > 0 && boardDistance(path[0], startPos) < 0.01
           ? path
-          : [startPos, ...path];
+          : [startPos, ...(path ?? [])];
       const distMoved = pathLength3D(fullPath);
-      const currentBudget = unit.isRushing ? unit.remainingMovement : unit.speed * 2;
-      const end = finalPosition ? { ...finalPosition } : { ...path[path.length - 1] };
+      const end = finalPosition ? { ...finalPosition } : { ...(path ? path[path.length - 1] : unit.position) };
       const dx = end.x - unit.position.x;
       const dz = end.z - unit.position.z;
       if (Math.hypot(dx, dz) > 1e-4) {
         unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
       }
-      if (modelPositions && modelPositions.length > 0) {
-        const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
-        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
-          activeModels[i].position = { ...modelPositions[i] };
-        }
-        unit.position = computeSquadCentroid(modelPositions);
-      } else if (unit.models && unit.models.length > 0) {
+      if (unit.models && unit.models.length > 0) {
         for (const m of unit.models) {
           if (!m.isDestroyed) {
             if (m.position) {
@@ -1467,7 +1600,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         Math.round((currentBudget - distMoved) * 100) / 100
       );
       refreshEngagements(newState);
-      const traversal = applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      const traversal = applyTraversalHazardsAndFalls(newState, unit, path ?? [], action, dice);
       if (traversal.terminated) {
         logEntry = acceptedEntry(action);
         break;

@@ -352,6 +352,15 @@ describe('MarkerRenderer', () => {
     expect(marker.scale.z).toBeCloseTo(12, 1);
   });
 
+  it('allows custom color tinting for Rush movement range ring', () => {
+    const renderer = makeRenderer();
+    renderer.setMovementRange({ id: 'u1', position: { x: 2, y: 0, z: 2 }, remainingMovement: 6 }, 12, 0xffb74d);
+
+    const marker = scene.getObjectByName('marker-movement-range')!;
+    expect(marker).toBeDefined();
+    expect(marker.scale.x).toBeCloseTo(12, 1);
+  });
+
   it('renders deployment zone boundaries and clears them properly', () => {
     const renderer = makeRenderer();
     renderer.setDeploymentZones({
