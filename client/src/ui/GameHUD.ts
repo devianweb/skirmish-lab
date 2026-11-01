@@ -992,7 +992,6 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
-        isDifficult,
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
         ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
       }),
@@ -1376,6 +1375,7 @@ export class GameHUD {
     const action = this.flow.action;
     this.movePreview = null;
     this.movePathPreview = null;
+    this.movePreviewDifficult = false;
     this.hoveredEngagedTargetId = null;
     this.shootAllocations.clear();
     this.selectedShootWeaponId = null;
@@ -1389,6 +1389,7 @@ export class GameHUD {
     if (this.flow.mode === 'waiting') return; // already sent, nothing to cancel
     this.movePreview = null;
     this.movePathPreview = null;
+    this.movePreviewDifficult = false;
     this.hoveredEngagedTargetId = null;
     this.shootAllocations.clear();
     this.selectedShootWeaponId = null;
@@ -2056,7 +2057,7 @@ export class GameHUD {
       let difficultWarningHtml = '';
       const payloadPath = (this.flow.action.payload as any)?.path;
       const isActionDifficult =
-        (this.flow.action.payload as any)?.isDifficult ||
+        this.movePreviewDifficult ||
         (this.state && active && payloadPath ? isPathDifficult(this.state, payloadPath, active) : false);
 
       if (isActionDifficult && active) {
@@ -2937,7 +2938,7 @@ export class GameHUD {
         payload.path.length >= 2
       ) {
         const isDifficult =
-          (payload as any).isDifficult ||
+          this.movePreviewDifficult ||
           (this.state && this.activeUnit
             ? isPathDifficult(this.state, payload.path, this.activeUnit)
             : false);
