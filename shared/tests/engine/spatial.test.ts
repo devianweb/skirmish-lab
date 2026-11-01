@@ -1000,6 +1000,47 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         expect(isPathDifficult(state, path, unit)).toBe(false);
       });
 
+      it('routes through stairs connected to building roofs and platforms without being blocked by obstacle bounds', () => {
+        const building: TerrainPiece = {
+          id: 'workshop-bldg',
+          terrainType: 'building-h',
+          position: { x: -9, y: 0, z: 2 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 3.5, y: 2.5, z: 3.5 },
+          elevation: 2.5,
+          isWalkable: true,
+          blocksLineOfSight: true,
+          providesCover: true,
+          isObstacle: true,
+        };
+        const stairs: TerrainPiece = {
+          id: 'workshop-stairs',
+          terrainType: 'stairs-closed-short',
+          climbType: 'stairs',
+          position: { x: -9, y: 0, z: -0.5 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1.2, y: 2.5, z: 1 },
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: true,
+          isObstacle: false,
+        };
+        const unit = makeUnit('u-stairs', HOST, { x: -9, y: 0, z: -3.2 });
+        unit.speed = 6;
+        unit.remainingMovement = 6;
+        const state = makeState([unit], [building, stairs]);
+
+        // Destination is on the building roof at (-9, 2.5, 1.7)
+        const path = findNavPath(state, unit, { x: -9, y: 2.5, z: 1.7 }, 12.0);
+        expect(path.length).toBeGreaterThanOrEqual(3);
+        const endPt = path[path.length - 1];
+        expect(endPt.y).toBe(2.5);
+        expect(endPt.z).toBeCloseTo(1.7, 0.2);
+
+        // Path is NOT difficult terrain
+        expect(isPathDifficult(state, path, unit)).toBe(false);
+      });
+
       it('falls back to wall-base ascent when climbing sheer walls without stairs and applies Difficult Terrain cap', () => {
         const sheerPlatform: TerrainPiece = {
           id: 'plat-sheer',
@@ -1032,6 +1073,84 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
 
         // Sheer wall climb IS Difficult Terrain
         expect(isPathDifficult(state, path, unit)).toBe(true);
+      });
+
+      it('stops at wall base when stopBeforeDifficult is requested and path exceeds 6.0" (Rush pacing)', () => {
+        const sheerPlatform: TerrainPiece = {
+          id: 'plat-sheer-rush',
+          terrainType: 'platform',
+          position: { x: 8, y: 2.5, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 0.3, z: 4 },
+          elevation: 2.5,
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: true,
+          isObstacle: true,
+        };
+        const unit = makeUnit('u-rush', HOST, { x: 0, y: 0, z: 0 });
+        unit.speed = 12;
+        unit.remainingMovement = 12;
+        const state = makeState([unit], [sheerPlatform]);
+
+        // Destination is on the platform deck at (8, 2.5, 0).
+        // With stopBeforeDifficult: true, unit Rushes to the base of the wall (approx x=6, y=0)
+        // without climbing or triggering Difficult Terrain.
+        const path = findNavPath(state, unit, { x: 8, y: 2.5, z: 0 }, 12.0, {
+          stopBeforeDifficult: true,
+        });
+
+        expect(path.length).toBeGreaterThanOrEqual(2);
+        // Ends on ground at base of wall
+        const lastPt = path[path.length - 1];
+        expect(lastPt.y).toBe(0);
+        expect(lastPt.x).toBeGreaterThanOrEqual(5.8);
+        expect(lastPt.x).toBeLessThanOrEqual(6.2);
+
+        // Path is on open ground, NOT Difficult Terrain
+        expect(isPathDifficult(state, path, unit)).toBe(false);
+
+        // Next turn: Starting from base of wall (x=6, y=0), climbing 2.5" is within 6.0"
+        unit.position = { x: 6, y: 0, z: 0 };
+        const climbPath = findNavPath(state, unit, { x: 8, y: 2.5, z: 0 }, 6.0, {
+          stopBeforeDifficult: true,
+        });
+        expect(climbPath[climbPath.length - 1].y).toBe(2.5);
+        expect(isPathDifficult(state, climbPath, unit)).toBe(true);
+      });
+
+      it('stops at difficult terrain boundary when stopBeforeDifficult is requested and path exceeds 6.0" (Rush pacing before mud)', () => {
+        const mudPatch: TerrainPiece = {
+          id: 'mud-rush',
+          terrainType: 'mud',
+          position: { x: 8, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 0.1, z: 4 },
+          isDifficult: true,
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: false,
+          isObstacle: false,
+        };
+        const unit = makeUnit('u-rush-mud', HOST, { x: 0, y: 0, z: 0 });
+        unit.speed = 12;
+        unit.remainingMovement = 12;
+        const state = makeState([unit], [mudPatch]);
+
+        // Destination is inside the mud patch at (8, 0, 0)
+        // Mud spans x from 6.0 to 10.0.
+        // Unit Rushes towards it; stopBeforeDifficult stops just before the mud boundary (~5.8")
+        const path = findNavPath(state, unit, { x: 8, y: 0, z: 0 }, 12.0, {
+          stopBeforeDifficult: true,
+        });
+
+        expect(path.length).toBeGreaterThanOrEqual(2);
+        const lastPt = path[path.length - 1];
+        expect(lastPt.x).toBeGreaterThanOrEqual(5.6);
+        expect(lastPt.x).toBeLessThan(6.0);
+
+        // Path is on open ground, NOT Difficult Terrain
+        expect(isPathDifficult(state, path, unit)).toBe(false);
       });
 
       it('allows airborne units to fly diagonally directly to elevated platforms', () => {

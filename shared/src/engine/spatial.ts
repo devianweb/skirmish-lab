@@ -353,9 +353,37 @@ export function findMoveBlocker(
     const toY = to.y ?? 0;
     const minSegY = Math.min(fromY, toY);
     const maxSegY = Math.max(fromY, toY);
+    const isOnStairs = isSegmentOnRampOrStairs(state, from, to);
 
     for (const piece of state.terrain) {
       if (!piece.isObstacle) continue;
+
+      if (isOnStairs) {
+        // Stairs, ladders, and ramps: do not block segments traversing them
+        if (
+          piece.climbType === 'stairs' ||
+          piece.climbType === 'ladder' ||
+          piece.climbType === 'ramp' ||
+          piece.terrainType.includes('stairs') ||
+          piece.terrainType.includes('ladder')
+        ) {
+          continue;
+        }
+
+        const pieceBaseY = piece.position.y ?? 0;
+        const pieceHeight = piece.scale.y ?? 1.0;
+        const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+
+        // If the stair segment connects to the top/roof level of this landing piece
+        if (maxSegY >= pieceTopY - 0.25) {
+          continue;
+        }
+
+        // Low walls or parapet railings at stair access points do not block access
+        if (piece.terrainType === 'wall-low' || piece.terrainType.includes('wall')) {
+          continue;
+        }
+      }
 
       const pieceBaseY = piece.position.y ?? 0;
       const pieceHeight = piece.scale.y ?? 1.0;
@@ -1590,6 +1618,66 @@ export function addPlatformAscentPoints(
 }
 
 /**
+ * Computes the point along the line segment from `p1` (outside piece) to `p2` (inside piece)
+ * where the segment intersects the piece's perimeter, backed off by a safe margin so the
+ * resulting point is strictly outside the difficult terrain boundary.
+ */
+export function findDifficultTerrainEntry(
+  p1: Vector3,
+  p2: Vector3,
+  piece: TerrainPiece
+): Vector3 | null {
+  const { hx, hz } = terrainHalfExtents(piece);
+  const yaw = piece.rotation.y || 0;
+  const cos = Math.cos(-yaw);
+  const sin = Math.sin(-yaw);
+
+  const dx1 = p1.x - piece.position.x;
+  const dz1 = p1.z - piece.position.z;
+  const l1x = dx1 * cos - dz1 * sin;
+  const l1z = dx1 * sin + dz1 * cos;
+
+  const dx2 = p2.x - piece.position.x;
+  const dz2 = p2.z - piece.position.z;
+  const l2x = dx2 * cos - dz2 * sin;
+  const l2z = dx2 * sin + dz2 * cos;
+
+  const dlx = l2x - l1x;
+  const dlz = l2z - l1z;
+  const segLen = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+  if (segLen < 1e-4) return null;
+
+  let tMin = 0;
+  let tMax = 1;
+
+  if (Math.abs(dlx) > 1e-6) {
+    const t1 = (-hx - l1x) / dlx;
+    const t2 = (hx - l1x) / dlx;
+    tMin = Math.max(tMin, Math.min(t1, t2));
+    tMax = Math.min(tMax, Math.max(t1, t2));
+  }
+  if (Math.abs(dlz) > 1e-6) {
+    const t1 = (-hz - l1z) / dlz;
+    const t2 = (hz - l1z) / dlz;
+    tMin = Math.max(tMin, Math.min(t1, t2));
+    tMax = Math.min(tMax, Math.max(t1, t2));
+  }
+
+  if (tMin > tMax || tMin <= 0 || tMin > 1) {
+    return null;
+  }
+
+  // Back off by 0.20" so the resulting point is strictly outside the terrain piece's 0.15" margin
+  const offset = 0.2 / segLen;
+  const entryT = Math.max(0, tMin - offset);
+  return {
+    x: Math.round((p1.x + (p2.x - p1.x) * entryT) * 100) / 100,
+    y: Math.round(((p1.y ?? 0) + ((p2.y ?? 0) - (p1.y ?? 0)) * entryT) * 100) / 100,
+    z: Math.round((p1.z + (p2.z - p1.z) * entryT) * 100) / 100,
+  };
+}
+
+/**
  * Computes the shortest legal movement path from `unit.position` to `destination`,
  * navigating around obstacle terrain (including door frames and solid walls) and other
  * fighters using 3D surface-constrained visibility-graph A* pathfinding.
@@ -1602,7 +1690,11 @@ export function findNavPath(
   unit: Unit,
   destination: Vector3,
   maxDistance: number = unit.remainingMovement,
-  options: { ignoreUnitId?: string; startPosition?: Vector3 } = {}
+  options: {
+    ignoreUnitId?: string;
+    startPosition?: Vector3;
+    stopBeforeDifficult?: boolean;
+  } = {}
 ): Vector3[] {
   const from: Vector3 = options.startPosition
     ? { x: options.startPosition.x, y: options.startPosition.y ?? 0, z: options.startPosition.z }
@@ -1625,6 +1717,41 @@ export function findNavPath(
     const directCheck = findMoveBlocker(state, unit, [from, target], options);
     if (!directCheck.blocked) {
       const dist = Math.hypot(target.x - from.x, endY - startY, target.z - from.z);
+
+      // If stopBeforeDifficult is requested, check if the segment enters difficult terrain
+      if (
+        options.stopBeforeDifficult &&
+        !hasTrait(unit.specialRules, 'pathfinder') &&
+        !hasTrait(unit.specialRules, 'airborne') &&
+        dist > 6.0
+      ) {
+        const p2Piece = findTerrainAtPosition(state, target);
+        const isP2Difficult =
+          p2Piece &&
+          (p2Piece.isDifficult ||
+            p2Piece.terrainType === 'mud' ||
+            p2Piece.terrainType === 'trench' ||
+            p2Piece.terrainType === 'forest');
+
+        const p1Piece = findTerrainAtPosition(state, from);
+        const isP1Difficult =
+          p1Piece &&
+          (p1Piece.isDifficult ||
+            p1Piece.terrainType === 'mud' ||
+            p1Piece.terrainType === 'trench' ||
+            p1Piece.terrainType === 'forest');
+
+        if (isP2Difficult && !isP1Difficult) {
+          const entryPt = findDifficultTerrainEntry(from, target, p2Piece);
+          if (entryPt) {
+            const dEntry = Math.hypot(entryPt.x - from.x, (entryPt.y ?? 0) - startY, entryPt.z - from.z);
+            if (dEntry <= maxDistance + 1e-4) {
+              return [from, entryPt];
+            }
+          }
+        }
+      }
+
       if (dist <= maxDistance + 1e-4) {
         return [from, target];
       }
@@ -1845,13 +1972,16 @@ export function findNavPath(
     ) {
       const directBlk = findMoveBlocker(state, unit, [current.pos, targetNode.pos], options);
       if (!directBlk.blocked) {
-        const tentG =
-          current.g +
+        const isClimbingSheerWall =
+          Math.abs((targetNode.pos.y ?? 0) - (current.pos.y ?? 0)) > 0.5 &&
+          !isSegmentOnRampOrStairs(state, current.pos, targetNode.pos);
+        const edgeCost =
           Math.hypot(
             targetNode.pos.x - current.pos.x,
             (targetNode.pos.y ?? 0) - (current.pos.y ?? 0),
             targetNode.pos.z - current.pos.z
-          );
+          ) + (isClimbingSheerWall ? 15.0 : 0);
+        const tentG = current.g + edgeCost;
         if (tentG < targetNode.g) {
           targetNode.g = tentG;
           targetNode.f = tentG;
@@ -1883,7 +2013,7 @@ export function findNavPath(
       const isClimbingSheerWall =
         Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0)) > 0.5 &&
         !isSegmentOnRampOrStairs(state, current.pos, neighbor.pos);
-      const edgeCost = d + (isClimbingSheerWall ? 2.5 : 0);
+      const edgeCost = d + (isClimbingSheerWall ? 15.0 : 0);
 
       const tentativeG = current.g + edgeCost;
       if (tentativeG < neighbor.g) {
@@ -1944,10 +2074,68 @@ export function findNavPath(
   const result: Vector3[] = [{ ...smoothed[0] }];
   let distLeft = maxDistance;
 
+  let totalSmoothedLen = 0;
+  for (let j = 1; j < smoothed.length; j++) {
+    totalSmoothedLen += Math.hypot(
+      smoothed[j].x - smoothed[j - 1].x,
+      (smoothed[j].y ?? 0) - (smoothed[j - 1].y ?? 0),
+      smoothed[j].z - smoothed[j - 1].z
+    );
+  }
+
   for (let i = 1; i < smoothed.length; i++) {
     const p1 = smoothed[i - 1];
     const p2 = smoothed[i];
     const segLen = Math.hypot(p2.x - p1.x, (p2.y ?? 0) - (p1.y ?? 0), p2.z - p1.z);
+
+    // If stopBeforeDifficult is requested (e.g. for Rush actions where entering difficult terrain
+    // would negate double speed and cap movement to 6"), stop at the base of sheer climbs or
+    // before difficult terrain pieces if the full traversal would exceed 6.0".
+    if (
+      options.stopBeforeDifficult &&
+      !hasTrait(unit.specialRules, 'pathfinder') &&
+      !hasTrait(unit.specialRules, 'airborne')
+    ) {
+      const isSheerClimb =
+        (p2.y ?? 0) - (p1.y ?? 0) > 0.5 &&
+        !isSegmentOnRampOrStairs(state, p1, p2);
+
+      const p2Piece = findTerrainAtPosition(state, p2);
+      const isP2Difficult =
+        p2Piece &&
+        (p2Piece.isDifficult ||
+          p2Piece.terrainType === 'mud' ||
+          p2Piece.terrainType === 'trench' ||
+          p2Piece.terrainType === 'forest');
+
+      const p1Piece = findTerrainAtPosition(state, p1);
+      const isP1Difficult =
+        p1Piece &&
+        (p1Piece.isDifficult ||
+          p1Piece.terrainType === 'mud' ||
+          p1Piece.terrainType === 'trench' ||
+          p1Piece.terrainType === 'forest');
+
+      const isEnteringDifficult = isP2Difficult && !isP1Difficult;
+
+      if (isSheerClimb && totalSmoothedLen > 6.0) {
+        break;
+      }
+
+      if (isEnteringDifficult && totalSmoothedLen > 6.0) {
+        if (p2Piece) {
+          const entryPt = findDifficultTerrainEntry(p1, p2, p2Piece);
+          if (entryPt) {
+            const dEntry = Math.hypot(entryPt.x - p1.x, (entryPt.y ?? 0) - (p1.y ?? 0), entryPt.z - p1.z);
+            if (dEntry <= distLeft + 1e-4) {
+              result.push(entryPt);
+            }
+          }
+        }
+        break;
+      }
+    }
+
     if (segLen <= distLeft + 1e-4) {
       result.push({
         x: Math.round(p2.x * 100) / 100,
