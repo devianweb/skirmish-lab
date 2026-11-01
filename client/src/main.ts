@@ -67,7 +67,8 @@ function applyMarkers(markers: MarkerSnapshot): void {
     markers.movementRangePosition
       ? { id: 'move-center', position: markers.movementRangePosition }
       : unitForMarkers(markers.movementRangeUnitId),
-    markers.movementRangeRadius
+    markers.movementRangeRadius,
+    markers.movementRangeColor
   );
   const attackRangeUnit = markers.attackRange
     ? unitForMarkers(markers.attackRange.unitId)

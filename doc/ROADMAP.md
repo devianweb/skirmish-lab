@@ -582,20 +582,29 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ### Sub-phase 13.5F: Multi-Model Squad Individual Pathing & Terrain Collision Resolution (`shared/` & `client/`)
 - [x] Fix terrain blocker false positives: eliminate validation of the abstract straight-line path between squad centroids in `actions.ts`.
 - [x] Individual model pathfinding: each constituent squad model runs independent A* pathfinding from its own physical position to its target location in `GameHUD.ts`, navigating around intervening terrain.
+- [x] Decouple squad validation from single-unit centroid checks: bypass `path[0] == unit.position` and `path[end] == finalPosition` in `actions.ts` when constituent `modelPositions` are present, validating each mini independently.
 - [x] Enforce live coherency rings ($\le 2.0″$) centered on already-placed squad members during model placement.
-- [x] Validate clearance and movement allowance for each individual model's path in `actions.ts`.
-- [x] Unit and UI tests verifying squads flanking obstacles/cover navigate without triggering false "Move path is blocked by terrain" errors.
+- [x] Validate clearance and movement allowance for each individual model's path in `actions.ts`, and deduct squad movement budget based on maximum constituent displacement.
+- [x] Unit and UI tests verifying squads flanking obstacles/cover navigate without triggering false "Move path is blocked by terrain" or "Move path must start at unit position" errors.
 
-### Sub-phase 13.5G: Solid Triangular Ramp (Wedge) Collision & Ladder Deck Arrival (`shared/` & `client/`)
+### Sub-phase 13.5G: Rush Range Visual Indicator & Budget Alignment (`client/`)
+- [x] Fix Rush range radius bug: resolve `GameHUD.ts` issue where `this.activeUnit.remainingMovement` (initialized to base speed $6.0″$) took precedence over the $2 \times$ Rush allowance ($12.0″$), causing Rush to erroneously show standard move distance.
+- [x] Accurate remaining Rush budget calculation:
+  - If unit is actively rushing (`unit.isRushing`), radius is `unit.remainingMovement`.
+  - If unit has not yet rushed, radius is `unit.speed * 2 - (unit.hasMoved ? (unit.speed - unit.remainingMovement) : 0)`.
+- [x] Distinctive Rush ring visualization: support distinct visual styling (e.g. golden/amber range ring `0xffb74d`) in `MarkerRenderer.ts` and `GameHUD.ts` to clearly distinguish Rush mode from Advance mode.
+- [x] Unit & UI integration tests in `client/tests/ui/GameHUD.test.ts` verifying that hovering and selecting Rush displays the full 12.0″ radius for unhindered units with gold/amber tint.
+
+### Sub-phase 13.5H: Solid Triangular Ramp (Wedge) Collision & Ladder Deck Arrival (`shared/` & `client/`)
 - [ ] Solid triangular ramp geometry: update stairs from passable phantom bounding boxes to solid right-angled triangular prisms (wedges).
 - [ ] Update wireframe debug rendering in `MarkerRenderer.ts` (`F9` overlay) to render triangular prism wireframes showing the true incline profile from foot to head instead of an AABB cuboid.
 - [ ] Impassable sides/risers with continuous sloped surface: stair sides and rear walls block movement, while the sloped hypotenuse surface calculates continuous height $y(t) = y_{\text{foot}} + t(y_{\text{head}} - y_{\text{foot}})$ without synthetic waypoint teleporters.
 - [ ] Tabletop ladder rules enforcement: models scaling vertical ladders must have sufficient movement budget to reach the landing platform deck; if movement is insufficient, the model remains at the ladder foot rather than hanging suspended on rungs. Models traversing stair ramps may stop along the slope.
 - [ ] Unit tests for wedge collision, continuous ramp elevation, and vertical ladder completion constraints.
 
-### Sub-phase 13.5H: Consolidated Verification Checklist & End-to-End Validation
+### Sub-phase 13.5I: Consolidated Verification Checklist & End-to-End Validation
 - [ ] Update `doc/manual-testing/PLAYTEST_VERIFICATION_CHECKLIST.md` with accurate force names (*Frontier Wardens* and *Rust Raiders*) and actual unit rosters.
-- [ ] Create streamlined, step-by-step test cases for each 13.5 sub-phase mechanic (interactive consolidation, 3D objective cylinder, split fire, stair pathfinding, sequential squad movement, incremental movement budget, obstacle flanking, and triangular ramp traversal).
+- [ ] Create streamlined, step-by-step test cases for each 13.5 sub-phase mechanic (interactive consolidation, 3D objective cylinder, split fire, stair pathfinding, sequential squad movement, incremental movement budget, obstacle flanking, triangular ramp traversal, and rush range indicator).
 - [ ] Verify test suite passes locally across all workspaces.
 
 ### Acceptance Criteria
@@ -607,6 +616,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Multi-model squads can be moved model-by-model with visible 2.0″ coherency circles, and model count is shown in the HUD.
 - [x] Units can make incremental micro-moves within their activation until movement budget (6.0″ move or 12.0″ rush) is exhausted, and shooting closes the movement window.
 - [x] Multi-model squad movement paths individual constituent models around obstacles without triggering centroid terrain blocking false positives.
+- [x] Rush range ring accurately renders up to 12.0″ (double speed) on the battlefield with distinct styling, adjusting dynamically for previous micro-moves.
 - [ ] Stairs render as triangular prism wireframes and compute continuous sloped elevation without synthetic waypoint hacks, and vertical ladders require reaching the deck.
 - [ ] Consolidated verification checklist accurately reflects actual armies and verified mechanics.
 

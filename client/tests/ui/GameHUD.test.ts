@@ -644,6 +644,15 @@ describe('GameHUD', () => {
 
     clickByText(container, 'Move');
     expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBe(active.id);
+    expect(snapshots[snapshots.length - 1].movementRangeRadius).toBe(6);
+    expect(snapshots[snapshots.length - 1].movementRangeColor).toBeUndefined();
+    clickByText(container, 'Cancel');
+    expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBeNull();
+
+    clickByText(container, 'Rush');
+    expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBe(active.id);
+    expect(snapshots[snapshots.length - 1].movementRangeRadius).toBe(12);
+    expect(snapshots[snapshots.length - 1].movementRangeColor).toBe(0xffb74d);
     clickByText(container, 'Cancel');
     expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBeNull();
 
