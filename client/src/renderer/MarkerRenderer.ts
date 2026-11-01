@@ -588,15 +588,25 @@ export class MarkerRenderer {
 
     for (const unit of units) {
       if (unit.isDestroyed) continue;
-      const cylGeo = new THREE.CylinderGeometry(LOS_UNIT_RADIUS, LOS_UNIT_RADIUS, 1.4, 16, 1, true);
-      const edges = new THREE.EdgesGeometry(cylGeo);
-      const line = new THREE.LineSegments(
-        edges,
-        new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.65 })
-      );
-      line.position.set(unit.position.x, 0.7, unit.position.z);
-      group.add(line);
-      cylGeo.dispose();
+      const aliveModels = unit.models && unit.models.length > 0
+        ? unit.models.filter((m) => !m.isDestroyed)
+        : null;
+
+      const positions = aliveModels && aliveModels.length > 0
+        ? aliveModels.map((m) => m.position ?? unit.position)
+        : [unit.position];
+
+      for (const pos of positions) {
+        const cylGeo = new THREE.CylinderGeometry(LOS_UNIT_RADIUS, LOS_UNIT_RADIUS, 1.4, 16, 1, true);
+        const edges = new THREE.EdgesGeometry(cylGeo);
+        const line = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.65 })
+        );
+        line.position.set(pos.x, (pos.y ?? 0) + 0.7, pos.z);
+        group.add(line);
+        cylGeo.dispose();
+      }
     }
 
     this.markerGroup.add(group);

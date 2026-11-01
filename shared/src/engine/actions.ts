@@ -350,6 +350,20 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!coherency.coherent) {
         return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
       }
+      for (let i = 0; i < modelPositions!.length; i++) {
+        for (let j = i + 1; j < modelPositions!.length; j++) {
+          const dist = Math.hypot(
+            modelPositions![i].x - modelPositions![j].x,
+            modelPositions![i].z - modelPositions![j].z
+          );
+          if (dist < 0.45) {
+            return {
+              valid: false,
+              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.5")`,
+            };
+          }
+        }
+      }
       for (const pos of modelPositions!) {
         if (!isWithinBoard(state, pos)) {
           return { valid: false, reason: 'Squad model position leaves the board' };
@@ -659,6 +673,20 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const coherency = validateSquadCoherency(modelPositions!);
       if (!coherency.coherent) {
         return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+      }
+      for (let i = 0; i < modelPositions!.length; i++) {
+        for (let j = i + 1; j < modelPositions!.length; j++) {
+          const dist = Math.hypot(
+            modelPositions![i].x - modelPositions![j].x,
+            modelPositions![i].z - modelPositions![j].z
+          );
+          if (dist < 0.45) {
+            return {
+              valid: false,
+              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.5")`,
+            };
+          }
+        }
       }
       for (const pos of modelPositions!) {
         if (!isWithinBoard(state, pos)) {
