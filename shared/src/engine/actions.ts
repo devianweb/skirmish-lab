@@ -300,6 +300,19 @@ export function validateAction(state: GameState, action: GameAction): Validation
             return { valid: false, reason: 'Move leaves the board' };
           }
         }
+        const wouldEngage = state.units.some(
+          (u) =>
+            !u.isDestroyed &&
+            u.ownerId !== action.actorId &&
+            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+            Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+        );
+        if (wouldEngage) {
+          return {
+            valid: false,
+            reason: 'Move cannot end in melee contact (use Charge instead)',
+          };
+        }
         const blocker = findMoveBlocker(state, unit.result, path);
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
@@ -319,19 +332,6 @@ export function validateAction(state: GameState, action: GameAction): Validation
               };
             }
           }
-        }
-        const wouldEngage = state.units.some(
-          (u) =>
-            !u.isDestroyed &&
-            u.ownerId !== action.actorId &&
-            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
-            Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
-        );
-        if (wouldEngage) {
-          return {
-            valid: false,
-            reason: 'Move cannot end in melee contact (use Charge instead)',
-          };
         }
         return { valid: true };
       }
@@ -356,10 +356,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
             modelPositions![i].x - modelPositions![j].x,
             modelPositions![i].z - modelPositions![j].z
           );
-          if (dist < 0.45) {
+          if (dist < 0.90) {
             return {
               valid: false,
-              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.5")`,
+              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.9")`,
             };
           }
         }
@@ -680,10 +680,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
             modelPositions![i].x - modelPositions![j].x,
             modelPositions![i].z - modelPositions![j].z
           );
-          if (dist < 0.45) {
+          if (dist < 0.90) {
             return {
               valid: false,
-              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.5")`,
+              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.9")`,
             };
           }
         }

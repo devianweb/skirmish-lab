@@ -229,36 +229,113 @@ export class ModelLoader {
 }
 
 /**
- * Procedural low-poly fighter: a box torso, icosahedron head, and a base —
- * deliberately few polygons, matching the low-poly art style. Serves as
- * the placeholder/fallback for unit meshes.
+ * Procedural 28–32mm Hero-Scale miniature mounted on a standard 1.0" tournament base:
+ * - Base bottom: Y = 0.00
+ * - Base top: Y = 0.10, radius = 0.46" (with beveled rim from 0.50" to 0.46")
+ * - Miniature height: ~1.12" above base -> Total model height ~1.22" (31mm Hero Scale)
+ * - Base rim receives distinct squad identification tint in UnitRenderer
+ * - Base top stays dark tournament slate (#212529)
+ * - Miniature armor/body receives player team tint (Host blue / Guest red)
  */
-function createLowPolyFighter(): THREE.Object3D {
+export function createHeroScaleFighter(): THREE.Object3D {
   const group = new THREE.Group();
   group.name = 'fighter';
 
-  const torsoGeometry = new THREE.BoxGeometry(0.35, 0.5, 0.25);
-  const torsoMaterial = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 });
-  const torso = new THREE.Mesh(torsoGeometry, torsoMaterial);
-  torso.position.y = 0.45;
+  // 1. Standard 1.0" Tournament Base
+  // Base core & beveled rim (bottom radius 0.50", top radius 0.46", height 0.09")
+  const rimGeo = new THREE.CylinderGeometry(0.46, 0.50, 0.09, 24);
+  rimGeo.translate(0, 0.045, 0);
+  const rimMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.2 });
+  const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+  rimMesh.name = 'base-rim';
+  rimMesh.userData = { isBase: true, isBaseRim: true };
+  rimMesh.receiveShadow = true;
+  group.add(rimMesh);
+
+  // Base top surface (dark slate plinth: radius 0.46", height 0.02" at y = 0.09 -> 0.10)
+  const topGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.02, 24);
+  topGeo.translate(0, 0.09, 0);
+  const topMat = new THREE.MeshStandardMaterial({ color: 0x212529, roughness: 0.9, metalness: 0.05 });
+  const topMesh = new THREE.Mesh(topGeo, topMat);
+  topMesh.name = 'base-top';
+  topMesh.userData = { isBase: true, isBaseTop: true };
+  topMesh.receiveShadow = true;
+  group.add(topMesh);
+
+  // 2. Miniature Body (Heroic Proportions: ~1.12" tall above base, total height ~1.22" / 31mm)
+  const armorMat = new THREE.MeshStandardMaterial({ roughness: 0.65, metalness: 0.25 });
+
+  // Armored Boots & Legs (standing at x = +/-0.12, y from 0.10 to 0.46)
+  for (const legX of [-0.12, 0.12]) {
+    const legGeo = new THREE.BoxGeometry(0.13, 0.36, 0.16);
+    legGeo.translate(legX, 0.10 + 0.18, 0);
+    const leg = new THREE.Mesh(legGeo, armorMat);
+    leg.castShadow = true;
+    group.add(leg);
+  }
+
+  // Tactical Belt & Abdomen (y from 0.46 to 0.58)
+  const beltGeo = new THREE.BoxGeometry(0.32, 0.12, 0.22);
+  beltGeo.translate(0, 0.46 + 0.06, 0);
+  const belt = new THREE.Mesh(beltGeo, armorMat);
+  belt.castShadow = true;
+  group.add(belt);
+
+  // Armored Cuirass / Torso (y from 0.58 to 0.86, chest depth 0.26)
+  const torsoGeo = new THREE.BoxGeometry(0.42, 0.28, 0.26);
+  torsoGeo.translate(0, 0.58 + 0.14, 0);
+  const torso = new THREE.Mesh(torsoGeo, armorMat);
   torso.castShadow = true;
   group.add(torso);
 
-  const headGeometry = new THREE.IcosahedronGeometry(0.15, 0);
-  const headMaterial = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 });
-  const head = new THREE.Mesh(headGeometry, headMaterial);
-  head.position.y = 0.82;
-  head.castShadow = true;
-  group.add(head);
+  // Pauldrons / Heavy Shoulder Guards (span ~0.72")
+  for (const pX of [-0.27, 0.27]) {
+    const pGeo = new THREE.BoxGeometry(0.16, 0.18, 0.22);
+    pGeo.translate(pX, 0.77, 0);
+    const pMesh = new THREE.Mesh(pGeo, armorMat);
+    pMesh.castShadow = true;
+    group.add(pMesh);
+  }
 
-  const baseGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 8);
-  const baseMaterial = new THREE.MeshStandardMaterial({ roughness: 0.9 });
-  const base = new THREE.Mesh(baseGeometry, baseMaterial);
-  base.position.y = 0.03;
-  base.receiveShadow = true;
-  group.add(base);
+  // Helmeted Head (y from 0.86 to 1.10)
+  const helmGeo = new THREE.BoxGeometry(0.24, 0.24, 0.24);
+  helmGeo.translate(0, 0.86 + 0.12, 0);
+  const helm = new THREE.Mesh(helmGeo, armorMat);
+  helm.castShadow = true;
+  group.add(helm);
+
+  // Helmet Crest / Fin (reaches top height ~1.22" / 31mm)
+  const crestGeo = new THREE.BoxGeometry(0.06, 0.12, 0.24);
+  crestGeo.translate(0, 1.10 + 0.06, -0.02);
+  const crest = new THREE.Mesh(crestGeo, armorMat);
+  crest.castShadow = true;
+  group.add(crest);
+
+  // Visor Slit (dark glass)
+  const visorGeo = new THREE.BoxGeometry(0.18, 0.06, 0.04);
+  visorGeo.translate(0, 0.98, 0.13);
+  const visorMat = new THREE.MeshStandardMaterial({ color: 0x102027, roughness: 0.3, metalness: 0.8 });
+  const visor = new THREE.Mesh(visorGeo, visorMat);
+  visor.name = 'visor';
+  visor.userData = { isVisor: true };
+  group.add(visor);
+
+  // Front-slung Tactical Weapon / Carbine
+  const gunGeo = new THREE.BoxGeometry(0.08, 0.12, 0.40);
+  gunGeo.translate(0.10, 0.68, 0.20);
+  const gunMat = new THREE.MeshStandardMaterial({ color: 0x37474f, roughness: 0.5, metalness: 0.6 });
+  const gun = new THREE.Mesh(gunGeo, gunMat);
+  gun.name = 'weapon';
+  gun.userData = { isWeapon: true };
+  gun.castShadow = true;
+  group.add(gun);
 
   return group;
+}
+
+/** Low-poly fighter factory for unit meshes and tests. */
+export function createLowPolyFighter(): THREE.Object3D {
+  return createHeroScaleFighter();
 }
 
 /** Procedural terrain block (1x1x1) with base origin at Y = 0. */
