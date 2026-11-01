@@ -744,6 +744,43 @@ describe('applyAction: shoot', () => {
     expect(attacker.rotation.y).toBeCloseTo(0);
   });
 
+  it('turns all models in a multi-model squad to face the target when shooting', () => {
+    const state = shootState();
+    const attacker = state.units.find((u) => u.id === 'h1')!;
+    // Position attacker at (0, 0, 0), previously facing East (Math.PI / 2)
+    attacker.position = { x: 0, y: 0, z: 0 };
+    attacker.rotation = { x: 0, y: Math.PI / 2, z: 0 };
+    attacker.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -1, y: 0, z: 0 }, rotation: { x: 0, y: Math.PI / 2, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: Math.PI / 2, z: 0 } },
+    ];
+    // Position target to the North at (0, 0, 10)
+    const target = state.units.find((u) => u.id === 'g1')!;
+    target.position = { x: 0, y: 0, z: 10 };
+
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'rifle',
+    });
+
+    const outcome = act(state, action, dice(2, [5, 5], [1, 1]));
+    expect(outcome.ok).toBe(true);
+
+    const sAttacker = outcome.state!.units.find((u) => u.id === 'h1')!;
+    // Attacker unit rotation should face (0, 0, 10) from (0, 0, 0): atan2(0, 10) = 0
+    expect(sAttacker.rotation.y).toBeCloseTo(0, 2);
+
+    // Each model in the squad should now face the target, not its old Math.PI / 2 rotation!
+    const m1 = sAttacker.models.find((m) => m.id === 'm1')!;
+    const m2 = sAttacker.models.find((m) => m.id === 'm2')!;
+    // m1 at (-1, 0, 0) aiming at (0, 0, 10): dx = 1, dz = 10 -> atan2(1, 10)
+    expect(m1.rotation.y).toBeCloseTo(Math.atan2(1, 10), 2);
+    // m2 at (1, 0, 0) aiming at (0, 0, 10): dx = -1, dz = 10 -> atan2(-1, 10)
+    expect(m2.rotation.y).toBeCloseTo(Math.atan2(-1, 10), 2);
+  });
+
   it('applies a +1 Defense bonus when the target is in cover', () => {
     const state = shootState();
     state.units[1].status = ['in-cover'];
