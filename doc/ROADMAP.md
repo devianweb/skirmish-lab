@@ -573,11 +573,11 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit and UI tests for sequential model placement and coherency validation.
 
 ### Sub-phase 13.5E: Incremental Movement & Movement Budgeting (`shared/` & `client/`)
-- [ ] Deduct movement distance from `unit.remainingMovement` instead of resetting directly to 0, enabling multiple micro-moves per activation within movement allowance.
-- [ ] Support Advance micro-movements (`move -> move -> shoot -> end`) up to base speed (6.0″), with shooting immediately closing the movement window (`remainingMovement = 0`).
-- [ ] Support Rush micro-movements (`rush -> move -> end`) up to double speed (12.0″), setting `hasAttacked = true` to prohibit shooting while allowing incremental movement until the budget is spent or activation ends.
-- [ ] Action bar UI updates: preserve Move and Shoot buttons while `remainingMovement > 0.05` and `!hasAttacked`.
-- [ ] Unit tests in `shared/tests/engine/actions.test.ts` and HUD integration tests for movement budget deductions, shooting lockouts, and multi-move validation.
+- [x] Deduct movement distance from `unit.remainingMovement` instead of resetting directly to 0, enabling multiple micro-moves per activation within movement allowance.
+- [x] Support Advance micro-movements (`move -> move -> shoot -> end`) up to base speed (6.0″), with shooting immediately closing the movement window (`remainingMovement = 0`).
+- [x] Support Rush micro-movements (`rush -> move -> end`) up to double speed (12.0″), setting `hasAttacked = true` to prohibit shooting while allowing incremental movement until the budget is spent or activation ends.
+- [x] Action bar UI updates: preserve Move and Shoot buttons while `remainingMovement > 0.05` and `!hasAttacked`.
+- [x] Unit tests in `shared/tests/engine/actions.test.ts` and HUD integration tests for movement budget deductions, shooting lockouts, and multi-move validation.
 
 ### Sub-phase 13.5F: Multi-Model Squad Individual Pathing & Terrain Collision Resolution (`shared/` & `client/`)
 - [ ] Fix terrain blocker false positives: eliminate validation of the abstract straight-line path between squad centroids in `actions.ts`.
@@ -605,7 +605,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Units with multiple ranged weapons can allocate weapons to different enemy targets with concentric range rings rendered.
 - [x] Pathfinding to elevated platforms routes non-airborne units up stairs/ladders at 1:1 cost without sheer air climbs.
 - [x] Multi-model squads can be moved model-by-model with visible 2.0″ coherency circles, and model count is shown in the HUD.
-- [ ] Units can make incremental micro-moves within their activation until movement budget (6.0″ move or 12.0″ rush) is exhausted, and shooting closes the movement window.
+- [x] Units can make incremental micro-moves within their activation until movement budget (6.0″ move or 12.0″ rush) is exhausted, and shooting closes the movement window.
 - [ ] Multi-model squad movement paths individual constituent models around obstacles without triggering centroid terrain blocking false positives.
 - [ ] Stairs render as triangular prism wireframes and compute continuous sloped elevation without synthetic waypoint hacks, and vertical ladders require reaching the deck.
 - [ ] Consolidated verification checklist accurately reflects actual armies and verified mechanics.

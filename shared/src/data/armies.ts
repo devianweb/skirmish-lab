@@ -227,6 +227,7 @@ export function createUnitFromFighter(
     specialRules: [...definition.specialRules],
     hasMoved: false,
     hasAttacked: false,
+    isRushing: false,
     remainingMovement: definition.speed,
     isDeployed: true,
   };
