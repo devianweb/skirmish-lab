@@ -1288,6 +1288,20 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         if (Math.hypot(adx, adz) > 1e-4) {
           attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
         }
+        if (attacker.models && attacker.models.length > 0) {
+          for (const m of attacker.models) {
+            if (!m.isDestroyed) {
+              const mPos = m.position ?? attacker.position;
+              const mdx = primaryTarget.position.x - mPos.x;
+              const mdz = primaryTarget.position.z - mPos.z;
+              if (Math.hypot(mdx, mdz) > 1e-4) {
+                m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+              } else {
+                m.rotation = { ...attacker.rotation };
+              }
+            }
+          }
+        }
       }
 
       for (let i = 0; i < allocations.length; i++) {
@@ -1449,11 +1463,40 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const isFatigued =
         attacker.status.includes('fatigued') || attacker.status.includes('shaken');
 
-      // Turn attacker to face the target
+      // Turn attacker to face the target, and target to face attacker
       const adx = target.position.x - attacker.position.x;
       const adz = target.position.z - attacker.position.z;
       if (Math.hypot(adx, adz) > 1e-4) {
         attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
+        target.rotation = { ...target.rotation, y: Math.atan2(-adx, -adz) };
+      }
+      if (attacker.models && attacker.models.length > 0) {
+        for (const m of attacker.models) {
+          if (!m.isDestroyed) {
+            const mPos = m.position ?? attacker.position;
+            const mdx = target.position.x - mPos.x;
+            const mdz = target.position.z - mPos.z;
+            if (Math.hypot(mdx, mdz) > 1e-4) {
+              m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+            } else {
+              m.rotation = { ...attacker.rotation };
+            }
+          }
+        }
+      }
+      if (target.models && target.models.length > 0) {
+        for (const m of target.models) {
+          if (!m.isDestroyed) {
+            const mPos = m.position ?? target.position;
+            const mdx = attacker.position.x - mPos.x;
+            const mdz = attacker.position.z - mPos.z;
+            if (Math.hypot(mdx, mdz) > 1e-4) {
+              m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+            } else {
+              m.rotation = { ...target.rotation };
+            }
+          }
+        }
       }
 
       let outcome: CombatOutcome;
@@ -1710,7 +1753,28 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (attacker.models && attacker.models.length > 0) {
         for (const m of attacker.models) {
           if (!m.isDestroyed) {
-            m.rotation = { ...attacker.rotation };
+            const mPos = m.position ?? attacker.position;
+            const mdx = target.position.x - mPos.x;
+            const mdz = target.position.z - mPos.z;
+            if (Math.hypot(mdx, mdz) > 1e-4) {
+              m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+            } else {
+              m.rotation = { ...attacker.rotation };
+            }
+          }
+        }
+      }
+      if (target.models && target.models.length > 0) {
+        for (const m of target.models) {
+          if (!m.isDestroyed) {
+            const mPos = m.position ?? target.position;
+            const mdx = attacker.position.x - mPos.x;
+            const mdz = attacker.position.z - mPos.z;
+            if (Math.hypot(mdx, mdz) > 1e-4) {
+              m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+            } else {
+              m.rotation = { ...target.rotation };
+            }
           }
         }
       }
@@ -1914,6 +1978,20 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         if (Math.hypot(rdx, rdz) > 1e-4) {
           defender.rotation = { ...defender.rotation, y: Math.atan2(rdx, rdz) };
         }
+        if (defender.models && defender.models.length > 0) {
+          for (const m of defender.models) {
+            if (!m.isDestroyed) {
+              const mPos = m.position ?? defender.position;
+              const mdx = charger.position.x - mPos.x;
+              const mdz = charger.position.z - mPos.z;
+              if (Math.hypot(mdx, mdz) > 1e-4) {
+                m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+              } else {
+                m.rotation = { ...defender.rotation };
+              }
+            }
+          }
+        }
 
         const retRolls = extractAttackRolls(dice);
         const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
@@ -2080,6 +2158,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
               y: end.y ?? m.position.y ?? 0,
               z: Math.round((m.position.z + deltaZ) * 100) / 100,
             };
+            m.rotation = { ...unit.rotation };
           }
         }
       }
