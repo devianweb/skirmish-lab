@@ -244,11 +244,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition, modelPositions } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
+        modelPaths?: Vector3[][];
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
@@ -295,9 +296,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: 'Move leaves the board' };
         }
       }
-      const blocker = findMoveBlocker(state, unit.result, path);
-      if (blocker.blocked) {
-        return { valid: false, reason: blocker.reason };
+      const isSquad = modelPositions && modelPositions.length > 0;
+      if (!isSquad) {
+        const blocker = findMoveBlocker(state, unit.result, path);
+        if (blocker.blocked) {
+          return { valid: false, reason: blocker.reason };
+        }
       }
       if (modelPositions && modelPositions.length > 0) {
         const activeCount = unit.result.models
@@ -326,6 +330,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
             return {
               valid: false,
               reason: `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${maxMove.toFixed(1)}")`,
+            };
+          }
+          const mPath =
+            modelPaths && modelPaths[i] && modelPaths[i].length >= 2
+              ? modelPaths[i]
+              : [mStart, modelPositions[i]];
+          const mBlocker = findMoveBlocker(state, unit.result, mPath);
+          if (mBlocker.blocked) {
+            return {
+              valid: false,
+              reason: `Squad model ${i + 1} move path is blocked: ${mBlocker.reason}`,
             };
           }
         }
@@ -456,11 +471,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition, modelPositions } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
+        modelPaths?: Vector3[][];
       };
       const actor = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in actor) return actor;
@@ -502,20 +518,27 @@ export function validateAction(state: GameState, action: GameAction): Validation
                 : `Rush distance exceeds remaining rush allowance (${dist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`),
         };
       }
-      const blocker = findMoveBlocker(state, unit, fullPath);
-      if (blocker.blocked) {
-        return { valid: false, reason: blocker.reason };
+      const isSquad = modelPositions && modelPositions.length > 0;
+      if (!isSquad) {
+        const blocker = findMoveBlocker(state, unit, fullPath);
+        if (blocker.blocked) {
+          return { valid: false, reason: blocker.reason };
+        }
       }
       const end = path[path.length - 1];
       if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
         return { valid: false, reason: 'Final position does not match path end' };
       }
+      const positionsToCheck = isSquad ? modelPositions : [end];
       const wouldEngage = state.units.some(
         (u) =>
           !u.isDestroyed &&
           u.ownerId !== action.actorId &&
-          boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
-          Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+          positionsToCheck.some(
+            (pos) =>
+              boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
+              Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+          )
       );
       if (wouldEngage) {
         return {
@@ -550,6 +573,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
             return {
               valid: false,
               reason: `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`,
+            };
+          }
+          const mPath =
+            modelPaths && modelPaths[i] && modelPaths[i].length >= 2
+              ? modelPaths[i]
+              : [mStart, modelPositions[i]];
+          const mBlocker = findMoveBlocker(state, unit, mPath);
+          if (mBlocker.blocked) {
+            return {
+              valid: false,
+              reason: `Squad model ${i + 1} rush path is blocked: ${mBlocker.reason}`,
             };
           }
         }
@@ -1027,11 +1061,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition, modelPositions } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
+        modelPaths?: Vector3[][];
       };
       const unit = getUnit(newState, unitId)!;
       if (path.length >= 2) {
@@ -1379,11 +1414,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition, modelPositions } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
+        modelPaths?: Vector3[][];
       };
       const unit = getUnit(newState, unitId)!;
       const startPos = { ...unit.position };

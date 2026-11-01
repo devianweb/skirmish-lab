@@ -145,6 +145,8 @@ export class GameHUD {
   private selectedShootWeaponId: string | null = null;
   /** Staged model positions during sequential squad movement */
   private stagedSquadPositions: Vector3[] = [];
+  /** Staged individual model navigation paths during sequential squad movement */
+  private stagedSquadPaths: Vector3[][] = [];
   /** Index of the model currently being positioned in a squad */
   private squadPlacementIndex = 0;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
@@ -748,6 +750,7 @@ export class GameHUD {
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
     this.stagedSquadPositions = [];
+    this.stagedSquadPaths = [];
     this.squadPlacementIndex = 0;
     this.flow = { mode: 'targeting', action };
 
@@ -846,6 +849,7 @@ export class GameHUD {
 
     // Model placed successfully
     this.stagedSquadPositions.push(destination);
+    this.stagedSquadPaths.push(path);
     this.squadPlacementIndex++;
 
     if (this.squadPlacementIndex < alive.length) {
@@ -859,8 +863,8 @@ export class GameHUD {
 
     // All living models have been placed!
     const finalCentroid = computeSquadCentroid(this.stagedSquadPositions);
-    const isAnyModelDifficult = this.stagedSquadPositions.some((pos, i) =>
-      isPathDifficult(this.state!, [alive[i].position ?? active.position, pos], active)
+    const isAnyModelDifficult = this.stagedSquadPaths.some((p) =>
+      isPathDifficult(this.state!, p, active)
     );
     let summary = `${actionKind === 'rush' || active.isRushing ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
       actionKind === 'rush' || active.isRushing ? 'double move (ineligible to shoot)' : 'can shoot after moving'
@@ -871,17 +875,15 @@ export class GameHUD {
         : ' · [Difficult Terrain: 6.0" speed cap]';
     }
 
-    const hasDangerous = this.stagedSquadPositions.some((pos, i) =>
-      isPathDangerous(this.state!, [alive[i].position ?? active.position, pos], active)
+    const hasDangerous = this.stagedSquadPaths.some((p) =>
+      isPathDangerous(this.state!, p, active)
     );
     if (hasDangerous) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
 
     const maxDrop = Math.max(
-      ...this.stagedSquadPositions.map((pos, i) =>
-        detectPathFall([alive[i].position ?? active.position, pos], this.state!).maxDrop
-      )
+      ...this.stagedSquadPaths.map((p) => detectPathFall(p, this.state!).maxDrop)
     );
     if (maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
       summary += ` · ⚠️ HIGH DROP (${maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
@@ -895,9 +897,10 @@ export class GameHUD {
       createAction(this.localPlayerId, actionKind === 'rush' ? 'rush' : 'move-unit', {
         type: actionKind === 'rush' ? 'rush' : 'move-unit',
         unitId: active.id,
-        path: [active.position, finalCentroid],
+        path: this.stagedSquadPaths[0] ?? [active.position, finalCentroid],
         finalPosition: finalCentroid,
         modelPositions: [...this.stagedSquadPositions],
+        modelPaths: [...this.stagedSquadPaths],
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
@@ -1481,6 +1484,7 @@ export class GameHUD {
     this.shootAllocations.clear();
     this.selectedShootWeaponId = null;
     this.stagedSquadPositions = [];
+    this.stagedSquadPaths = [];
     this.squadPlacementIndex = 0;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
@@ -2867,6 +2871,7 @@ export class GameHUD {
           case 'reset-squad-move':
             this.squadPlacementIndex = 0;
             this.stagedSquadPositions = [];
+            this.stagedSquadPaths = [];
             this.movePathPreview = null;
             this.movePreview = null;
             this.render();

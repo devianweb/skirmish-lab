@@ -580,11 +580,11 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests in `shared/tests/engine/actions.test.ts` and HUD integration tests for movement budget deductions, shooting lockouts, and multi-move validation.
 
 ### Sub-phase 13.5F: Multi-Model Squad Individual Pathing & Terrain Collision Resolution (`shared/` & `client/`)
-- [ ] Fix terrain blocker false positives: eliminate validation of the abstract straight-line path between squad centroids in `actions.ts`.
-- [ ] Individual model pathfinding: each constituent squad model runs independent A* pathfinding from its own physical position to its target location in `GameHUD.ts`, navigating around intervening terrain.
-- [ ] Enforce live coherency rings ($\le 2.0″$) centered on already-placed squad members during model placement.
-- [ ] Validate clearance and movement allowance for each individual model's path in `actions.ts`.
-- [ ] Unit and UI tests verifying squads flanking obstacles/cover navigate without triggering false "Move path is blocked by terrain" errors.
+- [x] Fix terrain blocker false positives: eliminate validation of the abstract straight-line path between squad centroids in `actions.ts`.
+- [x] Individual model pathfinding: each constituent squad model runs independent A* pathfinding from its own physical position to its target location in `GameHUD.ts`, navigating around intervening terrain.
+- [x] Enforce live coherency rings ($\le 2.0″$) centered on already-placed squad members during model placement.
+- [x] Validate clearance and movement allowance for each individual model's path in `actions.ts`.
+- [x] Unit and UI tests verifying squads flanking obstacles/cover navigate without triggering false "Move path is blocked by terrain" errors.
 
 ### Sub-phase 13.5G: Solid Triangular Ramp (Wedge) Collision & Ladder Deck Arrival (`shared/` & `client/`)
 - [ ] Solid triangular ramp geometry: update stairs from passable phantom bounding boxes to solid right-angled triangular prisms (wedges).
@@ -606,7 +606,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Pathfinding to elevated platforms routes non-airborne units up stairs/ladders at 1:1 cost without sheer air climbs.
 - [x] Multi-model squads can be moved model-by-model with visible 2.0″ coherency circles, and model count is shown in the HUD.
 - [x] Units can make incremental micro-moves within their activation until movement budget (6.0″ move or 12.0″ rush) is exhausted, and shooting closes the movement window.
-- [ ] Multi-model squad movement paths individual constituent models around obstacles without triggering centroid terrain blocking false positives.
+- [x] Multi-model squad movement paths individual constituent models around obstacles without triggering centroid terrain blocking false positives.
 - [ ] Stairs render as triangular prism wireframes and compute continuous sloped elevation without synthetic waypoint hacks, and vertical ladders require reaching the deck.
 - [ ] Consolidated verification checklist accurately reflects actual armies and verified mechanics.
 
