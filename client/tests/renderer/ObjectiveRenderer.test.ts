@@ -64,16 +64,18 @@ describe('ObjectiveRenderer', () => {
     expect(alphaGroup.position.x).toBe(-5);
     expect(alphaGroup.position.z).toBe(2);
 
-    // Each objective group has: ring, disc, base (no vertical beam, no floating gem)
+    // Each objective group has: ring, disc, pip (no 3D crate obstacle, no vertical beam, no floating gem)
     const ring = alphaGroup.children.find((c) => c.name === 'objective-alpha-ring') as THREE.Mesh;
     const disc = alphaGroup.children.find((c) => c.name === 'objective-alpha-disc') as THREE.Mesh;
+    const pip = alphaGroup.children.find((c) => c.name === 'objective-alpha-pip');
     const base = alphaGroup.children.find((c) => c.name === 'objective-alpha-base');
     const beam = alphaGroup.children.find((c) => c.name === 'objective-alpha-beam');
     const gem = alphaGroup.children.find((c) => c.name === 'objective-alpha-gem');
 
     expect(ring).toBeDefined();
     expect(disc).toBeDefined();
-    expect(base).toBeDefined();
+    expect(pip).toBeDefined();
+    expect(base).toBeUndefined();
     expect(beam).toBeUndefined();
     expect(gem).toBeUndefined();
 

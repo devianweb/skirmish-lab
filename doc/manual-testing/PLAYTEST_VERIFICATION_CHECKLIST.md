@@ -1,6 +1,6 @@
-# Sub-Phase 13.5B Manual Verification Checklist
+# Sub-Phase 13.5C Manual Verification Checklist
 
-**Scope:** Ranged Combat Concentric Range Rings & Split-Fire System (carrying forward 13.5A fixes).
+**Scope:** 3D Surface-Constrained Navigation & Stair Traversal (carrying forward objective flat visual polish).
 
 ---
 
@@ -12,85 +12,54 @@
 
 ---
 
-## 1. Carried Forward 13.5A Fixes: Objective Base Visuals & Kenney Crate
+## 1. Objective Marker Visual Polish (Flat Ground Circle)
 - [ ] Inspect the scenario objective markers on the battlefield (Alpha, Bravo, Charlie, Delta).
-- [ ] Verify each objective base uses the Kenney blaster-kit `crate-medium.glb` model.
-- [ ] Verify the outer 3.0″ ground ring renders with softened opacity (`0.45`) and team-reactive colors (Blue for Host, Red for Guest, Orange for Contested, Gold for Neutral).
-- [ ] **Crystal Diamond Check:** Verify the floating crystal diamond marker has been **completely removed**, leaving only the clean grounded crate.
+- [ ] **Physical Crate Removal Check:** Verify the 3D supply crate model has been **completely removed** from all objective markers.
+- [ ] Verify the objective marker consists solely of the clean 3.0″ radius team-colored ground ring, soft semi-transparent capture disc, and subtle center pip.
+- [ ] Verify models can stand directly in the center of the objective circle without any 3D obstacle collision or visual clipping.
 
 ---
 
-## 2. Carried Forward 13.5A Fixes: Objective 3.0″ Vertical Cylinder Constraint & F9 Debugger Bounds
-- [ ] **F9 3D Volume Bounds Visualization:**
-  - [ ] Press **F9** to toggle the debug overlay.
-  - [ ] Verify a 3D wireframe cylinder (radius 3.0″, height 6.0″ extending $\pm 3.0″$ vertically) renders around each objective in warm amber/gold.
-  - [ ] Verify rings render at top ($+3.0″$), middle ($0″$), and bottom ($-3.0″$) with 8 vertical connector struts.
-- [ ] **Ground-Level Presence:**
-  - [ ] Move a friendly ground unit within 3.0″ horizontally of an objective crate at $y = 0″$.
-  - [ ] Hover cursor over the objective crate: DataCard confirms `Unit Presence: Host: 1 · Guest: 0` (or `Guest: 1`) and shows `Objective (3.0" control radius, ±3.0" vertical)`.
-- [ ] **High Vertical Rooftop Exclusion (> 3.0″):**
-  - [ ] Move a fighter onto a rooftop $> 3.0″$ vertically above a ground objective (e.g., $y \ge 3.5″$).
-  - [ ] Visually verify against the F9 wireframe cylinder that the rooftop fighter sits above the top ring.
-  - [ ] Hover cursor over the ground objective: Verify the elevated fighter does **NOT** count toward unit presence (`Unit Presence: 0`).
-  - [ ] At round end, verify the high-rooftop unit cannot seize or contest the ground objective.
-- [ ] **Low Elevation Tier Inclusion (≤ 3.0″):**
-  - [ ] Move a fighter onto a low platform or stairs at $y = 2.5″$ within 3.0″ horizontally of the objective (inside the F9 wireframe cylinder).
-  - [ ] Hover cursor over the objective: Verify the fighter **DOES** count toward unit presence because vertical separation is $\le 3.0″$.
+## 2. Sub-phase 13.5C: 3D Surface-Constrained Navigation & Stair Traversal
+
+### 2.1 Ground-to-Platform Stair Traversal (1:1 Normal Speed)
+- [ ] Activate a ground unit on the east side of the map (e.g. *Warden Trooper 2* near $x = 0, z = -2$).
+- [ ] Click **Move** or **Rush**.
+- [ ] Hover the mouse cursor over the elevated **East Catwalk / Platform East** ($x = 6.0, y = 2.5, z = -2.0$):
+  - [ ] **Surface-Constrained Path Check:** Verify the yellow path preview line **does NOT fly diagonally through open air**.
+  - [ ] Verify the path routes along the ground ($y = 0″$) to the foot of the East Stairs ($x \approx 3.8, z = -2$).
+  - [ ] Verify the path ascends along the stair slope ($y = 0 \to 2.5″$).
+  - [ ] Verify the path steps onto the platform deck and walks across the surface to the cursor position at $y = 2.5″$.
+- [ ] **No Difficult Terrain Penalty:**
+  - [ ] With **Rush** active (12.0″ movement allowance), verify the unit can traverse all the way up the stairs onto the platform in a single activation.
+  - [ ] Verify the confirmation bar displays normal movement distance and does **NOT** show a `[Difficult Terrain 6.0" cap]` warning.
+- [ ] Click **Confirm**:
+  - [ ] Verify the fighter smoothly follows the path: running across the ground, climbing the stairs, and stepping onto the platform deck.
+
+### 2.2 Ladder Ascension
+- [ ] Activate a ground unit on the west side of the map (e.g. *Warden Captain 1* or *Rust Runner 2*).
+- [ ] Click **Move** or **Rush**, and hover over **West Platform** ($x = -6.0, y = 2.5, z = 2.0$) near the West Ladder.
+- [ ] Verify the path routes along the ground to the foot of the ladder ($x = -4.5, y = 0, z = 2$), climbs vertically up the ladder face to $y = 2.5″$, and steps onto the deck.
+- [ ] Verify climbing the ladder does **NOT** trigger a Difficult Terrain penalty.
+
+### 2.3 Sheer Wall Climbing Fallback (Difficult Terrain 6.0″ Cap)
+- [ ] Activate a ground fighter and select a destination on an elevated building roof or platform with **NO** stairs or ladders reachable.
+- [ ] Inspect the live path preview:
+  - [ ] Verify the model navigates along the ground to the **base of the wall** directly in front of the platform.
+  - [ ] Verify the path scales vertically straight up the wall face ($x, z$ constant, ascending to deck level) and steps onto the surface.
+  - [ ] Verify the model **never flies diagonally through mid-air**.
+- [ ] **Difficult Terrain Speed Cap Warning:**
+  - [ ] Verify the confirmation bar warns: `[Difficult Terrain 6.0" cap]`.
+  - [ ] If using **Rush** (nominal 12″), verify the maximum movement is capped at 6.0″.
+
+### 2.4 Descending Stairs to Ground Level
+- [ ] Select a fighter currently positioned on an elevated platform (e.g. East Platform at $y = 2.5″$).
+- [ ] Click **Move** and click a destination on the open ground floor ($y = 0″$).
+- [ ] Verify the path routes across the platform deck, descends cleanly down the stairs to the ground entrance, and walks to the ground destination.
+- [ ] Verify descending via stairs is treated as a controlled ramp traversal and does **NOT** trigger a high drop / falling damage test.
 
 ---
 
-## 3. Carried Forward 13.5A Fixes: Interactive Melee Consolidation Move (Wipeout)
-- [ ] **Consolidation Prompt Trigger:**
-  - [ ] Initiate melee combat (via **Charge**, **Fight**, or **Melee Retaliation**) and completely destroy the defender/opponent unit.
-  - [ ] Verify the victorious unit is **NOT** pushed back and does **NOT** freeze in place.
-  - [ ] Verify an interactive prompt appears at the bottom of the screen:
-    - **Header:** `Victory Consolidation` with a 15-second countdown timer.
-    - **Description:** `[Unit Name] wiped out [Enemy Name]! Move up to 3.0" in any direction, or stay put.`
-    - **Action Button:** `Stay Put`.
-- [ ] **Interactive 3.0″ Repositioning & Confirmation Path Pin:**
-  - [ ] With the consolidation prompt active, move your mouse over the board.
-  - [ ] Verify a 3.0″ maximum range ring and live path preview appear centered on the victorious fighter.
-  - [ ] Click a valid destination on the board within 3.0″.
-  - [ ] Verify the confirmation bar appears: `Consolidate [Unit Name] X.X" (max 3.0")` with **Confirm** and **Cancel** buttons.
-  - [ ] **Cursor Hover Pinning Check:** Move the mouse across the screen toward the **Confirm** button: Verify the path preview line **stays pinned** to the clicked destination rather than following the mouse cursor.
-  - [ ] Click **Confirm**:
-    - [ ] The victorious unit moves smoothly to the chosen destination.
-    - [ ] The consolidation prompt closes and combat completes cleanly.
-- [ ] **Stay Put Option:**
-  - [ ] In another melee wipeout, click **Stay Put** (or let the 15-second timer expire).
-  - [ ] Verify the consolidation prompt dismisses and the unit remains in place without moving.
-
----
-
-## 4. Sub-phase 13.5B: Concentric Weapon Range Indicators & Interactive Split-Fire System
-- [ ] **Concentric Range Rings on LoS Fan:**
-  - [ ] Activate a fighter with multiple ranged weapons of different ranges (e.g. *Warden Marksman 3* with Rifle 24" & Sidearm 12", or *Warden Breacher 4* with Scattergun 12" & Sidearm 12").
-  - [ ] Click the **Shoot** action button.
-  - [ ] Inspect the 3D battlefield:
-    - [ ] Verify the shadow LoS fan extends to the maximum range of the fighter's longest weapon (e.g., 24″).
-    - [ ] Verify soft concentric range rings render at the boundary of each weapon's maximum range (e.g., a 12″ ring inside the 24″ fan).
-- [ ] **Interactive Weapon Targeting Chips in HUD:**
-  - [ ] In **Shoot** mode, inspect the bottom action bar / dock:
-    - [ ] Verify individual weapon chips render for each equipped ranged weapon (e.g. `[ Rifle (24") ]` and `[ Sidearm (12") ]`).
-    - [ ] The first weapon is selected by default with a glowing gold highlight.
-- [ ] **Default All-Weapons Target Assignment:**
-  - [ ] Click an enemy fighter that is within range of all equipped ranged weapons.
-  - [ ] Verify all weapon chips update to show `➔ [Enemy Name]`.
-  - [ ] Verify the confirmation bar summarizes firing all weapons at the enemy (e.g. `[Unit] fires Rifle & Sidearm at [Enemy] (X.X")`).
-- [ ] **Interactive Split-Fire Allocation:**
-  - [ ] In the weapon chips dock, click on a specific weapon chip (e.g. `Sidearm (12")`) to select it.
-  - [ ] Click a **different** eligible enemy fighter within range of that weapon.
-  - [ ] Verify the weapon chips now reflect independent allocations:
-    - Chip 1: `Rifle (24") ➔ [Target A]`
-    - Chip 2: `Sidearm (12") ➔ [Target B]`
-  - [ ] **Simultaneous Target Markers on Battlefield:** Inspect the 3D scene:
-    - [ ] Verify bright red targeting rings are rendered around **both** Target A and Target B simultaneously.
-  - [ ] **Confirmation Bar Summary:**
-    - [ ] Verify the confirmation bar updates to: `[Attacker] split fires: Rifle at Target A (X.X") [1d6 ...] · Sidearm at Target B (Y.Y") [1d6 ...]`.
-- [ ] **Split-Fire Combat Execution & Dice Log:**
-  - [ ] Click **Confirm** to execute split-fire.
-  - [ ] Verify in the **Dice Resolution Log**:
-    - [ ] Separate hit tests are rolled and displayed for Target A and Target B.
-    - [ ] Target A rolls defense against the Rifle hits.
-    - [ ] Target B rolls defense against the Sidearm hits.
-    - [ ] Wounds and status tokens (stunned/wound badges) are applied independently to Target A and Target B according to their respective defense results.
+## 3. Split-Fire System & Dice Log Check (Carried Forward Note)
+- [ ] During split-fire attack resolution, check that both allocations report distinct hit/defense tests.
+- [ ] If wounds are dealt to a split target, verify the wound effect / trauma badge appears in the dice log for that respective target block.
