@@ -9,10 +9,10 @@ import { hasTrait } from '../rules/traits';
  * so visual LoS shadows and path clamping match host validation identically.
  */
 
-/** Base collision radius of a fighter for movement blocking (board units). */
-export const UNIT_COLLISION_RADIUS = 0.25;
-/** Minimum center-to-center distance between two fighters during movement. */
-export const UNIT_SEPARATION_DISTANCE = 0.6;
+/** Base collision radius of a fighter for movement blocking (board units: 1.0" base -> 0.45" radius). */
+export const UNIT_COLLISION_RADIUS = 0.45;
+/** Minimum center-to-center distance between two fighters during movement (1.0" base contact). */
+export const UNIT_SEPARATION_DISTANCE = 1.0;
 /** Base radius of a fighter for Line of Sight blocking (board units). */
 export const LOS_UNIT_RADIUS = 0.4;
 
@@ -215,7 +215,8 @@ export function getApertureProfile(
   const sy = piece.scale.y ?? 1;
   const baseY = piece.position.y ?? 0;
   if (piece.terrainType === 'wall-doorway') {
-    return { halfWidth: 0.15 * sx, bottom: baseY, top: baseY + 0.88 * sy };
+    const doorHalfWidth = Math.max(0.70, 0.175 * sx);
+    return { halfWidth: doorHalfWidth, bottom: baseY, top: baseY + 0.88 * sy };
   }
   if (piece.terrainType === 'wall-window') {
     return { halfWidth: 0.3 * sx, bottom: baseY + 0.4 * sy, top: baseY + 0.9 * sy };
@@ -444,7 +445,7 @@ export function findMoveBlocker(
       }
 
       if (piece.terrainType === 'wall-doorway') {
-        const ap = intersectAperturePiece(from, dirX, dirZ, segLen, piece, UNIT_COLLISION_RADIUS);
+        const ap = intersectAperturePiece(from, dirX, dirZ, segLen, piece, 0.35);
         if (
           ap.hitsJamb &&
           ap.tExit !== undefined &&
@@ -1517,7 +1518,8 @@ export function getStairSurfaceHeight(
   const lz = -dx * sin + dz * cos;
 
   // Margin around stairs footprint
-  if (Math.abs(lx) > hx + 0.35 || Math.abs(lz) > hz + 0.35) {
+  const stairMargin = Math.max(0.35, UNIT_COLLISION_RADIUS + 0.05);
+  if (Math.abs(lx) > hx + stairMargin || Math.abs(lz) > hz + stairMargin) {
     return null;
   }
 
@@ -2674,7 +2676,7 @@ export function validateFormationMove(
 
 /**
  * Consolidates surviving models in a unit up to `maxDistance` toward `targetPosition`,
- * stopping at base contact (`UNIT_SEPARATION_DISTANCE = 0.6"`).
+ * stopping at base contact (`UNIT_SEPARATION_DISTANCE = 1.0"`).
  */
 export function consolidateSquadToward(
   state: GameState,
@@ -2685,7 +2687,7 @@ export function consolidateSquadToward(
 ): void {
   const intoContact = options.intoContact ?? false;
   const contactThreshold = 1.0;
-  const targetContactDist = UNIT_SEPARATION_DISTANCE; // 0.6" base contact
+  const targetContactDist = UNIT_SEPARATION_DISTANCE; // 1.0" base contact
 
   if (intoContact) {
     if (!unit.models || unit.models.length <= 1) {
