@@ -411,6 +411,31 @@ describe('applyAction: move-unit', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.reason).toContain('exceeds 2" limit');
   });
+
+  it('rejects move-unit when an individual squad model exceeds its speed allowance', () => {
+    const state = moveState();
+    const unit = state.units.find((u) => u.id === 'h1')!;
+    unit.speed = 6;
+    unit.models = [
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
+    ];
+    // Model 2 tries to move from z: 0 to z: 7.0" (speed is 6")
+    const overreachingPositions: Vector3[] = [
+      { x: 0, y: 0, z: 5.5 },
+      { x: 0.8, y: 0, z: 7.0 },
+    ];
+    const action = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'h1',
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 5.0 }],
+      finalPosition: { x: 0, y: 0, z: 5.0 },
+      modelPositions: overreachingPositions,
+    });
+    const outcome = act(state, action);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain('exceeds speed allowance');
+  });
 });
 
 describe('applyAction: shoot', () => {

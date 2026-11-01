@@ -3,6 +3,7 @@ import {
   CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
+  computeSquadCentroid,
   createAction,
   describeTerrainPiece,
   describeTrait,
@@ -23,6 +24,7 @@ import {
   isPathDangerous,
   isPathDifficult,
   isUnitInObjectiveRange,
+  Model,
   Objective,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   OBJECTIVE_CONTROL_RADIUS,
@@ -32,6 +34,7 @@ import {
   Unit,
   validateDeploymentPosition,
   validateMeleeVerticalReach,
+  validateSquadCoherency,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
@@ -72,6 +75,7 @@ export interface MarkerSnapshot {
   targetUnitIds?: string[];
   reachableTargetIds?: string[];
   movementRangeUnitId: string | null;
+  movementRangePosition?: Vector3;
   movementRangeRadius?: number;
   attackRange?: { unitId: string; range: number; concentricRanges?: number[] } | null;
   movePath?: MovePathMarker | null;
@@ -81,6 +85,7 @@ export interface MarkerSnapshot {
   debugActive?: boolean;
   shootingDebugRay?: ShootingRayDebugInfo | null;
   deploymentZones?: DeploymentZoneMarker | null;
+  squadCoherency?: { positions: Vector3[]; radius: number } | null;
 }
 
 export type PickTarget =
@@ -136,6 +141,10 @@ export class GameHUD {
   private shootAllocations: Map<string, string | null> = new Map();
   /** For Shoot mode: currently selected weapon chip for assignment */
   private selectedShootWeaponId: string | null = null;
+  /** Staged model positions during sequential squad movement */
+  private stagedSquadPositions: Vector3[] = [];
+  /** Index of the model currently being positioned in a squad */
+  private squadPlacementIndex = 0;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -389,7 +398,9 @@ export class GameHUD {
 
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       if (target.kind === 'position') {
-        if (this.flow.action === 'move') {
+        if (this.activeAliveSquadModels.length > 1) {
+          this.handleSquadModelPick(target.position, this.flow.action);
+        } else if (this.flow.action === 'move') {
           this.prepareMove(target.position);
         } else {
           this.prepareRush(target.position);
@@ -480,8 +491,11 @@ export class GameHUD {
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
+        const alive = this.activeAliveSquadModels;
+        const currentModel = alive.length > 1 ? alive[this.squadPlacementIndex] : null;
+        const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
         const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
-        const path = findNavPath(this.state, active, target.position, maxDist);
+        const path = findNavPath(this.state, active, target.position, maxDist, { startPosition: startPos });
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
@@ -606,6 +620,12 @@ export class GameHUD {
     return this.state?.units.filter((u) => u.ownerId !== this.localPlayerId) ?? [];
   }
 
+  private get activeAliveSquadModels(): Model[] {
+    const active = this.activeUnit;
+    if (!active || !active.models || active.models.length === 0) return [];
+    return active.models.filter((m) => !m.isDestroyed);
+  }
+
   /** Units the local player may activate right now. */
   private get activatableUnits(): Unit[] {
     if (!this.myTurn || this.activeUnit) return [];
@@ -671,6 +691,8 @@ export class GameHUD {
     this.movePreview = null;
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
+    this.stagedSquadPositions = [];
+    this.squadPlacementIndex = 0;
     this.flow = { mode: 'targeting', action };
 
     if (action === 'shoot') {
@@ -693,6 +715,120 @@ export class GameHUD {
     }
 
     this.render();
+  }
+
+  private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush'): void {
+    const active = this.activeUnit;
+    if (!active || !this.state) return;
+
+    const alive = this.activeAliveSquadModels;
+    if (alive.length <= 1) return;
+    if (this.squadPlacementIndex >= alive.length) return;
+
+    const currentModel = alive[this.squadPlacementIndex];
+    const startPos = currentModel.position ?? active.position;
+
+    const isDifficultDirect = isPathDifficult(this.state, [startPos, rawDestination], active);
+    const maxAllowance = isDifficultDirect
+      ? (actionKind === 'rush' ? 6.0 : Math.min(active.speed, 6.0))
+      : (actionKind === 'rush' ? active.speed * 2 : active.speed);
+
+    const path = findNavPath(this.state, active, rawDestination, maxAllowance, { startPosition: startPos });
+    if (path.length < 2) {
+      this.showToast('Pick a destination away from the model');
+      return;
+    }
+    const destination = path[path.length - 1];
+    const distance = pathLength3D(path);
+    if (distance < 0.05) {
+      this.showToast('Pick a destination away from the model');
+      return;
+    }
+
+    if (actionKind === 'rush') {
+      const wouldEngage = this.enemyUnits.some(
+        (e) =>
+          !e.isDestroyed &&
+          Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+          Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+      );
+      if (wouldEngage) {
+        this.showToast('Rush cannot end in melee contact — use Charge instead');
+        return;
+      }
+    }
+
+    // Coherency check if placing Model 2+
+    if (this.squadPlacementIndex > 0) {
+      const candidatePositions = [...this.stagedSquadPositions, destination];
+      const coherency = validateSquadCoherency(candidatePositions, {
+        maxMemberDistance: 2.0,
+        maxSquadSpread: 6.0,
+      });
+      if (!coherency.coherent) {
+        this.showToast(coherency.reason ?? 'Model must be within 2.0" coherency of placed squad members');
+        return;
+      }
+    }
+
+    // Model placed successfully
+    this.stagedSquadPositions.push(destination);
+    this.squadPlacementIndex++;
+
+    if (this.squadPlacementIndex < alive.length) {
+      // More models to place in this squad
+      this.movePathPreview = null;
+      this.movePreview = null;
+      this.render();
+      this.emitMarkers();
+      return;
+    }
+
+    // All living models have been placed!
+    const finalCentroid = computeSquadCentroid(this.stagedSquadPositions);
+    const isDifficult = this.stagedSquadPositions.some((pos, i) =>
+      isPathDifficult(this.state!, [alive[i].position ?? active.position, pos], active)
+    );
+    let summary = `${actionKind === 'rush' ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
+      actionKind === 'rush' ? 'double move (activation ends)' : 'can shoot after moving'
+    }`;
+    if (isDifficult) {
+      summary += actionKind === 'rush'
+        ? ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]'
+        : ' · [Difficult Terrain: 6.0" speed cap]';
+    }
+
+    const hasDangerous = this.stagedSquadPositions.some((pos, i) =>
+      isPathDangerous(this.state!, [alive[i].position ?? active.position, pos], active)
+    );
+    if (hasDangerous) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+
+    const maxDrop = Math.max(
+      ...this.stagedSquadPositions.map((pos, i) =>
+        detectPathFall([alive[i].position ?? active.position, pos], this.state!).maxDrop
+      )
+    );
+    if (maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
+      summary += ` · ⚠️ HIGH DROP (${maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    }
+
+    this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
+    this.movePreview = finalCentroid;
+    this.movePathPreview = null;
+
+    this.beginConfirmation(
+      createAction(this.localPlayerId, actionKind === 'rush' ? 'rush' : 'move-unit', {
+        type: actionKind === 'rush' ? 'rush' : 'move-unit',
+        unitId: active.id,
+        path: [active.position, finalCentroid],
+        finalPosition: finalCentroid,
+        modelPositions: [...this.stagedSquadPositions],
+        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
+      }),
+      summary
+    );
   }
 
   private prepareMove(rawDestination: Vector3): void {
@@ -1215,6 +1351,8 @@ export class GameHUD {
     this.hoveredEngagedTargetId = null;
     this.shootAllocations.clear();
     this.selectedShootWeaponId = null;
+    this.stagedSquadPositions = [];
+    this.squadPlacementIndex = 0;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
     this.render();
@@ -1427,10 +1565,17 @@ export class GameHUD {
       .filter(Boolean)
       .join(' ');
 
+    const totalModels = unit.models ? unit.models.length : 1;
+    const aliveModels = unit.models ? unit.models.filter((m) => !m.isDestroyed).length : 1;
+    const casualties = totalModels - aliveModels;
+    const modelText = totalModels > 1
+      ? ` · Models: ${aliveModels}/${totalModels}${casualties > 0 ? ` (${casualties} casualty${casualties > 1 ? 'ies' : ''})` : ''}`
+      : '';
+
     return `
       <div class="${classes}" data-unit-id="${unit.id}">
         <span class="sl-hud-unit-name">${unit.name}${isActive ? ' ●' : ''}</span>
-        <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${tough})</span>
+        <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${tough})${modelText}</span>
         ${weaponSummary ? `<span class="sl-hud-unit-weapons">${weaponSummary}</span>` : ''}
         ${statusTags.length ? `<span class="sl-hud-unit-tags">${statusTags.join(' ')}</span>` : ''}
       </div>`;
@@ -1463,6 +1608,13 @@ export class GameHUD {
       }
     }
 
+    const enemyTotal = unit.models ? unit.models.length : 1;
+    const enemyAlive = unit.models ? unit.models.filter((m) => !m.isDestroyed).length : 1;
+    const enemyCasualties = enemyTotal - enemyAlive;
+    const enemyModelText = enemyTotal > 1
+      ? ` · Models: ${enemyAlive}/${enemyTotal}${enemyCasualties > 0 ? ` (${enemyCasualties} casualty${enemyCasualties > 1 ? 'ies' : ''})` : ''}`
+      : '';
+
     const classes = ['sl-hud-unit', 'enemy', teamClass, unit.isDestroyed ? 'destroyed' : '']
       .filter(Boolean)
       .join(' ');
@@ -1470,7 +1622,7 @@ export class GameHUD {
     return `
       <div class="${classes}" data-unit-id="${unit.id}">
         <span class="sl-hud-unit-name">${unit.name}</span>
-        <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${enemyTough})</span>
+        <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${enemyTough})${enemyModelText}</span>
         ${statusTags.length ? `<span class="sl-hud-unit-tags">${statusTags.join(' ')}</span>` : ''}
       </div>`;
   }
@@ -1998,7 +2150,7 @@ export class GameHUD {
           </div>`;
       }
 
-      const instruction =
+      let instruction =
         this.flow.action === 'move'
           ? 'Click a destination on the board (auto-paths around obstacles)'
           : this.flow.action === 'rush'
@@ -2006,11 +2158,31 @@ export class GameHUD {
           : this.flow.action === 'charge'
           ? 'Click an enemy unit within charge range to Charge into melee and strike'
           : `Select an enemy target within the red range ring (${this.flow.action})`;
+
+      const isSquadMovement =
+        (this.flow.action === 'move' || this.flow.action === 'rush') &&
+        this.activeAliveSquadModels.length > 1;
+
+      if (isSquadMovement && active) {
+        const alive = this.activeAliveSquadModels;
+        const allowance = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
+        if (this.squadPlacementIndex === 0) {
+          instruction = `Place Model 1 of ${alive.length} (${active.name}) within ${allowance}"`;
+        } else {
+          instruction = `Place Model ${this.squadPlacementIndex + 1} of ${alive.length} within 2.0" coherency of placed models`;
+        }
+      }
+
       return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom">
             <span class="sl-hud-hint">${instruction}</span>
+            ${
+              isSquadMovement && this.squadPlacementIndex > 0
+                ? '<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>'
+                : ''
+            }
             <button class="sl-hud-btn" data-action="cancel">Cancel</button>
           </div>
         </div>`;
@@ -2199,23 +2371,31 @@ export class GameHUD {
       )
       .join('');
 
+    const totalModels = unit.models ? unit.models.length : 1;
+    const aliveModels = unit.models ? unit.models.filter((m) => !m.isDestroyed).length : 1;
+    const casualties = totalModels - aliveModels;
+    const modelMeta = totalModels > 1
+      ? ` · Models: ${aliveModels}/${totalModels}${casualties > 0 ? ` (${casualties} casualty${casualties > 1 ? 'ies' : ''})` : ''}`
+      : '';
+
     return `${terrainHtml}
       <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'} ${cardTeamClass}">
         <div class="sl-hud-datacard-header">
           <span class="sl-hud-datacard-name">${unit.name}</span>
-          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${unitTraits ? ` · ${unitTraits}` : ''}</span>
+          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${modelMeta}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
         </div>
         <div class="sl-hud-datacard-tables">
           <table class="sl-hud-table">
             <thead>
-              <tr><th>Quality</th><th>Defense</th><th>Toughness</th><th>Move</th><th>Charge</th></tr>
+              <tr><th>Quality</th><th>Defense</th><th>Toughness</th><th>Models</th><th>Move</th><th>Charge</th></tr>
             </thead>
             <tbody>
               <tr>
                 <td>Q${unit.quality}+</td>
                 <td>D${unit.defense}+</td>
                 <td>${cardTough}</td>
+                <td>${aliveModels}/${totalModels}</td>
                 <td>${unit.speed}"</td>
                 <td>${unit.speed * 2}"</td>
               </tr>
@@ -2471,6 +2651,14 @@ export class GameHUD {
             break;
           case 'confirm-shoot-targets':
             this.confirmShootTargets();
+            break;
+          case 'reset-squad-move':
+            this.squadPlacementIndex = 0;
+            this.stagedSquadPositions = [];
+            this.movePathPreview = null;
+            this.movePreview = null;
+            this.render();
+            this.emitMarkers();
             break;
           case 'cancel':
             this.cancel();
@@ -2754,6 +2942,18 @@ export class GameHUD {
       markers.movementRangeRadius = isRushMode
         ? this.activeUnit.speed * 2
         : this.activeUnit.speed;
+
+      const alive = this.activeAliveSquadModels;
+      if (alive.length > 1 && this.flow.mode === 'targeting') {
+        const currentModel = alive[this.squadPlacementIndex];
+        if (currentModel) {
+          markers.movementRangePosition = currentModel.position ?? this.activeUnit.position;
+        }
+        if (this.stagedSquadPositions.length > 0) {
+          markers.squadCoherency = { positions: [...this.stagedSquadPositions], radius: 2.0 };
+        }
+      }
+
       if (this.movePathPreview && this.movePathPreview.length >= 2) {
         markers.movePath = {
           from: this.movePathPreview[0],

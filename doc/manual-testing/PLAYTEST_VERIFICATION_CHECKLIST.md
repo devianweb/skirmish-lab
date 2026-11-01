@@ -1,65 +1,88 @@
-# Sub-Phase 13.5C Manual Verification Checklist
+# Sub-Phase 13.5D Manual Verification Checklist
 
-**Scope:** 3D Surface-Constrained Navigation & Stair Traversal (carrying forward objective flat visual polish).
+**Scope:** Multi-Model Squad Sequential Movement, HUD Squad Model Counters, and Casualty Visual Preservation.
 
 ---
 
 ## Prerequisites
 - Two browser windows / tabs:
-  - **Window A:** Host (Faction: *Frontier Wardens*)
-  - **Window B:** Guest (Faction: *Rust Raiders*)
+  - **Window A:** Host (Faction: *Frontier Wardens* — select starter force in Lobby)
+  - **Window B:** Guest (Faction: *Rust Raiders* — select starter force in Lobby)
 - Local dev server (`npm run dev`) or deployed release URL.
+- Both starter forces deploy multi-model squads:
+  - *Frontier Wardens:* **Warden Patrol Squad** (2 models)
+  - *Rust Raiders:* **Rust Runner Mob** (2 models)
 
 ---
 
-## 1. Objective Marker Visual Polish (Flat Ground Circle)
-- [ ] Inspect the scenario objective markers on the battlefield (Alpha, Bravo, Charlie, Delta).
-- [ ] **Physical Crate Removal Check:** Verify the 3D supply crate model has been **completely removed** from all objective markers.
-- [ ] Verify the objective marker consists solely of the clean 3.0″ radius team-colored ground ring, soft semi-transparent capture disc, and subtle center pip.
-- [ ] Verify models can stand directly in the center of the objective circle without any 3D obstacle collision or visual clipping.
+## 1. Squad Model Count Indicators (Roster & DataCard)
+
+### 1.1 Friendly & Enemy Roster Rows
+- [ ] In Window A (Host), inspect the left-hand friendly unit roster:
+  - [ ] Locate **Warden Patrol Squad**.
+  - [ ] Verify the stats line displays: `Models: 2/2` (alongside `Q4+ D5+ · Tough(1)`).
+- [ ] Inspect the right-hand enemy unit roster:
+  - [ ] Locate **Rust Runner Mob**.
+  - [ ] Verify the stats line displays: `Models: 2/2`.
+
+### 1.2 DataCard Header Meta & Table
+- [ ] Hover over **Warden Patrol Squad** to open its DataCard:
+  - [ ] Verify the metadata subtitle includes: `· Models: 2/2`.
+  - [ ] In the core stats table, verify a dedicated **Models** column exists between *Toughness* and *Move*, displaying `2/2`.
+
+### 1.3 Casualty Reflection
+- [ ] Once a multi-model squad takes 1 fatal casualty during combat:
+  - [ ] Verify the roster stats line updates to: `Models: 1/2 (1 casualty)`.
+  - [ ] Verify the DataCard metadata updates to: `· Models: 1/2 (1 casualty)`.
+  - [ ] Verify the DataCard stats table updates to: `1/2`.
 
 ---
 
-## 2. Sub-phase 13.5C: 3D Surface-Constrained Navigation & Stair Traversal
+## 2. Model-by-Model Sequential Squad Movement
 
-### 2.1 Ground-to-Platform Stair Traversal (1:1 Normal Speed)
-- [ ] Activate a ground unit on the east side of the map (e.g. *Warden Trooper 2* near $x = 0, z = -2$).
-- [ ] Click **Move** or **Rush**.
-- [ ] Hover the mouse cursor over the elevated **East Catwalk / Platform East** ($x = 6.0, y = 2.5, z = -2.0$):
-  - [ ] **Surface-Constrained Path Check:** Verify the yellow path preview line **does NOT fly diagonally through open air**.
-  - [ ] Verify the path routes along the ground ($y = 0″$) to the foot of the East Stairs ($x \approx 3.8, z = -2$).
-  - [ ] Verify the path ascends along the stair slope ($y = 0 \to 2.5″$).
-  - [ ] Verify the path steps onto the platform deck and walks across the surface to the cursor position at $y = 2.5″$.
-- [ ] **No Difficult Terrain Penalty:**
-  - [ ] With **Rush** active (12.0″ movement allowance), verify the unit can traverse all the way up the stairs onto the platform in a single activation.
-  - [ ] Verify the confirmation bar displays normal movement distance and does **NOT** show a `[Difficult Terrain 6.0" cap]` warning.
-- [ ] Click **Confirm**:
-  - [ ] Verify the fighter smoothly follows the path: running across the ground, climbing the stairs, and stepping onto the platform deck.
+### 2.1 Model 1 Placement
+- [ ] Activate **Warden Patrol Squad** (or **Rust Runner Mob**).
+- [ ] Click **Move** (or **Rush**):
+  - [ ] Verify the bottom dock instruction states: `Place Model 1 of 2 (Warden Patrol Squad) within 6"` (or `within 12"` if Rush).
+  - [ ] Verify the movement range ring is centered on Model 1.
+- [ ] Click a destination on the board within movement range:
+  - [ ] Verify Model 1's position is recorded and marked with a placement pip.
 
-### 2.2 Ladder Ascension
-- [ ] Activate a ground unit on the west side of the map (e.g. *Warden Captain 1* or *Rust Runner 2*).
-- [ ] Click **Move** or **Rush**, and hover over **West Platform** ($x = -6.0, y = 2.5, z = 2.0$) near the West Ladder.
-- [ ] Verify the path routes along the ground to the foot of the ladder ($x = -4.5, y = 0, z = 2$), climbs vertically up the ladder face to $y = 2.5″$, and steps onto the deck.
-- [ ] Verify climbing the ladder does **NOT** trigger a Difficult Terrain penalty.
+### 2.2 Model 2 Coherency Circle & Legal Placement
+- [ ] Immediately after placing Model 1:
+  - [ ] Verify the bottom dock instruction transitions to: `Place Model 2 of 2 within 2.0" coherency of placed models`.
+  - [ ] **Coherency Circle Check:** Verify a visible cyan/teal 2.0″ radius circle (annulus ring + subtle soft disc) is rendered centered on Model 1's placed location.
+  - [ ] Verify the movement range ring is centered on Model 2's starting position.
+- [ ] **Coherency Boundary Rejection Test:**
+  - [ ] Attempt to click a destination outside the 2.0″ circle (> 2.0″ from Model 1).
+  - [ ] Verify a toast notification warns: `Model ... exceeds 2" limit` or coherency violation.
+  - [ ] Verify the action is rejected and the HUD remains in placement mode for Model 2.
+- [ ] **Legal Placement Test:**
+  - [ ] Click a destination within the 2.0″ coherency circle and within Model 2's movement allowance.
+  - [ ] Verify Model 2 is accepted.
 
-### 2.3 Sheer Wall Climbing Fallback (Difficult Terrain 6.0″ Cap)
-- [ ] Activate a ground fighter and select a destination on an elevated building roof or platform with **NO** stairs or ladders reachable.
-- [ ] Inspect the live path preview:
-  - [ ] Verify the model navigates along the ground to the **base of the wall** directly in front of the platform.
-  - [ ] Verify the path scales vertically straight up the wall face ($x, z$ constant, ascending to deck level) and steps onto the surface.
-  - [ ] Verify the model **never flies diagonally through mid-air**.
-- [ ] **Difficult Terrain Speed Cap Warning:**
-  - [ ] Verify the confirmation bar warns: `[Difficult Terrain 6.0" cap]`.
-  - [ ] If using **Rush** (nominal 12″), verify the maximum movement is capped at 6.0″.
+### 2.3 Squad Movement Confirmation
+- [ ] Once both models are placed:
+  - [ ] Verify the HUD enters the standard confirmation mode.
+  - [ ] Verify the confirmation bar displays: `Move Warden Patrol Squad (2 models) · can shoot after moving`.
+  - [ ] Click **Confirm**:
+    - [ ] Verify both constituent 3D figurine models walk to their respective placed positions.
+    - [ ] Verify the squad centroid is updated correctly between both models.
 
-### 2.4 Descending Stairs to Ground Level
-- [ ] Select a fighter currently positioned on an elevated platform (e.g. East Platform at $y = 2.5″$).
-- [ ] Click **Move** and click a destination on the open ground floor ($y = 0″$).
-- [ ] Verify the path routes across the platform deck, descends cleanly down the stairs to the ground entrance, and walks to the ground destination.
-- [ ] Verify descending via stairs is treated as a controlled ramp traversal and does **NOT** trigger a high drop / falling damage test.
+### 2.4 Restart Placement Control ("Reset Placement")
+- [ ] In a new activation, start **Move** with a multi-model squad.
+- [ ] Click to place Model 1.
+- [ ] While prompted to place Model 2:
+  - [ ] Verify a **Reset Placement** button is visible in the bottom dock next to **Cancel**.
+  - [ ] Click **Reset Placement**:
+    - [ ] Verify placement resets back to Model 1 (`Place Model 1 of 2`).
+    - [ ] Verify the cyan 2.0″ coherency circle clears.
+    - [ ] Place Model 1 at a new destination and proceed normally.
 
 ---
 
-## 3. Split-Fire System & Dice Log Check (Carried Forward Note)
-- [ ] During split-fire attack resolution, check that both allocations report distinct hit/defense tests.
-- [ ] If wounds are dealt to a split target, verify the wound effect / trauma badge appears in the dice log for that respective target block.
+## 3. Squad Casualty Visual Removal & Survivor Preservation
+
+- [ ] Engage a 2-model squad in combat (shoot or melee) until 1 model is destroyed:
+  - [ ] **Visual Model Removal:** Verify the destroyed figurine mesh disappears cleanly from the battlefield without any lingering collision or visual artifacts.
+  - [ ] **Survivor Position Preservation:** Verify the surviving figurine remains in its exact physical position on the board and does **NOT** pop or snap to default formation offsets or the squad centroid.

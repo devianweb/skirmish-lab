@@ -1375,7 +1375,7 @@ export function isSegmentOnRampOrStairs(
     const yaw = piece.rotation.y || 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
-    const margin = 1.0; // clearance margin around stair/ladder footprint
+    const margin = 0.35; // tight clearance margin around stair/ladder spine
     const botY = Math.min(0, piece.position.y ?? 0);
     const topY = Math.max(
       piece.elevation ?? 0,
@@ -1602,11 +1602,13 @@ export function findNavPath(
   unit: Unit,
   destination: Vector3,
   maxDistance: number = unit.remainingMovement,
-  options: { ignoreUnitId?: string } = {}
+  options: { ignoreUnitId?: string; startPosition?: Vector3 } = {}
 ): Vector3[] {
-  const startY = unit.position.y ?? 0;
+  const from: Vector3 = options.startPosition
+    ? { x: options.startPosition.x, y: options.startPosition.y ?? 0, z: options.startPosition.z }
+    : { x: unit.position.x, y: unit.position.y ?? 0, z: unit.position.z };
+  const startY = from.y;
   const endY = destination.y ?? 0;
-  const from: Vector3 = { x: unit.position.x, y: startY, z: unit.position.z };
 
   // 1. Board clamping: ensure destination is within board boundaries
   const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
@@ -1919,6 +1921,12 @@ export function findNavPath(
   while (curIdx < rawPath.length - 1) {
     let furthest = curIdx + 1;
     for (let test = rawPath.length - 1; test > curIdx + 1; test--) {
+      // Do not shortcut across elevation transitions if it bypasses an intermediate stair/ladder head or wall base
+      const curY = rawPath[curIdx].y ?? 0;
+      const testY = rawPath[test].y ?? 0;
+      if (Math.abs(curY - testY) > 0.5 && !hasTrait(unit.specialRules, 'airborne')) {
+        continue;
+      }
       if (!isSegmentSurfaceConstrained(state, rawPath[curIdx], rawPath[test], unit)) {
         continue;
       }
@@ -1948,9 +1956,17 @@ export function findNavPath(
       });
       distLeft -= segLen;
     } else {
-      const ratio = distLeft / segLen;
       const y1 = p1.y ?? 0;
       const y2 = p2.y ?? 0;
+      const isSheerWallClimb =
+        y2 - y1 > 0.5 &&
+        !hasTrait(unit.specialRules, 'airborne') &&
+        !isSegmentOnRampOrStairs(state, p1, p2);
+      if (isSheerWallClimb) {
+        // Cannot end activation suspended in mid-air on a sheer vertical wall; stop at the wall base (p1)
+        break;
+      }
+      const ratio = distLeft / segLen;
       result.push({
         x: Math.round((p1.x + (p2.x - p1.x) * ratio) * 100) / 100,
         y: Math.round((y1 + (y2 - y1) * ratio) * 100) / 100,
