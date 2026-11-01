@@ -423,6 +423,37 @@ describe('spatial: apertures (doorways and windows)', () => {
     expect(hasLineOfSight(state, attacker, target)).toBe(true);
     expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
   });
+
+  it('doorway opening scales with the piece (1.2" on a 4" wall) for movement and drag clamping', () => {
+    const mover = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+    const door: TerrainPiece = {
+      id: 'd1',
+      terrainType: 'wall-doorway',
+      position: { x: 0, y: 0, z: 3 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 2.5, z: 0.3 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    };
+    const state = makeState([mover], [door]);
+
+    // Through the middle of the opening
+    expect(findMoveBlocker(state, mover, [{ x: 0.2, y: 0, z: 0 }, { x: 0.2, y: 0, z: 6 }]).blocked).toBe(false);
+    // Into the pier beside it
+    expect(findMoveBlocker(state, mover, [{ x: 1.2, y: 0, z: 0 }, { x: 1.2, y: 0, z: 6 }]).blocked).toBe(true);
+
+    // Drag clamp lets a model pass through the doorway but stops at a pier
+    mover.remainingMovement = 12;
+    const through = clampMoveDestinationWithObstacles(state, mover, { x: 0, y: 0, z: 6 });
+    expect(through.z).toBeCloseTo(6);
+    const intoPier = clampMoveDestinationWithObstacles(
+      state,
+      { ...mover, position: { x: 1.2, y: 0, z: 0 } },
+      { x: 1.2, y: 0, z: 6 }
+    );
+    expect(intoPier.z).toBeLessThan(3);
+  });
 });
 
 describe('spatial: findNavPath obstacle pathfinding', () => {

@@ -22,13 +22,11 @@ export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: numbe
   const sz = Math.max(0.05, piece.scale.z);
   if (
     piece.terrainType === 'wall' ||
+    piece.terrainType === 'wall-long' ||
     piece.terrainType === 'wall-window' ||
     piece.terrainType === 'wall-doorway'
   ) {
     return { hx: 0.5 * sx, hz: 0.5 * sz };
-  }
-  if (piece.terrainType === 'column') {
-    return { hx: 0.25 * sx, hz: 0.25 * sz };
   }
   if (piece.terrainType === 'crate') {
     return { hx: 0.35 * sx, hz: 0.35 * sz };
@@ -205,6 +203,26 @@ export function intersectLocalBox(
   return { tEntry: Math.max(0, tMin), tExit: Math.min(maxDist, tMax) };
 }
 
+/**
+ * Opening geometry of aperture walls as fractions of the piece's scale, matching
+ * the procedural meshes (ModelLoader): doorways are 0.3 wide and 0.88 tall;
+ * windows are 0.6 wide, from a 0.4 high breastwork sill up to a 0.9 high lintel.
+ */
+export function getApertureProfile(
+  piece: TerrainPiece
+): { halfWidth: number; bottom: number; top: number } | null {
+  const sx = Math.max(0.05, piece.scale.x);
+  const sy = piece.scale.y ?? 1;
+  const baseY = piece.position.y ?? 0;
+  if (piece.terrainType === 'wall-doorway') {
+    return { halfWidth: 0.15 * sx, bottom: baseY, top: baseY + 0.88 * sy };
+  }
+  if (piece.terrainType === 'wall-window') {
+    return { halfWidth: 0.3 * sx, bottom: baseY + 0.4 * sy, top: baseY + 0.9 * sy };
+  }
+  return null;
+}
+
 export interface ApertureRayResult {
   hitPiece: boolean;
   passesAperture: boolean;
@@ -252,7 +270,7 @@ export function intersectAperturePiece(
     return { hitPiece: false, passesAperture: false, hitsJamb: false };
   }
 
-  const apertureHalfWidth = 0.5; // Central 1.0" opening
+  const apertureHalfWidth = getApertureProfile(piece)?.halfWidth ?? 0.5;
   const leftJamb = intersectLocalBox(
     localOx,
     localOz,
@@ -562,7 +580,7 @@ export function clampMoveDestinationWithObstacles(
         continue;
       }
 
-      const hit = intersectRayTerrain(
+      let hit = intersectRayTerrain(
         unit.position,
         dirX,
         dirZ,
@@ -570,6 +588,12 @@ export function clampMoveDestinationWithObstacles(
         piece,
         UNIT_COLLISION_RADIUS
       );
+      if (hit && piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(unit.position, dirX, dirZ, allowedDist, piece, UNIT_COLLISION_RADIUS);
+        // Walking through the opening is fine; only the solid jambs stop the move.
+        if (!ap.hitsJamb) hit = null;
+        else if (ap.tEntry !== undefined && ap.tExit !== undefined) hit = { tEntry: ap.tEntry, tExit: ap.tExit };
+      }
       if (hit && hit.tExit > 0.02 && hit.tEntry > 0.001) {
         allowedDist = Math.min(allowedDist, Math.max(0, hit.tEntry - 0.05));
       }
@@ -2039,8 +2063,9 @@ export function findNavPath(
     };
 
     if (piece.terrainType === 'wall-doorway') {
-      addLocalBoxCorners(-hx, -0.5, -hz, hz);
-      addLocalBoxCorners(0.5, hx, -hz, hz);
+      const doorHalf = getApertureProfile(piece)?.halfWidth ?? 0.5;
+      addLocalBoxCorners(-hx, -doorHalf, -hz, hz);
+      addLocalBoxCorners(doorHalf, hx, -hz, hz);
       candidateWaypoints.push({
         x: piece.position.x,
         y: pieceBaseY,
