@@ -572,18 +572,42 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Squad casualty visual cleanup: eliminate constituent model meshes one-by-one upon taking fatal damage while preserving survivor positions.
 - [x] Unit and UI tests for sequential model placement and coherency validation.
 
-### Sub-phase 13.5E: Consolidated Verification Checklist & End-to-End Validation
+### Sub-phase 13.5E: Incremental Movement & Movement Budgeting (`shared/` & `client/`)
+- [ ] Deduct movement distance from `unit.remainingMovement` instead of resetting directly to 0, enabling multiple micro-moves per activation within movement allowance.
+- [ ] Support Advance micro-movements (`move -> move -> shoot -> end`) up to base speed (6.0″), with shooting immediately closing the movement window (`remainingMovement = 0`).
+- [ ] Support Rush micro-movements (`rush -> move -> end`) up to double speed (12.0″), setting `hasAttacked = true` to prohibit shooting while allowing incremental movement until the budget is spent or activation ends.
+- [ ] Action bar UI updates: preserve Move and Shoot buttons while `remainingMovement > 0.05` and `!hasAttacked`.
+- [ ] Unit tests in `shared/tests/engine/actions.test.ts` and HUD integration tests for movement budget deductions, shooting lockouts, and multi-move validation.
+
+### Sub-phase 13.5F: Multi-Model Squad Individual Pathing & Terrain Collision Resolution (`shared/` & `client/`)
+- [ ] Fix terrain blocker false positives: eliminate validation of the abstract straight-line path between squad centroids in `actions.ts`.
+- [ ] Individual model pathfinding: each constituent squad model runs independent A* pathfinding from its own physical position to its target location in `GameHUD.ts`, navigating around intervening terrain.
+- [ ] Enforce live coherency rings ($\le 2.0″$) centered on already-placed squad members during model placement.
+- [ ] Validate clearance and movement allowance for each individual model's path in `actions.ts`.
+- [ ] Unit and UI tests verifying squads flanking obstacles/cover navigate without triggering false "Move path is blocked by terrain" errors.
+
+### Sub-phase 13.5G: Solid Triangular Ramp (Wedge) Collision & Ladder Deck Arrival (`shared/` & `client/`)
+- [ ] Solid triangular ramp geometry: update stairs from passable phantom bounding boxes to solid right-angled triangular prisms (wedges).
+- [ ] Update wireframe debug rendering in `MarkerRenderer.ts` (`F9` overlay) to render triangular prism wireframes showing the true incline profile from foot to head instead of an AABB cuboid.
+- [ ] Impassable sides/risers with continuous sloped surface: stair sides and rear walls block movement, while the sloped hypotenuse surface calculates continuous height $y(t) = y_{\text{foot}} + t(y_{\text{head}} - y_{\text{foot}})$ without synthetic waypoint teleporters.
+- [ ] Tabletop ladder rules enforcement: models scaling vertical ladders must have sufficient movement budget to reach the landing platform deck; if movement is insufficient, the model remains at the ladder foot rather than hanging suspended on rungs. Models traversing stair ramps may stop along the slope.
+- [ ] Unit tests for wedge collision, continuous ramp elevation, and vertical ladder completion constraints.
+
+### Sub-phase 13.5H: Consolidated Verification Checklist & End-to-End Validation
 - [ ] Update `doc/manual-testing/PLAYTEST_VERIFICATION_CHECKLIST.md` with accurate force names (*Frontier Wardens* and *Rust Raiders*) and actual unit rosters.
-- [ ] Create streamlined, step-by-step test cases for each 13.5 sub-phase mechanic (interactive consolidation, 3D objective cylinder, split fire, stair pathfinding, sequential squad movement).
+- [ ] Create streamlined, step-by-step test cases for each 13.5 sub-phase mechanic (interactive consolidation, 3D objective cylinder, split fire, stair pathfinding, sequential squad movement, incremental movement budget, obstacle flanking, and triangular ramp traversal).
 - [ ] Verify test suite passes locally across all workspaces.
 
 ### Acceptance Criteria
-- [ ] Wiping out an enemy in melee triggers an interactive 3.0″ consolidation move.
-- [ ] Ground crates cannot be seized by models on rooftops $> 3.0″$ vertically above them.
-- [ ] Objective marker uses Kenney `crate-medium.glb`.
-- [ ] Units with multiple ranged weapons can allocate weapons to different enemy targets with concentric range rings rendered.
-- [ ] Pathfinding to elevated platforms routes non-airborne units up stairs/ladders at 1:1 cost without sheer air climbs.
-- [ ] Multi-model squads can be moved model-by-model with visible 2.0″ coherency circles, and model count is shown in the HUD.
+- [x] Wiping out an enemy in melee triggers an interactive 3.0″ consolidation move.
+- [x] Ground crates cannot be seized by models on rooftops $> 3.0″$ vertically above them.
+- [x] Objective marker uses Kenney `crate-medium.glb`.
+- [x] Units with multiple ranged weapons can allocate weapons to different enemy targets with concentric range rings rendered.
+- [x] Pathfinding to elevated platforms routes non-airborne units up stairs/ladders at 1:1 cost without sheer air climbs.
+- [x] Multi-model squads can be moved model-by-model with visible 2.0″ coherency circles, and model count is shown in the HUD.
+- [ ] Units can make incremental micro-moves within their activation until movement budget (6.0″ move or 12.0″ rush) is exhausted, and shooting closes the movement window.
+- [ ] Multi-model squad movement paths individual constituent models around obstacles without triggering centroid terrain blocking false positives.
+- [ ] Stairs render as triangular prism wireframes and compute continuous sloped elevation without synthetic waypoint hacks, and vertical ladders require reaching the deck.
 - [ ] Consolidated verification checklist accurately reflects actual armies and verified mechanics.
 
 ## Phase 14: Polish, Audio & Release Hardening
@@ -620,7 +644,7 @@ To optimize performance, reasoning depth, and token/quota usage across developme
 | **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
 | **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
 | **Phase 13: Custom Map Editor & Presets** | **3.8** | Visual 3D scene editing, snap tools, localStorage | Drag-and-drop 3D asset placement, elevation stepping, and map schema serialization. |
-| **Phase 13.5: Tactical Combat & Movement Refinements** | **4.0** | 3D surface pathfinding, sequential squad state machine, split-targeting UI | Requires 3D spatial geometry for stairs/ramps, sequential model movement UX, and multi-weapon target allocation. |
+| **Phase 13.5: Tactical Combat & Movement Refinements** | **4.0** | 3D surface pathfinding, sequential squad state machine, split-targeting UI, movement budgeting | Requires 3D spatial geometry for stairs/ramps, sequential model movement UX, multi-move budgeting, and multi-weapon target allocation. |
 | **Phase 14: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
 
 > [!TIP]
