@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CustomMapDefinition,
   createBlankMap,
+  createDefaultScenarioTerrain,
   TERRAIN_PALETTE_CATALOG,
 } from '@skirmish-lab/shared';
 import { MapEditor } from '../../src/editor/MapEditor';
@@ -218,7 +219,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(badge.textContent).toContain('Notice');
 
     // Place a valid preset map with 0 warnings
-    editor.setMap(createBlankMap());
+    editor.setMap({ ...createBlankMap(), terrain: createDefaultScenarioTerrain() });
     notices = editor.getValidationNotices();
     expect(notices).toHaveLength(0);
 
@@ -316,7 +317,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
 
     const json = editor.exportJson();
     expect(typeof json).toBe('string');
-    expect(json).toContain('Frontier Outpost');
+    expect(json).toContain('Empty Battlefield');
 
     const customJson = JSON.stringify({
       id: 'custom-export-test',

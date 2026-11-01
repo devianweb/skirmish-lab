@@ -143,7 +143,7 @@ describe('GameManager', () => {
       const state = gameManagerHost.getGameState()!;
       expect(state.status).toBe('in-progress');
       expect(state.units).toHaveLength(10);
-      expect(state.terrain.length).toBeGreaterThan(0);
+      expect(state.terrain).toHaveLength(0); // default is an empty battlefield
       expect(state.players[0].name).toBe('Alice');
       expect(state.players[1].name).toBe('Bob');
       expect(state.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);

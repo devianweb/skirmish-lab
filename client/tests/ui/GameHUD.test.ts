@@ -9,6 +9,8 @@ import {
   createInitialGameState,
   applyDefaultScenario,
   hasLineOfSight,
+  createDefaultScenarioTerrain,
+  createBlankMap,
 } from '@skirmish-lab/shared';
 
 const HOST = HOST_PLAYER_ID;
@@ -16,7 +18,13 @@ const GUEST = GUEST_PLAYER_ID;
 
 function scenarioState(): GameState {
   const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
-  applyDefaultScenario(state);
+  applyDefaultScenario(state, {
+    customMap: {
+      ...createBlankMap(),
+      id: 'test-terrain',
+      terrain: createDefaultScenarioTerrain(),
+    },
+  });
   return state;
 }
 
