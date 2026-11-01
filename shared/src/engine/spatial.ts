@@ -22,13 +22,11 @@ export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: numbe
   const sz = Math.max(0.05, piece.scale.z);
   if (
     piece.terrainType === 'wall' ||
+    piece.terrainType === 'wall-long' ||
     piece.terrainType === 'wall-window' ||
     piece.terrainType === 'wall-doorway'
   ) {
     return { hx: 0.5 * sx, hz: 0.5 * sz };
-  }
-  if (piece.terrainType === 'column') {
-    return { hx: 0.25 * sx, hz: 0.25 * sz };
   }
   if (piece.terrainType === 'crate') {
     return { hx: 0.35 * sx, hz: 0.35 * sz };
@@ -205,6 +203,29 @@ export function intersectLocalBox(
   return { tEntry: Math.max(0, tMin), tExit: Math.min(maxDist, tMax) };
 }
 
+/**
+ * Opening geometry of aperture walls as fractions of the piece's scale, matching
+ * the procedural meshes (ModelLoader): doorways are 0.3 wide and 0.88 tall;
+ * windows are 0.6 wide, from a 0.4 high breastwork sill up to a 0.9 high lintel.
+ */
+export function getApertureProfile(
+  piece: TerrainPiece
+): { halfWidth: number; bottom: number; top: number } | null {
+  const sx = Math.max(0.05, piece.scale.x);
+  const sy = piece.scale.y ?? 1;
+  const baseY = piece.position.y ?? 0;
+  if (piece.terrainType === 'wall-doorway') {
+    return { halfWidth: 0.15 * sx, bottom: baseY, top: baseY + 0.88 * sy };
+  }
+  if (piece.terrainType === 'wall-window') {
+    return { halfWidth: 0.3 * sx, bottom: baseY + 0.4 * sy, top: baseY + 0.9 * sy };
+  }
+  return null;
+}
+
+/** Eye height above a fighter's base used for sight lines through window openings. */
+export const FIGHTER_EYE_HEIGHT = 1.0;
+
 export interface ApertureRayResult {
   hitPiece: boolean;
   passesAperture: boolean;
@@ -252,7 +273,7 @@ export function intersectAperturePiece(
     return { hitPiece: false, passesAperture: false, hitsJamb: false };
   }
 
-  const apertureHalfWidth = 0.5; // Central 1.0" opening
+  const apertureHalfWidth = getApertureProfile(piece)?.halfWidth ?? 0.5;
   const leftJamb = intersectLocalBox(
     localOx,
     localOz,
@@ -562,7 +583,7 @@ export function clampMoveDestinationWithObstacles(
         continue;
       }
 
-      const hit = intersectRayTerrain(
+      let hit = intersectRayTerrain(
         unit.position,
         dirX,
         dirZ,
@@ -570,6 +591,12 @@ export function clampMoveDestinationWithObstacles(
         piece,
         UNIT_COLLISION_RADIUS
       );
+      if (hit && piece.terrainType === 'wall-doorway') {
+        const ap = intersectAperturePiece(unit.position, dirX, dirZ, allowedDist, piece, UNIT_COLLISION_RADIUS);
+        // Walking through the opening is fine; only the solid jambs stop the move.
+        if (!ap.hitsJamb) hit = null;
+        else if (ap.tEntry !== undefined && ap.tExit !== undefined) hit = { tEntry: ap.tEntry, tExit: ap.tExit };
+      }
       if (hit && hit.tExit > 0.02 && hit.tEntry > 0.001) {
         allowedDist = Math.min(allowedDist, Math.max(0, hit.tEntry - 0.05));
       }
@@ -763,14 +790,12 @@ export function hasLineOfSight(state: GameState, attacker: Unit, target: Unit): 
           return false;
         }
         if (ap.passesAperture) {
-          const { hx, hz } = terrainHalfExtents(piece);
-          const pieceRadius = Math.hypot(hx, hz);
-          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
-          const distTarget = Math.hypot(target.position.x - piece.position.x, target.position.z - piece.position.z);
-          if (distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0) {
-            continue; // Peeking / manning the firing port allows sight
+          // The opening is real: sight passes if the eye-level ray clears the sill and lintel.
+          const profile = getApertureProfile(piece)!;
+          const eyeRayY = rayY + FIGHTER_EYE_HEIGHT;
+          if (eyeRayY < profile.bottom - 0.05 || eyeRayY > profile.top + 0.05) {
+            return false;
           }
-          return false; // Distant window blocks sight
         }
         continue;
       }
@@ -1077,17 +1102,6 @@ export function computeShootingRayDebug(
             earliestLoSBlockDist = hit.tEntry;
             blockedByPieceId = piece.id;
           }
-        } else if (ap.passesAperture) {
-          const distAttacker = Math.hypot(attacker.position.x - piece.position.x, attacker.position.z - piece.position.z);
-          const distTarget = Math.hypot(targetPos.x - piece.position.x, targetPos.z - piece.position.z);
-          const canPeek = distAttacker <= pieceRadius + 1.0 || distTarget <= pieceRadius + 1.0;
-          if (!canPeek) {
-            isLoSBlocker = true;
-            if (hit.tEntry < earliestLoSBlockDist) {
-              earliestLoSBlockDist = hit.tEntry;
-              blockedByPieceId = piece.id;
-            }
-          }
         }
       } else {
         isLoSBlocker = true;
@@ -1389,14 +1403,6 @@ export function computeLosVisibilityPolygon(
         const ap = intersectAperturePiece(origin, dirX, dirZ, bestDist, piece, 0);
         if (ap.hitsJamb && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
           bestDist = Math.min(bestDist, ap.tEntry);
-        } else if (ap.passesAperture) {
-          const { hx, hz } = terrainHalfExtents(piece);
-          const pieceRadius = Math.hypot(hx, hz);
-          const distShooter = Math.hypot(origin.x - piece.position.x, origin.z - piece.position.z);
-          // Only shooters manning the firing port (within 1.0" past radius) can project LoS through the window
-          if (distShooter > pieceRadius + 1.0 && ap.tEntry !== undefined && (ap.tExit ?? 0) > 0.02) {
-            bestDist = Math.min(bestDist, ap.tEntry);
-          }
         }
         continue;
       }
@@ -2039,8 +2045,9 @@ export function findNavPath(
     };
 
     if (piece.terrainType === 'wall-doorway') {
-      addLocalBoxCorners(-hx, -0.5, -hz, hz);
-      addLocalBoxCorners(0.5, hx, -hz, hz);
+      const doorHalf = getApertureProfile(piece)?.halfWidth ?? 0.5;
+      addLocalBoxCorners(-hx, -doorHalf, -hz, hz);
+      addLocalBoxCorners(doorHalf, hx, -hz, hz);
       candidateWaypoints.push({
         x: piece.position.x,
         y: pieceBaseY,
