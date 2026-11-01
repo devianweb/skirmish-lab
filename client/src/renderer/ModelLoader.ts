@@ -256,9 +256,10 @@ function createLowPolyFighter(): THREE.Object3D {
   return group;
 }
 
-/** Procedural terrain fallback: a plain block (1x1x1). */
+/** Procedural terrain block (1x1x1) with base origin at Y = 0. */
 function createProceduralTerrainBlock(): THREE.Object3D {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
+  geometry.translate(0, 0.5, 0);
   const material = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.1 });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
