@@ -510,7 +510,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       expect(res.reason).toContain('exceeds 2" limit');
     });
 
-    it('rejects formation split into 2 disconnected groups even when under 6" spread', () => {
+    it('validates formation split into 2 buddy pairs within 6" total spread', () => {
       const positions: Vector3[] = [
         { x: 0, y: 0, z: 0 },
         { x: 0.5, y: 0, z: 0 },
@@ -518,8 +518,9 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         { x: 3.5, y: 0, z: 0 },
       ];
       const res = validateSquadCoherency(positions);
-      expect(res.coherent).toBe(false);
-      expect(res.reason).toContain('disconnected');
+      expect(res.coherent).toBe(true);
+      expect(res.maxDistanceBetweenModels).toBeCloseTo(3.5, 2);
+      expect(res.maxDistanceToNearestMember).toBeCloseTo(0.5, 2);
     });
 
     it('rejects long daisy chain exceeding 6" max squad spread', () => {
