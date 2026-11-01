@@ -1383,6 +1383,100 @@ describe('GameHUD', () => {
       expect(container.textContent).toContain('Difficult Terrain: 6.0" speed cap');
     });
 
+    it('clamps rush preview to 6.0" and shows targeting warning and amber marker when hovering difficult terrain', () => {
+      const state = scenarioState();
+      state.terrain = [
+        {
+          id: 'plat1',
+          type: 'building',
+          name: 'Platform 1',
+          position: { x: 0, y: 0, z: 8 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 2.5, z: 4 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+      ];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: 0, y: 0, z: 0 };
+      activateUnit(state, HOST, unit.id);
+      const { hud, container } = setup(HOST, state);
+
+      let emittedMarker: any = null;
+      hud.onMarkers((m) => {
+        emittedMarker = m;
+      });
+
+      clickByText(container, 'Rush');
+      expect(container.textContent).toContain('Click a destination to Rush');
+
+      // Hover over destination on sheer platform (approx 8.4" away)
+      hud.handleBoardHover({ kind: 'position', position: { x: 0, y: 2.5, z: 8 } });
+
+      // Live hover warning displayed
+      const warningEl = container.querySelector('.sl-hud-move-warning') as HTMLElement;
+      expect(warningEl.style.display).toBe('block');
+      expect(warningEl.textContent).toContain('Difficult Terrain / Vertical Climb');
+      expect(warningEl.textContent).toContain('capped at 6.0"');
+
+      // Marker line color set to amber (0xffa726)
+      expect(emittedMarker?.movePath?.color).toBe(0xffa726);
+
+      // Path length clamped <= 6.0"
+      const preview = (hud as any).movePathPreview;
+      expect(preview.length).toBeGreaterThanOrEqual(2);
+      const pathDist = Math.hypot(
+        preview[preview.length - 1].x - preview[0].x,
+        (preview[preview.length - 1].y ?? 0) - (preview[0].y ?? 0),
+        preview[preview.length - 1].z - preview[0].z
+      );
+      expect(pathDist).toBeLessThanOrEqual(6.01);
+    });
+
+    it('clamps rush destination to 6.0" and displays confirmation warning badge when scaling sheer elevation', () => {
+      const state = scenarioState();
+      state.terrain = [
+        {
+          id: 'plat1',
+          type: 'building',
+          name: 'Platform 1',
+          position: { x: 0, y: 0, z: 8 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 2.5, z: 4 },
+          isWalkable: true,
+          elevation: 2.5,
+        },
+      ];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: 0, y: 0, z: 0 };
+      activateUnit(state, HOST, unit.id);
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Rush');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 2.5, z: 8 } });
+
+      // Toast feedback
+      const toast = container.querySelector('.sl-hud-toast');
+      expect(toast?.textContent).toContain('Rush capped at 6.0"');
+
+      // Warning badge in confirmation bar
+      const badge = container.querySelector('.sl-hud-warning-badge');
+      expect(badge?.textContent).toContain('Difficult Terrain / Vertical Climb');
+      expect(badge?.textContent).toContain('total movement capped at 6.0"');
+
+      // Summary text
+      expect(container.textContent).toContain('Difficult Terrain: capped at 6.0" (Rush speed bonus negated)');
+
+      // Confirm submits clamped rush action
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('rush');
+      const finalPos = action.payload.finalPosition;
+      const totalDist = Math.hypot(finalPos.x - unit.position.x, (finalPos.y ?? 0) - unit.position.y, finalPos.z - unit.position.z);
+      expect(totalDist).toBeLessThanOrEqual(6.01);
+    });
+
     it('displays gap jump risk warning in move confirmation bar when traversing platform gap > 1.0"', () => {
       const state = scenarioState();
       state.terrain = [

@@ -133,6 +133,8 @@ export class GameHUD {
   private movePreview: Vector3 | null = null;
   /** Multi-segment waypoints previewed under cursor during move / rush / charge. */
   private movePathPreview: Vector3[] | null = null;
+  /** Whether the currently previewed path encounters Difficult Terrain or vertical climb. */
+  private movePreviewDifficult = false;
   /** Enemy unit currently highlighted in melee engagement contact. */
   private hoveredEngagedTargetId: string | null = null;
   /** Designated model in a multi-model squad to allocate hazard casualties to. */
@@ -494,8 +496,18 @@ export class GameHUD {
         const alive = this.activeAliveSquadModels;
         const currentModel = alive.length > 1 ? alive[this.squadPlacementIndex] : null;
         const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
-        const maxDist = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
-        const path = findNavPath(this.state, active, target.position, maxDist, { startPosition: startPos });
+        const nominalMax = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
+        let path = findNavPath(this.state, active, target.position, nominalMax, { startPosition: startPos });
+
+        const isDifficult =
+          (path.length > 0 && isPathDifficult(this.state, path, active)) ||
+          isPathDifficult(this.state, [startPos, target.position], active);
+        const cappedAllowance = this.flow.action === 'rush' ? 6.0 : Math.min(active.speed, 6.0);
+        if (isDifficult && nominalMax > cappedAllowance) {
+          path = findNavPath(this.state, active, target.position, cappedAllowance, { startPosition: startPos });
+        }
+
+        this.movePreviewDifficult = isDifficult;
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
@@ -511,10 +523,13 @@ export class GameHUD {
         } else {
           this.hoveredEngagedTargetId = null;
         }
+        this.updateMoveWarning(isDifficult, this.flow.action);
       } else {
         this.movePreview = null;
         this.movePathPreview = null;
+        this.movePreviewDifficult = false;
         this.hoveredEngagedTargetId = null;
+        this.updateMoveWarning(false, this.flow.action);
       }
       if (terrainChanged) {
         this.updateDataCardSlot();
@@ -542,13 +557,18 @@ export class GameHUD {
         const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
           ignoreUnitId: enemy.id,
         });
+        const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
+        this.movePreviewDifficult = isDifficult;
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.hoveredEngagedTargetId = enemy.id;
+        this.updateMoveWarning(isDifficult, this.flow.action);
       } else {
         this.movePathPreview = null;
         this.movePreview = null;
+        this.movePreviewDifficult = false;
         this.hoveredEngagedTargetId = null;
+        this.updateMoveWarning(false, this.flow.action);
       }
     }
 
@@ -728,12 +748,14 @@ export class GameHUD {
     const currentModel = alive[this.squadPlacementIndex];
     const startPos = currentModel.position ?? active.position;
 
-    const isDifficultDirect = isPathDifficult(this.state, [startPos, rawDestination], active);
-    const maxAllowance = isDifficultDirect
-      ? (actionKind === 'rush' ? 6.0 : Math.min(active.speed, 6.0))
-      : (actionKind === 'rush' ? active.speed * 2 : active.speed);
-
-    const path = findNavPath(this.state, active, rawDestination, maxAllowance, { startPosition: startPos });
+    let maxAllowance = actionKind === 'rush' ? active.speed * 2 : active.speed;
+    let path = findNavPath(this.state, active, rawDestination, maxAllowance, { startPosition: startPos });
+    const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
+    const cappedAllowance = actionKind === 'rush' ? 6.0 : Math.min(active.speed, 6.0);
+    if (isDifficult && maxAllowance > cappedAllowance) {
+      maxAllowance = cappedAllowance;
+      path = findNavPath(this.state, active, rawDestination, maxAllowance, { startPosition: startPos });
+    }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the model');
       return;
@@ -743,6 +765,10 @@ export class GameHUD {
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the model');
       return;
+    }
+
+    if (isDifficult && actionKind === 'rush') {
+      this.showToast('Difficult Terrain / Climb: Rush capped at 6.0" (speed bonus negated)');
     }
 
     if (actionKind === 'rush') {
@@ -786,13 +812,13 @@ export class GameHUD {
 
     // All living models have been placed!
     const finalCentroid = computeSquadCentroid(this.stagedSquadPositions);
-    const isDifficult = this.stagedSquadPositions.some((pos, i) =>
+    const isAnyModelDifficult = this.stagedSquadPositions.some((pos, i) =>
       isPathDifficult(this.state!, [alive[i].position ?? active.position, pos], active)
     );
     let summary = `${actionKind === 'rush' ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
       actionKind === 'rush' ? 'double move (activation ends)' : 'can shoot after moving'
     }`;
-    if (isDifficult) {
+    if (isAnyModelDifficult) {
       summary += actionKind === 'rush'
         ? ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]'
         : ' · [Difficult Terrain: 6.0" speed cap]';
@@ -835,15 +861,19 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const isDifficultDirect = isPathDifficult(this.state, [active.position, rawDestination], active);
-    const maxAllowance = isDifficultDirect ? Math.min(active.speed, 6.0) : active.speed;
-    const path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    let maxAllowance = active.speed;
+    let path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
+    const cappedAllowance = Math.min(active.speed, 6.0);
+    if (isDifficult && maxAllowance > cappedAllowance) {
+      maxAllowance = cappedAllowance;
+      path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
-    const isDifficult = isPathDifficult(this.state, path, active);
     const maxMove = Math.min(
       getEffectiveMaxMovement(active, 'move', isDifficult),
       Math.max(active.speed, active.remainingMovement)
@@ -895,15 +925,20 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const isDifficultDirect = isPathDifficult(this.state, [active.position, rawDestination], active);
-    const maxAllowance = isDifficultDirect ? 6.0 : active.speed * 2;
-    const path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    let maxAllowance = active.speed * 2;
+    let path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    const isDifficult =
+      (path.length > 0 && isPathDifficult(this.state, path, active)) ||
+      isPathDifficult(this.state, [active.position, rawDestination], active);
+    if (isDifficult && maxAllowance > 6.0) {
+      maxAllowance = 6.0;
+      path = findNavPath(this.state, active, rawDestination, maxAllowance);
+    }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
-    const isDifficult = isPathDifficult(this.state, path, active);
     const maxRush = getEffectiveMaxMovement(active, 'rush', isDifficult);
     const distance = pathLength3D(path);
     if (distance < 0.05) {
@@ -920,6 +955,10 @@ export class GameHUD {
     if (wouldEngage) {
       this.showToast('Rush cannot end in melee contact — use Charge instead');
       return;
+    }
+
+    if (isDifficult) {
+      this.showToast('Difficult Terrain / Climb: Rush capped at 6.0" (speed bonus negated)');
     }
 
     const maxRushStr = Number.isInteger(maxRush) ? `${maxRush}` : maxRush.toFixed(1);
@@ -946,12 +985,14 @@ export class GameHUD {
 
     this.movePreview = destination;
     this.movePathPreview = path;
+    this.movePreviewDifficult = isDifficult;
     this.beginConfirmation(
       createAction(this.localPlayerId, 'rush', {
         type: 'rush',
         unitId: active.id,
         path,
         finalPosition: destination,
+        isDifficult,
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
         ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
       }),
@@ -2012,12 +2053,36 @@ export class GameHUD {
         }
       }
 
+      let difficultWarningHtml = '';
+      const payloadPath = (this.flow.action.payload as any)?.path;
+      const isActionDifficult =
+        (this.flow.action.payload as any)?.isDifficult ||
+        (this.state && active && payloadPath ? isPathDifficult(this.state, payloadPath, active) : false);
+
+      if (isActionDifficult && active) {
+        if (this.flow.action.type === 'rush' || this.flow.action.type === 'charge') {
+          const actionLabel = this.flow.action.type === 'rush' ? 'Rush' : 'Charge';
+          difficultWarningHtml = `
+            <div class="sl-hud-warning-badge" style="background: rgba(255, 152, 0, 0.18); border: 1px solid #ffa726; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>⚠️</span>
+              <span><strong>Difficult Terrain / Vertical Climb:</strong> ${actionLabel} speed bonus negated — total movement capped at 6.0".</span>
+            </div>`;
+        } else if ((active.speed ?? 6) > 6) {
+          difficultWarningHtml = `
+            <div class="sl-hud-warning-badge" style="background: rgba(255, 152, 0, 0.18); border: 1px solid #ffa726; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>⚠️</span>
+              <span><strong>Difficult Terrain / Vertical Climb:</strong> Movement capped at 6.0".</span>
+            </div>`;
+        }
+      }
+
       return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-confirm" style="display: flex; flex-direction: column; align-items: center;">
             ${casualtySelectorHtml}
             ${shootChipsHtml}
+            ${difficultWarningHtml}
             <div style="display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center;">
               <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
               <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
@@ -2176,14 +2241,17 @@ export class GameHUD {
       return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
-          <div class="sl-hud-bottom">
-            <span class="sl-hud-hint">${instruction}</span>
-            ${
-              isSquadMovement && this.squadPlacementIndex > 0
-                ? '<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>'
-                : ''
-            }
-            <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+          <div class="sl-hud-bottom" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+            <div class="sl-hud-move-warning" style="display: none; background: rgba(255, 152, 0, 0.2); border: 1px solid #ff9800; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;"></div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="sl-hud-hint">${instruction}</span>
+              ${
+                isSquadMovement && this.squadPlacementIndex > 0
+                  ? '<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>'
+                  : ''
+              }
+              <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+            </div>
           </div>
         </div>`;
     }
@@ -2587,6 +2655,22 @@ export class GameHUD {
     }
   }
 
+  private updateMoveWarning(isDifficult: boolean, actionKind: string): void {
+    const warningEl = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
+    if (!warningEl) return;
+    if (isDifficult && (actionKind === 'rush' || actionKind === 'charge')) {
+      const actionLabel = actionKind === 'rush' ? 'Rush' : 'Charge';
+      warningEl.innerHTML = `⚠️ <strong>Difficult Terrain / Vertical Climb:</strong> ${actionLabel} speed bonus negated (maximum movement capped at 6.0")`;
+      warningEl.style.display = 'block';
+    } else if (isDifficult && actionKind === 'move' && (this.activeUnit?.speed ?? 6) > 6) {
+      warningEl.innerHTML = '⚠️ <strong>Difficult Terrain / Vertical Climb:</strong> Movement capped at 6.0"';
+      warningEl.style.display = 'block';
+    } else {
+      warningEl.style.display = 'none';
+      warningEl.textContent = '';
+    }
+  }
+
   private bindEvents(): void {
     // Unit rows: hover highlights the unit on the board; click activates an activatable unit
     // (or targets an enemy unit when in shoot/charge/fight targeting mode).
@@ -2852,11 +2936,17 @@ export class GameHUD {
         payload.path &&
         payload.path.length >= 2
       ) {
+        const isDifficult =
+          (payload as any).isDifficult ||
+          (this.state && this.activeUnit
+            ? isPathDifficult(this.state, payload.path, this.activeUnit)
+            : false);
         markers.movePath = {
           from: payload.path[0],
           to: payload.path[payload.path.length - 1],
           waypoints: payload.path,
           isMeleeContact: this.flow.action.type === 'charge',
+          color: isDifficult ? 0xffa726 : undefined,
         };
       }
       if (this.flow.action.type === 'charge' && payload.targetId) {
@@ -2960,6 +3050,7 @@ export class GameHUD {
           to: this.movePathPreview[this.movePathPreview.length - 1],
           waypoints: this.movePathPreview,
           isMeleeContact: !!this.hoveredEngagedTargetId,
+          color: this.movePreviewDifficult ? 0xffa726 : undefined,
         };
       } else if (this.movePreview) {
         markers.movePath = {
