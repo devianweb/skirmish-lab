@@ -1,7 +1,7 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { findTerrainAtPosition } from './spatial';
+import { findTerrainAtPosition, isSegmentOnRampOrStairs } from './spatial';
 
 /** 3D Euclidean distance between two points. */
 export function distance3D(a: Vector3, b: Vector3): number {
@@ -58,14 +58,15 @@ export function isPathDifficult(
     const curr = path[i];
     const verticalRise = (curr.y ?? 0) - (prev.y ?? 0);
     if (verticalRise > 0.5) {
-      const piece = findTerrainAtPosition(state, curr);
-      const isClimbRamp =
+      const piece = findTerrainAtPosition(state, curr) || findTerrainAtPosition(state, prev);
+      const isClimbPiece =
         piece &&
         (piece.terrainType === 'ladder' ||
           piece.terrainType === 'stairs' ||
           piece.climbType === 'ladder' ||
           piece.climbType === 'stairs' ||
           piece.climbType === 'ramp');
+      const isClimbRamp = isClimbPiece || isSegmentOnRampOrStairs(state, prev, curr);
       if (!isClimbRamp) {
         return true; // Free-climbing a sheer wall counts as Difficult Terrain
       }
@@ -139,14 +140,7 @@ export function detectPathFall(
     const drop = prevY - currY;
     if (drop > maxDrop) {
       if (state) {
-        const piece = findTerrainAtPosition(state, curr) || findTerrainAtPosition(state, prev);
-        const isStairsOrLadder =
-          piece &&
-          (piece.terrainType === 'stairs' ||
-            piece.terrainType === 'ladder' ||
-            piece.climbType === 'stairs' ||
-            piece.climbType === 'ladder' ||
-            piece.climbType === 'ramp');
+        const isStairsOrLadder = isSegmentOnRampOrStairs(state, prev, curr);
         if (isStairsOrLadder) {
           continue;
         }

@@ -561,10 +561,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit and UI tests for split-targeting allocations and range ring rendering.
 
 ### Sub-phase 13.5C: 3D Surface-Constrained Navigation & Stair Traversal
-- [ ] Surface-constrained 3D pathfinding: prohibit non-airborne models from flying diagonally through open air.
-- [ ] Intelligent stair & ladder routing: generate accurate ground-foot entrance and platform-head exit waypoints so units cleanly climb stairs/ladders at 1:1 speed.
-- [ ] Wall-base ascent fallback: if no stair/ladder is reachable, units navigate along the ground to the wall base and scale vertically as Difficult Terrain (6.0″ speed cap).
-- [ ] Unit tests verifying ground units route via stairs/ladders when available and climb sheer walls at the base only when necessary.
+- [x] Surface-constrained 3D pathfinding: prohibit non-airborne models from flying diagonally through open air.
+- [x] Intelligent stair & ladder routing: generate accurate ground-foot entrance and platform-head exit waypoints so units cleanly climb stairs/ladders at 1:1 speed.
+- [x] Wall-base ascent fallback: if no stair/ladder is reachable, units navigate along the ground to the wall base and scale vertically as Difficult Terrain (6.0″ speed cap).
+- [x] Unit tests verifying ground units route via stairs/ladders when available and climb sheer walls at the base only when necessary.
 
 ### Sub-phase 13.5D: Multi-Model Squad Sequential Movement & UI
 - [ ] Squad model count indicators: display active and total model counts in the HUD roster list and DataCard header/tables (e.g., `Models: 2/2` or `1/2 (1 casualty)`).

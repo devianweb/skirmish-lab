@@ -1,5 +1,6 @@
 import { GameState, TerrainPiece, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
+import { hasTrait } from '../rules/traits';
 
 /**
  * Pure 2D spatial geometry on the XZ board plane for movement collision,
@@ -1353,6 +1354,249 @@ export function computeLosVisibilityPolygon(
  * If the shortest path exceeds `maxDistance`, it is clamped along the polyline so
  * the returned path stops cleanly at the exact maximum movement allowed.
  */
+/**
+ * Checks whether a 3D line segment traverses an active staircase, ladder, or ramp.
+ */
+export function isSegmentOnRampOrStairs(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3
+): boolean {
+  for (const piece of state.terrain) {
+    const isRampOrStairs =
+      piece.terrainType === 'stairs' ||
+      piece.terrainType === 'ladder' ||
+      piece.climbType === 'stairs' ||
+      piece.climbType === 'ladder' ||
+      piece.climbType === 'ramp';
+    if (!isRampOrStairs) continue;
+
+    const { hx, hz } = terrainHalfExtents(piece);
+    const yaw = piece.rotation.y || 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const margin = 1.0; // clearance margin around stair/ladder footprint
+    const botY = Math.min(0, piece.position.y ?? 0);
+    const topY = Math.max(
+      piece.elevation ?? 0,
+      (piece.position.y ?? 0) + (piece.scale.y ?? 2.5),
+      (piece as any).size?.y ?? 0
+    );
+
+    const testPoints = [
+      p1,
+      p2,
+      {
+        x: (p1.x + p2.x) / 2,
+        y: ((p1.y ?? 0) + (p2.y ?? 0)) / 2,
+        z: (p1.z + p2.z) / 2,
+      },
+    ];
+
+    const allInFootprint = testPoints.every((pt) => {
+      const py = pt.y ?? 0;
+      if (py < botY - 0.5 || py > topY + 0.5) return false;
+      const dx = pt.x - piece.position.x;
+      const dz = pt.z - piece.position.z;
+      const lx = dx * cos + dz * sin;
+      const lz = -dx * sin + dz * cos;
+      return Math.abs(lx) <= hx + margin && Math.abs(lz) <= hz + margin;
+    });
+
+    if (allInFootprint) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Computes exact ground-foot entrance and platform-head exit waypoints for stairs or ladders.
+ */
+export function getStairWaypoints(
+  state: GameState,
+  piece: TerrainPiece
+): { foot: Vector3; head: Vector3 } {
+  const botY = piece.position.y ?? 0;
+  const topY = piece.elevation !== undefined ? piece.elevation : botY + (piece.scale.y ?? 2.5);
+
+  if (piece.terrainType === 'ladder' || piece.climbType === 'ladder') {
+    return {
+      foot: {
+        x: Math.round(piece.position.x * 100) / 100,
+        y: botY,
+        z: Math.round(piece.position.z * 100) / 100,
+      },
+      head: {
+        x: Math.round(piece.position.x * 100) / 100,
+        y: topY,
+        z: Math.round(piece.position.z * 100) / 100,
+      },
+    };
+  }
+
+  const { hz } = terrainHalfExtents(piece);
+  const yaw = piece.rotation.y || 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+
+  // In Three.js / Kenney assets, stair slope runs along local Z:
+  // Rotation Y transforms local Z (0, hz) into world (hz * sin(yaw), hz * cos(yaw))
+  const endA = {
+    x: piece.position.x + hz * sin,
+    z: piece.position.z + hz * cos,
+  };
+  const endB = {
+    x: piece.position.x - hz * sin,
+    z: piece.position.z - hz * cos,
+  };
+
+  const isPlatformAt = (point: { x: number; z: number }) => {
+    for (const p of state.terrain) {
+      if (p.id === piece.id) continue;
+      if (
+        p.isWalkable ||
+        p.terrainType === 'platform' ||
+        p.terrainType === 'floor' ||
+        (p.elevation !== undefined && p.elevation > 0)
+      ) {
+        const { hx: phx, hz: phz } = terrainHalfExtents(p);
+        const pyaw = p.rotation.y || 0;
+        const pcos = Math.cos(pyaw);
+        const psin = Math.sin(pyaw);
+        const dx = point.x - p.position.x;
+        const dz = point.z - p.position.z;
+        const localX = dx * pcos - dz * psin;
+        const localZ = dx * psin + dz * pcos;
+        if (Math.abs(localX) <= phx + 0.25 && Math.abs(localZ) <= phz + 0.25) {
+          return p;
+        }
+      }
+    }
+    return null;
+  };
+
+  const platA = isPlatformAt(endA);
+  const platB = isPlatformAt(endB);
+
+  if (platB && !platA) {
+    // End B is the upper head at topY, End A is the lower foot at botY
+    return {
+      foot: {
+        x: Math.round((endA.x + sin * 0.2) * 100) / 100,
+        y: botY,
+        z: Math.round((endA.z + cos * 0.2) * 100) / 100,
+      },
+      head: {
+        x: Math.round((endB.x - sin * 0.2) * 100) / 100,
+        y: topY,
+        z: Math.round((endB.z - cos * 0.2) * 100) / 100,
+      },
+    };
+  }
+
+  // Default / platA: End A (+Z) is head at topY, End B (-Z) is foot at botY
+  return {
+    foot: {
+      x: Math.round((endB.x - sin * 0.2) * 100) / 100,
+      y: botY,
+      z: Math.round((endB.z - cos * 0.2) * 100) / 100,
+    },
+    head: {
+      x: Math.round((endA.x + sin * 0.2) * 100) / 100,
+      y: topY,
+      z: Math.round((endA.z + cos * 0.2) * 100) / 100,
+    },
+  };
+}
+
+/**
+ * Validates whether a 3D movement segment is constrained to a physical surface.
+ * Airborne models can fly diagonally through open space.
+ * Non-airborne models cannot fly diagonally across elevation changes; they must move along
+ * flat surfaces (|dy| <= 0.35), scale vertical walls (|dh| <= 0.7), or traverse stairs/ramps.
+ */
+export function isSegmentSurfaceConstrained(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3,
+  unit?: Unit
+): boolean {
+  if (unit && hasTrait(unit.specialRules, 'airborne')) {
+    return true; // Airborne units can fly diagonally through open air
+  }
+
+  const y1 = p1.y ?? 0;
+  const y2 = p2.y ?? 0;
+  const dy = Math.abs(y1 - y2);
+  const dh = Math.hypot(p1.x - p2.x, p1.z - p2.z);
+
+  // Flat horizontal movement on the same surface tier
+  if (dy <= 0.35) {
+    return true;
+  }
+
+  // Pure vertical movement (scaling a sheer wall, climbing a ladder, dropping off a ledge)
+  if (dh <= 0.7) {
+    return true;
+  }
+
+  // Diagonal elevation change: must be on a designated staircase, ladder, or ramp
+  return isSegmentOnRampOrStairs(state, p1, p2);
+}
+
+/**
+ * Calculates projection points on a platform perimeter to provide a clean vertical
+ * wall-base ascent fallback when climbing sheer walls.
+ */
+export function addPlatformAscentPoints(
+  plat: TerrainPiece,
+  refPoint: Vector3,
+  waypoints: Vector3[]
+): void {
+  const { hx, hz } = terrainHalfExtents(plat);
+  const yaw = plat.rotation.y || 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const platY = plat.elevation ?? plat.position.y ?? 2.5;
+
+  const dx = refPoint.x - plat.position.x;
+  const dz = refPoint.z - plat.position.z;
+  const lx = dx * cos + dz * sin;
+  const lz = -dx * sin + dz * cos;
+
+  const clampedX = Math.max(-hx, Math.min(hx, lx));
+  const clampedZ = Math.max(-hz, Math.min(hz, lz));
+
+  let edgeX = clampedX;
+  let edgeZ = clampedZ;
+  const distToLeft = Math.abs(clampedX - (-hx));
+  const distToRight = Math.abs(clampedX - hx);
+  const distToNear = Math.abs(clampedZ - (-hz));
+  const distToFar = Math.abs(clampedZ - hz);
+  const minDist = Math.min(distToLeft, distToRight, distToNear, distToFar);
+
+  if (minDist === distToLeft) edgeX = -hx;
+  else if (minDist === distToRight) edgeX = hx;
+  else if (minDist === distToNear) edgeZ = -hz;
+  else edgeZ = hz;
+
+  const wx = Math.round((plat.position.x + edgeX * cos - edgeZ * sin) * 100) / 100;
+  const wz = Math.round((plat.position.z + edgeX * sin + edgeZ * cos) * 100) / 100;
+
+  waypoints.push({ x: wx, y: 0, z: wz });
+  waypoints.push({ x: wx, y: platY, z: wz });
+}
+
+/**
+ * Computes the shortest legal movement path from `unit.position` to `destination`,
+ * navigating around obstacle terrain (including door frames and solid walls) and other
+ * fighters using 3D surface-constrained visibility-graph A* pathfinding.
+ *
+ * If the shortest path exceeds `maxDistance`, it is clamped along the polyline so
+ * the returned path stops cleanly at the exact maximum movement allowed.
+ */
 export function findNavPath(
   state: GameState,
   unit: Unit,
@@ -1373,69 +1617,99 @@ export function findNavPath(
     z: Math.max(-halfH, Math.min(halfH, destination.z)),
   };
 
-  // 2. Fast path: check if straight line [from, target] is unblocked
-  const directCheck = findMoveBlocker(state, unit, [from, target], options);
-  if (!directCheck.blocked) {
-    const dist = Math.hypot(target.x - from.x, endY - startY, target.z - from.z);
-    if (dist <= maxDistance + 1e-4) {
-      return [from, target];
+  // 2. Fast path: check if straight line [from, target] is unblocked AND surface-constrained
+  const isDirectSurfaceValid = isSegmentSurfaceConstrained(state, from, target, unit);
+  if (isDirectSurfaceValid) {
+    const directCheck = findMoveBlocker(state, unit, [from, target], options);
+    if (!directCheck.blocked) {
+      const dist = Math.hypot(target.x - from.x, endY - startY, target.z - from.z);
+      if (dist <= maxDistance + 1e-4) {
+        return [from, target];
+      }
+      const ratio = maxDistance / dist;
+      return [
+        from,
+        {
+          x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
+          y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
+          z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
+        },
+      ];
     }
-    const ratio = maxDistance / dist;
-    return [
-      from,
-      {
-        x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
-        y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
-        z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
-      },
-    ];
   }
 
-  // 3. Obstacle waypoints generation
+  // 3. Waypoint generation
   const clearance = UNIT_COLLISION_RADIUS + 0.12; // ~0.47" clearance
   const candidateWaypoints: Vector3[] = [];
 
-  const getSurfaceY = (x: number, z: number, refY: number = 0): number => {
-    const plat = findWalkablePlatformAt(state, { x, y: refY, z });
-    if (plat && plat.elevation !== undefined && plat.elevation > 0) {
-      return plat.elevation;
-    }
-    return 0;
-  };
-
+  // 3a. Stairs and Ladders waypoints (accurate foot and head)
   for (const piece of state.terrain) {
-    if (
+    const isRampOrStairs =
       piece.terrainType === 'stairs' ||
       piece.terrainType === 'ladder' ||
       piece.climbType === 'stairs' ||
-      piece.climbType === 'ladder'
-    ) {
-      const topY = piece.elevation ?? piece.scale.y ?? 2.5;
-      candidateWaypoints.push({ x: piece.position.x, y: 0, z: piece.position.z });
-      candidateWaypoints.push({ x: piece.position.x, y: topY, z: piece.position.z });
+      piece.climbType === 'ladder' ||
+      piece.climbType === 'ramp';
+    if (isRampOrStairs) {
+      const { foot, head } = getStairWaypoints(state, piece);
+      candidateWaypoints.push(foot);
+      candidateWaypoints.push(head);
     }
+  }
 
-    if (piece.isWalkable || piece.terrainType === 'platform') {
+  // 3b. Platform decks & wall-base ascent fallback
+  for (const piece of state.terrain) {
+    if (
+      piece.isWalkable ||
+      piece.terrainType === 'platform' ||
+      (piece.elevation !== undefined && piece.elevation > 0)
+    ) {
       const { hx, hz } = terrainHalfExtents(piece);
-      const platY = piece.elevation ?? piece.position.y ?? 0;
+      const platY = piece.elevation ?? piece.position.y ?? 2.5;
       const yaw = piece.rotation.y || 0;
       const cos = Math.cos(yaw);
       const sin = Math.sin(yaw);
-      const corners = [
+
+      // Deck corners and face midpoints at platY
+      const deckPoints = [
         { x: -hx + 0.2, z: -hz + 0.2 },
         { x: hx - 0.2, z: -hz + 0.2 },
         { x: hx - 0.2, z: hz - 0.2 },
         { x: -hx + 0.2, z: hz - 0.2 },
+        { x: 0, z: -hz },
+        { x: 0, z: hz },
+        { x: -hx, z: 0 },
+        { x: hx, z: 0 },
       ];
-      for (const c of corners) {
-        const wx = piece.position.x + c.x * cos - c.z * sin;
-        const wz = piece.position.z + c.x * sin + c.z * cos;
+
+      for (const pt of deckPoints) {
+        const wx = piece.position.x + pt.x * cos - pt.z * sin;
+        const wz = piece.position.z + pt.x * sin + pt.z * cos;
         if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
-          candidateWaypoints.push({ x: wx, y: platY, z: wz });
+          candidateWaypoints.push({
+            x: Math.round(wx * 100) / 100,
+            y: platY,
+            z: Math.round(wz * 100) / 100,
+          });
+          // Ground-level base ascent point directly below
+          candidateWaypoints.push({
+            x: Math.round(wx * 100) / 100,
+            y: 0,
+            z: Math.round(wz * 100) / 100,
+          });
         }
       }
-    }
 
+      // Add closest ascent points if transitioning between ground and this platform
+      if ((startY <= 0.35 && endY > 0.35) || (startY > 0.35 && endY <= 0.35)) {
+        addPlatformAscentPoints(piece, from, candidateWaypoints);
+        addPlatformAscentPoints(piece, target, candidateWaypoints);
+      }
+    }
+  }
+
+  // 3c. Ground Obstacles
+  for (const piece of state.terrain) {
     if (!piece.isObstacle) continue;
     const { hx, hz } = terrainHalfExtents(piece);
     const yaw = piece.rotation.y || 0;
@@ -1454,17 +1728,18 @@ export function findNavPath(
         const wx = piece.position.x + c.x * cos - c.z * sin;
         const wz = piece.position.z + c.x * sin + c.z * cos;
         if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
-          const wy = getSurfaceY(wx, wz, pieceBaseY);
-          candidateWaypoints.push({ x: wx, y: wy, z: wz });
+          candidateWaypoints.push({
+            x: Math.round(wx * 100) / 100,
+            y: pieceBaseY,
+            z: Math.round(wz * 100) / 100,
+          });
         }
       }
     };
 
     if (piece.terrainType === 'wall-doorway') {
-      // Left jamb and right jamb with central opening
       addLocalBoxCorners(-hx, -0.5, -hz, hz);
       addLocalBoxCorners(0.5, hx, -hz, hz);
-      // Doorway center waypoint for smooth passage through opening
       candidateWaypoints.push({
         x: piece.position.x,
         y: pieceBaseY,
@@ -1475,7 +1750,7 @@ export function findNavPath(
     }
   }
 
-  // Waypoints around other living fighters
+  // 3d. Other fighters clearance
   for (const other of state.units) {
     if (other.isDestroyed || other.id === unit.id || other.id === options.ignoreUnitId) {
       continue;
@@ -1497,10 +1772,15 @@ export function findNavPath(
     }
   }
 
-  // Filter out any waypoint that is inside an obstacle
+  // Filter out any waypoint that is inside a solid obstacle (unless it's a climb connector or on a platform)
   const validWaypoints: Vector3[] = [];
   for (const wp of candidateWaypoints) {
     const wpY = wp.y ?? 0;
+    // Don't filter out stairs/ladder points
+    if (isSegmentOnRampOrStairs(state, wp, wp)) {
+      validWaypoints.push(wp);
+      continue;
+    }
     const blk = findMoveBlocker(state, unit, [wp, { x: wp.x + 0.001, y: wpY, z: wp.z }], options);
     if (!blk.blocked) {
       validWaypoints.push(wp);
@@ -1556,8 +1836,11 @@ export function findNavPath(
     }
     closedSet.add(current);
 
-    // Try direct link to target first
-    if (!closedSet.has(targetNode)) {
+    // Try direct link to target if surface-constrained
+    if (
+      !closedSet.has(targetNode) &&
+      isSegmentSurfaceConstrained(state, current.pos, targetNode.pos, unit)
+    ) {
       const directBlk = findMoveBlocker(state, unit, [current.pos, targetNode.pos], options);
       if (!directBlk.blocked) {
         const tentG =
@@ -1585,10 +1868,22 @@ export function findNavPath(
       );
       if (d > 16.0) continue;
 
+      // Surface constraint check: non-airborne cannot fly diagonally across open air
+      if (!isSegmentSurfaceConstrained(state, current.pos, neighbor.pos, unit)) {
+        continue;
+      }
+
       const blk = findMoveBlocker(state, unit, [current.pos, neighbor.pos], options);
       if (blk.blocked) continue;
 
-      const tentativeG = current.g + d;
+      // Climbing penalty: scaling a sheer vertical wall without stairs/ladder adds cost penalty,
+      // ensuring stairs & ladders are naturally prioritized
+      const isClimbingSheerWall =
+        Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0)) > 0.5 &&
+        !isSegmentOnRampOrStairs(state, current.pos, neighbor.pos);
+      const edgeCost = d + (isClimbingSheerWall ? 2.5 : 0);
+
+      const tentativeG = current.g + edgeCost;
       if (tentativeG < neighbor.g) {
         neighbor.parent = current;
         neighbor.g = tentativeG;
@@ -1610,17 +1905,23 @@ export function findNavPath(
     }
     rawPath = rev.reverse();
   } else {
-    // If no path around obstacles, clamp straight toward target
-    const clamped = clampMoveDestinationWithObstacles(state, unit, destination, maxDistance);
+    // If no path, clamp along current surface
+    const flatTarget = hasTrait(unit.specialRules, 'airborne')
+      ? destination
+      : { ...destination, y: startY };
+    const clamped = clampMoveDestinationWithObstacles(state, unit, flatTarget, maxDistance);
     return [from, clamped];
   }
 
-  // 5. String pulling / shortcutting
+  // 5. String pulling / shortcutting (preserving surface constraints)
   const smoothed: Vector3[] = [rawPath[0]];
   let curIdx = 0;
   while (curIdx < rawPath.length - 1) {
     let furthest = curIdx + 1;
     for (let test = rawPath.length - 1; test > curIdx + 1; test--) {
+      if (!isSegmentSurfaceConstrained(state, rawPath[curIdx], rawPath[test], unit)) {
+        continue;
+      }
       const blk = findMoveBlocker(state, unit, [rawPath[curIdx], rawPath[test]], options);
       if (!blk.blocked) {
         furthest = test;
