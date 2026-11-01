@@ -137,7 +137,16 @@ export class UnitRenderer {
    * Returns the unit ID or null when no unit mesh is hit.
    */
   raycastUnit(raycaster: THREE.Raycaster): string | null {
+    return this.raycastUnitHit(raycaster)?.unitId ?? null;
+  }
+
+  /**
+   * Nearest unit and optional constituent model hit by the raycaster.
+   * Returns { unitId, modelId } or null when no unit mesh is hit.
+   */
+  raycastUnitHit(raycaster: THREE.Raycaster): { unitId: string; modelId?: string } | null {
     let bestUnitId: string | null = null;
+    let bestModelId: string | undefined = undefined;
     let bestDistance = Infinity;
 
     for (const [unitId, mesh] of this.meshes) {
@@ -146,9 +155,18 @@ export class UnitRenderer {
       if (hits.length > 0 && hits[0].distance < bestDistance) {
         bestDistance = hits[0].distance;
         bestUnitId = unitId;
+        bestModelId = undefined;
+        let obj: THREE.Object3D | null = hits[0].object;
+        while (obj && obj !== mesh) {
+          if (obj.userData?.modelId) {
+            bestModelId = obj.userData.modelId;
+            break;
+          }
+          obj = obj.parent;
+        }
       }
     }
-    return bestUnitId;
+    return bestUnitId ? { unitId: bestUnitId, modelId: bestModelId } : null;
   }
 
   /** Color every mesh in a unit by its owning player's index in the state. */

@@ -90,7 +90,7 @@ export interface MarkerSnapshot {
 }
 
 export type PickTarget =
-  | { kind: 'unit'; unitId: string }
+  | { kind: 'unit'; unitId: string; modelId?: string }
   | { kind: 'position'; position: Vector3; terrainId?: string };
 
 type TargetingMode =
@@ -144,12 +144,12 @@ export class GameHUD {
   private shootAllocations: Map<string, string | null> = new Map();
   /** For Shoot mode: currently selected weapon chip for assignment */
   private selectedShootWeaponId: string | null = null;
-  /** Staged model positions during sequential squad movement */
-  private stagedSquadPositions: Vector3[] = [];
-  /** Staged individual model navigation paths during sequential squad movement */
-  private stagedSquadPaths: Vector3[][] = [];
-  /** Index of the model currently being positioned in a squad */
-  private squadPlacementIndex = 0;
+  /** Staged model positions during squad movement (keyed by model ID) */
+  private stagedSquadModelPositions: Map<string, Vector3> = new Map();
+  /** Staged individual model navigation paths during squad movement (keyed by model ID) */
+  private stagedSquadModelPaths: Map<string, Vector3[]> = new Map();
+  /** ID of the squad model currently selected for placement */
+  private selectedSquadModelId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -402,14 +402,25 @@ export class GameHUD {
     }
 
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
-      if (target.kind === 'position') {
-        if (this.activeAliveSquadModels.length > 1) {
+      const aliveSquad = this.activeAliveSquadModels;
+      if (aliveSquad.length > 1 && this.activeUnit) {
+        if (target.kind === 'unit' && target.unitId === this.activeUnit.id) {
+          if (target.modelId) {
+            this.selectSquadModel(target.modelId);
+            return;
+          }
+        }
+        if (target.kind === 'position') {
           this.handleSquadModelPick(target.position, this.flow.action);
-        } else if (this.flow.action === 'move') {
+          return;
+        }
+      } else if (target.kind === 'position') {
+        if (this.flow.action === 'move') {
           this.prepareMove(target.position);
         } else {
           this.prepareRush(target.position);
         }
+        return;
       }
       return;
     }
@@ -497,7 +508,7 @@ export class GameHUD {
       const active = this.activeUnit;
       if (active && target?.kind === 'position') {
         const alive = this.activeAliveSquadModels;
-        const currentModel = alive.length > 1 ? alive[this.squadPlacementIndex] : null;
+        const currentModel = alive.length > 1 ? this.selectedSquadModel : null;
         const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
         const isRush = this.flow.action === 'rush';
         const remainingBudget = active.isRushing
@@ -685,6 +696,28 @@ export class GameHUD {
     return active.models.filter((m) => !m.isDestroyed);
   }
 
+  private get selectedSquadModel(): Model | null {
+    const alive = this.activeAliveSquadModels;
+    if (alive.length === 0) return null;
+    if (this.selectedSquadModelId) {
+      const found = alive.find((m) => m.id === this.selectedSquadModelId);
+      if (found) return found;
+    }
+    const unplaced = alive.find((m) => !this.stagedSquadModelPositions.has(m.id));
+    return unplaced ?? alive[0];
+  }
+
+  selectSquadModel(modelId: string): void {
+    const alive = this.activeAliveSquadModels;
+    const model = alive.find((m) => m.id === modelId);
+    if (!model) return;
+    this.selectedSquadModelId = model.id;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
   /** Units the local player may activate right now. */
   private get activatableUnits(): Unit[] {
     if (!this.myTurn || this.activeUnit) return [];
@@ -750,9 +783,9 @@ export class GameHUD {
     this.movePreview = null;
     this.movePathPreview = null;
     this.hoveredEngagedTargetId = null;
-    this.stagedSquadPositions = [];
-    this.stagedSquadPaths = [];
-    this.squadPlacementIndex = 0;
+    this.stagedSquadModelPositions.clear();
+    this.stagedSquadModelPaths.clear();
+    this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
     this.flow = { mode: 'targeting', action };
 
     if (action === 'shoot') {
@@ -783,9 +816,10 @@ export class GameHUD {
 
     const alive = this.activeAliveSquadModels;
     if (alive.length <= 1) return;
-    if (this.squadPlacementIndex >= alive.length) return;
 
-    const currentModel = alive[this.squadPlacementIndex];
+    const currentModel = this.selectedSquadModel;
+    if (!currentModel) return;
+
     const startPos = currentModel.position ?? active.position;
 
     const isRush = actionKind === 'rush';
@@ -833,23 +867,29 @@ export class GameHUD {
       return;
     }
 
-    // Coherency check if placing Model 2+
-    if (this.squadPlacementIndex > 0) {
+    // Coherency checks against other placed models
+    const otherPlaced: Array<{ id: string; pos: Vector3; name: string }> = [];
+    for (let i = 0; i < alive.length; i++) {
+      const m = alive[i];
+      if (m.id !== currentModel.id && this.stagedSquadModelPositions.has(m.id)) {
+        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: `Model ${i + 1}` });
+      }
+    }
+
+    if (otherPlaced.length > 0) {
       // 1. All models must remain within 6.0" max spread of all other placed models
-      for (let i = 0; i < this.stagedSquadPositions.length; i++) {
-        const pos = this.stagedSquadPositions[i];
-        const d = Math.hypot(pos.x - destination.x, pos.z - destination.z);
+      for (const placed of otherPlaced) {
+        const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
         if (d > 6.0 + 0.02) {
-          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max 6.0" coherency limit from Model ${i + 1}`);
+          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max 6.0" coherency limit from ${placed.name}`);
           return;
         }
       }
 
-      // 2. When placing the final model of the squad, full squad coherency must be satisfied:
-      // each model within 1.0" (2.0" center-to-center) of at least one other member.
-      const isPlacingLastModel = this.squadPlacementIndex === alive.length - 1;
+      // 2. When placing the final model of the squad, full squad coherency must be satisfied
+      const isPlacingLastModel = otherPlaced.length === alive.length - 1;
       if (isPlacingLastModel) {
-        const candidatePositions = [...this.stagedSquadPositions, destination];
+        const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
         const coherency = validateSquadCoherency(candidatePositions, {
           maxMemberDistance: 2.0,
           maxSquadSpread: 6.0,
@@ -862,12 +902,15 @@ export class GameHUD {
     }
 
     // Model placed successfully
-    this.stagedSquadPositions.push(destination);
-    this.stagedSquadPaths.push(path);
-    this.squadPlacementIndex++;
+    this.stagedSquadModelPositions.set(currentModel.id, destination);
+    this.stagedSquadModelPaths.set(currentModel.id, path);
 
-    if (this.squadPlacementIndex < alive.length) {
-      // More models to place in this squad
+    if (this.stagedSquadModelPositions.size < alive.length) {
+      // Auto-advance selection to the next unplaced model
+      const nextUnplaced = alive.find((m) => !this.stagedSquadModelPositions.has(m.id));
+      if (nextUnplaced) {
+        this.selectedSquadModelId = nextUnplaced.id;
+      }
       this.movePathPreview = null;
       this.movePreview = null;
       this.render();
@@ -876,8 +919,10 @@ export class GameHUD {
     }
 
     // All living models have been placed!
-    const finalCentroid = computeSquadCentroid(this.stagedSquadPositions);
-    const isAnyModelDifficult = this.stagedSquadPaths.some((p) =>
+    const orderedPositions = alive.map((m) => this.stagedSquadModelPositions.get(m.id)!);
+    const orderedPaths = alive.map((m) => this.stagedSquadModelPaths.get(m.id)!);
+    const finalCentroid = computeSquadCentroid(orderedPositions);
+    const isAnyModelDifficult = orderedPaths.some((p) =>
       isPathDifficult(this.state!, p, active)
     );
     let summary = `${actionKind === 'rush' || active.isRushing ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
@@ -889,7 +934,7 @@ export class GameHUD {
         : ' · [Difficult Terrain: 6.0" speed cap]';
     }
 
-    const hasDangerous = this.stagedSquadPaths.some((p) =>
+    const hasDangerous = orderedPaths.some((p) =>
       isPathDangerous(this.state!, p, active)
     );
     if (hasDangerous) {
@@ -897,7 +942,7 @@ export class GameHUD {
     }
 
     const maxDrop = Math.max(
-      ...this.stagedSquadPaths.map((p) => detectPathFall(p, this.state!).maxDrop)
+      ...orderedPaths.map((p) => detectPathFall(p, this.state!).maxDrop)
     );
     if (maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
       summary += ` · ⚠️ HIGH DROP (${maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
@@ -913,8 +958,8 @@ export class GameHUD {
         unitId: active.id,
         path: [active.position, finalCentroid],
         finalPosition: finalCentroid,
-        modelPositions: [...this.stagedSquadPositions],
-        modelPaths: [...this.stagedSquadPaths],
+        modelPositions: orderedPositions,
+        modelPaths: orderedPaths,
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
@@ -1511,9 +1556,9 @@ export class GameHUD {
     this.hoveredEngagedTargetId = null;
     this.shootAllocations.clear();
     this.selectedShootWeaponId = null;
-    this.stagedSquadPositions = [];
-    this.stagedSquadPaths = [];
-    this.squadPlacementIndex = 0;
+    this.stagedSquadModelPositions.clear();
+    this.stagedSquadModelPaths.clear();
+    this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
     this.render();
@@ -2359,14 +2404,45 @@ export class GameHUD {
         (this.flow.action === 'move' || this.flow.action === 'rush') &&
         this.activeAliveSquadModels.length > 1;
 
+      let squadChipsHtml = '';
       if (isSquadMovement && active) {
         const alive = this.activeAliveSquadModels;
         const allowance = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
-        if (this.squadPlacementIndex === 0) {
-          instruction = `Place Model 1 of ${alive.length} (${active.name}) within ${allowance}"`;
+        const currentModel = this.selectedSquadModel;
+        const currentModelIndex = alive.findIndex((m) => m.id === currentModel?.id);
+        const placedCount = this.stagedSquadModelPositions.size;
+
+        if (placedCount === 0) {
+          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowance}"`;
         } else {
-          instruction = `Place Model ${this.squadPlacementIndex + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
+          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
         }
+
+        squadChipsHtml = `
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; margin-bottom: 4px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Select Model:</span>
+            ${alive
+              .map((m, idx) => {
+                const isPlaced = this.stagedSquadModelPositions.has(m.id);
+                const isSelected = m.id === currentModel?.id;
+                return `
+                  <button class="sl-hud-btn sl-hud-chip ${isSelected ? 'active' : ''}"
+                    data-action="select-squad-model"
+                    data-model-id="${m.id}"
+                    style="${
+                      isSelected
+                        ? 'background: #00bcd4; color: #000; font-weight: bold;'
+                        : isPlaced
+                        ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
+                        : ''
+                    }">
+                    ${isPlaced ? '✓ ' : ''}Model ${idx + 1}
+                  </button>
+                `;
+              })
+              .join('')}
+          </div>
+        `;
       }
 
       return `
@@ -2374,10 +2450,11 @@ export class GameHUD {
           ${dataCardSlot}
           <div class="sl-hud-bottom" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
             <div class="sl-hud-move-warning" style="display: none; background: rgba(255, 152, 0, 0.2); border: 1px solid #ff9800; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;"></div>
+            ${squadChipsHtml}
             <div style="display: flex; align-items: center; gap: 10px;">
               <span class="sl-hud-hint">${instruction}</span>
               ${
-                isSquadMovement && this.squadPlacementIndex > 0
+                isSquadMovement && this.stagedSquadModelPositions.size > 0
                   ? '<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>'
                   : ''
               }
@@ -2896,10 +2973,17 @@ export class GameHUD {
           case 'confirm-shoot-targets':
             this.confirmShootTargets();
             break;
+          case 'select-squad-model': {
+            const modelId = el.dataset.modelId;
+            if (modelId) {
+              this.selectSquadModel(modelId);
+            }
+            break;
+          }
           case 'reset-squad-move':
-            this.squadPlacementIndex = 0;
-            this.stagedSquadPositions = [];
-            this.stagedSquadPaths = [];
+            this.stagedSquadModelPositions.clear();
+            this.stagedSquadModelPaths.clear();
+            this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
             this.movePreview = null;
             this.render();
@@ -3203,12 +3287,15 @@ export class GameHUD {
 
       const alive = this.activeAliveSquadModels;
       if (alive.length > 1 && this.flow.mode === 'targeting') {
-        const currentModel = alive[this.squadPlacementIndex];
+        const currentModel = this.selectedSquadModel;
         if (currentModel) {
           markers.movementRangePosition = currentModel.position ?? this.activeUnit.position;
         }
-        if (this.stagedSquadPositions.length > 0) {
-          markers.squadCoherency = { positions: [...this.stagedSquadPositions], radius: 2.0 };
+        if (this.stagedSquadModelPositions.size > 0) {
+          markers.squadCoherency = {
+            positions: Array.from(this.stagedSquadModelPositions.values()),
+            radius: 2.0,
+          };
         }
       }
 
