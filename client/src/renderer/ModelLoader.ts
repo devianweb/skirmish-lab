@@ -125,6 +125,18 @@ export class ModelLoader {
    * fallback), unscaled — callers position/scale it from game state data.
    */
   createTerrainMesh(terrainType: string): THREE.Object3D {
+    if (
+      terrainType === 'stairs' ||
+      terrainType === 'stairs-open' ||
+      terrainType === 'stairs-closed-short' ||
+      terrainType === 'stairs-sides' ||
+      terrainType === 'ramp'
+    ) {
+      const container = new THREE.Group();
+      container.name = `terrain-${terrainType}`;
+      container.add(createProceduralStairWedge());
+      return container;
+    }
     const asset = this.terrainAssets.get(terrainType);
     const container = new THREE.Group();
     container.name = `terrain-${terrainType}`;
@@ -252,4 +264,84 @@ function createProceduralTerrainBlock(): THREE.Object3D {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/**
+ * Procedural right-angled triangular prism (wedge) for stairs and ramps.
+ * Matches the mathematical collision geometry and F9 wireframe 1:1:
+ * - Local Z = -0.5: Ground level foot (Y = 0)
+ * - Local Z = +0.5: Elevated platform head (Y = 1.0)
+ * - Local X = [-0.5, +0.5]: Width
+ */
+function createProceduralStairWedge(): THREE.Object3D {
+  const group = new THREE.Group();
+
+  const positions = new Float32Array([
+    // 1. Sloped Hypotenuse (from Z=-0.5, Y=0 to Z=+0.5, Y=1)
+    -0.5, 0.0, -0.5,
+     0.5, 0.0, -0.5,
+     0.5, 1.0,  0.5,
+    -0.5, 0.0, -0.5,
+     0.5, 1.0,  0.5,
+    -0.5, 1.0,  0.5,
+
+    // 2. Vertical Rear Wall (at Z = +0.5, from Y=0 to Y=1)
+     0.5, 0.0,  0.5,
+    -0.5, 0.0,  0.5,
+    -0.5, 1.0,  0.5,
+     0.5, 0.0,  0.5,
+    -0.5, 1.0,  0.5,
+     0.5, 1.0,  0.5,
+
+    // 3. Flat Bottom Base (at Y = 0.0, from Z=-0.5 to Z=+0.5)
+    -0.5, 0.0,  0.5,
+     0.5, 0.0,  0.5,
+     0.5, 0.0, -0.5,
+    -0.5, 0.0,  0.5,
+     0.5, 0.0, -0.5,
+    -0.5, 0.0, -0.5,
+
+    // 4. Left Triangular Side (at X = -0.5)
+    -0.5, 0.0, -0.5,
+    -0.5, 1.0,  0.5,
+    -0.5, 0.0,  0.5,
+
+    // 5. Right Triangular Side (at X = +0.5)
+     0.5, 0.0, -0.5,
+     0.5, 0.0,  0.5,
+     0.5, 1.0,  0.5,
+  ]);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x5a5d64, // Industrial weathered steel / dark concrete
+    roughness: 0.75,
+    metalness: 0.25,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  // Add subtle step tread grooves / risers for a wargaming staircase feel
+  const stepCount = 6;
+  const treadPoints: THREE.Vector3[] = [];
+  for (let s = 1; s <= stepCount; s++) {
+    const t = s / stepCount;
+    const z = -0.5 + t * 1.0;
+    const y = t * 1.0;
+    treadPoints.push(new THREE.Vector3(-0.49, y, z), new THREE.Vector3(0.49, y, z));
+  }
+  if (treadPoints.length > 0) {
+    const treadGeo = new THREE.BufferGeometry().setFromPoints(treadPoints);
+    const treadMat = new THREE.LineBasicMaterial({ color: 0x222428 });
+    const lines = new THREE.LineSegments(treadGeo, treadMat);
+    group.add(lines);
+  }
+
+  return group;
 }

@@ -79,7 +79,7 @@ The default testing map layout is defined in [`shared/src/data/scenario.ts`](../
 | `terrain-platform-west` | West Overlook Platform | `platform` | `floor-square.glb` | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Walkable elevation ($y = 2.5″$): Parapet Cover within 1.0" of edge; floor blind spot $> 1.0″$. |
 | `terrain-ladder-west` | West Access Ladder | `ladder` | `ladder.glb` | `(-7.1, 0, -2)` | `0.5 × 2.5 × 0.5` | Ladder access: 1:1 climb speed onto West Platform without Difficult Terrain penalty. |
 | `terrain-platform-east` | East Catwalk Platform | `platform` | `floor-square.glb` | `(9, 2.5, 2)` | `3.5 × 0.3 × 3.5` | Walkable catwalk ($y = 2.5″$): elevated vantage point overlooking East lane. |
-| `terrain-stairs-east` | East Access Stairs | `stairs` | `stairs-small.glb` | `(7.1, 0, 2)` | `1.8 × 2.5 × 1.2` | Stair ramp: 1:1 movement onto East Catwalk without Difficult Terrain penalty. |
+| `terrain-stairs-east` | East Access Stairs | `stairs` | Procedural Triangular Wedge (1:1 with collision math) | `(7.1, 0, 2)` | `1.8 × 2.5 × 1.2` | Stair ramp: 1:1 movement onto East Catwalk without Difficult Terrain penalty. |
 | `terrain-wall-low-north` | North Low Barricade | `wall-low` | `wall-low.glb` | `(-3, 0, 3)` | `2.5 × 0.8 × 0.4` | Low cover barricade: Plunging Fire from $y \ge 2.0″$ overlooks it against ground targets. |
 | `terrain-pipe-center` | Center Industrial Pipe | `pipe` | `pipe.glb` | `(3, 0, -2)` | `3.0 × 0.8 × 0.8` | Industrial conduit: low cover waist-height obstacle. |
 | `terrain-toxic-sludge` | Toxic Sludge Hazard | `toxic` | *(Procedural Green Plane)* | `(0, 0, 0)` | `3.0 × 0.05 × 3.0` | Dangerous & Difficult Terrain: 1d6 hazard check per model (1s inflict unsaved wounds); 6.0" movement speed cap. |
