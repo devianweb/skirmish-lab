@@ -188,6 +188,7 @@ export function endRound(state: GameState): void {
     unit.isActivated = false;
     unit.hasMoved = false;
     unit.hasAttacked = false;
+    unit.isRushing = false;
     unit.remainingMovement = unit.speed;
     unit.status = unit.status.filter((s) => s !== 'fatigued');
   }

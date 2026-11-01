@@ -497,10 +497,13 @@ export class GameHUD {
         const currentModel = alive.length > 1 ? alive[this.squadPlacementIndex] : null;
         const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
         const isRush = this.flow.action === 'rush';
-        const nominalMax = isRush ? active.speed * 2 : active.speed;
+        const remainingBudget = active.isRushing
+          ? active.remainingMovement
+          : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
+        const nominalMax = remainingBudget;
         let path = findNavPath(this.state, active, target.position, nominalMax, {
           startPosition: startPos,
-          stopBeforeDifficult: isRush,
+          stopBeforeDifficult: isRush || !!active.isRushing,
         });
 
         const targetTerrain = findTerrainAtPosition(this.state, target.position);
@@ -515,7 +518,7 @@ export class GameHUD {
           path.length > 0 && (target.position.y ?? 0) - (path[path.length - 1].y ?? 0) > 0.5;
 
         const stoppedAtBase =
-          isRush &&
+          (isRush || !!active.isRushing) &&
           path.length > 0 &&
           !hasTrait(active.specialRules, 'airborne') &&
           (isElevationObstacle ||
@@ -527,11 +530,16 @@ export class GameHUD {
             ? isPathDifficult(this.state, path, active)
             : isPathDifficult(this.state, [startPos, target.position], active));
 
-        const cappedAllowance = isRush ? 6.0 : Math.min(active.speed, 6.0);
+        const effectiveCap = getEffectiveMaxMovement(
+          active,
+          isRush || active.isRushing ? 'rush' : 'move',
+          isDifficult
+        );
+        const cappedAllowance = Math.min(effectiveCap, remainingBudget);
         if (isDifficult && nominalMax > cappedAllowance) {
           path = findNavPath(this.state, active, target.position, cappedAllowance, {
             startPosition: startPos,
-            stopBeforeDifficult: isRush,
+            stopBeforeDifficult: isRush || !!active.isRushing,
           });
         }
 
@@ -777,18 +785,22 @@ export class GameHUD {
     const startPos = currentModel.position ?? active.position;
 
     const isRush = actionKind === 'rush';
-    let maxAllowance = isRush ? active.speed * 2 : active.speed;
+    const remainingBudget = active.isRushing
+      ? active.remainingMovement
+      : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
+    let maxAllowance = remainingBudget;
     let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
       startPosition: startPos,
-      stopBeforeDifficult: isRush,
+      stopBeforeDifficult: isRush || !!active.isRushing,
     });
     const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
-    const cappedAllowance = isRush ? 6.0 : Math.min(active.speed, 6.0);
+    const effectiveCap = getEffectiveMaxMovement(active, isRush || active.isRushing ? 'rush' : 'move', isDifficult);
+    const cappedAllowance = Math.min(effectiveCap, remainingBudget);
     if (isDifficult && maxAllowance > cappedAllowance) {
       maxAllowance = cappedAllowance;
       path = findNavPath(this.state, active, rawDestination, maxAllowance, {
         startPosition: startPos,
-        stopBeforeDifficult: isRush,
+        stopBeforeDifficult: isRush || !!active.isRushing,
       });
     }
     if (path.length < 2) {
@@ -850,8 +862,8 @@ export class GameHUD {
     const isAnyModelDifficult = this.stagedSquadPositions.some((pos, i) =>
       isPathDifficult(this.state!, [alive[i].position ?? active.position, pos], active)
     );
-    let summary = `${actionKind === 'rush' ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
-      actionKind === 'rush' ? 'double move (activation ends)' : 'can shoot after moving'
+    let summary = `${actionKind === 'rush' || active.isRushing ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
+      actionKind === 'rush' || active.isRushing ? 'double move (ineligible to shoot)' : 'can shoot after moving'
     }`;
     if (isAnyModelDifficult) {
       summary += actionKind === 'rush'
@@ -896,12 +908,16 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    let maxAllowance = active.speed;
+    const currentBudget = active.isRushing
+      ? active.remainingMovement
+      : Math.min(active.speed, active.remainingMovement ?? active.speed);
+    let maxAllowance = currentBudget;
     let path = findNavPath(this.state, active, rawDestination, maxAllowance);
     const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
-    const cappedAllowance = Math.min(active.speed, 6.0);
-    if (isDifficult && maxAllowance > cappedAllowance) {
-      maxAllowance = cappedAllowance;
+    const effectiveCap = getEffectiveMaxMovement(active, active.isRushing ? 'rush' : 'move', isDifficult);
+    const maxMove = Math.min(effectiveCap, currentBudget);
+    if (isDifficult && maxAllowance > maxMove) {
+      maxAllowance = maxMove;
       path = findNavPath(this.state, active, rawDestination, maxAllowance);
     }
     if (path.length < 2) {
@@ -909,10 +925,6 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const maxMove = Math.min(
-      getEffectiveMaxMovement(active, 'move', isDifficult),
-      Math.max(active.speed, active.remainingMovement)
-    );
     const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
@@ -920,7 +932,9 @@ export class GameHUD {
     }
 
     const maxMoveStr = Number.isInteger(maxMove) ? `${maxMove}` : maxMove.toFixed(1);
-    let summary = `Move ${active.name} ${distance.toFixed(1)}" (max ${maxMoveStr}") · can shoot after moving`;
+    let summary = `Move ${active.name} ${distance.toFixed(1)}" (max ${maxMoveStr}") · ${
+      active.isRushing ? 'rush move' : 'can shoot after moving'
+    }`;
     if (isDifficult) {
       summary += ' · [Difficult Terrain: 6.0" speed cap]';
     }
@@ -960,7 +974,8 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    let maxAllowance = active.speed * 2;
+    const currentRushBudget = active.isRushing ? active.remainingMovement : active.speed * 2;
+    let maxAllowance = currentRushBudget;
     let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
       stopBeforeDifficult: true,
     });
@@ -987,8 +1002,10 @@ export class GameHUD {
       path.length > 0 &&
       isPathDifficult(this.state, path, active);
 
-    if (isDifficult && maxAllowance > 6.0) {
-      maxAllowance = 6.0;
+    const effectiveCap = getEffectiveMaxMovement(active, 'rush', isDifficult);
+    const maxRush = Math.min(effectiveCap, currentRushBudget);
+    if (isDifficult && maxAllowance > maxRush) {
+      maxAllowance = maxRush;
       path = findNavPath(this.state, active, rawDestination, maxAllowance, {
         stopBeforeDifficult: true,
       });
@@ -998,7 +1015,6 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const maxRush = getEffectiveMaxMovement(active, 'rush', isDifficult);
     const distance = pathLength3D(path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
@@ -1027,7 +1043,7 @@ export class GameHUD {
     }
 
     const maxRushStr = Number.isInteger(maxRush) ? `${maxRush}` : maxRush.toFixed(1);
-    let summary = `Rush ${active.name} ${distance.toFixed(1)}" (max ${maxRushStr}") · double move (activation ends)`;
+    let summary = `Rush ${active.name} ${distance.toFixed(1)}" (max ${maxRushStr}") · double move (ineligible to shoot)`;
     if (stoppedAtBase) {
       if (isElevationObstacle) {
         summary += ' · [Stops at wall base; sheer climb deferred to next turn]';
@@ -2343,13 +2359,19 @@ export class GameHUD {
       const engaged = active.status.includes('engaged');
       const hasAttacked = !!active.hasAttacked;
       const hasMoved = !!active.hasMoved;
-      const hasActed = hasMoved || hasAttacked;
-      const canMove = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && active.remainingMovement > 0.01;
-      const canRush = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked;
+      const isRushing = !!active.isRushing;
+      const hasMovementLeft = (active.remainingMovement ?? active.speed) > 0.05;
+      const hasActed = hasMoved || hasAttacked || isRushing;
+
+      const canMove = !active.isDestroyed && !engaged && hasMovementLeft && (!hasAttacked || isRushing);
+      const canRush =
+        !active.isDestroyed &&
+        !engaged &&
+        ((!hasMoved && !hasAttacked) || (isRushing && hasMovementLeft));
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-      const canShoot = !active.isDestroyed && !engaged && !hasAttacked && !!rangedWeapon;
-      const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !!meleeWeapon;
+      const canShoot = !active.isDestroyed && !engaged && !hasAttacked && !isRushing && !!rangedWeapon;
+      const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -3135,9 +3157,11 @@ export class GameHUD {
       }
     } else if ((isMoveMode || isRushMode) && this.activeUnit) {
       markers.movementRangeUnitId = this.activeUnit.id;
-      markers.movementRangeRadius = isRushMode
-        ? this.activeUnit.speed * 2
-        : this.activeUnit.speed;
+      markers.movementRangeRadius = this.activeUnit.isRushing
+        ? this.activeUnit.remainingMovement
+        : isRushMode
+          ? (this.activeUnit.remainingMovement ?? this.activeUnit.speed * 2)
+          : (this.activeUnit.remainingMovement ?? this.activeUnit.speed);
 
       const alive = this.activeAliveSquadModels;
       if (alive.length > 1 && this.flow.mode === 'targeting') {

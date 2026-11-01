@@ -413,6 +413,62 @@ describe('GameHUD', () => {
     expect(controller.submitAction.mock.calls[1][0].type).toBe('end-activation');
   });
 
+  it('keeps Move and Shoot buttons enabled during incremental micro-moves within movement budget', () => {
+    const state = scenarioState();
+    const unit = state.units.find(
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged')
+    )!;
+    activateUnit(state, HOST, unit.id);
+    // Unit has made a 2.5" micro-move, leaving 3.5" of movement
+    unit.hasMoved = true;
+    unit.remainingMovement = 3.5;
+    unit.hasAttacked = false;
+    unit.isRushing = false;
+    const { hud, container } = setup(HOST, state);
+
+    // Both Move and Shoot remain enabled
+    const moveBtn = container.querySelector<HTMLButtonElement>('button[data-action="move"]');
+    const shootBtn = container.querySelector<HTMLButtonElement>('button[data-action="shoot"]');
+    const rushBtn = container.querySelector<HTMLButtonElement>('button[data-action="rush"]');
+    expect(moveBtn).toBeTruthy();
+    expect(moveBtn?.disabled).toBe(false);
+    expect(shootBtn).toBeTruthy();
+    expect(shootBtn?.disabled).toBe(false);
+    // Cannot Rush after starting standard Advance
+    expect(rushBtn?.disabled).toBe(true);
+
+    // After movement budget is exhausted (remainingMovement = 0)
+    const stateExhausted = scenarioState();
+    const unitExhausted = stateExhausted.units.find((u) => u.id === unit.id)!;
+    activateUnit(stateExhausted, HOST, unitExhausted.id);
+    unitExhausted.hasMoved = true;
+    unitExhausted.remainingMovement = 0;
+    unitExhausted.hasAttacked = false;
+    hud.syncFromState(stateExhausted);
+
+    const moveBtnExhausted = container.querySelector<HTMLButtonElement>('button[data-action="move"]');
+    const shootBtnExhausted = container.querySelector<HTMLButtonElement>('button[data-action="shoot"]');
+    expect(moveBtnExhausted?.disabled).toBe(true);
+    // Can still shoot!
+    expect(shootBtnExhausted?.disabled).toBe(false);
+
+    // In a rush: can move remaining budget, but cannot shoot
+    const stateRush = scenarioState();
+    const unitRush = stateRush.units.find((u) => u.id === unit.id)!;
+    activateUnit(stateRush, HOST, unitRush.id);
+    unitRush.hasMoved = true;
+    unitRush.isRushing = true;
+    unitRush.remainingMovement = 4.0;
+    hud.syncFromState(stateRush);
+
+    const moveBtnRush = container.querySelector<HTMLButtonElement>('button[data-action="move"]');
+    const rushBtnRush = container.querySelector<HTMLButtonElement>('button[data-action="rush"]');
+    const shootBtnRush = container.querySelector<HTMLButtonElement>('button[data-action="shoot"]');
+    expect(moveBtnRush?.disabled).toBe(false);
+    expect(rushBtnRush?.disabled).toBe(false);
+    expect(shootBtnRush?.disabled).toBe(true);
+  });
+
   it('allows switching to another unit while confirming an activation without clicking Cancel', () => {
     const state = scenarioState();
     const [u1, u2] = state.units.filter((u) => u.ownerId === HOST);
