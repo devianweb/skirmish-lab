@@ -493,7 +493,7 @@ export function createProceduralSolidWall(): THREE.Object3D {
   return buildFromParts(parts);
 }
 
-/** Window wall: sill, two piers and a lintel framing the open port (shared structure). */
+/** Window wall: two jambs, a sill and a lintel framing the open port (shared structure). */
 export function createProceduralWindowWall(): THREE.Object3D {
   return buildFromStructure('wall-window');
 }

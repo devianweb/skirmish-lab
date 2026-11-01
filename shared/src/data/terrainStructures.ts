@@ -43,14 +43,13 @@ function portWallAlongX(
   portHalf: number,
   wallTop: number,
   sillTop: number,
-  lintelBottom: number,
-  fullWidth: Range = [-0.5, 0.5]
+  lintelBottom: number
 ): TerrainGroup {
   return {
     id,
     solids: [
-      solid([fullWidth[0], -portHalf], [0, wallTop], z, `${id}-jamb-left`),
-      solid([portHalf, fullWidth[1]], [0, wallTop], z, `${id}-jamb-right`),
+      solid([-0.5, -portHalf], [0, wallTop], z, `${id}-jamb-left`),
+      solid([portHalf, 0.5], [0, wallTop], z, `${id}-jamb-right`),
       solid([-portHalf, portHalf], [0, sillTop], z, `${id}-sill`),
       solid([-portHalf, portHalf], [lintelBottom, wallTop], z, `${id}-lintel`),
     ],
@@ -94,17 +93,8 @@ export const TERRAIN_STRUCTURES: Record<string, TerrainGroup> = {
   'wall-long': SOLID_WALL,
   column: { id: 'column', solids: [solid(FULL, [0, 1], FULL, 'column-body')] },
 
-  // Window wall: breastwork sill, two piers, lintel, open port between them.
-  'wall-window': {
-    id: 'wall-window',
-    solids: [
-      solid(FULL, [0, 0.4], FULL, 'sill'),
-      solid([-0.5, -0.3], [0.4, 0.9], FULL, 'pier-left'),
-      solid([0.3, 0.5], [0.4, 0.9], FULL, 'pier-right'),
-      solid(FULL, [0.9, 1], FULL, 'lintel'),
-    ],
-    apertures: [aperture([-0.3, 0.3], [0.4, 0.9], FULL, 'port')],
-  },
+  // Window wall: full-height jambs either side of a port, a sill beneath it and a lintel above it.
+  'wall-window': portWallAlongX('wall-window', FULL, 0.3, 1, 0.4, 0.9),
 
   // Doorway wall: two jambs and a lintel; no sill and no aperture (open air, free to walk and see).
   'wall-doorway': {
