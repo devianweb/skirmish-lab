@@ -299,5 +299,34 @@ describe('UnitRenderer', () => {
       expect(m1Mesh.rotation.y).toBeCloseTo(Math.PI, 2);
       expect(m2Mesh.rotation.y).toBeCloseTo(Math.PI, 2);
     });
+
+    it('updates child model mesh rotations when squad models turn to face target on shooting', () => {
+      const { renderer, unitGroup } = setup();
+      const squad = makeUnit({
+        id: 'squad-shooting',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
+        ],
+      });
+      const state = makeState({ units: [squad] });
+      renderer.syncFromState(state);
+
+      const squadRoot = unitGroup.children[0] as THREE.Group;
+      const m1Mesh = squadRoot.children[0];
+      const m2Mesh = squadRoot.children[1];
+      expect(m1Mesh.rotation.y).toBe(0);
+      expect(m2Mesh.rotation.y).toBe(0);
+
+      // Models rotate to face target at (0, 0, 10)
+      squad.models[0].rotation = { x: 0, y: Math.atan2(1, 10), z: 0 };
+      squad.models[1].rotation = { x: 0, y: Math.atan2(-1, 10), z: 0 };
+      renderer.syncFromState(state);
+
+      expect(m1Mesh.rotation.y).toBeCloseTo(Math.atan2(1, 10), 2);
+      expect(m2Mesh.rotation.y).toBeCloseTo(Math.atan2(-1, 10), 2);
+    });
   });
 });
