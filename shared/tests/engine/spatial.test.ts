@@ -13,6 +13,7 @@ import {
   findWalkablePlatformAt,
   getPlatformEdgeDistance,
   getSquadModelPositions,
+  getStairSurfaceHeight,
   getStairWaypoints,
   hasCoverAgainstAttack,
   hasLineOfSight,
@@ -1193,6 +1194,66 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
 
         // Descending stairs is not difficult terrain and not a dangerous drop
         expect(isPathDifficult(state, path, unit)).toBe(false);
+      });
+
+      describe('Sub-phase 13.5H: Solid Triangular Ramp Collision & Ladder Deck Arrival', () => {
+        it('allows movement along the sloped hypotenuse surface at continuous height', () => {
+          const state = makeState([], [platformEast, stairsEast]);
+          // Stairs East: foot is around x=2.5, y=0, z=-2; head is around x=4.5, y=2.5, z=-2
+          const waypoints = getStairWaypoints(state, stairsEast);
+
+          const midPoint = {
+            x: (waypoints.foot.x + waypoints.head.x) / 2,
+            y: (waypoints.foot.y + waypoints.head.y) / 2,
+            z: waypoints.foot.z,
+          };
+          const surfaceHeight = getStairSurfaceHeight(stairsEast, midPoint, state);
+          expect(surfaceHeight).not.toBeNull();
+          expect(surfaceHeight!).toBeCloseTo(1.25, 0.2);
+        });
+
+        it('blocks horizontal movement passing under the stair slope through the solid wedge body', () => {
+          const state = makeState([], [stairsEast]);
+          const blockerUnit = makeUnit('u-ground', HOST, { x: 4.5, y: 0, z: -5 });
+
+          // Attempt to pass horizontally under the stairs along Z at y=0 (stairs are at x=4.5, z=-2)
+          // Entry point at z=-2.75, y=0. Slope height at x=4.5 is ~1.25", so entry at y=0 is under slope!
+          const underPath = [
+            { x: 4.5, y: 0, z: -5 },
+            { x: 4.5, y: 0, z: 1 },
+          ];
+          const blocker = findMoveBlocker(state, blockerUnit, underPath);
+          expect(blocker.blocked).toBe(true);
+          expect((blocker as any).reason).toMatch(/blocked by stairs/i);
+        });
+
+        it('ladder deck arrival: clamps path to ladder foot when movement allowance is insufficient to reach the head', () => {
+          const state = makeState([], [platformEast, ladderWest]);
+          const climber = makeUnit('u-climber', HOST, { x: -4.5, y: 0, z: 0 });
+          climber.speed = 6;
+          climber.remainingMovement = 6;
+
+          // Ladder West is at (-4.5, y=0..2.5, z=2). Distance from (x=-4.5, z=0) to ladder foot is 2.0".
+          // Climb to head (2.5") requires 2.0" + 2.5" = 4.5" total budget.
+          // If given only 3.0" budget, unit reaches the ladder foot but CANNOT stop suspended on rungs mid-air.
+          const clampedLadderPath = findNavPath(state, climber, { x: -3.0, y: 2.5, z: 2 }, 3.0);
+          expect(clampedLadderPath.length).toBeGreaterThanOrEqual(2);
+          const endPt = clampedLadderPath[clampedLadderPath.length - 1];
+          // Must remain at ladder foot (y = 0), not suspended in mid-air
+          expect(endPt.y).toBe(0);
+          expect(endPt.z).toBeCloseTo(1.75, 1);
+
+          // In contrast, stairs allow stopping along the slope when budget is limited
+          const stairClimber = makeUnit('u-stair-climber', HOST, { x: 0, y: 0, z: -2 });
+          stairClimber.speed = 6;
+          stairClimber.remainingMovement = 6;
+          const stairState = makeState([stairClimber], [platformEast, stairsEast]);
+          const clampedStairPath = findNavPath(stairState, stairClimber, { x: 6, y: 2.5, z: -2 }, 5.5);
+          const stairEndPt = clampedStairPath[clampedStairPath.length - 1];
+          // Can stop midway on stair slope
+          expect(stairEndPt.y).toBeGreaterThan(0.2);
+          expect(stairEndPt.y).toBeLessThan(2.3);
+        });
       });
     });
   });

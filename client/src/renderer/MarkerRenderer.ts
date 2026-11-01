@@ -9,6 +9,8 @@ import {
   Objective,
   OBJECTIVE_CONTROL_RADIUS,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
+  isStairPiece,
+  getStairWaypoints,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
@@ -402,19 +404,57 @@ export class MarkerRenderer {
         pieceGroup.add(new THREE.Line(floorGeo, floorMat));
       }
 
-      const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
-      const edges = new THREE.EdgesGeometry(boxGeo);
-      const boxLine = new THREE.LineSegments(
-        edges,
-        new THREE.LineBasicMaterial({
-          color: wireColor,
-          transparent: true,
-          opacity: isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45,
-        })
-      );
-      boxLine.position.y = height / 2;
-      pieceGroup.add(boxLine);
-      boxGeo.dispose();
+      if (isStairPiece(piece)) {
+        // Triangular prism (wedge) wireframe showing true incline profile from foot to head
+        const waypoints = getStairWaypoints({ terrain: pieces } as any, piece);
+        const fdx = waypoints.foot.x - piece.position.x;
+        const fdz = waypoints.foot.z - piece.position.z;
+        const flz = -fdx * Math.sin(piece.rotation.y || 0) + fdz * Math.cos(piece.rotation.y || 0);
+
+        // Foot is at footZ (+hz or -hz), head is at headZ
+        const footZ = flz > 0 ? hz : -hz;
+        const headZ = -footZ;
+
+        const vertices = [
+          // Bottom rectangle
+          new THREE.Vector3(-hx, 0, footZ), new THREE.Vector3(hx, 0, footZ),
+          new THREE.Vector3(hx, 0, footZ), new THREE.Vector3(hx, 0, headZ),
+          new THREE.Vector3(hx, 0, headZ), new THREE.Vector3(-hx, 0, headZ),
+          new THREE.Vector3(-hx, 0, headZ), new THREE.Vector3(-hx, 0, footZ),
+          // Vertical rear riser at head
+          new THREE.Vector3(-hx, 0, headZ), new THREE.Vector3(-hx, height, headZ),
+          new THREE.Vector3(hx, 0, headZ), new THREE.Vector3(hx, height, headZ),
+          new THREE.Vector3(-hx, height, headZ), new THREE.Vector3(hx, height, headZ),
+          // Sloped hypotenuse incline
+          new THREE.Vector3(-hx, 0, footZ), new THREE.Vector3(-hx, height, headZ),
+          new THREE.Vector3(hx, 0, footZ), new THREE.Vector3(hx, height, headZ),
+        ];
+
+        const wedgeGeo = new THREE.BufferGeometry().setFromPoints(vertices);
+        const wedgeLine = new THREE.LineSegments(
+          wedgeGeo,
+          new THREE.LineBasicMaterial({
+            color: wireColor,
+            transparent: true,
+            opacity: isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45,
+          })
+        );
+        pieceGroup.add(wedgeLine);
+      } else {
+        const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
+        const edges = new THREE.EdgesGeometry(boxGeo);
+        const boxLine = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({
+            color: wireColor,
+            transparent: true,
+            opacity: isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45,
+          })
+        );
+        boxLine.position.y = height / 2;
+        pieceGroup.add(boxLine);
+        boxGeo.dispose();
+      }
 
       group.add(pieceGroup);
     }

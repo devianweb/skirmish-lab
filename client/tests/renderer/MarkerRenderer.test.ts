@@ -427,4 +427,34 @@ describe('MarkerRenderer', () => {
     expect(geo.parameters.outerRadius).toBeCloseTo(2.0, 2);
     expect(geo.parameters.innerRadius).toBeCloseTo(1.94, 2);
   });
+
+  it('renders right-angled triangular prism wireframe geometry for stairs in terrain debug mode', () => {
+    const renderer = makeRenderer();
+    const stairsPiece: TerrainPiece = {
+      id: 'test-stairs',
+      terrainType: 'stairs',
+      climbType: 'stairs',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 2, y: 2.5, z: 2 },
+      isWalkable: true,
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+    };
+
+    renderer.setTerrainDebug(stairsPiece);
+    const debugGroup = scene.getObjectByName('marker-terrain-debug') as THREE.Group;
+    expect(debugGroup).toBeDefined();
+    expect(debugGroup.children.length).toBeGreaterThan(0);
+
+    const pieceGroup = debugGroup.getObjectByName('marker-terrain-test-stairs') as THREE.Group;
+    expect(pieceGroup).toBeDefined();
+
+    const wireframeMesh = pieceGroup.children[0] as THREE.LineSegments;
+    expect(wireframeMesh).toBeDefined();
+    // Triangular prism wireframe geometry has 18 vertices (9 edge segments * 2 vertices)
+    const positionAttr = wireframeMesh.geometry.getAttribute('position');
+    expect(positionAttr.count).toBe(18);
+  });
 });
