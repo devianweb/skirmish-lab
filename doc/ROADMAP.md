@@ -567,10 +567,10 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests verifying ground units route via stairs/ladders when available and climb sheer walls at the base only when necessary.
 
 ### Sub-phase 13.5D: Multi-Model Squad Sequential Movement & UI
-- [ ] Squad model count indicators: display active and total model counts in the HUD roster list and DataCard header/tables (e.g., `Models: 2/2` or `1/2 (1 casualty)`).
-- [ ] Model-by-model sequential move interaction: clicking Move activates Model 1; clicking places Model 1 within movement range; Model 2 is then activated with a visible 2.0″ coherency circle relative to Model 1; confirm entire squad movement once all living models are placed.
-- [ ] Squad casualty visual cleanup: eliminate constituent model meshes one-by-one upon taking fatal damage while preserving survivor positions.
-- [ ] Unit and UI tests for sequential model placement and coherency validation.
+- [x] Squad model count indicators: display active and total model counts in the HUD roster list and DataCard header/tables (e.g., `Models: 2/2` or `1/2 (1 casualty)`).
+- [x] Model-by-model sequential move interaction: clicking Move activates Model 1; clicking places Model 1 within movement range; Model 2 is then activated with a visible 2.0″ coherency circle relative to Model 1; confirm entire squad movement once all living models are placed.
+- [x] Squad casualty visual cleanup: eliminate constituent model meshes one-by-one upon taking fatal damage while preserving survivor positions.
+- [x] Unit and UI tests for sequential model placement and coherency validation.
 
 ### Sub-phase 13.5E: Consolidated Verification Checklist & End-to-End Validation
 - [ ] Update `doc/manual-testing/PLAYTEST_VERIFICATION_CHECKLIST.md` with accurate force names (*Frontier Wardens* and *Rust Raiders*) and actual unit rosters.

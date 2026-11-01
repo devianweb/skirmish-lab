@@ -313,6 +313,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
             return { valid: false, reason: 'Squad model position leaves the board' };
           }
         }
+        const aliveModels = (unit.result.models ?? []).filter((m) => !m.isDestroyed);
+        for (let i = 0; i < aliveModels.length && i < modelPositions.length; i++) {
+          const mStart = aliveModels[i].position ?? unit.result.position;
+          const mDist = boardDistance(mStart, modelPositions[i]);
+          if (mDist > maxMove + 0.05) {
+            return {
+              valid: false,
+              reason: `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${maxMove.toFixed(1)}")`,
+            };
+          }
+        }
       }
       return { valid: true };
     }
@@ -511,6 +522,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
         for (const pos of modelPositions) {
           if (!isWithinBoard(state, pos)) {
             return { valid: false, reason: 'Squad model position leaves the board' };
+          }
+        }
+        const aliveModels = (unit.models ?? []).filter((m) => !m.isDestroyed);
+        for (let i = 0; i < aliveModels.length && i < modelPositions.length; i++) {
+          const mStart = aliveModels[i].position ?? unit.position;
+          const mDist = boardDistance(mStart, modelPositions[i]);
+          if (mDist > maxRush + 0.05) {
+            return {
+              valid: false,
+              reason: `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`,
+            };
           }
         }
       }
