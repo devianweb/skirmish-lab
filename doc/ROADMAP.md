@@ -645,7 +645,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Engine reads only solids and apertures for movement, line of sight, cover, nav waypoints and the visibility fan (no per-building special cases). Fixes movement into `ruin-l` and window-port LoS on ruins.
 - [x] 3D line of sight from a 1.1" eye to any visible part of the target (head/torso/feet); manning = base edge within 1.0" of the port; doorways are open air with no port cover.
 - [x] Unit tests for ruin movement, manned/distant ports, lintel/sill heights, nested groups and the F9 debug trace.
-- [ ] Client: build meshes from the shared structure definitions, per-box F9 wireframes and eye-level rays, courtyard picking.
+- [x] Client: meshes built from the shared structure definitions, per-box F9 wireframes (solids/apertures) and eye-level rays; courtyard ground picks already resolve to the ground plane. Playtest checklist: `doc/manual-testing/TERRAIN_STRUCTURE_CHECKLIST.md`.
 
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
 - [ ] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).

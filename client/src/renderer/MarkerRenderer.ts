@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   TerrainPiece,
   terrainHalfExtents,
+  resolveTerrainStructure,
   Vector3,
   Unit,
   LOS_UNIT_RADIUS,
@@ -441,19 +442,33 @@ export class MarkerRenderer {
         );
         pieceGroup.add(wedgeLine);
       } else {
-        const boxGeo = new THREE.BoxGeometry(hx * 2, height, hz * 2);
-        const edges = new THREE.EdgesGeometry(boxGeo);
-        const boxLine = new THREE.LineSegments(
-          edges,
-          new THREE.LineBasicMaterial({
-            color: wireColor,
-            transparent: true,
-            opacity: isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45,
-          })
-        );
-        boxLine.position.y = height / 2;
-        pieceGroup.add(boxLine);
-        boxGeo.dispose();
+        // Per-box wireframes straight from the shared structure: solids in the piece colour
+        // (cyan = blocks sight, amber = low cover) and apertures (firing ports) in green.
+        const structure = resolveTerrainStructure(piece);
+        const baseY = piece.position.y ?? 0;
+        const opacity = isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45;
+        const addBox = (
+          b: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number },
+          color: number
+        ) => {
+          const w = b.maxX - b.minX;
+          const h = b.maxY - b.minY;
+          const d = b.maxZ - b.minZ;
+          const geo = new THREE.BoxGeometry(w, h, d);
+          const line = new THREE.LineSegments(
+            new THREE.EdgesGeometry(geo),
+            new THREE.LineBasicMaterial({ color, transparent: true, opacity })
+          );
+          line.position.set((b.minX + b.maxX) / 2, baseY + b.minY + h / 2, (b.minZ + b.maxZ) / 2);
+          pieceGroup.add(line);
+          geo.dispose();
+        };
+        for (const solid of structure.solids) {
+          addBox(solid, isActiveCover ? wireColor : solid.blocksLineOfSight ? 0x00e5ff : 0xffb300);
+        }
+        for (const ap of structure.apertures) {
+          addBox(ap, isActiveCover ? wireColor : 0x76ff03);
+        }
       }
 
       group.add(pieceGroup);
@@ -478,8 +493,8 @@ export class MarkerRenderer {
     if (debug.flankRays && debug.flankRays.length > 0) {
       for (const flank of debug.flankRays) {
         const pts = [
-          new THREE.Vector3(flank.from.x, 0.45, flank.from.z),
-          new THREE.Vector3(flank.to.x, 0.45, flank.to.z),
+          new THREE.Vector3(flank.from.x, flank.from.y, flank.from.z),
+          new THREE.Vector3(flank.to.x, flank.to.y, flank.to.z),
         ];
         const geo = new THREE.BufferGeometry().setFromPoints(pts);
         const mat = new THREE.LineBasicMaterial({
@@ -492,8 +507,9 @@ export class MarkerRenderer {
     }
 
     // 2. Segmented shooting line & intersection discs
-    const startPt = new THREE.Vector3(debug.from.x, 0.45, debug.from.z);
-    const endPt = new THREE.Vector3(debug.to.x, 0.45, debug.to.z);
+    // Eye-level ray (the shared engine traces LoS in 3D from the shooter's eye).
+    const startPt = new THREE.Vector3(debug.from.x, debug.from.y, debug.from.z);
+    const endPt = new THREE.Vector3(debug.to.x, debug.to.y, debug.to.z);
 
     if (debug.intersections.length === 0) {
       const geo = new THREE.BufferGeometry().setFromPoints([startPt, endPt]);
@@ -506,8 +522,8 @@ export class MarkerRenderer {
       let blockedEncountered = false;
 
       for (const inter of debug.intersections) {
-        const entry = new THREE.Vector3(inter.entryPoint.x, 0.45, inter.entryPoint.z);
-        const exit = new THREE.Vector3(inter.exitPoint.x, 0.45, inter.exitPoint.z);
+        const entry = new THREE.Vector3(inter.entryPoint.x, inter.entryPoint.y, inter.entryPoint.z);
+        const exit = new THREE.Vector3(inter.exitPoint.x, inter.exitPoint.y, inter.exitPoint.z);
 
         // Segment before this terrain piece
         if (currentPt.distanceTo(entry) > 0.05) {
