@@ -391,7 +391,7 @@ describe('spatial: apertures (doorways and windows)', () => {
     expect(hasCoverAgainstAttack(stateNear, attacker, targetNear)).toBe(true);
   });
 
-  it('handles wall-window: blocks movement but is see-through at range', () => {
+  it('handles wall-window: blocks movement, permits LoS when peeking, blocks distant keyholing', () => {
     const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
     const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 8 });
     const windowPiece: TerrainPiece = {
@@ -405,45 +405,23 @@ describe('spatial: apertures (doorways and windows)', () => {
       isObstacle: true,
     };
 
-    // Movement through a window is always blocked
+    // Movement through window is always blocked
     const state = makeState([attacker, target], [windowPiece]);
     const pathThroughWindow = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 6 }];
     expect(findMoveBlocker(state, attacker, pathThroughWindow).blocked).toBe(true);
 
-    // Distant shooter and target, line passes through the central opening -> clear
-    expect(hasLineOfSight(state, attacker, target)).toBe(true);
-
-    // Same range but the line crosses the solid pier beside the opening -> blocked
-    attacker.position = { x: 1.3, y: 0, z: 0 };
-    target.position = { x: 1.3, y: 0, z: 8 };
+    // Both models > 1.0" from window -> LoS blocked (no distant geometric keyholing)
     expect(hasLineOfSight(state, attacker, target)).toBe(false);
 
-    // Target hugging the window gets Cover when shot through it
+    // Attacker within 1.0" of window (manning the firing port) -> LoS clear
+    attacker.position = { x: 0, y: 0, z: 3.2 };
+    expect(hasLineOfSight(state, attacker, target)).toBe(true);
+
+    // Attacker back at origin, target within 1.0" of window (z = 4.8) -> LoS clear and target gains Cover (+1 Def)
     attacker.position = { x: 0, y: 0, z: 0 };
     target.position = { x: 0, y: 0, z: 4.8 };
     expect(hasLineOfSight(state, attacker, target)).toBe(true);
     expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
-  });
-
-  it('window sill and lintel are respected vertically', () => {
-    const windowPiece: TerrainPiece = {
-      id: 'w1',
-      terrainType: 'wall-window',
-      position: { x: 0, y: 0, z: 4 },
-      rotation: { x: 0, y: 0, z: 0 },
-      scale: { x: 4, y: 2.5, z: 0.3 },
-      blocksLineOfSight: true,
-      providesCover: true,
-      isObstacle: true,
-    };
-    const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
-    const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 8 });
-    // Eye level 1.0" sits on the 1.0" sill line -> sees through
-    expect(hasLineOfSight(makeState([attacker, target], [windowPiece]), attacker, target)).toBe(true);
-
-    // Steeply rising ray crosses the wall above the 2.25" lintel -> solid wall, blocked
-    const up = makeUnit('g2', GUEST, { x: 0, y: 4, z: 8 });
-    expect(hasLineOfSight(makeState([attacker, up], [windowPiece]), attacker, up)).toBe(false);
   });
 
   it('doorway opening scales with the piece (1.2" on a 4" wall) for movement and drag clamping', () => {
