@@ -654,7 +654,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Procedural **Industrial Pipes / Conduits** ($4.0" \times 0.8" \times 0.8"$): cylindrical pipelines with pipe-coupling flanges.
 
 ### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
-- [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` and standard presets in `shared/src/data/mapPresets.ts` to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
+- [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
 - [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.
 - [ ] Update map editor palette to display the new procedural wargaming terrain catalog.
 

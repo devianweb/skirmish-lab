@@ -172,7 +172,6 @@ const lobby = new Lobby(lobbyContainer, {
     guestArmyId,
     useDeploymentPhase,
     isCreatedRoom,
-    mapId,
     customMap,
   }) => {
     gameView.setupCameraForRole(role);
@@ -270,7 +269,6 @@ const lobby = new Lobby(lobbyContainer, {
           hostArmyId,
           guestArmyId,
           useDeploymentPhase,
-          mapId,
           customMap: customMap ?? activeCustomMap ?? undefined,
         });
       }
