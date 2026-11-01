@@ -1173,6 +1173,16 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           }
         }
 
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          const mdx = modelPositions[i].x - prevPositions[i].x;
+          const mdz = modelPositions[i].z - prevPositions[i].z;
+          if (Math.hypot(mdx, mdz) > 1e-4) {
+            activeModels[i].rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+          } else {
+            activeModels[i].rotation = { ...unit.rotation };
+          }
+        }
+
         const modelDistances = modelPositions.map((pos, i) => {
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
             return pathLength3D(modelPaths[i]);
@@ -1225,6 +1235,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             } else {
               m.position = { ...targetPos };
             }
+            m.rotation = { ...unit.rotation };
           }
         }
         unit.position = targetPos;
@@ -1570,6 +1581,16 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           }
         }
 
+        for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
+          const mdx = modelPositions[i].x - prevPositions[i].x;
+          const mdz = modelPositions[i].z - prevPositions[i].z;
+          if (Math.hypot(mdx, mdz) > 1e-4) {
+            activeModels[i].rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+          } else {
+            activeModels[i].rotation = { ...unit.rotation };
+          }
+        }
+
         const modelDistances = modelPositions.map((pos, i) => {
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
             return pathLength3D(modelPaths[i]);
@@ -1625,6 +1646,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             } else {
               m.position = { ...end };
             }
+            m.rotation = { ...unit.rotation };
           }
         }
         unit.position = { ...end };
@@ -1684,6 +1706,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (Math.hypot(cdx, cdz) > 1e-4) {
         attacker.rotation = { ...attacker.rotation, y: Math.atan2(cdx, cdz) };
         target.rotation = { ...target.rotation, y: Math.atan2(-cdx, -cdz) };
+      }
+      if (attacker.models && attacker.models.length > 0) {
+        for (const m of attacker.models) {
+          if (!m.isDestroyed) {
+            m.rotation = { ...attacker.rotation };
+          }
+        }
       }
 
       const traversal = applyTraversalHazardsAndFalls(newState, attacker, path, action, dice);

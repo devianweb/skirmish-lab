@@ -255,5 +255,49 @@ describe('UnitRenderer', () => {
       expect(unitGroup.children.length).toBe(1);
       expect(unitGroup.children[0].userData.unitId).toBe('undeployed-leader');
     });
+
+    it('keeps squad root unrotated so child model meshes align with absolute world coordinates even when unit.rotation is non-zero', () => {
+      const { renderer, unitGroup } = setup();
+      // Squad facing south (rotation.y = Math.PI, e.g. Guest unit or after moving south)
+      const squad = makeUnit({
+        id: 'squad-south',
+        position: { x: 10, y: 0, z: 10 },
+        rotation: { x: 0, y: Math.PI, z: 0 },
+        models: [
+          { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 9.0, y: 0, z: 10.0 }, rotation: { x: 0, y: Math.PI, z: 0 } },
+          { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 11.0, y: 0, z: 10.0 }, rotation: { x: 0, y: Math.PI, z: 0 } },
+        ],
+      });
+      const state = makeState({ units: [squad] });
+      renderer.syncFromState(state);
+
+      const squadRoot = unitGroup.children[0] as THREE.Group;
+      // Squad root container should have 0 rotation to avoid swinging child offsets around the centroid
+      expect(squadRoot.rotation.y).toBe(0);
+
+      // Force Three.js world matrix calculation
+      squadRoot.updateMatrixWorld(true);
+
+      const m1Mesh = squadRoot.children[0];
+      const m2Mesh = squadRoot.children[1];
+
+      const m1WorldPos = new THREE.Vector3();
+      m1Mesh.getWorldPosition(m1WorldPos);
+
+      const m2WorldPos = new THREE.Vector3();
+      m2Mesh.getWorldPosition(m2WorldPos);
+
+      // Model 1 world coordinate must be 9.0, not 11.0 (which would happen if rotated by Math.PI)
+      expect(m1WorldPos.x).toBeCloseTo(9.0, 2);
+      expect(m1WorldPos.z).toBeCloseTo(10.0, 2);
+
+      // Model 2 world coordinate must be 11.0, not 9.0
+      expect(m2WorldPos.x).toBeCloseTo(11.0, 2);
+      expect(m2WorldPos.z).toBeCloseTo(10.0, 2);
+
+      // Child meshes face their individual model.rotation
+      expect(m1Mesh.rotation.y).toBeCloseTo(Math.PI, 2);
+      expect(m2Mesh.rotation.y).toBeCloseTo(Math.PI, 2);
+    });
   });
 });

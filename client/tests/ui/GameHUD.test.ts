@@ -1747,7 +1747,7 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -1 } });
 
       // Model 1 placed! Should now prompt for Model 2 and display coherency circle around Model 1
-      expect(container.textContent).toContain('Place Model 2 of 2 within 2.0" coherency of placed models');
+      expect(container.textContent).toContain('Place Model 2 of 2');
       expect(lastMarkers?.squadCoherency).toBeDefined();
       expect(lastMarkers?.squadCoherency?.positions).toHaveLength(1);
       expect(lastMarkers?.squadCoherency?.positions[0].z).toBeCloseTo(-1, 1);
@@ -1831,6 +1831,56 @@ describe('GameHUD', () => {
 
       // Confirmation summary must reflect 4 living models * 1 attack = 4d6
       expect(container.textContent).toContain('4d6');
+    });
+
+    it('allows a 4-model squad to move into two buddy pairs within 6" total spread', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.position = { x: 0, y: 0, z: -5 };
+      squad.speed = 6;
+      squad.remainingMovement = 6;
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm4', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+
+      const { hud, container, controller } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      expect(container.textContent).toContain('Place Model 1 of 4');
+
+      // Model 1 placed at (0, 0, -2) [Pair 1 leader]
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
+      expect(container.textContent).toContain('Place Model 2 of 4');
+
+      // Model 2 placed at (0.8, 0, -2) [Pair 1 buddy, 0.8" from M1]
+      hud.handleBoardPick({ kind: 'position', position: { x: 0.8, y: 0, z: -2 } });
+      expect(container.textContent).toContain('Place Model 3 of 4');
+
+      // Model 3 placed at (4.0, 0, -2) [Pair 2 leader, 4.0" from M1 / 3.2" from M2 — within 6" spread, starts new pair!]
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -2 } });
+      expect(container.textContent).toContain('Place Model 4 of 4');
+
+      // Model 4 placed at (4.8, 0, -2) [Pair 2 buddy, 0.8" from M3, 4.8" from M1 — full squad coherency satisfied!]
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.8, y: 0, z: -2 } });
+
+      // Should enter Move Confirmation successfully!
+      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).toContain('Confirm');
+
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('move-unit');
+      expect(action.payload.modelPositions).toHaveLength(4);
+      expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -2 });
+      expect(action.payload.modelPositions[1]).toEqual({ x: 0.8, y: 0, z: -2 });
+      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -2 });
+      expect(action.payload.modelPositions[3]).toEqual({ x: 4.8, y: 0, z: -2 });
     });
 
     it('rejects move ending in melee contact with toast and does not confirm', () => {

@@ -835,14 +835,29 @@ export class GameHUD {
 
     // Coherency check if placing Model 2+
     if (this.squadPlacementIndex > 0) {
-      const candidatePositions = [...this.stagedSquadPositions, destination];
-      const coherency = validateSquadCoherency(candidatePositions, {
-        maxMemberDistance: 2.0,
-        maxSquadSpread: 6.0,
-      });
-      if (!coherency.coherent) {
-        this.showToast(coherency.reason ?? 'Model must be within 2.0" coherency of placed squad members');
-        return;
+      // 1. All models must remain within 6.0" max spread of all other placed models
+      for (let i = 0; i < this.stagedSquadPositions.length; i++) {
+        const pos = this.stagedSquadPositions[i];
+        const d = Math.hypot(pos.x - destination.x, pos.z - destination.z);
+        if (d > 6.0 + 0.02) {
+          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max 6.0" coherency limit from Model ${i + 1}`);
+          return;
+        }
+      }
+
+      // 2. When placing the final model of the squad, full squad coherency must be satisfied:
+      // each model within 1.0" (2.0" center-to-center) of at least one other member.
+      const isPlacingLastModel = this.squadPlacementIndex === alive.length - 1;
+      if (isPlacingLastModel) {
+        const candidatePositions = [...this.stagedSquadPositions, destination];
+        const coherency = validateSquadCoherency(candidatePositions, {
+          maxMemberDistance: 2.0,
+          maxSquadSpread: 6.0,
+        });
+        if (!coherency.coherent) {
+          this.showToast(coherency.reason ?? 'Each model must be within 1.0" of at least one other squad member');
+          return;
+        }
       }
     }
 
@@ -2350,7 +2365,7 @@ export class GameHUD {
         if (this.squadPlacementIndex === 0) {
           instruction = `Place Model 1 of ${alive.length} (${active.name}) within ${allowance}"`;
         } else {
-          instruction = `Place Model ${this.squadPlacementIndex + 1} of ${alive.length} within 2.0" coherency of placed models`;
+          instruction = `Place Model ${this.squadPlacementIndex + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
         }
       }
 
