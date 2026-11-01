@@ -17,6 +17,8 @@ import {
   getStairWaypoints,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  resolveTerrainStructure,
+  traceLineOfSight,
   isSegmentOnRampOrStairs,
   isSegmentSurfaceConstrained,
   validateFormationMove,
@@ -385,10 +387,17 @@ describe('spatial: apertures (doorways and windows)', () => {
     // LoS through doorway
     expect(hasLineOfSight(state, attacker, target)).toBe(true);
 
-    // Target within 1.0" of doorway receiving fire through it gains Cover
+    // A doorway is open air: standing in line with it gives no cover by itself
     const targetNear = makeUnit('g1', GUEST, { x: 0, y: 0, z: 3.8 });
     const stateNear = makeState([attacker, targetNear], [doorway]);
-    expect(hasCoverAgainstAttack(stateNear, attacker, targetNear)).toBe(true);
+    expect(hasCoverAgainstAttack(stateNear, attacker, targetNear)).toBe(false);
+
+    // ...but a target tucked behind a jamb (within 1.0", shot at obliquely) claims sight-blocker cover
+    const shooterOblique = makeUnit('h2', HOST, { x: 0, y: 0, z: 0 });
+    const targetBehindJamb = makeUnit('g2', GUEST, { x: 0.6, y: 0, z: 3.8 });
+    const stateJamb = makeState([shooterOblique, targetBehindJamb], [doorway]);
+    expect(hasLineOfSight(stateJamb, shooterOblique, targetBehindJamb)).toBe(true);
+    expect(hasCoverAgainstAttack(stateJamb, shooterOblique, targetBehindJamb)).toBe(true);
   });
 
   it('handles wall-window: blocks movement, permits LoS when peeking, blocks distant keyholing', () => {
@@ -1286,6 +1295,274 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
           expect(stairEndPt.y).toBeLessThan(2.3);
         });
       });
+    });
+  });
+
+  describe('modular terrain parts', () => {
+    const ruin: TerrainPiece = {
+      id: 'ruin1',
+      terrainType: 'ruin-l',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 3, z: 4 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    };
+
+    it('lets a model walk into the open courtyard of an L-corner ruin', () => {
+      const mover = makeUnit('h1', HOST, { x: 5, y: 0, z: -1 });
+      const state = makeState([mover], [ruin]);
+      // Enter from the open south/east sides to the interior
+      const path = [{ x: 5, y: 0, z: -1 }, { x: 0.5, y: 0, z: -1 }];
+      expect(findMoveBlocker(state, mover, path).blocked).toBe(false);
+    });
+
+    it('blocks movement through the ruin walls and sills but not along open sides', () => {
+      const mover = makeUnit('h1', HOST, { x: 1.5, y: 0, z: 0 });
+      const state = makeState([mover], [ruin]);
+      // Through the north wall jamb
+      expect(
+        findMoveBlocker(state, mover, [{ x: 1.5, y: 0, z: 0 }, { x: 1.5, y: 0, z: 4 }]).blocked
+      ).toBe(true);
+      // Through the north window sill (aperture is not walkable)
+      expect(
+        findMoveBlocker(state, mover, [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4 }]).blocked
+      ).toBe(true);
+      // Through the west wall
+      expect(
+        findMoveBlocker(state, mover, [{ x: 0, y: 0, z: 1 }, { x: -4, y: 0, z: 1 }]).blocked
+      ).toBe(true);
+    });
+
+    it('permits LoS through a ruin window only when a model is manning the port', () => {
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
+      const manned = makeUnit('h1', HOST, { x: 0, y: 0, z: 1 });
+      const distant = makeUnit('h2', HOST, { x: 0, y: 0, z: -3 });
+      const state = makeState([manned, distant, target], [ruin]);
+      expect(hasLineOfSight(state, manned, target)).toBe(true);
+      expect(hasLineOfSight(state, distant, target)).toBe(false);
+    });
+
+    it('blocks LoS through solid ruin wall sections', () => {
+      const shooter = makeUnit('h1', HOST, { x: 1.5, y: 0, z: 1 });
+      const target = makeUnit('g1', GUEST, { x: 1.5, y: 0, z: 6 });
+      const state = makeState([shooter, target], [ruin]);
+      expect(hasLineOfSight(state, shooter, target)).toBe(false);
+    });
+
+    it('honours a custom structure on a piece in preference to the catalog definition', () => {
+      const custom: TerrainPiece = {
+        id: 'custom',
+        terrainType: 'wall',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2, z: 1 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        // Only the left half is solid (fractions of scale); the right half is open
+        structure: { solids: [{ minX: -0.5, maxX: 0, minY: 0, maxY: 1, minZ: -0.5, maxZ: 0.5 }] },
+      };
+      const a = makeUnit('h1', HOST, { x: 1, y: 0, z: -3 });
+      const t = makeUnit('g1', GUEST, { x: 1, y: 0, z: 3 });
+      const state = makeState([a, t], [custom]);
+      expect(hasLineOfSight(state, a, t)).toBe(true);
+      a.position = { x: -1, y: 0, z: -3 };
+      t.position = { x: -1, y: 0, z: 3 };
+      expect(hasLineOfSight(state, a, t)).toBe(false);
+    });
+
+    it('resolves nested groups with offsets into one flat set of boxes', () => {
+      const piece: TerrainPiece = {
+        id: 'nest',
+        terrainType: 'custom-building',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 10, y: 2, z: 10 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        structure: {
+          groups: [
+            {
+              offset: { x: 0.25, z: 0 },
+              groups: [{ solids: [{ minX: -0.1, maxX: 0.1, minY: 0, maxY: 1, minZ: -0.1, maxZ: 0.1 }] }],
+              apertures: [{ minX: -0.1, maxX: 0.1, minY: 0.4, maxY: 0.8, minZ: 0.2, maxZ: 0.3 }],
+            },
+          ],
+        },
+      };
+      const r = resolveTerrainStructure(piece);
+      expect(r.solids).toHaveLength(1);
+      expect(r.solids[0].minX).toBeCloseTo(1.5);
+      expect(r.solids[0].maxX).toBeCloseTo(3.5);
+      expect(r.solids[0].maxY).toBeCloseTo(2);
+      expect(r.apertures[0].minZ).toBeCloseTo(2);
+    });
+
+    it('a manning shooter sees through the port at eye height; the sill stops rays that dip beneath it', () => {
+      // Window wall: sill 0 -> 1.0", port 1.0 -> 2.25", lintel 2.25 -> 2.5"
+      const win: TerrainPiece = {
+        id: 'w',
+        terrainType: 'wall-window',
+        position: { x: 0, y: 0, z: 4 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2.5, z: 0.3 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      // Manning shooter (within 1.5") sees a target through the port at eye height
+      const shooter = makeUnit('h1', HOST, { x: 0, y: 0, z: 3 });
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 8 });
+      const state = makeState([shooter, target], [win]);
+      expect(traceLineOfSight(state, shooter, target)).toMatchObject({ clear: true, visibleSampleHeight: 1.1 });
+
+      // A target standing well below the wall base is hidden by the sill: the eye ray dips under 1.0"
+      const lowTarget = makeUnit('g2', GUEST, { x: 0, y: -1, z: 6 });
+      const stateLow = makeState([shooter, lowTarget], [win]);
+      expect(hasLineOfSight(stateLow, shooter, lowTarget)).toBe(false);
+    });
+
+    it('sees a target by any visible part when the head ray clips a lintel', () => {
+      // Elevated shooter looks down; the head ray clips the lintel but the feet ray is clear.
+      const door: TerrainPiece = {
+        id: 'door',
+        terrainType: 'wall-doorway',
+        position: { x: 0, y: 0, z: 3 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2.5, z: 0.3 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const shooter = makeUnit('h1', HOST, { x: 0, y: 3.0, z: 2.2 });
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 3.5 });
+      const state = makeState([shooter, target], [door]);
+      // Eye at 4.1" looking down at the head crosses the lintel (2.2-2.5"); the torso ray passes beneath it
+      const trace = traceLineOfSight(state, shooter, target);
+      expect(trace.clear).toBe(true);
+      expect(trace.visibleSampleHeight).not.toBe(1.1);
+    });
+
+    it('a wall blocks every sample height (no peeking over a full wall)', () => {
+      const wall = makeWall('w1', { x: 0, y: 0, z: 3 });
+      const a = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+      const t = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
+      expect(traceLineOfSight(makeState([a, t], [wall]), a, t)).toMatchObject({
+        clear: false,
+        blockedByPieceId: 'w1',
+      });
+    });
+
+    it('a distant window blocks a ray through the port; a ray clipping the sill is a normal solid block', () => {
+      const win: TerrainPiece = {
+        id: 'w',
+        terrainType: 'wall-window',
+        position: { x: 0, y: 0, z: 4 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2.5, z: 0.3 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const a = makeUnit('h1', HOST, { x: 0, y: 0, z: -2 });
+      const t = makeUnit('g1', GUEST, { x: 0, y: 0, z: 10 });
+      const state = makeState([a, t], [win]);
+      const trace = traceLineOfSight(state, a, t);
+      expect(trace.clear).toBe(false);
+      expect(trace.blockedByPieceId).toBe('w');
+    });
+
+    it('F9 ray debug reports the same verdict, blocker and cover source as the rules', () => {
+      const win: TerrainPiece = {
+        id: 'w',
+        terrainType: 'wall-window',
+        position: { x: 0, y: 0, z: 4 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2.5, z: 0.3 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const distant = makeUnit('h1', HOST, { x: 0, y: 0, z: -2 });
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 9 });
+      const blocked = computeShootingRayDebug(makeState([distant, target], [win]), distant, target);
+      expect(blocked.hasLineOfSight).toBe(false);
+      expect(blocked.blockedByPieceId).toBe('w');
+      expect(blocked.intersections.find((i) => i.pieceId === 'w')?.isLoSBlocker).toBe(true);
+
+      const manning = makeUnit('h2', HOST, { x: 0, y: 0, z: 3 });
+      const clear = computeShootingRayDebug(makeState([manning, target], [win]), manning, target);
+      expect(clear.hasLineOfSight).toBe(true);
+      expect(clear.from.y).toBeCloseTo(1.1);
+    });
+
+    it('doorway lintel does not shadow the ground-level visibility fan', () => {
+      const door: TerrainPiece = {
+        id: 'door',
+        terrainType: 'wall-doorway',
+        position: { x: 0, y: 0, z: 3 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 2.5, z: 0.3 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const shooter = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+      const state = makeState([shooter], [door]);
+      const poly = computeLosVisibilityPolygon(state, shooter.position, 12, shooter.id);
+      const through = poly.filter((p) => Math.abs(p.x) < 0.1 && p.z > 3);
+      expect(through.length).toBeGreaterThan(0);
+      for (const p of through) expect(p.z).toBeGreaterThan(5);
+    });
+
+    it('permits LoS when the target is the one manning the ruin port', () => {
+      const shooter = makeUnit('h1', HOST, { x: 0, y: 0, z: -3 });
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 3 });
+      const state = makeState([shooter, target], [ruin]);
+      expect(hasLineOfSight(state, shooter, target)).toBe(true);
+    });
+
+    it('measures manning from the base edge: 1.5" centre-to-wall counts, 1.6" does not', () => {
+      // North wall outer face at z = 2.0; port spans x in [-0.4, 0.4]
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 8 });
+      const near = makeUnit('h1', HOST, { x: 0, y: 0, z: 0.55 }); // 1.45" from wall inner face (z=1.75 -> 1.2) 
+      const edge = makeUnit('h2', HOST, { x: 0, y: 0, z: 0.2 }); // 1.55" from inner face
+      const far = makeUnit('h3', HOST, { x: 0, y: 0, z: -0.2 }); // 1.95" from inner face
+      const state = makeState([near, edge, far, target], [ruin]);
+      expect(hasLineOfSight(state, near, target)).toBe(true);
+      expect(hasLineOfSight(state, edge, target)).toBe(false);
+      expect(hasLineOfSight(state, far, target)).toBe(false);
+    });
+
+    it('counts a squad as manning the port if any model base is within reach', () => {
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 8 });
+      const squad = makeUnit('h1', HOST, { x: 0, y: 0, z: -2 });
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -2 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 1 } },
+      ];
+      const state = makeState([squad, target], [ruin]);
+      expect(hasLineOfSight(state, squad, target)).toBe(true);
+    });
+
+    it('allows LoS across the open courtyard without crossing the walls', () => {
+      const shooter = makeUnit('h1', HOST, { x: 5, y: 0, z: -1 });
+      const target = makeUnit('g1', GUEST, { x: 0.5, y: 0, z: -1 });
+      const state = makeState([shooter, target], [ruin]);
+      expect(hasLineOfSight(state, shooter, target)).toBe(true);
+    });
+
+    it('grants cover to a defender manning the ruin window but not one far inside', () => {
+      const shooter = makeUnit('h1', HOST, { x: 0, y: 0, z: 6 });
+      const manning = makeUnit('g1', GUEST, { x: 0, y: 0, z: 0.7 });
+      const deep = makeUnit('g2', GUEST, { x: 0, y: 0, z: -1.5 });
+      const stateA = makeState([shooter, manning], [ruin]);
+      const stateB = makeState([shooter, deep], [ruin]);
+      expect(hasCoverAgainstAttack(stateA, shooter, manning)).toBe(true);
+      expect(hasCoverAgainstAttack(stateB, shooter, deep)).toBe(false);
     });
   });
 });
