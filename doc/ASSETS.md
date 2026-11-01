@@ -4,6 +4,8 @@ All `.glb` files and `Textures/colormap.png` in `client/public/models/` are from
 
 Asset registration, scaling, and orientation live in [`client/src/renderer/assetManifest.ts`](../client/src/renderer/assetManifest.ts).
 
+All terrain pieces are generated procedurally by [`client/src/renderer/ModelLoader.ts`](../client/src/renderer/ModelLoader.ts) at exact 1:1 wargaming scale ($1.0\text{ unit} = 1.0\text{ inch}$), ensuring absolute alignment with mathematical collision boxes, ramp physics, and F9 debug wireframes.
+
 ---
 
 ## Complete 3D Asset Inventory (`client/public/models/`)
@@ -14,39 +16,12 @@ Asset registration, scaling, and orientation live in [`client/src/renderer/asset
 | `figurine.glb` | 117 KB | Fighter | `UNIT_ASSETS.trooper` | Standard infantry figurine with rounded helmet. |
 | `figurine-cube.glb` | 118 KB | Fighter | `UNIT_ASSETS.specialist` | Specialist figurine with angular visor and modular combat frame. |
 | `figurine-cube-detailed.glb` | 125 KB | Fighter | `UNIT_ASSETS.heavy` | Armored heavy trooper figurine with reinforced back battery and plating. |
-| `floor-square.glb` | 2.3 KB | Terrain | `TERRAIN_ASSETS.platform` | Walkable metal floor tile used for elevated platforms and catwalks ($y = 2.5″$). |
-| `ladder.glb` | 22 KB | Terrain | `TERRAIN_ASSETS.ladder` | Vertical industrial ladder providing 1:1 traversal access to elevated platforms. |
-| `stairs-small.glb` | 7.5 KB | Terrain | `TERRAIN_ASSETS.stairs` | Industrial stair flight providing 1:1 ramp traversal up to elevated platforms. |
-| `pipe.glb` | 3.5 KB | Terrain | `TERRAIN_ASSETS.pipe` | Horizontal industrial conduit / pipeline providing low waist-height cover. |
-| `building-a.glb` | 174 KB | Terrain | `TERRAIN_ASSETS['building-a']` | Heavy industrial warehouse block with flat walkable roof ($y = 3.5″$). |
-| `building-c.glb` | 172 KB | Terrain | `TERRAIN_ASSETS['building-c']` | Refinery facility with walkable rooftop deck ($y = 3.0″$). |
-| `building-f.glb` | 132 KB | Terrain | `TERRAIN_ASSETS['building-f']` | Chemical storage silo completely blocking line-of-sight and movement. |
-| `building-h.glb` | 63 KB | Terrain | `TERRAIN_ASSETS['building-h']` | Compact service workshop building with roof access ($y = 2.5″$). |
-| `building-l.glb` | 159 KB | Terrain | `TERRAIN_ASSETS['building-l']` | Two-story industrial manufacturing plant with elevated sniper roof ($y = 4.5″$). |
-| `wall-doorway-square.glb` | 6.2 KB | Terrain | `TERRAIN_ASSETS['wall-doorway-square']` | Modular wall with square framed walk-through doorway. |
-| `wall-corner.glb` | 3.1 KB | Terrain | `TERRAIN_ASSETS['wall-corner']` | 90-degree corner wall junction piece. |
-| `wall-half.glb` | 2.7 KB | Terrain | `TERRAIN_ASSETS['wall-half']` | Half-length modular wall piece for precise perimeter gaps. |
-| `roof-flat-patch-large.glb` | 5.4 KB | Terrain | `TERRAIN_ASSETS['roof-flat-patch-large']` | Large elevated catwalk deck platform ($y \ge 3.0″$). |
-| `roof-flat-side.glb` | 5.6 KB | Terrain | `TERRAIN_ASSETS['roof-flat-side']` | Suspended catwalk bridge span between adjacent platforms. |
-| `roof-flat-corner.glb` | 7.0 KB | Terrain | `TERRAIN_ASSETS['roof-flat-corner']` | L-shaped corner catwalk junction platform piece. |
-| `stairs-open.glb` | 15 KB | Terrain | `TERRAIN_ASSETS['stairs-open']` | Open industrial staircase climbing to 3.0" platforms. |
-| `stairs-closed-short.glb` | 8.6 KB | Terrain | `TERRAIN_ASSETS['stairs-closed-short']` | Compact closed stair flight for 1.5" elevation transitions. |
-| `stairs-sides.glb` | 18 KB | Terrain | `TERRAIN_ASSETS['stairs-sides']` | Railed industrial staircase ascending to 3.5" catwalks. |
-| `barricade-doorway-a.glb` | 8.1 KB | Terrain | `TERRAIN_ASSETS['barricade-doorway']` | Improvised door-jam debris barricade blocking passage. |
-| `barricade-window-b.glb` | 13 KB | Terrain | `TERRAIN_ASSETS['barricade-window']` | Reinforced window shutters granting cover against incoming fire. |
-| `column-wide.glb` | 4.3 KB | Terrain | `TERRAIN_ASSETS['column-wide']` | Heavy structural pillar blocking vision and movement. |
-| `detail-pipe.glb` | 7.3 KB | Terrain | `TERRAIN_ASSETS['detail-pipe']` | Surface conduit pipeline runner providing low directional cover. |
-| `wall.glb` | 2.8 KB | Terrain | `TERRAIN_ASSETS.wall` | Solid perimeter wall block (100% LoS obstruction & movement blocking). |
-| `wall-low.glb` | 2.8 KB | Terrain | `TERRAIN_ASSETS['wall-low']` | Low barricade waist-high wall providing Cover (+1 Defense); plunged over from $y \ge 2.0″$. |
-| `wall-window-medium.glb` | 8.8 KB | Terrain | `TERRAIN_ASSETS['wall-window']` | Wall with central firing aperture granting +1 Defense to manned defenders. |
-| `wall-doorway.glb` | 14 KB | Terrain | `TERRAIN_ASSETS['wall-doorway']` | Wall with central walk-through doorway opening (full LoS and movement passage). |
-| `crate.glb` | 18 KB | Terrain | `TERRAIN_ASSETS.crate` | Waist-height storage crate providing low cover (+1 Defense within $1.0″$). |
-| `column.glb` | 2.9 KB | Terrain | `TERRAIN_ASSETS.column` | Solid architectural column (blocks LoS and movement). |
+| `crate-medium.glb` | 59 KB | Objective | `OBJECTIVE_ASSETS.beacon` | Central tactical objective container marker beacon. |
 | `indicator-round-b.glb` | 4.5 KB | Marker | `MARKER_ASSETS.selection` / `target` | Flat circular floor beacon used for selection (blue) and enemy target (red). |
 | `indicator-round-a.glb` | 6.4 KB | Marker | *(Alternate Indicator)* | Thick rim alternate circular floor marker. |
 | `indicator-square-a.glb` | 2.0 KB | Marker | *(Alternate Indicator)* | Square perimeter floor marker. |
 | `number-1.glb` .. `number-5.glb` | 4–7 KB | Outcome | `OUTCOME_ASSETS['outcome-N']` | 3D billboard digits (1 to 5) indicating wound damage count dealt on attack. |
-| `Textures/colormap.png` | 4.0 KB | Texture | *(Shared Texture)* | Global texture palette referenced by all Kenney Prototype Kit materials. |
+| `Textures/colormap.png` | 4.0 KB | Texture | *(Shared Texture)* | Global texture palette referenced by all figurine and marker materials. |
 
 ---
 
@@ -65,23 +40,24 @@ Fighters are mapped to 3D models via their `modelType` attribute defined in [`sh
 
 ## 2. Default Battlefield Scenario Terrain Mapping
 
-The default testing map layout is defined in [`shared/src/data/scenario.ts`](../shared/src/data/scenario.ts) and rendered by [`client/src/renderer/BoardRenderer.ts`](../client/src/renderer/BoardRenderer.ts):
+The default testing map layout is defined in [`shared/src/data/scenario.ts`](../shared/src/data/scenario.ts) and rendered by [`client/src/renderer/BoardRenderer.ts`](../client/src/renderer/BoardRenderer.ts) via procedural geometry:
 
-| Piece ID | Display Name | `terrainType` | 3D Model File | World Position (`x, y, z`) | Dimensions / Scale (`W × H × D`) | Mechanical Attributes |
+| Piece ID | Display Name | `terrainType` | Procedural Geometry | World Position (`x, y, z`) | Dimensions / Scale (`W × H × D`) | Mechanical Attributes |
 | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| `terrain-wall-north` | North Solid Wall | `wall` | `wall.glb` | `(0, 0, 8)` | `4.0 × 2.0 × 0.5` | Solid wall: 100% LoS obstruction & movement blocking. |
-| `terrain-wall-south` | South Window Wall | `wall-window` | `wall-window-medium.glb` | `(0, 0, -8)` | `4.0 × 2.0 × 0.5` | Window wall: blocks movement, 1.0" center aperture grants Cover (+1 Def). |
-| `terrain-door-east` | East Doorway Wall | `wall-doorway` | `wall-doorway.glb` | `(8, 0, 0)` | `4.0 × 2.0 × 0.5` | Doorway wall: 1.0" center doorway permits model passage and clear LoS. |
-| `terrain-crate-sw` | SW Low Crate | `crate` | `crate.glb` | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
-| `terrain-crate-ne` | NE Low Crate | `crate` | `crate.glb` | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
-| `terrain-col-nw` | NW Column | `column` | `column.glb` | `(-8, 0, 6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
-| `terrain-col-se` | SE Column | `column` | `column.glb` | `(8, 0, -6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
-| `terrain-platform-west` | West Overlook Platform | `platform` | `floor-square.glb` | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Walkable elevation ($y = 2.5″$): Parapet Cover within 1.0" of edge; floor blind spot $> 1.0″$. |
-| `terrain-ladder-west` | West Access Ladder | `ladder` | `ladder.glb` | `(-7.1, 0, -2)` | `0.5 × 2.5 × 0.5` | Ladder access: 1:1 climb speed onto West Platform without Difficult Terrain penalty. |
-| `terrain-platform-east` | East Catwalk Platform | `platform` | `floor-square.glb` | `(9, 2.5, 2)` | `3.5 × 0.3 × 3.5` | Walkable catwalk ($y = 2.5″$): elevated vantage point overlooking East lane. |
+| `terrain-wall-north` | North Solid Wall | `wall` | Procedural Wall Block | `(0, 0, 8)` | `4.0 × 2.0 × 0.5` | Solid wall: 100% LoS obstruction & movement blocking. |
+| `terrain-wall-south` | South Window Wall | `wall-window` | Procedural Wall Block | `(0, 0, -8)` | `4.0 × 2.0 × 0.5` | Window wall: blocks movement, 1.0" center aperture grants Cover (+1 Def). |
+| `terrain-door-east` | East Doorway Wall | `wall-doorway` | Procedural Wall Block | `(8, 0, 0)` | `4.0 × 2.0 × 0.5` | Doorway wall: 1.0" center doorway permits model passage and clear LoS. |
+| `terrain-crate-sw` | SW Low Crate | `crate` | Procedural Crate Block | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
+| `terrain-crate-ne` | NE Low Crate | `crate` | Procedural Crate Block | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
+| `terrain-col-nw` | NW Column | `column` | Procedural Pillar | `(-8, 0, 6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
+| `terrain-col-se` | SE Column | `column` | Procedural Pillar | `(8, 0, -6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
+| `terrain-platform-west` | West Overlook Platform | `platform` | Procedural Deck Platform | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Walkable elevation ($y = 2.5″$): Parapet Cover within 1.0" of edge; floor blind spot $> 1.0″$. |
+| `terrain-ladder-west` | West Access Ladder | `ladder` | Procedural Ladder Strip | `(-7.1, 0, -2)` | `0.5 × 2.5 × 0.5` | Ladder access: 1:1 climb speed onto West Platform without Difficult Terrain penalty. |
+| `terrain-platform-east` | East Catwalk Platform | `platform` | Procedural Deck Platform | `(9, 2.5, 2)` | `3.5 × 0.3 × 3.5` | Walkable catwalk ($y = 2.5″$): elevated vantage point overlooking East lane. |
 | `terrain-stairs-east` | East Access Stairs | `stairs` | Procedural Triangular Wedge (1:1 with collision math) | `(7.1, 0, 2)` | `1.8 × 2.5 × 1.2` | Stair ramp: 1:1 movement onto East Catwalk without Difficult Terrain penalty. |
-| `terrain-wall-low-north` | North Low Barricade | `wall-low` | `wall-low.glb` | `(-3, 0, 3)` | `2.5 × 0.8 × 0.4` | Low cover barricade: Plunging Fire from $y \ge 2.0″$ overlooks it against ground targets. |
-| `terrain-pipe-center` | Center Industrial Pipe | `pipe` | `pipe.glb` | `(3, 0, -2)` | `3.0 × 0.8 × 0.8` | Industrial conduit: low cover waist-height obstacle. |
+| `terrain-wall-low-north` | North Low Barricade | `wall-low` | Procedural Low Barricade | `(-3, 0, 3)` | `2.5 × 0.8 × 0.4` | Low cover barricade: Plunging Fire from $y \ge 2.0″$ overlooks it against ground targets. |
+| `terrain-pipe-center` | Center Industrial Pipe | `pipe` | Procedural Conduit | `(3, 0, -2)` | `3.0 × 0.8 × 0.8` | Industrial conduit: low cover waist-height obstacle. |
+| `terrain-toxic-sludge` | Toxic Sludge Hazard | `toxic` | Procedural Hazard Plane | `(0, 0, 0)` | `3.0 × 0.05 × 3.0` | Dangerous & Difficult Terrain: 1d6 hazard check per model (1s inflict unsaved wounds); 6.0" movement speed cap. |
 | `terrain-toxic-sludge` | Toxic Sludge Hazard | `toxic` | *(Procedural Green Plane)* | `(0, 0, 0)` | `3.0 × 0.05 × 3.0` | Dangerous & Difficult Terrain: 1d6 hazard check per model (1s inflict unsaved wounds); 6.0" movement speed cap. |
 
 ---
