@@ -18,6 +18,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 3. Elevation, ladders, stairs
 - [ ] **Stairs look solid:** the stair wedge renders with properly lit outer faces (no see-through or inside-out sides, step lines visible on the slope and sides), and its F9 wireframe slopes the same way as the mesh at every rotation (0°, 90°, 180°, 270°).
+- [ ] **Stairs picking:** with a unit on a deck next to stairs, hovering near the stairs never snaps the move target to the stair corners or step lines; hovering the stair slope still targets the slope.
 
 ## 4. Drops, jumps and movement cost
 - [ ] **(known bug, plan PR 3/5)** Stepping off a ledge of **3" or less** is regular movement: no test, no warning, and it costs only the horizontal distance walked.

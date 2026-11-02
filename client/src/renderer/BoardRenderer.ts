@@ -104,6 +104,10 @@ export class BoardRenderer {
     this.terrainGroup.updateMatrixWorld(true);
     const hits = raycaster.intersectObjects(this.terrainGroup.children, true);
     for (const hit of hits) {
+      // Decorative lines (stair step lines etc.) have a 1" raycast threshold and would snap picks to
+      // their corners; only real mesh surfaces, not flagged decor, count.
+      const object = hit.object as THREE.Mesh;
+      if (!object.isMesh || object.userData?.decor === true) continue;
       let current: THREE.Object3D | null = hit.object;
       while (current && current !== this.terrainGroup) {
         if (typeof current.userData?.terrainId === 'string') {
