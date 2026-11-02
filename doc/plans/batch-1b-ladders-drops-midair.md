@@ -75,6 +75,14 @@ The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: P
   3. **The clamp can stop over open air** on a level gap segment (no all-or-nothing guard like drops/ladders).
   4. Bug C hides it from the host (PR 1).
 - **Pick (secondary, still worth fixing):** `GameView.computePickTarget` can accept a deck **side-face** or kick-plate hit as "on the floor" (within 0.05" of the footprint and 0.15" of the top). Require an upward-facing hit.
+- **Update after PR 1 (#160) and PR 5 (#162) merged (replayed on the fixture):**
+  - PR 5 added per-surface drop spots (edge point → over-air point one `DROP_STANDOFF` out → ground point), made A* cost drops by horizontal distance, and made "step off, then fall" all-or-nothing. **Build on these. Don't duplicate them.**
+  - Still wrong:
+    - Ruin ledge (−1,3,0) → ground (2.5,0,0) still crosses the 5" gap at deck height to the ladder's climb-top, then climbs down (cost 10.7, gap 4.6). It should step off the ledge's open east end and drop 3".
+    - Platform A (7,3,−1) → ground (2.5,0,−1) climbs down the ladder (cost 6.4) instead of the cheaper free edge drop (≈5.0).
+    - Ledge → platform A with a 4" budget still ends at (2.97,3,−0.5) over the gap (host now rejects it via the mid-air guard, but the nav must not produce it: Decision 6).
+  - **New, pre-existing nav gap: stairs can't be reached from the side.** From ground (10,0,4), next to the stairs at (7,0,3) (yaw π, foot waypoint (7,0,5.2)), the direct segment to the foot is correctly blocked by the wedge, but there are no nav waypoints around the wedge's foot corners. So the planner never finds the stairs. A target on the slope (7,1.5,3) or on platform A routes to the ladder instead. Add clearance waypoints around the stair wedge's footprint corners (at least the two foot-end corners, offset by `UNIT_COLLISION_RADIUS` + margin), and test: from (10,0,4) the path to platform A goes round the corner, up the stairs, cost ≈ 10.
+  - **Suspected bug, verify with a test:** `findNavPath` step 3b `deckPoints` converts local → world with `x*cos − z*sin`, while `localToWorldXZ` uses the opposite sign. It's likely wrong for rotated pieces (the catwalk at yaw π/2 in the owner's first map). Use `localToWorldXZ`.
 - **Layer:** shared engine (PR 3a: nav drop edges, costing, clamp) then client pick (PR 3b).
 - **Tests first:**
   1. Pick: a ray that hits a deck's side face or kick-plate (normal not pointing up) never picks the deck top. Only hits whose face normal points up (`face.normal.y > 0.7` in world space) on the top face count. A ray over the gap resolves to the ground.
