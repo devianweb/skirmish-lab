@@ -36,6 +36,9 @@ export type GridSnapSetting = 1.0 | 0.5 | 0;
  * Allows tabletop players to visually place, snap, rotate, elevate, and customize
  * modular terrain pieces and objectives on a 44" x 30" skirmish battlefield.
  */
+/** Horizontal click distance (inches) within which a click selects an objective. */
+const OBJECTIVE_PICK_RADIUS = 1.0;
+
 export class MapEditor {
   private container: HTMLElement;
   private rootElement: HTMLElement;
@@ -359,6 +362,27 @@ export class MapEditor {
     this.syncGameView();
   }
 
+  /**
+   * Selection-mode click on the board. An objective within OBJECTIVE_PICK_RADIUS
+   * (horizontal) wins over terrain, since beacons sit on the ground.
+   */
+  handleBoardClick(position: Vector3, terrainId?: string): void {
+    let best: Objective | null = null;
+    let bestDist = Infinity;
+    for (const obj of this.currentMap.objectives ?? []) {
+      const d = Math.hypot(obj.position.x - position.x, obj.position.z - position.z);
+      if (d <= OBJECTIVE_PICK_RADIUS && d < bestDist) {
+        best = obj;
+        bestDist = d;
+      }
+    }
+    if (best) {
+      this.selectObjective(best.id);
+    } else {
+      this.selectPiece(terrainId ?? null);
+    }
+  }
+
   selectObjective(objectiveId: string | null): void {
     this.selectedObjectiveId = objectiveId;
     this.selectedPieceId = null;
@@ -555,8 +579,8 @@ export class MapEditor {
         }
       } else {
         // Selection mode
-        if (target.kind === 'position' && target.terrainId) {
-          this.selectPiece(target.terrainId);
+        if (target.kind === 'position') {
+          this.handleBoardClick(target.position, target.terrainId);
         } else {
           this.selectPiece(null);
         }
@@ -658,6 +682,23 @@ export class MapEditor {
     // Items for active category
     let paletteItemsHtml = '';
     if (this.activeCategory === 'objectives') {
+      const objectiveRows = (this.currentMap.objectives ?? [])
+        .map((o) => {
+          const sel = o.id === this.selectedObjectiveId;
+          return `
+          <div data-objective-row="${o.id}" style="display: flex; gap: 4px; align-items: stretch;">
+            <button data-objective-select="${o.id}" style="
+              flex: 1; padding: 6px 8px; text-align: left; cursor: pointer; font-size: 12px;
+              background: ${sel ? '#ffd54f' : '#1e2630'}; color: ${sel ? '#12161c' : '#eee'};
+              border: 1px solid #37474f; border-radius: 6px;
+            ">${o.name} (${o.position.x.toFixed(1)}, ${o.position.z.toFixed(1)})</button>
+            <button data-objective-remove="${o.id}" title="Remove objective" style="
+              padding: 6px 8px; cursor: pointer; background: #c62828; color: #eee;
+              border: none; border-radius: 6px; font-size: 12px;
+            ">✕</button>
+          </div>`;
+        })
+        .join('');
       paletteItemsHtml = `
         <button class="editor-palette-item" data-type="objective" style="
           padding: 10px; background: ${this.activePlacementType === 'objective' ? '#ffd54f' : '#1e2630'};
@@ -667,6 +708,7 @@ export class MapEditor {
           <div style="font-weight: bold; font-size: 13px;">🎯 Objective Beacon</div>
           <div style="font-size: 11px; opacity: 0.8;">3.0" control radius marker</div>
         </button>
+        ${objectiveRows ? `<div style="font-size: 11px; opacity: 0.7; margin-top: 6px;">Placed objectives</div>${objectiveRows}` : ''}
       `;
     } else {
       const items = Object.values(TERRAIN_PALETTE_CATALOG).filter(
@@ -898,6 +940,21 @@ export class MapEditor {
         if (type) {
           this.setPlacementType(this.activePlacementType === type ? null : type);
         }
+      });
+    });
+
+    // Objective list (Objectives tab)
+    this.rootElement.querySelectorAll<HTMLElement>('[data-objective-select]').forEach((btn) => {
+      btn.addEventListener('click', () => this.selectObjective(btn.getAttribute('data-objective-select')));
+    });
+    this.rootElement.querySelectorAll<HTMLElement>('[data-objective-remove]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-objective-remove');
+        this.currentMap.objectives = (this.currentMap.objectives ?? []).filter((o) => o.id !== id);
+        if (this.selectedObjectiveId === id) this.selectedObjectiveId = null;
+        this.validateCurrentMap();
+        this.render();
+        this.syncGameView();
       });
     });
 

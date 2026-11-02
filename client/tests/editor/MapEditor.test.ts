@@ -417,3 +417,70 @@ describe('MapEditor 3D Battlefield Builder', () => {
     });
   });
 });
+
+describe('MapEditor objective selection (13.6 playtest fix)', () => {
+  let container: HTMLElement;
+  const oneObjMap = (): CustomMapDefinition => {
+    const map = createBlankMap('Obj map');
+    map.objectives = [{ id: 'o-1', name: 'Obj One', position: { x: 4, y: 0, z: 4 }, radius: 3 } as any];
+    return map;
+  };
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  it('clicking an Auto Obj objective selects it and Delete removes it', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+    editor.autoDistributeObjectives();
+    const objs = editor.getMap().objectives!;
+    expect(objs.length).toBeGreaterThan(1);
+    const target = objs[1];
+
+    editor.handleBoardClick({ x: target.position.x + 0.5, y: 0, z: target.position.z - 0.5 });
+    expect(editor.getSelectedObjectiveId()).toBe(target.id);
+
+    editor.deleteSelected();
+    const after = editor.getMap().objectives!;
+    expect(after.map((o) => o.id)).not.toContain(target.id);
+    expect(after.length).toBe(objs.length - 1);
+  });
+
+  it('objectives from a loaded map are selectable and win over terrain', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+    editor.setMap(oneObjMap());
+    editor.handleBoardClick({ x: 4, y: 0, z: 4 }, 'some-terrain');
+    expect(editor.getSelectedObjectiveId()).toBe('o-1');
+    expect(editor.getSelectedPieceId()).toBeNull();
+  });
+
+  it('a click just over 1" from an objective does not select it; open ground deselects', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+    editor.setMap(oneObjMap());
+    editor.handleBoardClick({ x: 4, y: 0, z: 4 });
+    expect(editor.getSelectedObjectiveId()).toBe('o-1');
+    editor.handleBoardClick({ x: 5.1, y: 0, z: 4 });
+    expect(editor.getSelectedObjectiveId()).toBeNull();
+    expect(editor.getSelectedPieceId()).toBeNull();
+  });
+
+  it('lists objectives in the Objectives tab; select and remove buttons act on the right one', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+    editor.autoDistributeObjectives();
+    const objs = editor.getMap().objectives!;
+    (container.querySelector('.editor-cat-btn[data-category="objectives"]') as HTMLElement).click();
+
+    expect(container.querySelectorAll('[data-objective-row]').length).toBe(objs.length);
+
+    (container.querySelector(`[data-objective-select="${objs[2].id}"]`) as HTMLElement).click();
+    expect(editor.getSelectedObjectiveId()).toBe(objs[2].id);
+
+    (container.querySelector(`[data-objective-remove="${objs[0].id}"]`) as HTMLElement).click();
+    expect(editor.getMap().objectives!.map((o) => o.id)).toEqual(objs.slice(1).map((o) => o.id));
+  });
+});
