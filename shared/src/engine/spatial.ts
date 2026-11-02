@@ -674,6 +674,25 @@ export function findWalkablePlatformAt(state: GameState, point: Vector3): Terrai
   return findWalkableSurfaceAt(state, point)?.piece ?? null;
 }
 
+/**
+ * True if `point` is hanging in mid-air: well above the ground, yet not standing on a floor, a
+ * stair/ramp slope, or a ladder (ladders have their own deck-arrival rule).
+ */
+export function isSuspendedInMidAir(state: GameState, point: Vector3): boolean {
+  const y = point.y ?? 0;
+  if (y <= 0.3) return false;
+  const surface = findWalkableSurfaceAt(state, point, 0.1);
+  if (surface && Math.abs(y - surface.topY) <= 0.3) return false;
+  for (const piece of state.terrain) {
+    if (isStairPiece(piece)) {
+      const slopeY = getStairSurfaceHeight(piece, point, state);
+      if (slopeY !== null && Math.abs(y - slopeY) <= 0.3) return false;
+    }
+    if (isLadderPiece(piece)) return false; // handled by the ladder deck-arrival rule
+  }
+  return true;
+}
+
 type SpatialSubject = Pick<Unit, 'position'> & { id?: string; models?: Unit['models']; status?: Unit['status'] };
 
 export interface LineOfSightTrace {
@@ -1052,14 +1071,15 @@ export function computeShootingRayDebug(
     intersections.push({
       pieceId: piece.id,
       terrainType: piece.terrainType,
+      // The ray climbs or falls from the shooter's eye to the target, so heights follow the line
       entryPoint: {
         x: Math.round((attacker.position.x + dirX * hit.tEntry) * 100) / 100,
-        y: from.y,
+        y: Math.round((from.y + (to.y - from.y) * (hit.tEntry / distance)) * 100) / 100,
         z: Math.round((attacker.position.z + dirZ * hit.tEntry) * 100) / 100,
       },
       exitPoint: {
         x: Math.round((attacker.position.x + dirX * hit.tExit) * 100) / 100,
-        y: from.y,
+        y: Math.round((from.y + (to.y - from.y) * (hit.tExit / distance)) * 100) / 100,
         z: Math.round((attacker.position.z + dirZ * hit.tExit) * 100) / 100,
       },
       tEntry: Math.round(hit.tEntry * 100) / 100,
@@ -2184,6 +2204,15 @@ export function findNavPath(
       if (isLadderClimb) {
         // Tabletop ladder rules: models scaling vertical ladders must have sufficient movement budget to reach the landing platform deck;
         // if movement is insufficient, the model remains at the ladder foot (p1) rather than hanging suspended on rungs.
+        break;
+      }
+      const isFreeDrop =
+        y1 - y2 > 0.5 &&
+        !hasTrait(unit.specialRules, 'airborne') &&
+        !isSegmentOnRampOrStairs(state, p1, p2);
+      if (isFreeDrop) {
+        // A drop is a step off an edge, not a slope: a model cannot stop hanging in mid-air part-way
+        // down, so if the budget cannot finish the drop it stays at the edge (p1).
         break;
       }
       const ratio = distLeft / segLen;

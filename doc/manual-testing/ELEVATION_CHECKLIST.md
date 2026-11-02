@@ -28,4 +28,4 @@
 
 ## Visuals
 - [ ] Deck shows kick-plates around the edge and tread ridges; ladder has rails and rungs; stairs show risers and stringers.
-- [ ] Ruin ledge is visible inside the north and west walls at 3.0" and ruin walls are 4" tall.
+- [x] Ruin ledge is visible inside the north and west walls at 3.0" and ruin walls are 4" tall.

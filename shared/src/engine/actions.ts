@@ -42,6 +42,7 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   isLadderPiece,
+  isSuspendedInMidAir,
   validateSquadCoherency,
 } from './spatial';
 import {
@@ -317,6 +318,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
+        if (isSuspendedInMidAir(state, end)) {
+          return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
+        }
         for (const piece of state.terrain) {
           if (!isLadderPiece(piece)) continue;
           const { foot, head } = getStairWaypoints(state, piece);
@@ -411,6 +415,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
+        if (isSuspendedInMidAir(state, mEnd)) {
+          return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
+        }
         for (const piece of state.terrain) {
           if (!isLadderPiece(piece)) continue;
           const { foot, head } = getStairWaypoints(state, piece);
@@ -628,6 +635,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
           return { valid: false, reason: 'Final position does not match path end' };
         }
+        if (isSuspendedInMidAir(state, end)) {
+          return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
+        }
         for (const piece of state.terrain) {
           if (!isLadderPiece(piece)) continue;
           const { foot, head } = getStairWaypoints(state, piece);
@@ -731,6 +741,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
+        if (isSuspendedInMidAir(state, mEnd)) {
+          return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
+        }
         for (const piece of state.terrain) {
           if (!isLadderPiece(piece)) continue;
           const { foot, head } = getStairWaypoints(state, piece);

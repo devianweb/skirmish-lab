@@ -31,9 +31,9 @@
 - [x] The L-corner ruin has no second-floor ledge any more (it returns with 13.6C).
 
 ## Retest after grid compliance & segmented walls (13.6C-1)
-- [ ] Solid walls of 2", 4" and 6" show no gaps between panels, and the collision/F9 boxes match the segments.
-- [ ] Place several 2" wall components end to end: they form a continuous wall (movement and LoS blocked along the whole length).
-- [ ] Doorway opening is now 1.5" wide (2.25" tall); a model still walks through it, and the jambs still block.
-- [ ] Window port is now 2.5" wide (sill 1.0", lintel from 2.25"); manned shots through it still work.
-- [ ] L-corner ruin is now 4" tall (sill 1.0", ports 1.0"-2.25"); movement into the courtyard and manned-port shots still work.
-- [ ] Walls, window walls and doorway walls are 0.25" thick; columns are 1.25" square.
+- [x] Solid walls of 2", 4" and 6" show no gaps between panels, and the collision/F9 boxes match the segments.
+- [x] Place several 2" wall components end to end: they form a continuous wall (movement and LoS blocked along the whole length).
+- [x] Doorway opening is now 1.5" wide (2.25" tall); a model still walks through it, and the jambs still block.
+- [x] Window port is now 2.5" wide (sill 1.0", lintel from 2.25"); manned shots through it still work.
+- [x] L-corner ruin is now 4" tall (sill 1.0", ports 1.0"-2.25"); movement into the courtyard and manned-port shots still work.
+- [x] Walls, window walls and doorway walls are 0.25" thick; columns are 1.25" square.
