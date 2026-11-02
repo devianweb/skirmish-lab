@@ -7,6 +7,8 @@ import {
   Unit,
   Vector3,
   findWalkableSurfaceAt,
+  hasStructuredFloor,
+  legacyElevation,
 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
@@ -312,45 +314,10 @@ export class GameView {
 
     const terrainHit = this.boardRenderer.raycastTerrainHit?.(raycaster) ?? null;
 
-    // If an elevated walkable platform, ladder, stairs, or elevated piece was clicked,
-    // preserve the 3D elevation so models can climb, traverse, and drop from vertical structures.
-    if (terrainHit && terrainHit.point) {
-      const piece = terrainHit.piece;
-      const isWalkableOrClimbable =
-        piece?.isWalkable ||
-        piece?.terrainType === 'platform' ||
-        piece?.terrainType === 'stairs' ||
-        piece?.terrainType === 'ladder' ||
-        piece?.climbType === 'stairs' ||
-        piece?.climbType === 'ladder' ||
-        (piece?.elevation !== undefined && piece.elevation > 0);
-
-      if (isWalkableOrClimbable) {
-        const isSloped =
-          piece?.terrainType === 'stairs' ||
-          piece?.climbType === 'stairs' ||
-          piece?.climbType === 'ramp';
-        const y =
-          isSloped
-            ? Math.round(terrainHit.point.y * 100) / 100
-            : piece?.elevation !== undefined
-              ? piece.elevation
-              : Math.round(terrainHit.point.y * 100) / 100;
-        return {
-          kind: 'position',
-          position: {
-            x: Math.round(terrainHit.point.x * 100) / 100,
-            y,
-            z: Math.round(terrainHit.point.z * 100) / 100,
-          },
-          terrainId: terrainHit.terrainId,
-        };
-      }
-    }
-
-    // Structured floors (decks, catwalks, the ruin ledge): a hit on a floor's top face picks that floor height
-    // so models and stacked pieces land on it; hits on walls or legs fall through to the ground plane.
-    if (terrainHit && terrainHit.point && terrainHit.piece) {
+    // Structured floors (decks, catwalks, ruin ledge, container roofs): only a hit on a floor's top face picks that
+    // floor's height, so models and stacked pieces land on it. Hits on pillars, walls or undersides fall through to
+    // the ground plane instead of picking a height in mid-air.
+    if (terrainHit && terrainHit.point && terrainHit.piece && hasStructuredFloor(terrainHit.piece)) {
       const surface = findWalkableSurfaceAt(
         { terrain: [terrainHit.piece] } as unknown as GameState,
         terrainHit.point,
@@ -362,6 +329,39 @@ export class GameView {
           position: {
             x: Math.round(terrainHit.point.x * 100) / 100,
             y: surface.topY,
+            z: Math.round(terrainHit.point.z * 100) / 100,
+          },
+          terrainId: terrainHit.terrainId,
+        };
+      }
+    } else if (terrainHit && terrainHit.point) {
+      // Legacy elevated pieces, stairs and ladders: preserve the 3D height so models can climb and drop.
+      const piece = terrainHit.piece;
+      const legacyTop = piece ? legacyElevation(piece) : undefined;
+      const isWalkableOrClimbable =
+        piece?.isWalkable ||
+        piece?.terrainType === 'platform' ||
+        piece?.terrainType === 'stairs' ||
+        piece?.terrainType === 'ladder' ||
+        piece?.climbType === 'stairs' ||
+        piece?.climbType === 'ladder' ||
+        legacyTop !== undefined;
+
+      if (isWalkableOrClimbable) {
+        const isSloped =
+          piece?.terrainType === 'stairs' ||
+          piece?.climbType === 'stairs' ||
+          piece?.climbType === 'ramp';
+        const y = isSloped
+          ? Math.round(terrainHit.point.y * 100) / 100
+          : legacyTop !== undefined
+            ? legacyTop
+            : Math.round(terrainHit.point.y * 100) / 100;
+        return {
+          kind: 'position',
+          position: {
+            x: Math.round(terrainHit.point.x * 100) / 100,
+            y,
             z: Math.round(terrainHit.point.z * 100) / 100,
           },
           terrainId: terrainHit.terrainId,

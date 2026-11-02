@@ -1,7 +1,13 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { findTerrainAtPosition, isFreeDropSegment, isSegmentOnRampOrStairs, computeSquadCentroid } from './spatial';
+import {
+  computeSquadCentroid,
+  findTerrainAtPosition,
+  findWalkableSurfaceAt,
+  isFreeDropSegment,
+  isSegmentOnRampOrStairs,
+} from './spatial';
 
 /** 3D Euclidean distance between two points. */
 export function distance3D(a: Vector3, b: Vector3): number {
@@ -50,35 +56,44 @@ export function calculateJumpDice(distance: number): number {
   return Math.floor((distance + 0.05) / 3.0) + 1;
 }
 
-/**
- * Jump test for dropping off an elevation of up to 6": roll one die per full 3" plus one, each
- * needing 3+ (2+ with Pathfinder; Airborne auto-passes). All dice must succeed or the model falls.
- * Drops of 3" or less need no test; drops above 6" cannot be jumped (the model falls).
- */
-export function resolveDropJump(
-  unit: Unit,
-  drop: number,
-  rolls?: number[]
-): {
+interface JumpResult {
   requiresTest: boolean;
   canJump: boolean;
   dice: number;
   target: number;
   passed: boolean;
-} {
-  if (drop <= FREE_DROP_MAX) {
+}
+
+/**
+ * The jump test: roll one die per full 3" plus one, each needing 3+ (2+ with Pathfinder; Airborne
+ * auto-passes). All dice must succeed. Distances up to `freeMax` are regular movement (no test);
+ * distances above `jumpMax` cannot be jumped.
+ */
+function resolveJump(
+  unit: Unit,
+  distance: number,
+  freeMax: number,
+  jumpMax: number,
+  rolls?: number[]
+): JumpResult {
+  if (distance <= freeMax) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
   if (hasTrait(unit.specialRules, 'airborne')) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
   const target = hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
-  if (drop > JUMP_DROP_MAX) {
+  if (distance > jumpMax) {
     return { requiresTest: false, canJump: false, dice: 0, target, passed: false };
   }
-  const dice = calculateJumpDice(drop);
+  const dice = calculateJumpDice(distance);
   const passed = !!rolls && rolls.length >= dice && rolls.slice(0, dice).every((r) => r >= target);
   return { requiresTest: true, canJump: true, dice, target, passed };
+}
+
+/** Jump test for dropping off an elevation: up to 3" is regular movement, 3-6" is jumped, more falls. */
+export function resolveDropJump(unit: Unit, drop: number, rolls?: number[]): JumpResult {
+  return resolveJump(unit, drop, FREE_DROP_MAX, JUMP_DROP_MAX, rolls);
 }
 
 /** Human-readable warning for the highest drop on a path (empty when it is regular movement). */
@@ -335,10 +350,50 @@ export function resolveFallingDamage(
   };
 }
 
+/** Gaps up to this width (inches) are regular movement: no test. */
+export const FREE_GAP_MAX = 1.05;
+/** Gaps above FREE_GAP_MAX up to this width can be jumped (test); wider gaps cannot be crossed. */
+export const JUMP_GAP_MAX = 6.05;
+
 /**
- * Scans a path to see if it traverses an elevated gap between elevated surfaces.
- * A gap jump occurs when moving between elevated platforms/surfaces (y >= 1.0"),
- * where the horizontal span across open space is > 1.0" (and <= 6.0").
+ * Widest stretch of open air a path crosses while elevated (y >= 1.0"): the longest run along the
+ * path (measured on the board) with no walkable floor beneath it. Walking onto an adjacent deck,
+ * catwalk, stairs or ladder is not a gap; only space with nothing to stand on is.
+ */
+export function measureElevatedGap(state: GameState, path: Vector3[]): number {
+  let widest = 0;
+  let run = 0;
+  const step = 0.1;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    const aY = a.y ?? 0;
+    const bY = b.y ?? 0;
+    const len = distanceHorizontal(a, b);
+    if (Math.min(aY, bY) < 1.0 || len < 1e-6 || isSegmentOnRampOrStairs(state, a, b)) {
+      run = 0;
+      continue;
+    }
+    const n = Math.max(1, Math.ceil(len / step));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      const pt = { x: a.x + (b.x - a.x) * t, y: aY + (bY - aY) * t, z: a.z + (b.z - a.z) * t };
+      const surface = findWalkableSurfaceAt(state, pt, 0.05);
+      const supported = surface !== null && Math.abs(surface.topY - pt.y) <= 0.5;
+      if (supported) {
+        run = 0;
+      } else {
+        run += len / n;
+        widest = Math.max(widest, run);
+      }
+    }
+  }
+  return Math.round(widest * 10) / 10;
+}
+
+/**
+ * Scans a path for a horizontal gap between elevated surfaces. A gap of 1" or less is regular
+ * movement; 1-6" must be jumped; wider cannot be crossed.
  */
 export function detectPathGapJump(
   state: GameState,
@@ -347,74 +402,27 @@ export function detectPathGapJump(
 ): {
   isGapJump: boolean;
   gapDistance: number;
-  targetQuality: number;
+  tooWide: boolean;
+  dice: number;
+  target: number;
 } {
-  if (path.length < 2) {
-    return { isGapJump: false, gapDistance: 0, targetQuality: unit.quality };
-  }
-
-  const startPt = path[0];
-  const endPt = path[path.length - 1];
-  const startY = startPt.y ?? 0;
-  const endY = endPt.y ?? 0;
-
-  if (startY >= 1.0 && endY >= 1.0) {
-    const startPiece = findTerrainAtPosition(state, startPt);
-    const endPiece = findTerrainAtPosition(state, endPt);
-    if (startPiece && endPiece && startPiece.id !== endPiece.id) {
-      const horizDist = distanceHorizontal(startPt, endPt);
-      if (horizDist > 1.05 && horizDist <= 6.0) {
-        const targetQuality = hasTrait(unit.specialRules, 'pathfinder') ? 2 : unit.quality;
-        return {
-          isGapJump: true,
-          gapDistance: Math.round(horizDist * 10) / 10,
-          targetQuality,
-        };
-      }
-    }
-  }
-
-  return { isGapJump: false, gapDistance: 0, targetQuality: unit.quality };
+  const none = { isGapJump: false, gapDistance: 0, tooWide: false, dice: 0, target: 0 };
+  if (path.length < 2 || hasTrait(unit.specialRules, 'airborne')) return none;
+  const gap = measureElevatedGap(state, path);
+  if (gap <= FREE_GAP_MAX) return none;
+  const res = resolveGapJump(gap, unit);
+  return {
+    isGapJump: res.canJump,
+    gapDistance: gap,
+    tooWide: !res.canJump,
+    dice: res.dice,
+    target: res.target,
+  };
 }
 
-/**
- * Resolves a horizontal gap jump between elevated surfaces.
- * Gaps <= 1.0" are stepped across freely.
- * Gaps > 1.0" up to 6.0" require a Quality test (Airborne auto-passes; Pathfinder passes on 2+).
- */
-export function resolveGapJump(
-  gapDistance: number,
-  unit: Unit,
-  jumpRoll?: number
-): {
-  requiresTest: boolean;
-  passed: boolean;
-  targetQuality: number;
-} {
-  if (gapDistance <= 1.05) {
-    return { requiresTest: false, passed: true, targetQuality: unit.quality };
-  }
-
-  if (hasTrait(unit.specialRules, 'airborne')) {
-    return { requiresTest: false, passed: true, targetQuality: 2 };
-  }
-
-  const targetQuality = hasTrait(unit.specialRules, 'pathfinder') ? 2 : unit.quality;
-
-  if (jumpRoll === undefined) {
-    return { requiresTest: true, passed: false, targetQuality };
-  }
-
-  // Natural 1 fails; natural 6 passes
-  if (jumpRoll === 1) {
-    return { requiresTest: true, passed: false, targetQuality };
-  }
-  if (jumpRoll === 6) {
-    return { requiresTest: true, passed: true, targetQuality };
-  }
-
-  const passed = jumpRoll >= targetQuality;
-  return { requiresTest: true, passed, targetQuality };
+/** Jump test for crossing a horizontal gap (same dice as a drop: X+1 dice, all 3+). */
+export function resolveGapJump(gapDistance: number, unit: Unit, rolls?: number[]): JumpResult {
+  return resolveJump(unit, gapDistance, FREE_GAP_MAX, JUMP_GAP_MAX, rolls);
 }
 
 /**

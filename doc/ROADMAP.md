@@ -661,7 +661,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Drops cost horizontal distance only; drops of 3-6" need the X+1 dice (3+) jump test, otherwise a fall; drops above 6" always fall; no move ends in mid-air.
 - [x] Stairs orientation is data (head = local +Z) and the editor snaps stairs to deck faces; ladder paths walk the spine (foot -> head).
 - [x] Manual checklists consolidated into `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`.
-- [ ] Known gap: horizontal gap jumps still use a single Quality test (not X+1 dice at 3+).
+- [x] Horizontal gap jumps use the same X+1 dice (3+) test; gaps measured as real open air; over 6" rejected; traversal dice shown in the dice panel and log.
+- [x] Crate collision footprint is the full 1"×1"; saved maps with a stray `elevation` (e.g. 0 on a catwalk) no longer break picking or physics; clicking pillars/undersides picks the ground.
 
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
 - [x] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).

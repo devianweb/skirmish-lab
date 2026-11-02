@@ -300,7 +300,7 @@ describe('spatial: shooting ray debug calculations', () => {
   it('computes ray intersections with a crate along the line of fire', () => {
     const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
     const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 6 });
-    // Crate at (0, 0, 5) with scale (1, 1, 1), half-extents (0.35, 0.35) + 0.15 margin = 0.5
+    // Crate at (0, 0, 5) with scale (1, 1, 1): half-extents 0.5 (full footprint) + 0.15 margin = 0.65
     const crate = {
       id: 'c1',
       terrainType: 'crate',
@@ -326,10 +326,10 @@ describe('spatial: shooting ray debug calculations', () => {
     expect(hit.pieceId).toBe('c1');
     expect(hit.isCoverProvider).toBe(true);
     expect(hit.isLoSBlocker).toBe(false);
-    expect(hit.tEntry).toBeCloseTo(4.5, 1);
-    expect(hit.tExit).toBeCloseTo(5.5, 1);
-    expect(hit.entryPoint.z).toBeCloseTo(4.5, 1);
-    expect(hit.exitPoint.z).toBeCloseTo(5.5, 1);
+    expect(hit.tEntry).toBeCloseTo(4.35, 1);
+    expect(hit.tExit).toBeCloseTo(5.65, 1);
+    expect(hit.entryPoint.z).toBeCloseTo(4.35, 1);
+    expect(hit.exitPoint.z).toBeCloseTo(5.65, 1);
   });
 
   it('detects Line of Sight blocking by a solid wall', () => {

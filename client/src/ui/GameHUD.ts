@@ -1033,7 +1033,9 @@ export class GameHUD {
     }
     const gapJump = detectPathGapJump(this.state, path, active);
     if (gapJump.isGapJump) {
-      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required or fall!`;
+      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): roll ${gapJump.dice} dice, all ${gapJump.target}+ or fall!`;
+    } else if (gapJump.tooWide) {
+      summary += ` · ❌ GAP TOO WIDE (${gapJump.gapDistance.toFixed(1)}"): cannot be jumped (6" maximum)`;
     }
 
     this.selectedCasualtyModelId =
@@ -1148,7 +1150,9 @@ export class GameHUD {
     }
     const gapJump = detectPathGapJump(this.state, path, active);
     if (gapJump.isGapJump) {
-      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required or fall!`;
+      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): roll ${gapJump.dice} dice, all ${gapJump.target}+ or fall!`;
+    } else if (gapJump.tooWide) {
+      summary += ` · ❌ GAP TOO WIDE (${gapJump.gapDistance.toFixed(1)}"): cannot be jumped (6" maximum)`;
     }
 
     this.selectedCasualtyModelId =
@@ -1344,7 +1348,9 @@ export class GameHUD {
       }
       const gapJump = detectPathGapJump(this.state!, path, active);
       if (gapJump.isGapJump) {
-        traversalNotes += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): Quality Q${gapJump.targetQuality}+ check required`;
+        traversalNotes += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): ${gapJump.dice} dice, all ${gapJump.target}+`;
+      } else if (gapJump.tooWide) {
+        traversalNotes += ` · ❌ GAP TOO WIDE (${gapJump.gapDistance.toFixed(1)}")`;
       }
 
       const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
@@ -1852,6 +1858,31 @@ export class GameHUD {
       const entry = state.actionLog[i];
       if (!entry.dice) continue;
 
+      // Movement hazards (jumps, falls, dangerous terrain): a dice story with no attack
+      const traversal = entry.dice.outcome.traversal;
+      if (traversal && traversal.length > 0 && entry.dice.outcome.attackCount === 0) {
+        const mover = this.unitName(entry.dice.context.attackerId);
+        const eventsHtml = traversal
+          .map((e) => {
+            const dieHtml = (e.rolls ?? [])
+              .map((r) => {
+                const ok =
+                  e.type === 'hazard' ? r !== 1 : e.target !== undefined ? r >= e.target : r === 6 || r >= 2;
+                return `<span class="sl-die ${ok ? 'hit-pass' : 'hit-miss'}">${r}</span>`;
+              })
+              .join('');
+            return `<div class="sl-hud-dice-label">${e.text}</div>${
+              dieHtml ? `<div class="sl-hud-dice-row">${dieHtml}</div>` : ''
+            }`;
+          })
+          .join('');
+        return `
+          <div class="sl-hud-dice">
+            <div class="sl-hud-dice-title">Movement hazards: ${mover}</div>
+            ${eventsHtml}
+          </div>`;
+      }
+
       const attacker = state.units.find((u) => u.id === entry.dice!.context.attackerId);
       const target = state.units.find((u) => u.id === entry.dice!.context.targetId);
       const toHit = entry.dice.results.find((r) => r.purpose === 'to-hit');
@@ -2129,7 +2160,9 @@ export class GameHUD {
     return entries
       .map((entry) => {
         const actor = state.players.find((p) => p.id === entry.action.actorId);
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}</div>`;
+        const hazards = entry.dice?.outcome.traversal;
+        const hazardText = hazards && hazards.length > 0 ? ` — ${hazards.map((e) => e.text).join('; ')}` : '';
+        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}</div>`;
       })
       .join('');
   }
@@ -3090,7 +3123,11 @@ export class GameHUD {
     if (this.state) {
       for (let i = this.state.actionLog.length - 1; i >= this.lastSeenLogIndex; i--) {
         const entry = this.state.actionLog[i];
-        if (entry.dice && entry.dice.outcome.wounds !== undefined) {
+        if (
+          entry.dice &&
+          entry.dice.outcome.wounds !== undefined &&
+          !(entry.dice.outcome.traversal && entry.dice.outcome.attackCount === 0 && entry.dice.outcome.wounds === 0)
+        ) {
           const target = this.state.units.find((u) => u.id === entry.dice!.context.targetId);
           if (target) {
             outcome = { position: { ...target.position }, wounds: entry.dice.outcome.wounds };
