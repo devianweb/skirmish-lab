@@ -133,6 +133,17 @@ export const TERRAIN_STRUCTURES: Record<string, TerrainGroup> = {
   },
 };
 
+// --- Low cover & scatter (13.6D) ----------------------------------------------------------------
+// Single-solid pieces. Whether a piece blocks sight is a flag on the piece (palette metadata): barricades,
+// and pipes are low cover (crates keep the legacy inset footprint via the fallback body) (you see over them, the proximity rule gives cover); the container is a
+// sight blocker with a walkable roof.
+TERRAIN_STRUCTURES.barricade = { id: 'barricade', solids: [solid(FULL, [0, 1], FULL, 'barricade-body')] };
+TERRAIN_STRUCTURES['industrial-pipe'] = { id: 'industrial-pipe', solids: [solid(FULL, [0, 1], FULL, 'pipe-body')] };
+TERRAIN_STRUCTURES['shipping-container'] = {
+  id: 'shipping-container',
+  solids: [solid(FULL, [0, 1], FULL, 'container-body', { walkable: true })],
+};
+
 // --- Elevation (13.6C) ------------------------------------------------------------------------
 /** Floor tier: deck tops sit at 3.0"; decks are 0.25" thick; supports are 0.5" square. */
 const TIER = 3.0;
@@ -176,9 +187,6 @@ TERRAIN_STRUCTURES['platform-large'] = platform('platform-large', 6, 4);
 TERRAIN_STRUCTURES.catwalk = { id: 'catwalk', solids: [deckSolid('catwalk-deck')] };
 /** Standalone support pillar (2.75" tall: ground to deck underside). */
 TERRAIN_STRUCTURES['support-pillar'] = { id: 'support-pillar', solids: [solid(FULL, [0, 1], FULL, 'pillar-body')] };
-/** Deck railing (1.0" tall, low cover: set blocksLineOfSight false on the piece) and parapet wall (1.5"). */
-TERRAIN_STRUCTURES['deck-railing'] = { id: 'deck-railing', solids: [solid(FULL, [0, 1], FULL, 'railing-body')] };
-TERRAIN_STRUCTURES['deck-parapet'] = { id: 'deck-parapet', solids: [solid(FULL, [0, 1], FULL, 'parapet-body')] };
 
 // L-corner ruin: a group of two port walls (north and west). The courtyard is empty space.
 

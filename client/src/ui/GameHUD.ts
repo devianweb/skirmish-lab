@@ -29,7 +29,8 @@ import {
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   OBJECTIVE_CONTROL_RADIUS,
   pathLength,
-  pathLength3D,
+  pathMovementCost,
+  describeDrop,
   ShootingRayDebugInfo,
   Unit,
   validateDeploymentPosition,
@@ -381,7 +382,7 @@ export class GameHUD {
           const maxDist = pendingReaction.data?.maxDistance ?? 3.0;
           const path = findNavPath(this.state, victor, target.position, maxDist);
           if (path.length >= 2) {
-            const distance = pathLength3D(path);
+            const distance = pathMovementCost(this.state!, path);
             this.flow = {
               mode: 'confirming',
               action: createAction(this.localPlayerId, 'consolidate-move', {
@@ -846,7 +847,7 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength3D(path);
+    const distance = pathMovementCost(this.state!, path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the model');
       return;
@@ -956,8 +957,8 @@ export class GameHUD {
     const maxDrop = Math.max(
       ...orderedPaths.map((p) => detectPathFall(p, this.state!).maxDrop)
     );
-    if (maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
-      summary += ` · ⚠️ HIGH DROP (${maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    if (describeDrop(maxDrop, active)) {
+      summary += ` · ${describeDrop(maxDrop, active)}`;
     }
 
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
@@ -999,7 +1000,7 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength3D(path);
+    const distance = pathMovementCost(this.state!, path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -1024,8 +1025,8 @@ export class GameHUD {
       summary += ' · [Difficult Terrain: 6.0" speed cap]';
     }
     const fall = detectPathFall(path, this.state);
-    if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
-      summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    if (describeDrop(fall.maxDrop, active)) {
+      summary += ` · ${describeDrop(fall.maxDrop, active)}`;
     }
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
@@ -1100,7 +1101,7 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathLength3D(path);
+    const distance = pathMovementCost(this.state!, path);
     if (distance < 0.05) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -1139,8 +1140,8 @@ export class GameHUD {
       summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
     }
     const fall = detectPathFall(path, this.state);
-    if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
-      summary += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1) · ends activation immediately!`;
+    if (describeDrop(fall.maxDrop, active)) {
+      summary += ` · ${describeDrop(fall.maxDrop, active)}`;
     }
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
@@ -1320,7 +1321,7 @@ export class GameHUD {
       }
       const isDifficult = isPathDifficult(this.state!, path, active);
       const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
-      const chargeDistance = pathLength3D(path);
+      const chargeDistance = pathMovementCost(this.state!, path);
       if (chargeDistance > maxCharge + 0.01) {
         this.showToast(
           isDifficult
@@ -1335,8 +1336,8 @@ export class GameHUD {
         traversalNotes += ' · [Difficult Terrain 6.0" cap]';
       }
       const fall = detectPathFall(path, this.state);
-      if (fall.maxDrop > 3.05 && !hasTrait(active.specialRules, 'airborne')) {
-        traversalNotes += ` · ⚠️ HIGH DROP (${fall.maxDrop.toFixed(1)}"): Falling damage (AP 1)`;
+      if (describeDrop(fall.maxDrop, active)) {
+        traversalNotes += ` · ${describeDrop(fall.maxDrop, active)}`;
       }
       if (isPathDangerous(this.state!, path, active)) {
         traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
