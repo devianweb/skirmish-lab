@@ -693,6 +693,14 @@ export function isSuspendedInMidAir(state: GameState, point: Vector3): boolean {
   return true;
 }
 
+/**
+ * A descent of more than 0.5" that is not a stair, ramp or ladder is a drop: the model steps off
+ * an edge rather than walking a slope. Drops cost only their horizontal distance in movement.
+ */
+export function isFreeDropSegment(state: GameState, a: Vector3, b: Vector3): boolean {
+  return (a.y ?? 0) - (b.y ?? 0) > 0.5 && !isSegmentOnRampOrStairs(state, a, b);
+}
+
 type SpatialSubject = Pick<Unit, 'position'> & { id?: string; models?: Unit['models']; status?: Unit['status'] };
 
 export interface LineOfSightTrace {
@@ -1404,11 +1412,11 @@ export function getStairSurfaceHeight(
 /**
  * Checks whether a 3D line segment traverses an active vertical ladder.
  */
-export function isSegmentOnLadder(
+export function findLadderForSegment(
   state: GameState,
   p1: Vector3,
   p2: Vector3
-): boolean {
+): TerrainPiece | null {
   for (const piece of state.terrain) {
     if (!isLadderPiece(piece)) continue;
 
@@ -1435,9 +1443,17 @@ export function isSegmentOnLadder(
       return Math.abs(lx) <= hx + margin && Math.abs(lz) <= hz + margin;
     });
 
-    if (onLadder) return true;
+    if (onLadder) return piece;
   }
-  return false;
+  return null;
+}
+
+export function isSegmentOnLadder(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3
+): boolean {
+  return findLadderForSegment(state, p1, p2) !== null;
 }
 
 /**
@@ -1535,29 +1551,9 @@ export function getStairWaypoints(
     z: piece.position.z - hz * cos,
   };
 
-  const isPlatformAt = (point: { x: number; z: number }) =>
-    findWalkableSurfaceAt(state, { x: point.x, z: point.z }, 0.25, piece.id)?.piece ?? null;
-
-  const platA = isPlatformAt(endA);
-  const platB = isPlatformAt(endB);
-
-  if (platB && !platA) {
-    // End B is the upper head at topY, End A is the lower foot at botY
-    return {
-      foot: {
-        x: Math.round((endA.x + sin * 0.2) * 100) / 100,
-        y: botY,
-        z: Math.round((endA.z + cos * 0.2) * 100) / 100,
-      },
-      head: {
-        x: Math.round((endB.x - sin * 0.2) * 100) / 100,
-        y: topY,
-        z: Math.round((endB.z - cos * 0.2) * 100) / 100,
-      },
-    };
-  }
-
-  // Default / platA: End A (+Z) is head at topY, End B (-Z) is foot at botY
+  // Orientation is data, not neighbours: the head (top) end is always local +Z, so the rendered wedge, the
+  // F9 wireframe and the movement physics always agree. Rotate the piece to face the stairs at the deck.
+  // End A (+Z) is the head at topY, End B (-Z) is the foot at botY
   return {
     foot: {
       x: Math.round((endB.x - sin * 0.2) * 100) / 100,
@@ -2113,23 +2109,49 @@ export function findNavPath(
     curIdx = furthest;
   }
 
+  // 5b. Ladder climbs are vertical on the ladder's spine: walk to the foot, climb straight up (or down)
+  // to the head, then continue. Without this, string-pulling can leave a slanted "climb" that starts
+  // beside the ladder.
+  const climbed: Vector3[] = [smoothed[0]];
+  const sameSpot = (a: Vector3, b: Vector3) =>
+    Math.hypot(a.x - b.x, (a.y ?? 0) - (b.y ?? 0), a.z - b.z) < 0.05;
+  for (let i = 1; i < smoothed.length; i++) {
+    const p1 = climbed[climbed.length - 1];
+    const p2 = smoothed[i];
+    if (Math.abs((p2.y ?? 0) - (p1.y ?? 0)) > 0.5 && !hasTrait(unit.specialRules, 'airborne')) {
+      const ladder = findLadderForSegment(state, p1, p2);
+      if (ladder) {
+        const { foot, head } = getStairWaypoints(state, ladder);
+        const sequence = (p2.y ?? 0) > (p1.y ?? 0) ? [foot, head] : [head, foot];
+        for (const pt of sequence) {
+          if (!sameSpot(climbed[climbed.length - 1], pt)) climbed.push({ ...pt });
+        }
+      }
+    }
+    if (!sameSpot(climbed[climbed.length - 1], p2)) climbed.push(p2);
+  }
+  smoothed.length = 0;
+  smoothed.push(...climbed);
+
   // 6. Cumulative distance clamping
   const result: Vector3[] = [{ ...smoothed[0] }];
   let distLeft = maxDistance;
 
+  // Movement cost of a segment: drops cost their horizontal distance only; everything else is 3D length.
+  const segCost = (a: Vector3, b: Vector3): number =>
+    isFreeDropSegment(state, a, b)
+      ? Math.hypot(b.x - a.x, b.z - a.z)
+      : Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z);
+
   let totalSmoothedLen = 0;
   for (let j = 1; j < smoothed.length; j++) {
-    totalSmoothedLen += Math.hypot(
-      smoothed[j].x - smoothed[j - 1].x,
-      (smoothed[j].y ?? 0) - (smoothed[j - 1].y ?? 0),
-      smoothed[j].z - smoothed[j - 1].z
-    );
+    totalSmoothedLen += segCost(smoothed[j - 1], smoothed[j]);
   }
 
   for (let i = 1; i < smoothed.length; i++) {
     const p1 = smoothed[i - 1];
     const p2 = smoothed[i];
-    const segLen = Math.hypot(p2.x - p1.x, (p2.y ?? 0) - (p1.y ?? 0), p2.z - p1.z);
+    const segLen = segCost(p1, p2);
 
     // If stopBeforeDifficult is requested (e.g. for Rush actions where entering difficult terrain
     // would negate double speed and cap movement to 6"), stop at the base of sheer climbs or

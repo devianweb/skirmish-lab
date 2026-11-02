@@ -199,7 +199,7 @@ At the **end of each round**, evaluate total army strength:
 | :--- | :--- | :--- |
 | **Cover Terrain** | Light foliage, low barricades, crates, visual obscuration, window sills. | Defenders receive **$+1$ to Defense rolls** against shooting attacks when positioned within cover, within 1.0" of intervening low cover along the line of fire, or within 1.0" of a window aperture being fired through. |
 | **Aperture Walls** | Doorway passages and window firing ports. | Doorways are open air: movement and Line of Sight pass freely, with no cover from the gap itself. Windows allow Line of Sight through the port only while a model is manning it (base edge within 1.0"), grant that model +1 Defense, and block movement. |
-| **Elevated Floors** | Platforms, catwalks and the ruin ledge at the 3.0" floor tier. | Decks are solid slabs: models walk beneath them and stand on top. Sight is traced in 3D, so a deck blocks sight from below at close range while rails (1.0") are seen over and parapets (1.5") hide a model. Ladders and stairs are the only ways up (no free climbing). |
+| **Elevated Floors** | Platforms, catwalks and the ruin ledge at the 3.0" floor tier. | Decks are solid slabs: models walk beneath them and stand on top. Sight is traced in 3D, so a deck blocks sight from below at close range while low cover stacked on it (barricades, crates) is seen over and a wall hides a model. Ladders and stairs are the only ways up (no free climbing). |
 | **Difficult Terrain** | Mud, dense trenches, steep inclines, deep water. | Maximum movement distance across the entire activation is **capped at 6"** (negates speed bonuses for Rush and Charge). |
 | **Dangerous Terrain** | Minefields, acid pools, barbed wire, electrified wire. | When moving through or activating inside dangerous terrain, roll 1d6 per model (or Tough value dice). Every **roll of 1 inflicts 1 wound**. |
 
@@ -255,11 +255,13 @@ Every special rule is modeled as a declarative modifier or state machine interce
 Whenever a target model receives a **Suppressed (Shaken)** result from an attack, the attacking player may roll 1d6. On a **4+**, the attacker displaces the target model by up to **2"** in any horizontal direction.
 
 ### 10.2 Gaps & Drops (Jumping)
-- **Standard Clearance:** Models cross horizontal gaps $\le 1"$ and drop elevations $\le 3"$ without penalty or testing.
+- **Regular movement:** Models cross horizontal gaps $\le 1"$ and drop off elevations $\le 3"$ as regular movement, with no test. Movement is measured along the board, so a drop costs only its horizontal distance (climbs, stairs, ramps and ladders cost their full length).
 - **Extended Clearance ($\le 6"$):**
-  - Requires a Jump test: Roll $X + 1$ dice testing for $3+$, where $X$ is 1 die per full 3" traversed.
-  - If all dice succeed ($3+$), the model clears the distance without expending its normal movement allowance.
-  - If any die fails, the model falls.
+  - Requires a Jump test: Roll $X + 1$ dice testing for $3+$, where $X$ is 1 die per full 3" traversed (2+ with `pathfinder`; `airborne` auto-passes).
+  - If all dice succeed ($3+$), the model clears the distance without it counting toward its move and the activation continues.
+  - If any die fails, the model falls (see 10.3) and its activation ends.
+- **Beyond 6":** the model cannot jump and falls.
+- A model never finishes a move suspended in mid-air: if its allowance cannot finish a drop it stops at the edge.
 
 ### 10.3 Falling Damage
 - If a model falls or is pushed off an elevated surface $\ge 2"$ tall:

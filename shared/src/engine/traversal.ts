@@ -1,7 +1,7 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { findTerrainAtPosition, isSegmentOnRampOrStairs, computeSquadCentroid } from './spatial';
+import { findTerrainAtPosition, isFreeDropSegment, isSegmentOnRampOrStairs, computeSquadCentroid } from './spatial';
 
 /** 3D Euclidean distance between two points. */
 export function distance3D(a: Vector3, b: Vector3): number {
@@ -23,6 +23,72 @@ export function pathLength3D(path: Vector3[]): number {
     total += distance3D(path[i - 1], path[i]);
   }
   return total;
+}
+
+/** Drops up to this height (inches) are regular movement: no test needed. */
+export const FREE_DROP_MAX = 3.05;
+/** Drops above FREE_DROP_MAX up to this height can be jumped (test); anything higher is a fall. */
+export const JUMP_DROP_MAX = 6.05;
+
+/**
+ * Movement a path uses from a model's allowance. Tabletop movement is measured along the board, so
+ * drops (regular, jumped or fallen) cost only their horizontal distance; climbs, stairs, ramps and
+ * ladders cost their full length.
+ */
+export function pathMovementCost(state: GameState, path: Vector3[]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    total += isFreeDropSegment(state, a, b) ? distanceHorizontal(a, b) : distance3D(a, b);
+  }
+  return total;
+}
+
+/** Jump test dice for a drop (or gap) of `distance` inches: one die per full 3", plus one. */
+export function calculateJumpDice(distance: number): number {
+  return Math.floor((distance + 0.05) / 3.0) + 1;
+}
+
+/**
+ * Jump test for dropping off an elevation of up to 6": roll one die per full 3" plus one, each
+ * needing 3+ (2+ with Pathfinder; Airborne auto-passes). All dice must succeed or the model falls.
+ * Drops of 3" or less need no test; drops above 6" cannot be jumped (the model falls).
+ */
+export function resolveDropJump(
+  unit: Unit,
+  drop: number,
+  rolls?: number[]
+): {
+  requiresTest: boolean;
+  canJump: boolean;
+  dice: number;
+  target: number;
+  passed: boolean;
+} {
+  if (drop <= FREE_DROP_MAX) {
+    return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
+  }
+  if (hasTrait(unit.specialRules, 'airborne')) {
+    return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
+  }
+  const target = hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
+  if (drop > JUMP_DROP_MAX) {
+    return { requiresTest: false, canJump: false, dice: 0, target, passed: false };
+  }
+  const dice = calculateJumpDice(drop);
+  const passed = !!rolls && rolls.length >= dice && rolls.slice(0, dice).every((r) => r >= target);
+  return { requiresTest: true, canJump: true, dice, target, passed };
+}
+
+/** Human-readable warning for the highest drop on a path (empty when it is regular movement). */
+export function describeDrop(drop: number, unit: Unit): string {
+  if (drop <= FREE_DROP_MAX || hasTrait(unit.specialRules, 'airborne')) return '';
+  if (drop > JUMP_DROP_MAX) {
+    return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls, Falling damage and ends activation!`;
+  }
+  const res = resolveDropJump(unit, drop);
+  return `⚠️ JUMP DOWN (${drop.toFixed(1)}"): roll ${res.dice} dice, all must be ${res.target}+ or fall (Falling damage, ends activation)`;
 }
 
 /**

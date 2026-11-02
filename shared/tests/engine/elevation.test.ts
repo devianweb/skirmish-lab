@@ -11,6 +11,7 @@ import {
   findWalkableSurfaceAt,
   hasCoverAgainstAttack,
   hasLineOfSight,
+  getStairWaypoints,
   isSegmentOnRampOrStairs,
   isSuspendedInMidAir,
   computeShootingRayDebug,
@@ -150,23 +151,56 @@ describe('elevation: line of sight is geometry, not setback rules', () => {
   });
 });
 
-describe('elevation: stacking rails and parapets on a deck', () => {
+describe('elevation: stacking low cover and walls on a deck', () => {
   const plat = piece('platform-small', 0, 0, 0);
 
-  it('a 1.0" railing is seen over (low cover); a 1.5" parapet hides the model behind it', () => {
+  it('a 0.5" barricade is seen over; a wall stacked on the deck hides the model behind it', () => {
     const shooter = makeUnit('s', HOST, { x: -1.5, y: 3, z: 0 });
     const target = makeUnit('t', GUEST, { x: 1.5, y: 3, z: 0 });
-    const rail = piece('deck-railing', 0, 3, 0, Math.PI / 2, 'rail');
-    const parapet = piece('deck-parapet', 0, 3, 0, Math.PI / 2, 'parapet');
-    expect(hasLineOfSight(makeState([shooter, target], [plat, rail]), shooter, target)).toBe(true);
-    expect(hasLineOfSight(makeState([shooter, target], [plat, parapet]), shooter, target)).toBe(false);
+    const barricade = piece('barricade', 0, 3, 0, Math.PI / 2, 'barricade');
+    const wall = piece('wall', 0, 3, 0, Math.PI / 2, 'wall');
+    expect(hasLineOfSight(makeState([shooter, target], [plat, barricade]), shooter, target)).toBe(true);
+    expect(hasLineOfSight(makeState([shooter, target], [plat, wall]), shooter, target)).toBe(false);
   });
 
-  it('a railing on the deck blocks movement through it', () => {
+  it('a barricade on the deck blocks movement through it and gives low cover within 1" behind it', () => {
     const mover = makeUnit('m', HOST, { x: -1.5, y: 3, z: 0 });
-    const rail = piece('deck-railing', 0, 3, 0, Math.PI / 2, 'rail');
-    const state = makeState([mover], [plat, rail]);
+    const barricade = piece('barricade', 0, 3, 0, Math.PI / 2, 'barricade');
+    const state = makeState([mover], [plat, barricade]);
     expect(findMoveBlocker(state, mover, [{ x: -1.5, y: 3, z: 0 }, { x: 1.5, y: 3, z: 0 }]).blocked).toBe(true);
+
+    const shooter = makeUnit('s', HOST, { x: -1.9, y: 3, z: 0 });
+    const behind = makeUnit('t', GUEST, { x: 0.8, y: 3, z: 0 });
+    const cover = makeState([shooter, behind], [plat, barricade]);
+    expect(hasCoverAgainstAttack(cover, shooter, behind)).toBe(true);
+  });
+});
+
+describe('low cover and scatter pieces (13.6D)', () => {
+  it('crate, barricade and pipe are low cover (seen over); the container blocks sight', () => {
+    const shooter = makeUnit('s', HOST, { x: -5, y: 0, z: 0 });
+    const target = makeUnit('t', GUEST, { x: 5, y: 0, z: 0 });
+    for (const type of ['barricade', 'crate', 'industrial-pipe']) {
+      const p = piece(type, 0, 0, 0, Math.PI / 2, type);
+      expect(hasLineOfSight(makeState([shooter, target], [p]), shooter, target), type).toBe(true);
+    }
+    const container = piece('shipping-container', 0, 0, 0, Math.PI / 2, 'container');
+    expect(hasLineOfSight(makeState([shooter, target], [container]), shooter, target)).toBe(false);
+  });
+
+  it('the container roof is a walkable floor at 2.25"', () => {
+    const container = piece('shipping-container', 0, 0, 0);
+    const surface = findWalkableSurfaceAt(makeState([], [container]), { x: 0, y: 2.25, z: 0 });
+    expect(surface?.topY).toBeCloseTo(2.25);
+  });
+
+  it('low cover gives +1 only to a defender within 1" behind it (low-cover proximity rule is unchanged)', () => {
+    const shooter = makeUnit('s', HOST, { x: -4, y: 0, z: 0 });
+    const barricade = piece('barricade', 0, 0, 0, Math.PI / 2, 'barricade'); // 3" long across the line of fire
+    const near = makeUnit('near', GUEST, { x: 0.9, y: 0, z: 0 });
+    const far = makeUnit('far', GUEST, { x: 4, y: 0, z: 0 });
+    expect(hasCoverAgainstAttack(makeState([shooter, near], [barricade]), shooter, near)).toBe(true);
+    expect(hasCoverAgainstAttack(makeState([shooter, far], [barricade]), shooter, far)).toBe(false);
   });
 });
 
@@ -219,6 +253,11 @@ describe('elevation: reaching the deck', () => {
     const state = makeState([unit], [plat, ladder]);
     const full = findNavPath(state, unit, { x: -1, y: 3, z: 0 }, 12);
     expect(full[full.length - 1].y).toBeCloseTo(3.0);
+    // The climb runs up the ladder's spine: through the foot and the head, vertically
+    const foot = full.findIndex((p) => Math.abs(p.x + 2.25) < 0.01 && Math.abs(p.z) < 0.01 && p.y === 0);
+    expect(foot).toBeGreaterThanOrEqual(0);
+    expect(full[foot + 1]).toMatchObject({ x: full[foot].x, z: full[foot].z });
+    expect(full[foot + 1].y).toBeCloseTo(3.0);
     // Budget that reaches the foot but not the head: stays on the ground
     const short = findNavPath(state, unit, { x: -1, y: 3, z: 0 }, 4);
     expect(short[short.length - 1].y).toBe(0);
@@ -244,17 +283,21 @@ describe('elevation: hopping between decks', () => {
 describe('elevation: climbing down (no hanging in mid-air)', () => {
   const ruin = piece('ruin-l', 0, 0, 0);
 
-  it('a drop the budget cannot finish leaves the model at the ledge edge, not hanging part-way down', () => {
+  it('a 3" drop costs no movement: a budget that reaches the edge finishes the drop', () => {
     const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
     const state = makeState([unit], [ruin]);
-    // 0.7" along the ledge to the edge, then a 3.0" drop: 2.0" of budget cannot finish the drop
-    const short = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 2.0);
+    // 0.7" along the ledge to the edge; the 3" drop itself is free
+    const path = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 1.0);
+    expect(path[path.length - 1].y).toBe(0);
+  });
+
+  it('a budget that cannot even reach the edge keeps the model on the ledge, not hanging in the air', () => {
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
+    const state = makeState([unit], [ruin]);
+    const short = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 0.4);
     const end = short[short.length - 1];
     expect(end.y).toBeCloseTo(3.0);
-    expect(end.z).toBeCloseTo(0.5, 1);
-    // Enough budget finishes the drop to the ground
-    const full = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 6.0);
-    expect(full[full.length - 1].y).toBe(0);
+    expect(end.z).toBeGreaterThan(0.5);
   });
 
   it('every clamped path end is either on a floor, on the ground or on a slope, never suspended', () => {
@@ -305,5 +348,48 @@ describe('F9 shooting ray: the line follows the 3D ray (not one flat plane)', ()
     expect(mid).toBeCloseTo(2.6, 0);
     expect(hit.entryPoint.y).toBeGreaterThan(debug.from.y);
     expect(hit.exitPoint.y).toBeGreaterThanOrEqual(hit.entryPoint.y);
+  });
+});
+
+describe('stairs orientation is data, not neighbours', () => {
+  it('the head (top) end is always local +Z, whichever side a deck is on', () => {
+    for (const deckZ of [4, -4, 100]) {
+      const stairs = piece('stairs', 0, 0, 0, 0, 'stairs-1');
+      const state = makeState([], [stairs, piece('platform-small', 0, 0, deckZ, 0, 'deck')]);
+      const { foot, head } = getStairWaypoints(state, stairs);
+      expect(head.z).toBeGreaterThan(foot.z); // rotation 0: +Z is up the stairs
+      expect(head.y).toBeCloseTo(3.0);
+      expect(foot.y).toBe(0);
+    }
+  });
+});
+
+describe('ladder paths stay on the spine from any approach', () => {
+  it('approaching from the side of a platform, the climb still goes through the ladder foot and head', () => {
+    const plat = piece('platform-small', 0, 0, 0);
+    const ladder = piece('ladder', 2, 0, 1, -Math.PI / 2, 'ladder-east');
+    const unit = makeUnit('u', HOST, { x: 6, y: 0, z: -3 });
+    unit.speed = 12;
+    unit.remainingMovement = 12;
+    const state = makeState([unit], [plat, ladder]);
+    const path = findNavPath(state, unit, { x: 0, y: 3, z: 0 }, 20);
+    const climb = path.findIndex((p, i) => i > 0 && p.y > path[i - 1].y + 1);
+    expect(climb).toBeGreaterThan(0);
+    expect(path[climb - 1]).toMatchObject({ x: 2, z: 1, y: 0 });
+    expect(path[climb]).toMatchObject({ x: 2, z: 1 });
+    expect(path[climb].y).toBeCloseTo(3.0);
+  });
+
+  it('climbing down uses the same spine', () => {
+    const plat = piece('platform-small', 0, 0, 0);
+    const ladder = piece('ladder', 2, 0, 1, -Math.PI / 2, 'ladder-east');
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 0 });
+    unit.speed = 12;
+    unit.remainingMovement = 12;
+    const state = makeState([unit], [plat, ladder]);
+    const path = findNavPath(state, unit, { x: 5, y: 0, z: -2 }, 20);
+    const descent = path.findIndex((p, i) => i > 0 && p.y < path[i - 1].y - 1);
+    expect(path[descent - 1]).toMatchObject({ x: 2, z: 1 });
+    expect(path[descent]).toMatchObject({ x: 2, z: 1, y: 0 });
   });
 });

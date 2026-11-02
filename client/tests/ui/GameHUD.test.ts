@@ -1377,7 +1377,7 @@ describe('GameHUD', () => {
   });
 
   describe('Phase 11C: Traversal HUD Warnings & Casualty Allocation', () => {
-    it('displays high drop warning in confirmation bar when dropping > 3.0"', () => {
+    it('warns about the jump test when dropping 3-6" (X+1 dice, 3+) and the fall when dropping further', () => {
       const state = scenarioState();
       const unit = state.units.find((u) => u.ownerId === HOST)!;
       unit.position = { x: 0, y: 4.0, z: 0 };
@@ -1387,8 +1387,23 @@ describe('GameHUD', () => {
       clickByText(container, 'Move');
       hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
 
+      expect(container.textContent).toContain('JUMP DOWN');
+      expect(container.textContent).toContain('2 dice');
+      expect(container.textContent).toContain('3+');
+    });
+
+    it('warns that a drop above 6" cannot be jumped and falls', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: 0, y: 7.0, z: 0 };
+      activateUnit(state, HOST, unit.id);
+      const { hud, container } = setup(HOST, state);
+
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
+
       expect(container.textContent).toContain('HIGH DROP');
-      expect(container.textContent).toContain('Falling damage');
+      expect(container.textContent).toContain('too far to jump');
     });
 
     it('displays dangerous terrain hazard warning and allocates squad casualties', () => {

@@ -109,4 +109,5 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Keep `doc/ASSETS.md` updated.** Whenever adding or changing 3D models, fighter roles, terrain pieces, or UI markers, update the asset mapping table in [`doc/ASSETS.md`](doc/ASSETS.md).
 - **Follow the patterns.** All implementations must follow the architecture and patterns documented.
 - **Update ROADMAP.** Mark tasks complete when finished.
+- **Keep one manual checklist.** Manual playtest items live in `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`; update or add items there when behaviour changes instead of creating per-phase checklist files.
 - **Update AGENTS.md** if new constraints or patterns emerge.

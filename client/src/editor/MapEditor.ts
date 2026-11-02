@@ -186,6 +186,7 @@ export class MapEditor {
     };
 
     if (type === 'ladder') this.snapLadderToFace(newPiece);
+    else if (type === 'stairs') this.snapStairsToFace(newPiece);
 
     this.currentMap.terrain.push(newPiece);
     this.selectedPieceId = pieceId;
@@ -199,19 +200,19 @@ export class MapEditor {
   /** Nearest face of a floor (deck, catwalk, ledge) within this distance attracts a ladder. */
   static readonly LADDER_SNAP_DISTANCE = 2.0;
 
-  /**
-   * Snap a ladder onto the nearest floor edge: centred on the face line, facing the floor, with its
-   * climb height set to reach the floor's top. Returns false (ladder untouched) if no floor is near.
-   */
-  snapLadderToFace(ladder: TerrainPiece): boolean {
+  /** Nearest floor edge (deck, catwalk, ledge) to `pos` within LADDER_SNAP_DISTANCE, with its outward normal. */
+  private findNearestFloorFace(
+    pos: Vector3,
+    excludeId: string
+  ): { dist: number; x: number; z: number; nx: number; nz: number; topY: number } | null {
     let best: { dist: number; x: number; z: number; nx: number; nz: number; topY: number } | null = null;
     for (const other of this.currentMap.terrain) {
-      if (other.id === ladder.id) continue;
+      if (other.id === excludeId) continue;
       const yaw = other.rotation.y || 0;
       const cos = Math.cos(yaw);
       const sin = Math.sin(yaw);
       for (const surface of getWalkableSurfaces(other)) {
-        const l = worldToLocal(other, ladder.position);
+        const l = worldToLocal(other, pos);
         const cx = Math.max(surface.minX, Math.min(surface.maxX, l.x));
         const cz = Math.max(surface.minZ, Math.min(surface.maxZ, l.z));
         const edges = [
@@ -235,12 +236,37 @@ export class MapEditor {
         }
       }
     }
+    return best;
+  }
+
+  /**
+   * Snap a ladder onto the nearest floor edge: centred on the face line, facing the floor, with its
+   * climb height set to reach the floor's top. Returns false (ladder untouched) if no floor is near.
+   */
+  snapLadderToFace(ladder: TerrainPiece): boolean {
+    const best = this.findNearestFloorFace(ladder.position, ladder.id);
     if (!best) return false;
     ladder.position.x = Math.round(best.x * 100) / 100;
     ladder.position.z = Math.round(best.z * 100) / 100;
     // Local +Z points into the floor (inward = opposite the outward face normal)
     ladder.rotation.y = Math.atan2(-best.nx, -best.nz);
     ladder.scale.y = Math.max(0.25, Math.round((best.topY - ladder.position.y) * 100) / 100);
+    return true;
+  }
+
+  /**
+   * Snap stairs to the nearest floor edge: the top (head) end meets the face and the stairs run
+   * away from it, rise set to the floor's top. Stairs' head is always local +Z, so rotation decides
+   * which way they climb. Returns false (stairs untouched) if no floor is near.
+   */
+  snapStairsToFace(stairs: TerrainPiece): boolean {
+    const best = this.findNearestFloorFace(stairs.position, stairs.id);
+    if (!best) return false;
+    const half = stairs.scale.z / 2;
+    stairs.rotation.y = Math.atan2(-best.nx, -best.nz);
+    stairs.position.x = Math.round((best.x + best.nx * half) * 100) / 100;
+    stairs.position.z = Math.round((best.z + best.nz * half) * 100) / 100;
+    stairs.scale.y = Math.max(0.25, Math.round((best.topY - stairs.position.y) * 100) / 100);
     return true;
   }
 
