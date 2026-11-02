@@ -399,6 +399,21 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       const unit = state.units[0];
       unit.isActivated = true;
       unit.position = { x: 0, y: 4.0, z: 0 };
+      // A 4" deck whose east edge the unit stands on; the leap is declared (batch 1E: jumps are explicit)
+      state.terrain = [
+        {
+          id: 'deck-4',
+          terrainType: 'platform',
+          position: { x: -2, y: 4, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 0.3, z: 4 },
+          elevation: 4,
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: false,
+          isObstacle: false,
+        },
+      ];
 
       const moveAction = createAction('host-1', 'move-unit', {
         unitId: unit.id,
@@ -406,6 +421,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
           { x: 0, y: 4.0, z: 0 },
           { x: 1.0, y: 0, z: 0 }, // 4" drop
         ],
+        traversal: { kind: 'jump-drop', takeoff: { x: 0, y: 4.0, z: 0 }, landing: { x: 1.0, y: 0, z: 0 } },
         fallingDefenseRoll: 6, // Successful defense roll to avoid death
       });
 
