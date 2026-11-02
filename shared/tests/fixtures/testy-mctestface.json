@@ -1,0 +1,443 @@
+[
+  {
+    "id": "blank",
+    "name": "Testy McTestface",
+    "version": 1,
+    "board": {
+      "width": 44,
+      "height": 30
+    },
+    "terrain": [
+      {
+        "id": "terrain-ruin-l-mvzodz1i-959",
+        "terrainType": "ruin-l",
+        "position": {
+          "x": -2,
+          "y": 0,
+          "z": -1
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 4,
+          "y": 4,
+          "z": 4
+        },
+        "blocksLineOfSight": true,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false,
+        "elevation": 4
+      },
+      {
+        "id": "terrain-platform-small-mvzof11v-844",
+        "terrainType": "platform-small",
+        "position": {
+          "x": 7,
+          "y": 0,
+          "z": -1
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 4,
+          "y": 3,
+          "z": 4
+        },
+        "blocksLineOfSight": true,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": true
+      },
+      {
+        "id": "terrain-platform-small-mvzofdbd-396",
+        "terrainType": "platform-small",
+        "position": {
+          "x": 17,
+          "y": 0,
+          "z": -1
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 4,
+          "y": 3,
+          "z": 4
+        },
+        "blocksLineOfSight": true,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": true
+      },
+      {
+        "id": "terrain-catwalk-mvzofjwn-55",
+        "terrainType": "catwalk",
+        "position": {
+          "x": 12,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 6,
+          "y": 3,
+          "z": 2
+        },
+        "blocksLineOfSight": true,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": true
+      },
+      {
+        "id": "terrain-ladder-mvzofs39-920",
+        "terrainType": "ladder",
+        "position": {
+          "x": 5,
+          "y": 0,
+          "z": -1
+        },
+        "rotation": {
+          "x": 0,
+          "y": 1.5707963267948966,
+          "z": 0
+        },
+        "scale": {
+          "x": 0.5,
+          "y": 3,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": false,
+        "isObstacle": false,
+        "isWalkable": false,
+        "climbType": "ladder"
+      },
+      {
+        "id": "terrain-ladder-mvzofug9-226",
+        "terrainType": "ladder",
+        "position": {
+          "x": 19,
+          "y": 0,
+          "z": -1
+        },
+        "rotation": {
+          "x": 0,
+          "y": -1.5707963267948966,
+          "z": 0
+        },
+        "scale": {
+          "x": 0.5,
+          "y": 3,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": false,
+        "isObstacle": false,
+        "isWalkable": false,
+        "climbType": "ladder"
+      },
+      {
+        "id": "terrain-stairs-mvzofx6t-538",
+        "terrainType": "stairs",
+        "position": {
+          "x": 7,
+          "y": 0,
+          "z": 3
+        },
+        "rotation": {
+          "x": 0,
+          "y": 3.141592653589793,
+          "z": 0
+        },
+        "scale": {
+          "x": 2,
+          "y": 3,
+          "z": 4
+        },
+        "blocksLineOfSight": false,
+        "providesCover": false,
+        "isObstacle": false,
+        "isWalkable": false,
+        "climbType": "stairs"
+      },
+      {
+        "id": "terrain-stairs-mvzog6p4-617",
+        "terrainType": "stairs",
+        "position": {
+          "x": 18,
+          "y": 0,
+          "z": -5
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 2,
+          "y": 3,
+          "z": 4
+        },
+        "blocksLineOfSight": false,
+        "providesCover": false,
+        "isObstacle": false,
+        "isWalkable": false,
+        "climbType": "stairs"
+      },
+      {
+        "id": "terrain-barricade-mvzontgv-928",
+        "terrainType": "barricade",
+        "position": {
+          "x": -15,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3,
+          "y": 0.5,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-barricade-mvzonumk-151",
+        "terrainType": "barricade",
+        "position": {
+          "x": -15,
+          "y": 0,
+          "z": -2
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3,
+          "y": 0.5,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-barricade-mvzoo33l-29",
+        "terrainType": "barricade",
+        "position": {
+          "x": 10,
+          "y": 0,
+          "z": -2
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3,
+          "y": 0.5,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-barricade-mvzoo3aa-580",
+        "terrainType": "barricade",
+        "position": {
+          "x": 10,
+          "y": 0,
+          "z": -2
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3,
+          "y": 0.5,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-barricade-mvzoo3f9-776",
+        "terrainType": "barricade",
+        "position": {
+          "x": 10,
+          "y": 0,
+          "z": -2
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 3,
+          "y": 0.5,
+          "z": 0.25
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-crate-mvzooe0b-704",
+        "terrainType": "crate",
+        "position": {
+          "x": -10,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 0.75,
+          "z": 1
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-industrial-pipe-mvzool7a-716",
+        "terrainType": "industrial-pipe",
+        "position": {
+          "x": -7,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 4,
+          "y": 0.75,
+          "z": 0.75
+        },
+        "blocksLineOfSight": false,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": false
+      },
+      {
+        "id": "terrain-shipping-container-mvzooooi-986",
+        "terrainType": "shipping-container",
+        "position": {
+          "x": -9,
+          "y": 0,
+          "z": -3
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 5,
+          "y": 2.25,
+          "z": 2.25
+        },
+        "blocksLineOfSight": true,
+        "providesCover": true,
+        "isObstacle": true,
+        "isWalkable": true
+      }
+    ],
+    "objectives": [
+      {
+        "id": "objective-alpha",
+        "name": "Objective Alpha",
+        "position": {
+          "x": -10,
+          "y": 0,
+          "z": -4
+        },
+        "controllingPlayerId": null,
+        "isContested": false
+      },
+      {
+        "id": "objective-bravo",
+        "name": "Objective Bravo",
+        "position": {
+          "x": 10,
+          "y": 0,
+          "z": 4
+        },
+        "controllingPlayerId": null,
+        "isContested": false
+      },
+      {
+        "id": "objective-charlie",
+        "name": "Objective Charlie",
+        "position": {
+          "x": -4,
+          "y": 0,
+          "z": 5
+        },
+        "controllingPlayerId": null,
+        "isContested": false
+      },
+      {
+        "id": "objective-delta",
+        "name": "Objective Delta",
+        "position": {
+          "x": 4,
+          "y": 0,
+          "z": -5
+        },
+        "controllingPlayerId": null,
+        "isContested": false
+      },
+      {
+        "id": "objective-mvzogok2-5",
+        "name": "Objective Echo",
+        "position": {
+          "x": -12,
+          "y": 0,
+          "z": 4
+        },
+        "controllingPlayerId": null,
+        "isContested": false
+      }
+    ]
+  }
+]

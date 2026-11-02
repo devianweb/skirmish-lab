@@ -222,7 +222,14 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       };
       const stairsState = makeState();
       stairsState.terrain = [stairs];
-      expect(detectPathFall(dangerousPath, stairsState).maxDrop).toBe(0);
+      // (a path that follows the slope surface: head toward +Z at 4.5", foot at -Z at 0)
+      const downTheSlope = [
+        { x: 0, y: 4.5, z: 1 },
+        { x: 0, y: 0, z: -1 },
+      ];
+      expect(detectPathFall(downTheSlope, stairsState).maxDrop).toBe(0);
+      // ...but a dive straight through the wedge is a fall, not stairs
+      expect(detectPathFall(dangerousPath, stairsState).maxDrop).toBe(4.5);
     });
   });
 

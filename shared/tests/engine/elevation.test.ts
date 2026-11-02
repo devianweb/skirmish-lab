@@ -286,8 +286,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
   it('a 3" drop costs no movement: a budget that reaches the edge finishes the drop', () => {
     const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
     const state = makeState([unit], [ruin]);
-    // 0.7" along the ledge to the edge; the 3" drop itself is free
-    const path = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 1.0);
+    // 0.7" along the ledge to the edge, a 0.55" step to get the whole base off it (both count); the 3" drop is free
+    const path = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 1.6);
     expect(path[path.length - 1].y).toBe(0);
   });
 
@@ -318,8 +318,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
     const hanging = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'u',
-      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: 0.5 }, { x: 0, y: 1.5, z: 0.5 }],
-      finalPosition: { x: 0, y: 1.5, z: 0.5 },
+      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: -0.05 }, { x: 0, y: 1.5, z: -0.05 }],
+      finalPosition: { x: 0, y: 1.5, z: -0.05 },
     });
     const res = validateAction(state, hanging);
     expect(res.valid).toBe(false);
@@ -327,8 +327,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
     const landed = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'u',
-      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: 0.5 }, { x: 0, y: 0, z: 0.5 }],
-      finalPosition: { x: 0, y: 0, z: 0.5 },
+      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: -0.05 }, { x: 0, y: 0, z: -0.05 }],
+      finalPosition: { x: 0, y: 0, z: -0.05 },
     });
     expect(validateAction(state, landed).reason ?? '').not.toMatch(/suspended in mid-air/i);
   });
