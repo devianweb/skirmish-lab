@@ -360,40 +360,42 @@ function createProceduralTerrainBlock(): THREE.Object3D {
 function createProceduralStairWedge(): THREE.Object3D {
   const group = new THREE.Group();
 
+  // Every triangle is wound counter-clockwise seen from OUTSIDE the wedge, so its normal points outward
+  // (front faces render and are lit correctly; an inside-out winding culls the outer faces).
   const positions = new Float32Array([
-    // 1. Sloped Hypotenuse (from Z=-0.5, Y=0 to Z=+0.5, Y=1)
+    // 1. Sloped hypotenuse (from Z=-0.5, Y=0 up to Z=+0.5, Y=1), facing up and toward the foot
     -0.5, 0.0, -0.5,
+     0.5, 1.0,  0.5,
      0.5, 0.0, -0.5,
-     0.5, 1.0,  0.5,
     -0.5, 0.0, -0.5,
-     0.5, 1.0,  0.5,
-    -0.5, 1.0,  0.5,
-
-    // 2. Vertical Rear Wall (at Z = +0.5, from Y=0 to Y=1)
-     0.5, 0.0,  0.5,
-    -0.5, 0.0,  0.5,
-    -0.5, 1.0,  0.5,
-     0.5, 0.0,  0.5,
     -0.5, 1.0,  0.5,
      0.5, 1.0,  0.5,
 
-    // 3. Flat Bottom Base (at Y = 0.0, from Z=-0.5 to Z=+0.5)
-    -0.5, 0.0,  0.5,
+    // 2. Vertical rear wall at the head (Z = +0.5), facing +Z
      0.5, 0.0,  0.5,
-     0.5, 0.0, -0.5,
-    -0.5, 0.0,  0.5,
-     0.5, 0.0, -0.5,
-    -0.5, 0.0, -0.5,
-
-    // 4. Left Triangular Side (at X = -0.5)
-    -0.5, 0.0, -0.5,
     -0.5, 1.0,  0.5,
     -0.5, 0.0,  0.5,
-
-    // 5. Right Triangular Side (at X = +0.5)
-     0.5, 0.0, -0.5,
      0.5, 0.0,  0.5,
      0.5, 1.0,  0.5,
+    -0.5, 1.0,  0.5,
+
+    // 3. Flat bottom (Y = 0), facing down
+    -0.5, 0.0,  0.5,
+     0.5, 0.0, -0.5,
+     0.5, 0.0,  0.5,
+    -0.5, 0.0,  0.5,
+    -0.5, 0.0, -0.5,
+     0.5, 0.0, -0.5,
+
+    // 4. Left triangular side (X = -0.5), facing -X
+    -0.5, 0.0, -0.5,
+    -0.5, 0.0,  0.5,
+    -0.5, 1.0,  0.5,
+
+    // 5. Right triangular side (X = +0.5), facing +X
+     0.5, 0.0, -0.5,
+     0.5, 1.0,  0.5,
+     0.5, 0.0,  0.5,
   ]);
 
   const geometry = new THREE.BufferGeometry();
@@ -411,25 +413,24 @@ function createProceduralStairWedge(): THREE.Object3D {
   mesh.receiveShadow = true;
   group.add(mesh);
 
-  // Add subtle step tread grooves / risers for a wargaming staircase feel
+  // Step lines (visual only): treads sit a hair above the slope and risers/stringers just outside the
+  // side faces, so they are visible instead of z-fighting with or hiding inside the solid.
   const stepCount = 6;
+  const LIFT = 0.01;
+  const SIDE = 0.505;
   const treadPoints: THREE.Vector3[] = [];
   for (let s = 1; s <= stepCount; s++) {
     const t = s / stepCount;
     const z = -0.5 + t * 1.0;
-    const y = t * 1.0;
-    treadPoints.push(new THREE.Vector3(-0.49, y, z), new THREE.Vector3(0.49, y, z));
+    treadPoints.push(new THREE.Vector3(-0.5, t + LIFT, z), new THREE.Vector3(0.5, t + LIFT, z));
   }
-  // Risers (vertical drops between treads) and side stringers along the slope edges
   for (let s = 1; s <= stepCount; s++) {
     const t = s / stepCount;
     const zr = -0.5 + t * 1.0;
-    const yTop = t * 1.0;
     const yBottom = (s - 1) / stepCount;
-    treadPoints.push(new THREE.Vector3(-0.49, yBottom, zr), new THREE.Vector3(-0.49, yTop, zr));
-    treadPoints.push(new THREE.Vector3(0.49, yBottom, zr), new THREE.Vector3(0.49, yTop, zr));
+    for (const x of [-SIDE, SIDE]) treadPoints.push(new THREE.Vector3(x, yBottom, zr), new THREE.Vector3(x, t, zr));
   }
-  for (const x of [-0.49, 0.49]) {
+  for (const x of [-SIDE, SIDE]) {
     treadPoints.push(new THREE.Vector3(x, 0, -0.5), new THREE.Vector3(x, 1, 0.5));
   }
   if (treadPoints.length > 0) {

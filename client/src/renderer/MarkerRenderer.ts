@@ -11,7 +11,6 @@ import {
   OBJECTIVE_CONTROL_RADIUS,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   isStairPiece,
-  getStairWaypoints,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
@@ -406,15 +405,11 @@ export class MarkerRenderer {
       }
 
       if (isStairPiece(piece)) {
-        // Triangular prism (wedge) wireframe showing true incline profile from foot to head
-        const waypoints = getStairWaypoints({ terrain: pieces } as any, piece);
-        const fdx = waypoints.foot.x - piece.position.x;
-        const fdz = waypoints.foot.z - piece.position.z;
-        const flz = -fdx * Math.sin(piece.rotation.y || 0) + fdz * Math.cos(piece.rotation.y || 0);
-
-        // Foot is at footZ (+hz or -hz), head is at headZ
-        const footZ = flz > 0 ? hz : -hz;
-        const headZ = -footZ;
+        // Triangular prism (wedge) wireframe. Stair orientation is data: the head (top) end is always
+        // local +Z (see getStairWaypoints), so the wireframe never infers direction from neighbours.
+        const footZ = -hz;
+        const headZ = hz;
+        pieceGroup.position.y = piece.position.y ?? 0;
 
         const vertices = [
           // Bottom rectangle
@@ -952,18 +947,6 @@ export class MarkerRenderer {
 
   /** Outcome-token fallback: floating 3D numeral / torus / octahedron. */
   private createOutcomeToken(color: number, wounds: number): THREE.Object3D {
-    if (wounds === 0) {
-      const group = new THREE.Group();
-      // Three.js Torus lies in the XY plane; rotating 90° around Y makes its front face point along -X,
-      // matching the Kenney number GLBs oriented by orientOutcomeToCamera.
-      const geometry = new THREE.TorusGeometry(0.24, 0.065, 16, 32);
-      const material = new THREE.MeshStandardMaterial({ color: 0xb0bec5, roughness: 0.4 });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.rotation.y = Math.PI / 2;
-      mesh.scale.set(0.8, 1.2, 0.8);
-      group.add(mesh);
-      return group;
-    }
     const geometry = new THREE.OctahedronGeometry(0.22 + 0.05 * wounds);
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
     return new THREE.Mesh(geometry, material);

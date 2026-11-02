@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { MarkerRenderer } from '../../src/renderer/MarkerRenderer';
+import { getStairWaypoints } from '@skirmish-lab/shared';
 import { ModelLoader } from '../../src/renderer/ModelLoader';
 
 describe('MarkerRenderer', () => {
@@ -494,5 +495,41 @@ describe('MarkerRenderer', () => {
     // Triangular prism wireframe geometry has 18 vertices (9 edge segments * 2 vertices)
     const positionAttr = wireframeMesh.geometry.getAttribute('position');
     expect(positionAttr.count).toBe(18);
+  });
+
+  it('stair wedge wireframe rises toward the engine head waypoint at every rotation (incl. 90/270)', () => {
+    for (const yaw of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+      const renderer = makeRenderer();
+      const stairsPiece: TerrainPiece = {
+        id: 'rot-stairs',
+        terrainType: 'stairs',
+        climbType: 'stairs',
+        position: { x: 3, y: 0, z: -2 },
+        rotation: { x: 0, y: yaw, z: 0 },
+        scale: { x: 2, y: 3, z: 4 },
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+      };
+      renderer.setTerrainDebug(stairsPiece);
+      const pieceGroup = scene.getObjectByName('marker-terrain-rot-stairs') as THREE.Group;
+      pieceGroup.updateMatrixWorld(true);
+      const wire = pieceGroup.children[0] as THREE.LineSegments;
+      const pos = wire.geometry.getAttribute('position');
+      // Average world position of the top (head) edge vertices
+      const top = new THREE.Vector3();
+      let n = 0;
+      for (let i = 0; i < pos.count; i++) {
+        if (pos.getY(i) < 2.99) continue;
+        top.add(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(wire.matrixWorld));
+        n++;
+      }
+      top.divideScalar(n);
+      const { head, foot } = getStairWaypoints({ terrain: [stairsPiece] } as any, stairsPiece);
+      const toHead = new THREE.Vector2(head.x - foot.x, head.z - foot.z).normalize();
+      const toTop = new THREE.Vector2(top.x - stairsPiece.position.x, top.z - stairsPiece.position.z).normalize();
+      expect(toTop.dot(toHead), `yaw ${yaw}`).toBeGreaterThan(0.99);
+      scene.clear();
+    }
   });
 });
