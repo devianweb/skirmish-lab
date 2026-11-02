@@ -67,12 +67,16 @@ function makeState(unit: Unit, topY: number): GameState {
   return state;
 }
 
+// A leap from the deck's east edge (x = 2) down to the ground beside it
 const dropPath = (topY: number): Vector3[] => [
-  { x: 0, y: topY, z: 0 },
-  { x: 2.5, y: topY, z: 0 },
-  { x: 2.5, y: 0, z: 0 },
+  { x: 1.8, y: topY, z: 0 },
   { x: 3.5, y: 0, z: 0 },
 ];
+const jumpDecl = (topY: number, kind: 'jump-drop' | 'fall' = 'jump-drop') => ({
+  kind,
+  takeoff: { x: 1.8, y: topY, z: 0 },
+  landing: { x: 3.5, y: 0, z: 0 },
+});
 
 const roll = (purpose: string, rolls: number[]): DiceResult => ({
   rolls,
@@ -139,35 +143,36 @@ describe('drops: jump test (3-6" drops)', () => {
 });
 
 describe('drops: resolution through the host', () => {
-  const moveAction = (path: Vector3[]) =>
+  const moveAction = (path: Vector3[], traversal?: unknown) =>
     createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'u',
       path,
       finalPosition: path[path.length - 1],
+      ...(traversal ? { traversal } : {}),
     });
 
   it('requests jump dice (and fall dice as a fallback) for a 4" drop; none for a 3" drop', () => {
-    const unit = makeUnit('u', { x: 0, y: 4, z: 0 });
-    const specs = getDiceSpecs(makeState(unit, 4), moveAction(dropPath(4)))!;
+    const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
+    const specs = getDiceSpecs(makeState(unit, 4), moveAction(dropPath(4), jumpDecl(4)))!;
     expect(specs.find((d) => d.purpose === 'drop_jump')?.count).toBe(2);
     expect(specs.some((d) => d.purpose === 'falling_defense')).toBe(true);
 
-    const low = makeUnit('u', { x: 0, y: 3, z: 0 });
+    const low = makeUnit('u', { x: 1.8, y: 3, z: 0 });
     expect(getDiceSpecs(makeState(low, 3), moveAction(dropPath(3)))).toBeNull();
   });
 
   it('a 7" drop cannot be jumped: no jump dice, only fall dice', () => {
-    const unit = makeUnit('u', { x: 0, y: 7, z: 0 });
-    const specs = getDiceSpecs(makeState(unit, 7), moveAction(dropPath(7)))!;
+    const unit = makeUnit('u', { x: 1.8, y: 7, z: 0 });
+    const specs = getDiceSpecs(makeState(unit, 7), moveAction(dropPath(7), jumpDecl(7, 'fall')))!;
     expect(specs.some((d) => d.purpose === 'drop_jump')).toBe(false);
     expect(specs.some((d) => d.purpose === 'falling_defense')).toBe(true);
   });
 
   it('a successful jump lands with no damage and the activation continues', () => {
-    const unit = makeUnit('u', { x: 0, y: 4, z: 0 });
+    const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
     const state = makeState(unit, 4);
-    const out = applyAction(state, moveAction(dropPath(4)), [
+    const out = applyAction(state, moveAction(dropPath(4), jumpDecl(4)), [
       roll('drop_jump', [3, 5]),
       roll('falling_defense', [1]),
       roll('trauma', [6]),
@@ -185,9 +190,9 @@ describe('drops: resolution through the host', () => {
   });
 
   it('a failed jump falls: Falling damage and the activation ends', () => {
-    const unit = makeUnit('u', { x: 0, y: 4, z: 0 });
+    const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
     const state = makeState(unit, 4);
-    const out = applyAction(state, moveAction(dropPath(4)), [
+    const out = applyAction(state, moveAction(dropPath(4), jumpDecl(4)), [
       roll('drop_jump', [3, 2]),
       roll('falling_defense', [1]), // natural 1 always fails the save
       roll('trauma', [1]),

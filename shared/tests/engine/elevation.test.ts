@@ -16,7 +16,7 @@ import {
   isSuspendedInMidAir,
   computeShootingRayDebug,
 } from '../../src/engine/spatial';
-import { detectPathGapJump } from '../../src/engine/traversal';
+import { classifySegment, detectPathGapJump, pathMovementCost } from '../../src/engine/traversal';
 import { createAction } from '../../src/gameState';
 import { validateAction } from '../../src/engine/actions';
 
@@ -380,7 +380,8 @@ describe('ladder paths stay on the spine from any approach', () => {
     expect(path[climb].y).toBeCloseTo(3.0);
   });
 
-  it('climbing down uses the same spine', () => {
+  it('a 3" deck is only laddered going up: coming down the planner takes the free drop off the edge', () => {
+    // Batch 1E: a drop of 3" or less is ordinary movement, so a 3" ladder descent is never planned.
     const plat = piece('platform-small', 0, 0, 0);
     const ladder = piece('ladder', 2, 0, 1, -Math.PI / 2, 'ladder-east');
     const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 0 });
@@ -389,8 +390,23 @@ describe('ladder paths stay on the spine from any approach', () => {
     const state = makeState([unit], [plat, ladder]);
     const path = findNavPath(state, unit, { x: 5, y: 0, z: -2 }, 20);
     const descent = path.findIndex((p, i) => i > 0 && p.y < path[i - 1].y - 1);
-    expect(path[descent - 1]).toMatchObject({ x: 2.55, z: 1 });
-    expect(path[descent]).toMatchObject({ x: 2.55, z: 1, y: 0 });
+    expect(descent).toBeGreaterThan(0);
+    expect(classifySegment(state, path[descent - 1], path[descent], unit).kind).toBe('drop');
+    expect(path[descent].y).toBe(0);
+    // the ladder is not used at all on the way down
+    for (let i = 1; i < path.length; i++) {
+      expect(classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).kind).not.toBe('ladder');
+    }
+  });
+
+  it('a ladder descent that is declared as a path still costs the climb (arriving by the ladder head)', () => {
+    const plat = piece('platform-small', 0, 0, 0);
+    const ladder = piece('ladder', 2, 0, 1, -Math.PI / 2, 'ladder-east');
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 0 });
+    const state = makeState([unit], [plat, ladder]);
+    const { foot, head } = getStairWaypoints(state, ladder);
+    const down = [head, { x: foot.x, y: head.y, z: foot.z }, foot];
+    expect(pathMovementCost(state, down)).toBeCloseTo(3.0, 2);
   });
 });
 

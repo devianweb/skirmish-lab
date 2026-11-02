@@ -292,10 +292,25 @@ interface WeaponAllocation {
   targetId: string;
 }
 
+/**
+ * A jump or fall the player chose to make, sent with the move that contains it. The pathfinder never plans one.
+ * The host recomputes everything: the path must contain exactly one segment from `takeoff` to `landing` whose
+ * classification matches `kind`, and `takeoff` must be at the edge of a floor (within 0.5", heading out).
+ * - 'jump-gap': landing across 1-6" of open air at the same height (X+1 dice, 3+ each; 2+ Pathfinder)
+ * - 'jump-drop': landing 3-6" below
+ * - 'fall': landing more than 6" below (no jump dice; Falling damage, activation ends)
+ * A path with a jump/fall but no matching declaration (or a declaration with no jump) is rejected.
+ */
+interface DeclaredTraversal {
+  kind: 'jump-drop' | 'jump-gap' | 'fall';
+  takeoff: Vector3;
+  landing: Vector3;
+}
+
 type ActionPayload =
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3 }
-  | { type: 'rush', unitId: string, path: Vector3[] }
+  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal }
+  | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal }
   | {
       type: 'shoot';
       attackerId: string;
@@ -303,7 +318,7 @@ type ActionPayload =
       weaponId?: string;
       allocations?: WeaponAllocation[];
     }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], traversal?: DeclaredTraversal }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }

@@ -61,6 +61,8 @@ import {
   FREE_DROP_MAX,
   JUMP_DROP_MAX,
   detectPathGapJump,
+  validateDeclaredTraversal,
+  DeclaredTraversal,
   allocateSquadCasualties,
   validateMeleeVerticalReach,
 } from './traversal';
@@ -287,7 +289,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: 'Final position does not match path end' };
         }
         const isDifficult = isPathDifficult(state, path, unit.result);
-        const distance = pathMovementCost(state, path);
+        const distance = pathMovementCost(state, path, unit.result);
         const effectiveCap = getEffectiveMaxMovement(
           unit.result,
           unit.result.isRushing ? 'rush' : 'move',
@@ -327,6 +329,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (detectPathGapJump(state, path, unit.result).tooWide) {
           return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
         }
+        const jumpProblem = validateDeclaredTraversal(
+          state,
+          unit.result,
+          path,
+          (action.payload as { traversal?: DeclaredTraversal }).traversal
+        );
+        if (jumpProblem) return { valid: false, reason: jumpProblem };
         if (isSuspendedInMidAir(state, end)) {
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
@@ -399,7 +408,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           mDifficult
         );
         const mMax = Math.min(mCap, unit.result.remainingMovement);
-        const mDist = pathMovementCost(state, mPath);
+        const mDist = pathMovementCost(state, mPath, unit.result);
         if (mDist > mMax + 0.05) {
           return {
             valid: false,
@@ -418,6 +427,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const mEnd = modelPositions![i];
         if (detectPathGapJump(state, mPath, unit.result).tooWide) {
           return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
+        }
+        if (validateDeclaredTraversal(state, unit.result, mPath, undefined)) {
+          return { valid: false, reason: `Squad model ${i + 1} needs a jump, which squads cannot declare yet` };
         }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
@@ -536,7 +548,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           ? path
           : [{ ...attacker.result.position }, ...path];
       const isDifficult = isPathDifficult(state, fullPath, attacker.result);
-      const distance = pathMovementCost(state, fullPath);
+      const distance = pathMovementCost(state, fullPath, attacker.result);
       const maxCharge = getEffectiveMaxMovement(attacker.result, 'charge', isDifficult);
       if (distance > maxCharge + 0.01) {
         return {
@@ -552,6 +564,16 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (chargeBlocker.blocked) {
         return { valid: false, reason: chargeBlocker.reason };
       }
+      if (detectPathGapJump(state, fullPath, attacker.result).tooWide) {
+        return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
+      }
+      const chargeJumpProblem = validateDeclaredTraversal(
+        state,
+        attacker.result,
+        fullPath,
+        (action.payload as { traversal?: DeclaredTraversal }).traversal
+      );
+      if (chargeJumpProblem) return { valid: false, reason: chargeJumpProblem };
       const end = path[path.length - 1];
       const distToEnd = boardDistance(end, target.result.position);
       if (distToEnd > 1.25) {
@@ -610,7 +632,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
             ? path
             : [{ ...unit.position }, ...path];
         const isDifficult = isPathDifficult(state, fullPath, unit);
-        const dist = pathMovementCost(state, fullPath);
+        const dist = pathMovementCost(state, fullPath, unit);
         const effectiveCap = getEffectiveMaxMovement(unit, 'rush', isDifficult);
         const maxRush = Math.min(effectiveCap, currentRushBudget);
         if (dist > maxRush + 0.01) {
@@ -634,6 +656,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (detectPathGapJump(state, fullPath, unit).tooWide) {
           return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
         }
+        const jumpProblem = validateDeclaredTraversal(
+          state,
+          unit,
+          fullPath,
+          (action.payload as { traversal?: DeclaredTraversal }).traversal
+        );
+        if (jumpProblem) return { valid: false, reason: jumpProblem };
         if (isSuspendedInMidAir(state, end)) {
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
@@ -715,7 +744,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const mDifficult = isPathDifficult(state, mPath, unit);
         const mCap = getEffectiveMaxMovement(unit, 'rush', mDifficult);
         const mMax = Math.min(mCap, currentRushBudget);
-        const mDist = pathMovementCost(state, mPath);
+        const mDist = pathMovementCost(state, mPath, unit);
         if (mDist > mMax + 0.05) {
           return {
             valid: false,
@@ -732,6 +761,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
+        if (validateDeclaredTraversal(state, unit, mPath, undefined)) {
+          return { valid: false, reason: `Squad model ${i + 1} needs a jump, which squads cannot declare yet` };
+        }
         if (detectPathGapJump(state, mPath, unit).tooWide) {
           return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
         }
@@ -1345,7 +1377,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         const modelDistances = modelPositions.map((pos, i) => {
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
-            return pathMovementCost(state, modelPaths[i]);
+            return pathMovementCost(state, modelPaths[i], unit);
           }
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
@@ -1403,7 +1435,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.position = targetPos;
       }
 
-      const distanceMoved = path ? pathMovementCost(state, path) : 0;
+      const distanceMoved = path ? pathMovementCost(state, path, unit) : 0;
       unit.hasMoved = true;
       unit.remainingMovement = Math.max(
         0,
@@ -1796,7 +1828,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         const modelDistances = modelPositions.map((pos, i) => {
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
-            return pathMovementCost(state, modelPaths[i]);
+            return pathMovementCost(state, modelPaths[i], unit);
           }
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
@@ -1830,7 +1862,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         path && path.length > 0 && boardDistance(path[0], startPos) < 0.01
           ? path
           : [startPos, ...(path ?? [])];
-      const distMoved = pathMovementCost(state, fullPath);
+      const distMoved = pathMovementCost(state, fullPath, unit);
       const end = finalPosition ? { ...finalPosition } : { ...(path ? path[path.length - 1] : unit.position) };
       const dx = end.x - unit.position.x;
       const dz = end.z - unit.position.z;
