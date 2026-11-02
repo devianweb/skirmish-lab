@@ -246,15 +246,15 @@ describe('elevation: reaching the deck', () => {
 
   it('a ladder climb to the deck reaches y = 3.0, and cannot stop suspended on the rungs', () => {
     const plat = piece('platform-small', 0, 0, 0);
-    const ladder = piece('ladder', -2.25, 0, 0, Math.PI / 2, 'ladder-1');
+    const ladder = piece('ladder', -2, 0, 0, Math.PI / 2, 'ladder-1'); // snapped to the west face
     const unit = makeUnit('u', HOST, { x: -5, y: 0, z: 0 });
     unit.speed = 6;
     unit.remainingMovement = 6;
     const state = makeState([unit], [plat, ladder]);
     const full = findNavPath(state, unit, { x: -1, y: 3, z: 0 }, 12);
     expect(full[full.length - 1].y).toBeCloseTo(3.0);
-    // The climb runs up the ladder's spine: through the foot and the head, vertically
-    const foot = full.findIndex((p) => Math.abs(p.x + 2.25) < 0.01 && Math.abs(p.z) < 0.01 && p.y === 0);
+    // The climb runs up the climb line beside the deck face: from the foot (a base off the face), vertically
+    const foot = full.findIndex((p) => Math.abs(p.x + 2.55) < 0.01 && Math.abs(p.z) < 0.01 && p.y === 0);
     expect(foot).toBeGreaterThanOrEqual(0);
     expect(full[foot + 1]).toMatchObject({ x: full[foot].x, z: full[foot].z });
     expect(full[foot + 1].y).toBeCloseTo(3.0);
@@ -375,8 +375,8 @@ describe('ladder paths stay on the spine from any approach', () => {
     const path = findNavPath(state, unit, { x: 0, y: 3, z: 0 }, 20);
     const climb = path.findIndex((p, i) => i > 0 && p.y > path[i - 1].y + 1);
     expect(climb).toBeGreaterThan(0);
-    expect(path[climb - 1]).toMatchObject({ x: 2, z: 1, y: 0 });
-    expect(path[climb]).toMatchObject({ x: 2, z: 1 });
+    expect(path[climb - 1]).toMatchObject({ x: 2.55, z: 1, y: 0 }); // the foot, a base off the east face
+    expect(path[climb]).toMatchObject({ x: 2.55, z: 1 });
     expect(path[climb].y).toBeCloseTo(3.0);
   });
 
@@ -389,8 +389,8 @@ describe('ladder paths stay on the spine from any approach', () => {
     const state = makeState([unit], [plat, ladder]);
     const path = findNavPath(state, unit, { x: 5, y: 0, z: -2 }, 20);
     const descent = path.findIndex((p, i) => i > 0 && p.y < path[i - 1].y - 1);
-    expect(path[descent - 1]).toMatchObject({ x: 2, z: 1 });
-    expect(path[descent]).toMatchObject({ x: 2, z: 1, y: 0 });
+    expect(path[descent - 1]).toMatchObject({ x: 2.55, z: 1 });
+    expect(path[descent]).toMatchObject({ x: 2.55, z: 1, y: 0 });
   });
 });
 

@@ -19,6 +19,7 @@ import {
   resolveTerrainStructure,
   traceLineOfSight,
   isSegmentOnRampOrStairs,
+  LADDER_STANDOFF,
   isSegmentSurfaceConstrained,
   validateFormationMove,
   validateSquadCoherency,
@@ -944,8 +945,11 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         const ladderConn = getStairWaypoints(state, ladderWest);
         expect(ladderConn.foot.y).toBe(0);
         expect(ladderConn.head.y).toBe(2.5);
-        expect(ladderConn.foot.x).toBe(-4.5);
-        expect(ladderConn.head.x).toBe(-4.5);
+        // yaw -PI/2: local +Z points to -X, so the foot is 0.55" outside (+X) and the head 0.55" in (-X)
+        expect(ladderConn.foot.x).toBeCloseTo(-4.5 + LADDER_STANDOFF, 2);
+        expect(ladderConn.head.x).toBeCloseTo(-4.5 - LADDER_STANDOFF, 2);
+        expect(ladderConn.foot.z).toBe(2);
+        expect(ladderConn.head.z).toBe(2);
       });
 
       it('recognizes line segments on stairs and ladders as ramp traversals', () => {
