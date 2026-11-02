@@ -18,7 +18,7 @@ All terrain pieces are generated procedurally by [`client/src/renderer/ModelLoad
 | `indicator-round-b.glb` | 4.5 KB | Marker | `MARKER_ASSETS.selection` / `target` | Flat circular floor beacon used for selection (blue) and enemy target (red). |
 | `indicator-round-a.glb` | 6.4 KB | Marker | *(Alternate Indicator)* | Thick rim alternate circular floor marker. |
 | `indicator-square-a.glb` | 2.0 KB | Marker | *(Alternate Indicator)* | Square perimeter floor marker. |
-| `number-1.glb` .. `number-5.glb` | 4–7 KB | Outcome | `OUTCOME_ASSETS['outcome-N']` | 3D billboard digits (1 to 5) indicating wound damage count dealt on attack. |
+| `number-0.glb` .. `number-5.glb` | 4–7 KB | Outcome | `OUTCOME_ASSETS['outcome-N']` | 3D billboard digits (0 to 5) indicating wound damage count dealt on attack. |
 | `Textures/colormap.png` | 4.0 KB | Texture | *(Shared Texture)* | Global texture palette referenced by marker materials. |
 
 ---
@@ -98,7 +98,7 @@ Rendered dynamically by [`client/src/renderer/MarkerRenderer.ts`](../client/src/
 | **Line-of-Sight Fan** | Procedural `los-shadow-fan` | Ground $y + 0.01″$ | Semi-transparent dark red (`0xb71c1c`) | Hovering or preparing Shoot / Charge action |
 | **Move Path Preview** | Procedural `LineBasicMaterial` | Interpolated 3D $y$ | Orange/Cyan path line with waypoint dot rings and terminal destination disc | Dragging or picking destination for Move, Rush, or Charge |
 | **Melee Contact Ring** | Procedural Concentric Rings | Unit $y + 0.02″$ | Dual Amber (`0xff7043` & `0xffab40`) rings | Target unit actively engaged in close-quarters melee combat |
-| **Wound Outcome (0)** | Procedural `TorusGeometry` | Unit $y + 2.0″$ | Neutral grey (`0xb0bec5`) floating 3D "0" | Attack resolved with 0 unsaved wounds |
+| **Wound Outcome (0)** | `number-0.glb` (same digit model as 1–5) | Unit $y + 2.0″$ | Neutral grey (`0xb0bec5`) floating 3D billboard "0" | Attack resolved with 0 unsaved wounds |
 | **Wound Outcome (1–5)** | `number-1.glb` .. `number-5.glb` | Unit $y + 2.0″$ | Red (`0xef5350`) floating 3D billboard digits | Attack resolved dealing 1 to 5 unsaved wounds |
 
 ---

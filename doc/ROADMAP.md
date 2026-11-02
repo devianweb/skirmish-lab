@@ -687,6 +687,9 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.
 - [ ] Update map editor palette to display the new procedural wargaming terrain catalog.
 
+### 13.6 playtest fixes (bugfix batch 1)
+- [x] PR 13: the "0" wound outcome marker now uses the same Kenney digit model as 1-5 (`number-0.glb`, tinted neutral grey) instead of a procedural torus.
+
 ### Acceptance Criteria
 - [ ] Zero Kenney terrain `.glb` files loaded or downloaded in the client.
 - [ ] Visual terrain matches mathematical collision geometry and F9 debug wireframes down to the millimeter across all pieces.

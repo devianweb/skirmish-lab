@@ -50,6 +50,7 @@ export function outcomeMarkerKey(wounds: number): string {
 }
 
 export const OUTCOME_ASSETS: Record<string, AssetDefinition> = {
+  'outcome-0': model('number-0.glb', 1.2),
   'outcome-1': model('number-1.glb', 1.2),
   'outcome-2': model('number-2.glb', 1.2),
   'outcome-3': model('number-3.glb', 1.2),
