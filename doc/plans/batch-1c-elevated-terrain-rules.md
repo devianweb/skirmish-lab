@@ -2,7 +2,7 @@
 Status: approved (2026-11-02)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
-Climbing up to 3", stepping over terrain up to 1", split-level coherency. Needs batch 1B merged first (a climb reuses the drop stand-off and clearance checks).
+Stepping over terrain up to 1" (PR 7) and split-level coherency (PR 8). Climbing (PR 6) moved to batch 1E (E2 + E4). Do these after batch 1E.
 
 ## PR 6: Climbing terrain up to 3" (branch: `feat/climb-up-to-3in`)
 > **Replaced by batch 1E E2 + E4 (2026-11-02).** Climbability is now data (catalog default + per-piece override). Kept for background only. Don't implement this section.

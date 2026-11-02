@@ -53,9 +53,9 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 ## Sub-plans (hand one PR section at a time to the `implementer`)
 | Sub-plan | PRs | Theme |
 | :--- | :--- | :--- |
-| [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
-| [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) | 1, 5, 3, 2 | Ladder spots + mid-air guard, drop clearance, deck drops, end-overlap guard |
-| [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 6, 7, 8 | Climb ≤ 3", step over ≤ 1", split-level coherency |
+| [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
+| [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
+| [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
 | [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, per-model charges |
 | [batch-1e-movement-model.md](batch-1e-movement-model.md) | E1–E4 | Safe-only pathfinding, declared jumps, climbable terrain, traversal preview. Replaces 1B PR 3a and 1C PR 6; supersedes Decision 6. |
 
