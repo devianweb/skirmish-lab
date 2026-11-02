@@ -708,28 +708,8 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Rematch resets the game smoothly without re-entering invite codes.
 - [ ] Production build passes all checks and deploys cleanly via GitHub Actions.
 
-## Recommended AI Model Selection by Phase
-
-To optimize performance, reasoning depth, and token/quota usage across development:
-- **Use 4.0** for **distributed networking, complex state machines, 3D spatial geometry, and formation math** where edge-case bugs cause multiplayer desyncs.
-- **Use 3.8** for **standard game rules, data packs, UI views, straightforward event handling, and test expansion**, achieving faster turnaround while conserving 4.0 quota.
-
-| Phase | Recommended Model | Primary Complexity Driver | Rationale |
-| :--- | :---: | :--- | :--- |
-| **Phase 6.5: Interactive Reactions & Interruption Framework** | **4.0** | Asynchronous P2P state machine, timing, anti-griefing | Shifting from a single-actor turn to an interrupted, bi-directional negotiation across WebRTC requires airtight state reconciliation, timeout edge cases, and host validation. |
-| **Phase 7: Objectives & 4-Round Mission Engine** | **3.8** | Game state entity, 3″ distance checks, round clock, 3D beacon | The logic is clean and additive: placing 3–5 beacons, computing standard 2D distance checks at round end, and tracking integer victory points. |
-| **Phase 8: All-Weapon Firing & Split Fire** | **3.8** | Multi-target dice loop & UI chips | Mostly refactoring `actions.ts` and HUD targeting chips to loop over an array of equipped weapons rather than a single weapon ID. |
-| **Phase 9: Multi-Model Squads & Coherency Engine** | **4.0** | 3D multi-model formation pathfinding & coherency geometry | High mathematical complexity: multi-mesh group rendering in Three.js, maintaining 1″ model / 6″ squad coherency around clearance corners, and squad casualty cascades. |
-| **Phase 10: Interactive Deployment & Pre-Canned Starter Armies** | **3.8** | Pre-canned data packs & deployment boundary checks | Writing point-balanced starter rosters is pure data; deployment is straightforward 2D boundary validation. |
-| **Phase 11: Environmental Terrain Dynamics & Verticality** | **4.0** | 3D raycasting, elevation platforms, falling physics | Requires true 3D spatial math: multi-level elevation navigation, vertical drops, gap jumps, and falling damage calculations. |
-| **Phase 12: Reconnection & Network Resilience** | **4.0** | WebRTC socket recovery, IndexedDB snapshots, state desync recovery | Critical networking & distributed state: recovering connection drops, re-syncing action logs, and snapshot handshakes without dropping the game room. |
-| **Phase 13: Custom Map Editor & Presets** | **3.8** | Visual 3D scene editing, snap tools, localStorage | Drag-and-drop 3D asset placement, elevation stepping, and map schema serialization. |
-| **Phase 13.5: Tactical Combat & Movement Refinements** | **4.0** | 3D surface pathfinding, sequential squad state machine, split-targeting UI, movement budgeting | Requires 3D spatial geometry for stairs/ramps, sequential model movement UX, multi-move budgeting, and multi-weapon target allocation. |
-| **Phase 13.6: Procedural Wargaming Terrain System** | **4.0** | Procedural BufferGeometry, 1:1 collision parity, 3D wargaming scale ($1.0" = 1.0\text{ unit}$) | Requires exact mathematical alignment between procedural meshes, spatial collision wedges/boxes, LoS raycasts, and modular wargaming piece dimensions. |
-| **Phase 14: Polish, Audio & Release Hardening** | **3.8** | Web Audio / SFX, rematch UI reset, CSS styling, release CI/CD | Straightforward browser audio triggers, rematch state reset, visual polish, and performance profiling. |
-
-> [!TIP]
-> **Hybrid Workflow within a Phase:** For 4.0 phases (such as Phase 6.5 and Phase 9), kick off with 4.0 to design the shared state schema and core engine functions in `shared/`, then switch to 3.8 to build the Three.js visual rendering, HTML/CSS HUD components, and supplementary unit tests.
+## Model Selection
+Planning and research use **Opus** in the main session; implementation uses **Sonnet** `implementer` agents, one per PR section of an approved plan in `doc/plans/`. See [AGENTS.md](../AGENTS.md#planning--implementation-workflow-opus-plans-sonnet-implements) and [doc/plans/README.md](plans/README.md). The per-phase "Recommended AI Model" notes above (4.0 / 3.8) date from the earlier toolchain and are historical.
 
 ## Future Considerations (Post-v1)
 - Custom army roster importer & builder (clean-room JSON import/export, points budget validation, and Army Forge plain-text roster parsing)
