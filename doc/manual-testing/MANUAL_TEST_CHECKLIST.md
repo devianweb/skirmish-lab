@@ -37,6 +37,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 7. Movement, rush and shooting
 - All items verified 2026-11-02.
+- [ ] A 0-wound attack shows a "0" digit in the same style and size as the 1-5 digits (neutral grey rather than red), floating over the target.
 
 ## 8. Melee & objectives
 - All items verified 2026-11-02.

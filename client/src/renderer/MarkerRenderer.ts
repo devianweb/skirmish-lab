@@ -947,18 +947,6 @@ export class MarkerRenderer {
 
   /** Outcome-token fallback: floating 3D numeral / torus / octahedron. */
   private createOutcomeToken(color: number, wounds: number): THREE.Object3D {
-    if (wounds === 0) {
-      const group = new THREE.Group();
-      // Three.js Torus lies in the XY plane; rotating 90° around Y makes its front face point along -X,
-      // matching the Kenney number GLBs oriented by orientOutcomeToCamera.
-      const geometry = new THREE.TorusGeometry(0.24, 0.065, 16, 32);
-      const material = new THREE.MeshStandardMaterial({ color: 0xb0bec5, roughness: 0.4 });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.rotation.y = Math.PI / 2;
-      mesh.scale.set(0.8, 1.2, 0.8);
-      group.add(mesh);
-      return group;
-    }
     const geometry = new THREE.OctahedronGeometry(0.22 + 0.05 * wounds);
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
     return new THREE.Mesh(geometry, material);
