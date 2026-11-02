@@ -51,6 +51,7 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 - **Vertical Ladders:**
   - Ladders provide 1:1 vertical climb speed.
   - In physical tabletop play, miniatures cannot balance suspended on vertical rungs. A climbing model must have sufficient movement allowance to reach the landing platform deck; if insufficient movement remains, the model halts at the ladder foot.
+  - The ladder hangs on the deck face. The foot is a base's width off the face on the ground and the head is the same distance in over the deck, so a model's base never overlaps the ladder or deck. The climb itself is vertical; the short step between the climb line and the foot/head spot is not measured.
 - **Multi-Model Squad Traversal:**
   - Constituent models in a squad navigate along independent physical pathfinding trajectories avoiding terrain.
   - Terrain collision is evaluated per model path rather than an abstract squad centroid ray, allowing squad members to legally flank obstacles and cover without false collision blocks.

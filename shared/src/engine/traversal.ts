@@ -6,6 +6,7 @@ import {
   findTerrainAtPosition,
   findWalkableSurfaceAt,
   isFreeDropSegment,
+  isLadderStepSegment,
   isSegmentOnRampOrStairs,
 } from './spatial';
 
@@ -46,6 +47,7 @@ export function pathMovementCost(state: GameState, path: Vector3[]): number {
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1];
     const b = path[i];
+    if (isLadderStepSegment(state, a, b)) continue; // the shuffle on/off a ladder is free
     total += isFreeDropSegment(state, a, b) ? distanceHorizontal(a, b) : distance3D(a, b);
   }
   return total;

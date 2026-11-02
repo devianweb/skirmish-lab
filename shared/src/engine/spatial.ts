@@ -27,6 +27,8 @@ export const UNIT_COLLISION_RADIUS = 0.45;
 export const UNIT_SEPARATION_DISTANCE = 1.0;
 /** Base radius of a fighter for Line of Sight blocking (board units). */
 export const LOS_UNIT_RADIUS = 0.4;
+/** How far a ladder's foot/head standing spots sit off its position along local Z (base radius 0.5 + 0.05 clearance). */
+export const LADDER_STANDOFF = 0.55;
 
 /** Local XZ half-extents of a terrain piece before rotation. */
 export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: number } {
@@ -701,9 +703,36 @@ export function isSuspendedInMidAir(state: GameState, point: Vector3): boolean {
       const slopeY = getStairSurfaceHeight(piece, point, state);
       if (slopeY !== null && Math.abs(y - slopeY) <= 0.3) return false;
     }
-    if (isLadderPiece(piece)) return false; // handled by the ladder deck-arrival rule
+    if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, point)) return false; // the ladder deck-arrival rule covers it
   }
   return true;
+}
+
+/**
+ * True if `point` is on the ladder's climb line: directly above the foot (within `tolerance` horizontally)
+ * at a height between just above the ground and the top of the climb.
+ */
+export function isOnLadderClimbLine(state: GameState, ladder: TerrainPiece, point: Vector3, tolerance = 0.3): boolean {
+  const { foot, head } = getStairWaypoints(state, ladder);
+  if (Math.hypot(point.x - foot.x, point.z - foot.z) > tolerance) return false;
+  const y = point.y ?? 0;
+  return y > foot.y + 0.2 && y <= head.y + 0.05;
+}
+
+/**
+ * True if `a` -> `b` is the free level step between the top of a ladder's climb line and its head spot
+ * (either direction). Like on the tabletop, the shuffle on or off the ladder isn't measured.
+ */
+export function isLadderStepSegment(state: GameState, a: Vector3, b: Vector3): boolean {
+  if (Math.abs((a.y ?? 0) - (b.y ?? 0)) > 0.05) return false;
+  for (const piece of state.terrain) {
+    if (!isLadderPiece(piece)) continue;
+    const { foot, head } = getStairWaypoints(state, piece);
+    if (Math.abs((a.y ?? 0) - head.y) > 0.05) continue;
+    const near = (p: Vector3, q: Vector3) => Math.hypot(p.x - q.x, p.z - q.z) < 0.05;
+    if ((near(a, foot) && near(b, head)) || (near(b, foot) && near(a, head))) return true;
+  }
+  return false;
 }
 
 /**
@@ -1485,7 +1514,8 @@ export function isSegmentOnRampOrStairs(
     const yaw = piece.rotation.y || 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
-    const margin = 0.35; // tight clearance margin around stair/ladder spine
+    // tight clearance margin around the stair spine; a ladder's foot and head stand LADDER_STANDOFF off it
+    const margin = isLadderPiece(piece) ? LADDER_STANDOFF + 0.1 : 0.35;
     const botY = Math.min(0, piece.position.y ?? 0);
     const topY = Math.max(
       legacyElevation(piece) ?? 0,
@@ -1534,16 +1564,21 @@ export function getStairWaypoints(
   const topY = legacyElevation(piece) ?? botY + (piece.scale.y ?? 2.5);
 
   if (piece.terrainType === 'ladder' || piece.climbType === 'ladder') {
+    // The ladder sits on the deck face; local +Z points into the deck. The foot is a base off the face on
+    // the ground, the head is the same distance in over the deck, so neither base overlaps the ladder or deck.
+    const lyaw = piece.rotation.y || 0;
+    const dx = Math.sin(lyaw) * LADDER_STANDOFF;
+    const dz = Math.cos(lyaw) * LADDER_STANDOFF;
     return {
       foot: {
-        x: Math.round(piece.position.x * 100) / 100,
+        x: Math.round((piece.position.x - dx) * 100) / 100 + 0, // + 0 turns -0 into 0
         y: botY,
-        z: Math.round(piece.position.z * 100) / 100,
+        z: Math.round((piece.position.z - dz) * 100) / 100 + 0, // + 0 turns -0 into 0
       },
       head: {
-        x: Math.round(piece.position.x * 100) / 100,
+        x: Math.round((piece.position.x + dx) * 100) / 100 + 0, // + 0 turns -0 into 0
         y: topY,
-        z: Math.round(piece.position.z * 100) / 100,
+        z: Math.round((piece.position.z + dz) * 100) / 100 + 0, // + 0 turns -0 into 0
       },
     };
   }
@@ -1825,6 +1860,7 @@ export function findNavPath(
       const { foot, head } = getStairWaypoints(state, piece);
       candidateWaypoints.push(foot);
       candidateWaypoints.push(head);
+      if (isLadderPiece(piece)) candidateWaypoints.push({ x: foot.x, y: head.y, z: foot.z }); // top of the climb line
     }
   }
 
@@ -2135,10 +2171,19 @@ export function findNavPath(
       const ladder = findLadderForSegment(state, p1, p2);
       if (ladder) {
         const { foot, head } = getStairWaypoints(state, ladder);
-        const sequence = (p2.y ?? 0) > (p1.y ?? 0) ? [foot, head] : [head, foot];
+        // Climb line: straight up/down above the foot, then a short level step to/from the head spot
+        const top = { x: foot.x, y: head.y, z: foot.z };
+        const goingUp = (p2.y ?? 0) > (p1.y ?? 0);
+        const sequence = goingUp ? [foot, top, head] : [head, top, foot];
+        // Ascent points sit on the deck face at the ladder itself; the standing spots replace them
+        const atLadder = (pt: Vector3) =>
+          Math.hypot(pt.x - ladder.position.x, pt.z - ladder.position.z) < 0.15;
+        if (climbed.length > 1 && atLadder(p1)) climbed.pop();
         for (const pt of sequence) {
           if (!sameSpot(climbed[climbed.length - 1], pt)) climbed.push({ ...pt });
         }
+        if (sequence.some((pt) => sameSpot(pt, p2))) continue;
+        if (atLadder(p2) && i < smoothed.length - 1) continue;
       }
     }
     if (!sameSpot(climbed[climbed.length - 1], p2)) climbed.push(p2);
@@ -2152,7 +2197,9 @@ export function findNavPath(
 
   // Movement cost of a segment: drops cost their horizontal distance only; everything else is 3D length.
   const segCost = (a: Vector3, b: Vector3): number =>
-    isFreeDropSegment(state, a, b)
+    isLadderStepSegment(state, a, b)
+      ? 0
+      : isFreeDropSegment(state, a, b)
       ? Math.hypot(b.x - a.x, b.z - a.z)
       : Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z);
 

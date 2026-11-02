@@ -20,18 +20,20 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] **Stairs look solid:** the stair wedge renders with properly lit outer faces (no see-through or inside-out sides, step lines visible on the slope and sides), and its F9 wireframe slopes the same way as the mesh at every rotation (0°, 90°, 180°, 270°).
 - [ ] **Stairs picking:** with a unit on a deck next to stairs, hovering near the stairs never snaps the move target to the stair corners or step lines; hovering the stair slope still targets the slope.
 
+- [ ] **Ladder spots:** rush/move toward a ladder with a budget too short to climb: the mini stops at the ladder foot with its base against the wall, outside the ladder and not under the deck. With enough budget it climbs and ends standing fully on the deck at the head (not half over the edge). The short shuffle on and off the ladder costs nothing (only the climb height counts). Climbing back down mirrors it. Check a ladder on each side of a deck and on the shipping container.
+
 ## 4. Drops, jumps and movement cost
 - [ ] **(known bug, plan PR 3/5)** Stepping off a ledge of **3" or less** is regular movement: no test, no warning, and it costs only the horizontal distance walked.
 - [ ] Dropping **3–6"**: the move preview warns **JUMP DOWN: roll 2 dice (3 for 6"), all 3+**; success lands with no damage and the activation continues; any failure falls: Falling damage and the activation ends. (Pathfinder needs 2+; Airborne auto-passes.)
 - [ ] A drop **above 6"** warns it can't be jumped; the model falls (Falling damage, activation ends).
-- [ ] **(known bug, plan PR 1/3)** A move can never end with the model hanging in mid-air (it stays at the edge if it can't finish).
+- [ ] **(known bug, plan PR 3)** A move can never end with the model hanging in mid-air (it stays at the edge if it can't finish). On a map that contains a ladder this must hold everywhere, not only away from the ladder.
 - [ ] Climbing (ladders, stairs) still costs its full length; Difficult Terrain caps still apply.
 - [ ] **Gap jumps** use the same test as drops: a horizontal gap of 1" or less is regular movement; 1-6" needs X+1 dice (1 die under 3", 2 from 3"), all 3+ (Pathfinder 2+, Airborne auto-passes); a failed jump falls into the gap (Falling damage if from 3"+ up, activation ends); a gap over 6" shows GAP TOO WIDE and the host rejects the move.
 - [ ] Walking from a platform onto a flush catwalk (and across to the next platform) shows **no** gap warning; only real open air between decks does.
 - [ ] **Dice log:** every jump, fall and dangerous-terrain roll appears in the Dice panel ("Movement hazards", with the rolled dice coloured pass/fail) and in the action log line ("moved X — Jump down 4.0" ... landed"). A move with no hazards shows nothing extra.
 
 ## 5. Low cover & scatter
-- [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs **(ladder climb is a known bug, plan PR 1)**; you can stack pieces on it.
+- [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs (a ladder snapped to its side lets a model climb from the ground to the roof); you can stack pieces on it.
 
 ## 6. Squads
 - All items verified 2026-11-02.

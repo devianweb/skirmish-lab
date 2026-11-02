@@ -39,10 +39,10 @@ import {
   consolidateSquadToward,
   createSquadPositions,
   findMoveBlocker,
-  getStairWaypoints,
   hasCoverAgainstAttack,
   hasLineOfSight,
   isLadderPiece,
+  isOnLadderClimbLine,
   isSuspendedInMidAir,
   validateSquadCoherency,
 } from './spatial';
@@ -331,19 +331,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
         for (const piece of state.terrain) {
-          if (!isLadderPiece(piece)) continue;
-          const { foot, head } = getStairWaypoints(state, piece);
-          const distToLadder = Math.hypot(end.x - foot.x, end.z - foot.z);
-          if (distToLadder <= 0.6) {
-            const minY = Math.min(foot.y, head.y);
-            const maxY = Math.max(foot.y, head.y);
-            const endY = end.y ?? 0;
-            if (endY > minY + 0.2 && endY < maxY - 0.2) {
-              return {
-                valid: false,
-                reason: 'Models cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot',
-              };
-            }
+          if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
+            return {
+              valid: false,
+              reason: 'Models cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot',
+            };
           }
         }
         return { valid: true };
@@ -431,19 +423,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
         }
         for (const piece of state.terrain) {
-          if (!isLadderPiece(piece)) continue;
-          const { foot, head } = getStairWaypoints(state, piece);
-          const distToLadder = Math.hypot(mEnd.x - foot.x, mEnd.z - foot.z);
-          if (distToLadder <= 0.6) {
-            const minY = Math.min(foot.y, head.y);
-            const maxY = Math.max(foot.y, head.y);
-            const endY = mEnd.y ?? 0;
-            if (endY > minY + 0.2 && endY < maxY - 0.2) {
-              return {
-                valid: false,
-                reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot`,
-              };
-            }
+          if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, mEnd)) {
+            return {
+              valid: false,
+              reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot`,
+            };
           }
         }
       }
@@ -654,19 +638,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
         for (const piece of state.terrain) {
-          if (!isLadderPiece(piece)) continue;
-          const { foot, head } = getStairWaypoints(state, piece);
-          const distToLadder = Math.hypot(end.x - foot.x, end.z - foot.z);
-          if (distToLadder <= 0.6) {
-            const minY = Math.min(foot.y, head.y);
-            const maxY = Math.max(foot.y, head.y);
-            const endY = end.y ?? 0;
-            if (endY > minY + 0.2 && endY < maxY - 0.2) {
-              return {
-                valid: false,
-                reason: 'Models cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot',
-              };
-            }
+          if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
+            return {
+              valid: false,
+              reason: 'Models cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot',
+            };
           }
         }
         const wouldEngage = state.units.some(
@@ -763,19 +739,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
         }
         for (const piece of state.terrain) {
-          if (!isLadderPiece(piece)) continue;
-          const { foot, head } = getStairWaypoints(state, piece);
-          const distToLadder = Math.hypot(mEnd.x - foot.x, mEnd.z - foot.z);
-          if (distToLadder <= 0.6) {
-            const minY = Math.min(foot.y, head.y);
-            const maxY = Math.max(foot.y, head.y);
-            const endY = mEnd.y ?? 0;
-            if (endY > minY + 0.2 && endY < maxY - 0.2) {
-              return {
-                valid: false,
-                reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach platform deck or stop at ladder foot`,
-              };
-            }
+          if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, mEnd)) {
+            return {
+              valid: false,
+              reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot`,
+            };
           }
         }
       }
