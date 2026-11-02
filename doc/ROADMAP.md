@@ -671,9 +671,6 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Procedural **Wall Ladders** ($0.6" \times 3.0" \times 0.15"$): vertical side-rails with modeled horizontal rungs snapped to vertical wall/platform faces.
 - [x] Enhanced procedural **Stair / Ramp Wedges** ($2" \times 3.0" \times 4"$): wargaming step risers and side stringers matching continuous ramp physics 1:1.
 
-### Playtest fixes (13.6)
-- [x] Terrain picking ignores decorative lines (stair step lines) and `userData.decor` meshes, so the move target no longer snaps to the stairs' top corners.
-
 ### Sub-phase 13.6D: Low Cover, Barricades & Scatter (`client/` & `shared/`)
 - [x] Waist **Barricades** ($3.0" \times 0.5" \times 0.25"$): chamfered concrete jersey barriers / armored barricades providing low cover (+1 Defense).
 - [x] **Supply Crates** ($1.0" \times 0.75" \times 1.0"$): reinforced corner brackets and hazard markings.
@@ -682,15 +679,14 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 *(13.6D gameplay is done: pieces, structures, collision and cover. Visual dressing — chamfered barriers, hazard stripes, round pipes, per-type colours — is deferred.)*
 
-### 13.6 playtest fixes
-- [x] Map editor: objectives from Auto Obj / loaded / imported maps can be selected by clicking near them (within 1") or from the Objectives tab list, and removed (PR 12).
-
 ### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
 - [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
 - [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.
 - [ ] Update map editor palette to display the new procedural wargaming terrain catalog.
 
-### 13.6 playtest fixes (bugfix batch 1)
+### 13.6 playtest fixes (bugfix batch 1, see `doc/plans/bugfix-playtest-batch-1.md`)
+- [x] Terrain picking ignores decorative lines (stair step lines) and `userData.decor` meshes, so the move target no longer snaps to the stairs' top corners.
+- [x] Map editor: objectives from Auto Obj / loaded / imported maps can be selected by clicking near them (within 1") or from the Objectives tab list, and removed (PR 12).
 - [x] PR 13: the "0" wound outcome marker now uses the same Kenney digit model as 1-5 (`number-0.glb`, tinted neutral grey) instead of a procedural torus.
 
 ### Acceptance Criteria
