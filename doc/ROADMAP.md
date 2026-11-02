@@ -688,6 +688,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Terrain picking ignores decorative lines (stair step lines) and `userData.decor` meshes, so the move target no longer snaps to the stairs' top corners.
 - [x] Map editor: objectives from Auto Obj / loaded / imported maps can be selected by clicking near them (within 1") or from the Objectives tab list, and removed (PR 12).
 - [x] PR 1: ladder foot/head are real standing spots (`LADDER_STANDOFF` 0.55" off/on the deck face; the step on/off is free), ladders onto the shipping container work, and the mid-air guard is no longer disabled on maps that contain a ladder.
+- [x] PR 5: drops are collision-checked (fall column), so a model can no longer fall through a deck, the stair wedge or scatter; drop points sit `DROP_STANDOFF` (0.55") beyond the edge (the step counts as movement), and only segments that follow the slope count as "on the stairs".
 - [x] PR 13: the "0" wound outcome marker now uses the same Kenney digit model as 1-5 (`number-0.glb`, tinted neutral grey) instead of a procedural torus.
 
 ### Acceptance Criteria

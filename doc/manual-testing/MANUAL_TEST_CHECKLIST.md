@@ -23,10 +23,12 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] **Ladder spots:** rush/move toward a ladder with a budget too short to climb: the mini stops at the ladder foot with its base against the wall, outside the ladder and not under the deck. With enough budget it climbs and ends standing fully on the deck at the head (not half over the edge). The short shuffle on and off the ladder costs nothing (only the climb height counts). Climbing back down mirrors it. Check a ladder on each side of a deck and on the shipping container.
 
 ## 4. Drops, jumps and movement cost
-- [ ] **(known bug, plan PR 3/5)** Stepping off a ledge of **3" or less** is regular movement: no test, no warning, and it costs only the horizontal distance walked.
+- [ ] **(known bug, plan PR 3)** Stepping off a ledge of **3" or less** is regular movement: no test, no warning, and it costs only the horizontal distance walked.
 - [ ] Dropping **3–6"**: the move preview warns **JUMP DOWN: roll 2 dice (3 for 6"), all 3+**; success lands with no damage and the activation continues; any failure falls: Falling damage and the activation ends. (Pathfinder needs 2+; Airborne auto-passes.)
 - [ ] A drop **above 6"** warns it can't be jumped; the model falls (Falling damage, activation ends).
 - [ ] **(known bug, plan PR 3)** A move can never end with the model hanging in mid-air (it stays at the edge if it can't finish). On a map that contains a ladder this must hold everywhere, not only away from the ladder.
+- [ ] A model can't drop through a deck, through the gap where a stair meets the deck (stair head), or onto/through scatter (a crate, barricade). Hovering the ground under a deck or beside the stair wedge never previews a path through the solid.
+- [ ] Dropping off a deck edge, a ledge, or the open side of the stairs still works. The model first steps a full base off the edge (about 0.55"; that step counts as movement), then falls. A drop point is never half over the deck.
 - [ ] Climbing (ladders, stairs) still costs its full length; Difficult Terrain caps still apply.
 - [ ] **Gap jumps** use the same test as drops: a horizontal gap of 1" or less is regular movement; 1-6" needs X+1 dice (1 die under 3", 2 from 3"), all 3+ (Pathfinder 2+, Airborne auto-passes); a failed jump falls into the gap (Falling damage if from 3"+ up, activation ends); a gap over 6" shows GAP TOO WIDE and the host rejects the move.
 - [ ] Walking from a platform onto a flush catwalk (and across to the next platform) shows **no** gap warning; only real open air between decks does.
