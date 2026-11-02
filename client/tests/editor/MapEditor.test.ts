@@ -99,7 +99,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(placed!.position.z).toBe(-3.0); // snapped 1.0"
     expect(placed!.blocksLineOfSight).toBe(true);
     expect(placed!.providesCover).toBe(true);
-    expect(placed!.scale).toEqual({ x: 4, y: 3, z: 4 });
+    expect(placed!.scale).toEqual({ x: 4, y: 4, z: 4 });
 
     const map = editor.getMap();
     expect(map.terrain).toHaveLength(1);

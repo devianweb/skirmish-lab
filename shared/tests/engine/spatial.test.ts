@@ -217,8 +217,12 @@ describe('spatial: line of sight & visibility polygon', () => {
       expect(p.z).toBeGreaterThan(5);
     }
 
-    // Through the solid wall jambs (e.g. x = 1.0, z > 0), rays should be blocked at z ≈ 2
-    const jambPoints = poly.filter((p) => Math.abs(p.x - 1.0) < 0.1 && p.z > 0);
+    // Rays that would cross the wall plane (z = 2) within the jamb (|x| between 1.0 and 1.4) must stop at the wall
+    const jambPoints = poly.filter((p) => {
+      if (p.z <= 0.5) return false;
+      const xAtWall = (Math.abs(p.x) * 1.5) / (p.z - 0.5);
+      return xAtWall > 1.0 && xAtWall < 1.4;
+    });
     expect(jambPoints.length).toBeGreaterThan(0);
     for (const p of jambPoints) {
       expect(p.z).toBeLessThanOrEqual(2.1);

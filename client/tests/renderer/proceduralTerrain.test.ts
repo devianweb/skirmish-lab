@@ -7,6 +7,8 @@ import {
   createProceduralDoorwayWall,
   createProceduralColumn,
   createProceduralLCornerRuin,
+  createProceduralShortWall,
+  createProceduralLongWall,
 } from '../../src/renderer/ModelLoader';
 import { resolveTerrainStructure } from '@skirmish-lab/shared';
 
@@ -103,5 +105,22 @@ describe('procedural wargaming terrain', () => {
   it('ruin has an open courtyard: no mesh in the interior', () => {
     const ruin = createProceduralLCornerRuin();
     expect(occupied(ruin, new THREE.Box3(new THREE.Vector3(-0.3, 0, -0.4), new THREE.Vector3(0.4, 1, 0.3)))).toBe(false);
+  });
+
+  it('segmented walls have no gaps: 2", 4" and 6" meshes are continuous along their length', () => {
+    for (const [build, segments] of [
+      [createProceduralShortWall, 1],
+      [createProceduralSolidWall, 2],
+      [createProceduralLongWall, 3],
+    ] as const) {
+      const wall = build();
+      wall.updateMatrixWorld(true);
+      // Every vertical slice along the wall's length must be occupied (no see-through seams)
+      for (let i = 0; i < 40; i++) {
+        const x = -0.5 + (i + 0.5) / 40;
+        const slice = new THREE.Box3(new THREE.Vector3(x - 0.001, 0.2, -0.4), new THREE.Vector3(x + 0.001, 0.8, 0.4));
+        expect(occupied(wall, slice), `${segments}-segment wall slice x=${x.toFixed(3)}`).toBe(true);
+      }
+    }
   });
 });
