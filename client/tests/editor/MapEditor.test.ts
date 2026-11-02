@@ -355,11 +355,11 @@ describe('MapEditor 3D Battlefield Builder', () => {
       expect(labels.join('|').toLowerCase()).toContain('stairs');
     });
 
-    it('a piece dropped near a deck top sits exactly on it (3.0") without becoming a floor itself', () => {
+    it('a barricade dropped near a deck top sits exactly on it (3.0") without becoming a floor itself', () => {
       const editor = new MapEditor(container);
       editor.clearBoard();
       editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 });
-      const rail = editor.placePieceAt('deck-railing', { x: 0, y: 2.9, z: 0 }, 0, 2.9);
+      const rail = editor.placePieceAt('barricade', { x: 0, y: 2.9, z: 0 }, 0, 2.9);
       expect(rail!.position.y).toBe(3.0);
       expect(rail!.elevation).toBeUndefined();
       expect(rail!.isWalkable).toBe(false);
@@ -383,6 +383,18 @@ describe('MapEditor 3D Battlefield Builder', () => {
       expect(ladder.position.z).toBeCloseTo(1);
       expect(ladder.rotation.y).toBeCloseTo(-Math.PI / 2);
       expect(ladder.scale.y).toBeCloseTo(3.0);
+    });
+
+    it('stairs snap to the nearest deck face: head end on the face, climbing toward the deck', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 }); // x/z in [-2, 2], top 3.0
+      const stairs = editor.placePieceAt('stairs', { x: 3, y: 0, z: 0 })!;
+      // East face (x = 2): stairs are 4" long, so centre sits 2" out; head (local +Z) points -x into the deck
+      expect(stairs.position.x).toBeCloseTo(4);
+      expect(stairs.position.z).toBeCloseTo(0);
+      expect(stairs.rotation.y).toBeCloseTo(-Math.PI / 2);
+      expect(stairs.scale.y).toBeCloseTo(3.0);
     });
 
     it('a ladder far from any floor stays where it was placed', () => {

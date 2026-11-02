@@ -1249,7 +1249,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
           const endPt = clampedLadderPath[clampedLadderPath.length - 1];
           // Must remain at ladder foot (y = 0), not suspended in mid-air
           expect(endPt.y).toBe(0);
-          expect(endPt.z).toBeCloseTo(1.75, 1);
+          expect(endPt.z).toBeCloseTo(2, 1); // the ladder foot itself (its spine), not a point beside it
 
           // In contrast, stairs allow stopping along the slope when budget is limited
           const stairClimber = makeUnit('u-stair-climber', HOST, { x: 0, y: 0, z: -2 });

@@ -51,10 +51,14 @@ import {
   getEffectiveMaxMovement,
   isPathDangerous,
   isPathDifficult,
-  pathLength3D,
+  pathMovementCost,
   resolveDangerousTerrain,
   resolveFallingDamage,
   resolveGapJump,
+  resolveDropJump,
+  calculateJumpDice,
+  FREE_DROP_MAX,
+  JUMP_DROP_MAX,
   allocateSquadCasualties,
   validateMeleeVerticalReach,
 } from './traversal';
@@ -281,7 +285,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           return { valid: false, reason: 'Final position does not match path end' };
         }
         const isDifficult = isPathDifficult(state, path, unit.result);
-        const distance = pathLength3D(path);
+        const distance = pathMovementCost(state, path);
         const effectiveCap = getEffectiveMaxMovement(
           unit.result,
           unit.result.isRushing ? 'rush' : 'move',
@@ -398,7 +402,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           mDifficult
         );
         const mMax = Math.min(mCap, unit.result.remainingMovement);
-        const mDist = pathLength3D(mPath);
+        const mDist = pathMovementCost(state, mPath);
         if (mDist > mMax + 0.05) {
           return {
             valid: false,
@@ -540,7 +544,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           ? path
           : [{ ...attacker.result.position }, ...path];
       const isDifficult = isPathDifficult(state, fullPath, attacker.result);
-      const distance = pathLength3D(fullPath);
+      const distance = pathMovementCost(state, fullPath);
       const maxCharge = getEffectiveMaxMovement(attacker.result, 'charge', isDifficult);
       if (distance > maxCharge + 0.01) {
         return {
@@ -614,7 +618,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
             ? path
             : [{ ...unit.position }, ...path];
         const isDifficult = isPathDifficult(state, fullPath, unit);
-        const dist = pathLength3D(fullPath);
+        const dist = pathMovementCost(state, fullPath);
         const effectiveCap = getEffectiveMaxMovement(unit, 'rush', isDifficult);
         const maxRush = Math.min(effectiveCap, currentRushBudget);
         if (dist > maxRush + 0.01) {
@@ -724,7 +728,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const mDifficult = isPathDifficult(state, mPath, unit);
         const mCap = getEffectiveMaxMovement(unit, 'rush', mDifficult);
         const mMax = Math.min(mCap, currentRushBudget);
-        const mDist = pathLength3D(mPath);
+        const mDist = pathMovementCost(state, mPath);
         if (mDist > mMax + 0.05) {
           return {
             valid: false,
@@ -851,7 +855,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!path || path.length < 2) {
         return { valid: false, reason: 'Consolidation path is empty' };
       }
-      const distance = pathLength3D(path);
+      const distance = pathMovementCost(state, path);
       const maxDistance = pending.data?.maxDistance ?? 3.0;
       if (distance > maxDistance + 0.05) {
         return { valid: false, reason: `Consolidation move exceeds max distance (${maxDistance}")` };
@@ -916,7 +920,10 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
       const fall = detectPathFall(path, state);
-      if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+      if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
+        if (fall.maxDrop <= JUMP_DROP_MAX) {
+          specs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
+        }
         specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         specs.push({ count: 1, sides: 6, purpose: 'trauma' });
       }
@@ -1058,7 +1065,10 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
       const fall = detectPathFall(chargePayload.path, state);
-      if (fall.maxDrop > 3.05 && !hasTrait(attacker.specialRules, 'airborne')) {
+      if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne')) {
+        if (fall.maxDrop <= JUMP_DROP_MAX) {
+          traversalSpecs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
+        }
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
       }
@@ -1134,9 +1144,14 @@ function applyTraversalHazardsAndFalls(
     }
   }
 
-  // 3. Falling damage for drops > 3.0"
+  // 3. Drops: up to 3" is regular movement; 3-6" must be jumped (X+1 dice, all 3+); otherwise the model falls
   const fall = detectPathFall(path, state);
-  if (fall.maxDrop > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
+  if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
+    const jumpRolls = dice?.find((d) => d.purpose === 'drop_jump')?.rolls ?? payload.dropJumpRolls;
+    const jump = resolveDropJump(unit, fall.maxDrop, jumpRolls);
+    if (jump.canJump && jump.passed) {
+      return { terminated: false, wounds: 0 }; // landed the jump
+    }
     const defRoll =
       dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
       payload.fallingDefenseRoll;
@@ -1294,7 +1309,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         const modelDistances = modelPositions.map((pos, i) => {
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
-            return pathLength3D(modelPaths[i]);
+            return pathMovementCost(state, modelPaths[i]);
           }
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
@@ -1352,7 +1367,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.position = targetPos;
       }
 
-      const distanceMoved = path ? pathLength3D(path) : 0;
+      const distanceMoved = path ? pathMovementCost(state, path) : 0;
       unit.hasMoved = true;
       unit.remainingMovement = Math.max(
         0,
@@ -1745,7 +1760,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         const modelDistances = modelPositions.map((pos, i) => {
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
-            return pathLength3D(modelPaths[i]);
+            return pathMovementCost(state, modelPaths[i]);
           }
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
@@ -1779,7 +1794,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         path && path.length > 0 && boardDistance(path[0], startPos) < 0.01
           ? path
           : [startPos, ...(path ?? [])];
-      const distMoved = pathLength3D(fullPath);
+      const distMoved = pathMovementCost(state, fullPath);
       const end = finalPosition ? { ...finalPosition } : { ...(path ? path[path.length - 1] : unit.position) };
       const dx = end.x - unit.position.x;
       const dz = end.z - unit.position.z;

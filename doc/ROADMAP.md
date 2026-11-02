@@ -604,7 +604,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Unit tests for wedge collision, continuous ramp elevation, vertical ladder completion constraints, and arbitrary model movement order.
 
 ### Sub-phase 13.5I: Consolidated Verification Checklist & End-to-End Validation
-- [x] Update `doc/manual-testing/PLAYTEST_VERIFICATION_CHECKLIST.md` with accurate force names (*Frontier Wardens* and *Rust Raiders*) and actual unit rosters.
+- [x] Update the manual playtest checklist (now consolidated in `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`) with accurate force names (*Frontier Wardens* and *Rust Raiders*) and actual unit rosters.
 - [x] Create streamlined, step-by-step test cases for each 13.5 sub-phase mechanic (interactive consolidation, 3D objective cylinder, split fire, stair pathfinding, arbitrary squad movement, user-chosen model order, incremental movement budget, obstacle flanking, triangular ramp traversal, and rush range indicator).
 - [x] Verify test suite passes locally across all workspaces.
 
@@ -645,7 +645,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Engine reads only solids and apertures for movement, line of sight, cover, nav waypoints and the visibility fan (no per-building special cases). Fixes movement into `ruin-l` and window-port LoS on ruins.
 - [x] 3D line of sight from a 1.1" eye to any visible part of the target (head/torso/feet); manning = base edge within 1.0" of the port; doorways are open air with no port cover.
 - [x] Unit tests for ruin movement, manned/distant ports, lintel/sill heights, nested groups and the F9 debug trace.
-- [x] Client: meshes built from the shared structure definitions, per-box F9 wireframes (solids/apertures) and eye-level rays; courtyard ground picks already resolve to the ground plane. Playtest checklist: `doc/manual-testing/TERRAIN_STRUCTURE_CHECKLIST.md`.
+- [x] Client: meshes built from the shared structure definitions, per-box F9 wireframes (solids/apertures) and eye-level rays; courtyard ground picks already resolve to the ground plane. Playtest checklist: `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`.
 
 ### Sub-phase 13.6C-1: Grid Compliance & Segmented Walls (`shared/` & `client/`)
 - [x] All catalog heights, thicknesses and openings are multiples of 0.25" at default scale (test-guarded): wall/window/doorway thickness 0.25", window port 2.5" wide, doorway opening 1.5" × 2.25", column 1.25", ruin 4" × 4" × 4" with a 1.0" sill and 0.25" walls.
@@ -653,9 +653,15 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 ### Sub-phase 13.6C-2: Elevation Engine (`shared/`)
 - [x] `walkable` solids, `FLOOR_TIER` = 3.0", `getWalkableSurfaces` / `findWalkableSurfaceAt` (replace whole-footprint platform checks for structured pieces; legacy pieces still work).
-- [x] Structures: `platform-small`, `platform-large`, `catwalk`, `support-pillar`, `deck-railing`, `deck-parapet`; ruin gets its 3.0" L-ledge (ruin is 4"×4"×4").
+- [x] Structures: `platform-small`, `platform-large`, `catwalk`, `support-pillar`; ruin gets its 3.0" L-ledge (ruin is 4"×4"×4").
 - [x] Setback blind spot and parapet cover hacks removed in favour of 3D geometry.
-- [x] Client: meshes with visual-only kick-plates/tread ridges, palette entries, auto-stacking on decks, ladder snapping to deck faces, ruin-ledge picking, F9 purple floors. Playtest checklist: `doc/manual-testing/ELEVATION_CHECKLIST.md`.
+- [x] Client: meshes with visual-only kick-plates/tread ridges, palette entries, auto-stacking on decks, ladder snapping to deck faces, ruin-ledge picking, F9 purple floors. Playtest checklist: `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`.
+
+### Sub-phase 13.6C-3: Drops, Jumps & Stairs/Ladder Fixes (`shared/` & `client/`)
+- [x] Drops cost horizontal distance only; drops of 3-6" need the X+1 dice (3+) jump test, otherwise a fall; drops above 6" always fall; no move ends in mid-air.
+- [x] Stairs orientation is data (head = local +Z) and the editor snaps stairs to deck faces; ladder paths walk the spine (foot -> head).
+- [x] Manual checklists consolidated into `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`.
+- [ ] Known gap: horizontal gap jumps still use a single Quality test (not X+1 dice at 3+).
 
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
 - [x] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).
@@ -665,10 +671,12 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Enhanced procedural **Stair / Ramp Wedges** ($2" \times 3.0" \times 4"$): wargaming step risers and side stringers matching continuous ramp physics 1:1.
 
 ### Sub-phase 13.6D: Low Cover, Barricades & Scatter (`client/` & `shared/`)
-- [ ] Procedural **Waist Barricades** ($3.0" \times 0.9" \times 0.3"$): chamfered concrete jersey barriers / armored barricades providing low cover (+1 Defense).
-- [ ] Procedural **Supply Crates** ($1.0" \times 1.0" \times 1.0"$): reinforced corner brackets and hazard markings.
-- [ ] Procedural **Shipping Containers** ($5.0" \times 2.2" \times 2.2"$): corrugated steel side panels and walkable flat roof ($y \approx 2.2"$).
-- [ ] Procedural **Industrial Pipes / Conduits** ($4.0" \times 0.8" \times 0.8"$): cylindrical pipelines with pipe-coupling flanges.
+- [x] Waist **Barricades** ($3.0" \times 0.5" \times 0.25"$): chamfered concrete jersey barriers / armored barricades providing low cover (+1 Defense).
+- [x] **Supply Crates** ($1.0" \times 0.75" \times 1.0"$): reinforced corner brackets and hazard markings.
+- [x] **Shipping Containers** ($5.0" \times 2.25" \times 2.25"$; walkable roof at $y = 2.25"$): corrugated steel side panels and walkable flat roof ($y \approx 2.2"$).
+- [x] **Industrial Pipes** ($4.0" \times 0.75" \times 0.75"$; box collision): cylindrical pipelines with pipe-coupling flanges.
+
+*(13.6D gameplay is done: pieces, structures, collision and cover. Visual dressing — chamfered barriers, hazard stripes, round pipes, per-type colours — is deferred.)*
 
 ### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
 - [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
