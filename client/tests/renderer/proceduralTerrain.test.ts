@@ -128,6 +128,43 @@ describe('procedural wargaming terrain', () => {
     }
   });
 
+  it('stair wedge faces all point outward (no inside-out faces / broken shading)', () => {
+    const loader = new ModelLoader(async () => new THREE.Group());
+    const stairs = loader.createTerrainMesh('stairs');
+    stairs.updateMatrixWorld(true);
+    // The wedge's cross-section centroid (inside the solid): x = 0, y = 1/3, z = 1/6
+    const inside = new THREE.Vector3(0, 1 / 3, 1 / 6);
+    let triangles = 0;
+    stairs.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const pos = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i += 3) {
+        const a = new THREE.Vector3().fromBufferAttribute(pos, i);
+        const b = new THREE.Vector3().fromBufferAttribute(pos, i + 1);
+        const c2 = new THREE.Vector3().fromBufferAttribute(pos, i + 2);
+        const normal = new THREE.Vector3().crossVectors(b.clone().sub(a), c2.clone().sub(a));
+        const centroid = a.clone().add(b).add(c2).divideScalar(3);
+        expect(normal.dot(centroid.sub(inside)), `triangle ${i / 3}`).toBeGreaterThan(0);
+        triangles++;
+      }
+    });
+    expect(triangles).toBe(8);
+  });
+
+  it('stair wedge slopes up toward local +Z (the head end the engine uses)', () => {
+    const loader = new ModelLoader(async () => new THREE.Group());
+    const stairs = loader.createTerrainMesh('stairs');
+    let topZ = -Infinity;
+    stairs.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const pos = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0.99) topZ = Math.max(topZ, pos.getZ(i));
+    });
+    expect(topZ).toBeCloseTo(0.5);
+  });
+
   describe('elevation pieces (13.6C)', () => {
     const unitPiece = (type: string) => ({
       id: 'u',

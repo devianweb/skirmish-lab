@@ -29,6 +29,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - [ ] **Clicking** the top of a platform, catwalk, ruin ledge or container roof picks that floor height (3.0" / 2.25"), even on older saved maps. Hovering or clicking a pillar, wall side or the underside of a deck picks the ground (the cursor never floats in mid-air).
 - [ ] Platforms (4×4 / 6×4) stand on corner pillars; models walk under the deck and under a catwalk; pillars block movement and sight.
 - [ ] A model reaches a deck by stairs (continuous slope; can stop part-way) or by ladder (must reach the top; stops at the foot if the budget can't finish; never hangs on the rungs).
+- [ ] **Stairs look solid:** the stair wedge renders with properly lit outer faces (no see-through or inside-out sides, step lines visible on the slope and sides), and its F9 wireframe slopes the same way as the mesh at every rotation (0°, 90°, 180°, 270°).
 - [ ] **Ladder path:** the move preview walks to the ladder foot, climbs straight up the ladder's centre line to the head, then continues. Same going down. No slanted line beside the ladder.
 - [ ] A model on the deck walks across it; a barricade stacked on the deck blocks movement through it.
 - [ ] The ruin's 3.0" ledge is walkable along the north and west walls; the courtyard below stays walkable; ruin walls are 4" tall.

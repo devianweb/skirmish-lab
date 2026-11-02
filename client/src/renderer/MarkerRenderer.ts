@@ -11,7 +11,6 @@ import {
   OBJECTIVE_CONTROL_RADIUS,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   isStairPiece,
-  getStairWaypoints,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
@@ -406,15 +405,11 @@ export class MarkerRenderer {
       }
 
       if (isStairPiece(piece)) {
-        // Triangular prism (wedge) wireframe showing true incline profile from foot to head
-        const waypoints = getStairWaypoints({ terrain: pieces } as any, piece);
-        const fdx = waypoints.foot.x - piece.position.x;
-        const fdz = waypoints.foot.z - piece.position.z;
-        const flz = -fdx * Math.sin(piece.rotation.y || 0) + fdz * Math.cos(piece.rotation.y || 0);
-
-        // Foot is at footZ (+hz or -hz), head is at headZ
-        const footZ = flz > 0 ? hz : -hz;
-        const headZ = -footZ;
+        // Triangular prism (wedge) wireframe. Stair orientation is data: the head (top) end is always
+        // local +Z (see getStairWaypoints), so the wireframe never infers direction from neighbours.
+        const footZ = -hz;
+        const headZ = hz;
+        pieceGroup.position.y = piece.position.y ?? 0;
 
         const vertices = [
           // Bottom rectangle
