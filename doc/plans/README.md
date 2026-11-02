@@ -8,11 +8,12 @@ Each roadmap sub-phase that needs more than a one-line fix gets a plan file here
 3. **Implement (Sonnet `implementer` agent, `.claude/agents/implementer.md`).** One agent per PR section, preferably in an isolated git worktree. It writes tests first, runs all workspaces, updates the docs and checklist, opens a PR to `master`, and does not merge. If a rules question comes up, it stops and reports instead of guessing.
 4. **Review (Opus).** Check the diff against the plan and the rules. Send fixes back to the same agent, or patch small issues directly.
 5. **Merge to `master`** (squash). Then start the next PR section. **Releases** (`master` → `release`) happen only when the owner explicitly asks in that turn.
-6. When every section is merged, mark the plan `Status: done` and keep the file as a record.
+6. When a batch (sub-plan) is fully merged, Opus posts that batch's manual checks to the owner (the items its PRs added to `MANUAL_TEST_CHECKLIST.md`). When every section is merged, mark the plan `Status: done` and keep the file as a record.
 
 ## Rule references (local only; `assets-src/` is gitignored)
 Absolute paths, because worktrees don't contain `assets-src/`:
 - `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.5.1.pdf`: the core rules (movement, shooting, melee, terrain, jumps/falls, special rules).
+- `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Beginner's Guide v3.5.1.pdf`: expanded explanations, including the **Terrain** chapter (open/impassable/blocking/cover/difficult/dangerous/elevated terrain: climbing up to 3", stepping over ≤1" terrain, split-level coherency, no ending overhanging gaps/terrain) and terrain setup guidelines. Use it where the core rules are silent.
 - `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - HUMAN DEFENSE FORCE V3.5.3.pdf`: a sample army book, used for unit/weapon structure only. We don't ship its data.
 - `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Tournament Guidelines v3.5.0.pdf`: competitive defaults. Relevant to us:
   - **Table & terrain mix** (map editor validation, default scenario / 13.6E): 4'×4' table; scatter pieces roughly 1–3" across, large pieces 4–8" (up to 12"); about a quarter of the table covered; ~3" gaps between large pieces; at least half the pieces block sight, a third give cover, a third are difficult, and at least two are dangerous.
