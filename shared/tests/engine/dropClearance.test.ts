@@ -179,6 +179,31 @@ describe('fixture: testy-mctestface', () => {
     expect(findMoveBlocker(state, mover, through).blocked).toBe(true);
   });
 
+  it('walking at ground level from the stair foot straight under the slope is blocked', () => {
+    const mover = makeUnit('m', { x: 7, y: 0, z: 5.2 });
+    const state = makeState([mover], terrain);
+    expect(findMoveBlocker(state, mover, [{ x: 7, y: 0, z: 5.2 }, { x: 7, y: 0, z: -1 }]).blocked).toBe(true);
+  });
+
+  it('mid-slope to the ground beyond the head never goes back under the slope', () => {
+    const mover = makeUnit('m', { x: 7, y: 1.5, z: 3 });
+    const state = makeState([mover], terrain);
+    const path = findNavPath(state, mover, { x: 7, y: 0, z: -1 }, 20);
+    expect(findMoveBlocker(state, mover, path).blocked).toBe(false);
+    for (let i = 1; i < path.length; i++) {
+      for (let t = 0; t <= 1; t += 0.02) {
+        const a = path[i - 1];
+        const b = path[i];
+        const pt = {
+          x: a.x + (b.x - a.x) * t,
+          y: (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t,
+          z: a.z + (b.z - a.z) * t,
+        };
+        expect(inWedge(pt, state)).toBe(false);
+      }
+    }
+  });
+
   it('a unit mid-slope cannot go straight through the wedge to the ground at the stair head', () => {
     const mover = makeUnit('m', { x: 7, y: 1.5, z: 3 });
     const state = makeState([mover], terrain);

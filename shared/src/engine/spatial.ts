@@ -394,26 +394,26 @@ export function findMoveBlocker(
           if (slopeY !== null && entryY < slopeY - 0.15) {
             return { blocked: true, reason: 'Move path is blocked by stairs' };
           }
-          // A segment that starts on the slope can still dive into the body (e.g. mid-slope straight down
-          // to the ground at the head end): sample the part inside the footprint.
-          const { hx, hz } = terrainHalfExtents(piece);
-          const yawS = piece.rotation.y || 0;
-          const cosS = Math.cos(yawS);
-          const sinS = Math.sin(yawS);
-          const t1 = Math.min(segLen, hit.tExit);
-          for (let t = Math.max(0, hit.tEntry); t <= t1 + 1e-6; t += 0.1) {
-            const px = from.x + dirX * t;
-            const pz = from.z + dirZ * t;
-            const py = fromY + (toY - fromY) * (t / segLen);
-            const ddx = px - piece.position.x;
-            const ddz = pz - piece.position.z;
-            const plx = ddx * cosS + ddz * sinS;
-            const plz = -ddx * sinS + ddz * cosS;
-            if (Math.abs(plx) >= hx - 0.05 || Math.abs(plz) >= hz - 0.05) continue;
-            const sY = getStairSurfaceHeight(piece, { x: px, y: py, z: pz }, state);
-            if (sY !== null && py < sY - 0.15) {
-              return { blocked: true, reason: 'Move path is blocked by stairs' };
-            }
+        }
+        // A segment that starts on the slope can still dive into the body (e.g. mid-slope straight down
+        // to the ground at the head end): sample the part inside the footprint.
+        const { hx, hz } = terrainHalfExtents(piece);
+        const yawS = piece.rotation.y || 0;
+        const cosS = Math.cos(yawS);
+        const sinS = Math.sin(yawS);
+        const t1 = hit ? Math.min(segLen, hit.tExit) : -1;
+        for (let t = hit ? Math.max(0, hit.tEntry) : 0; t <= t1 + 1e-6; t += 0.1) {
+          const px = from.x + dirX * t;
+          const pz = from.z + dirZ * t;
+          const py = fromY + (toY - fromY) * (t / segLen);
+          const ddx = px - piece.position.x;
+          const ddz = pz - piece.position.z;
+          const plx = ddx * cosS + ddz * sinS;
+          const plz = -ddx * sinS + ddz * cosS;
+          if (Math.abs(plx) >= hx - 0.05 || Math.abs(plz) >= hz - 0.05) continue;
+          const sY = getStairSurfaceHeight(piece, { x: px, y: py, z: pz }, state);
+          if (sY !== null && py < sY - 0.15) {
+            return { blocked: true, reason: 'Move path is blocked by stairs' };
           }
         }
         continue;
