@@ -1,6 +1,6 @@
 # Bugfix batch 1: playtest fixes + elevated-terrain rules alignment
 Status: approved (2026-11-02), split into sub-plans
-Roadmap: doc/ROADMAP.md § 13.6 (playtest fixes; add a "13.6 playtest fixes" bullet list when the first PR lands)
+Roadmap: tick items under the existing `### 13.6 playtest fixes (bugfix batch 1, …)` heading in doc/ROADMAP.md (just above the 13.6 Acceptance Criteria). Don't create a new heading.
 
 ## Goal
 A running list of small bugs the owner finds while playtesting, each fixed as its own small PR. Every item says what the player sees, why it happens, and the agreed fix. New bugs are appended as further PR sections. Each section can be handed to the `implementer` agent independently once its open questions are answered.

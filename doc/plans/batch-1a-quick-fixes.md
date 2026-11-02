@@ -1,5 +1,5 @@
 # Batch 1A: quick fixes (picking, editor objectives, zero marker)
-Status: approved (2026-11-02)
+Status: done (2026-11-02): PRs #155, #157, #156
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
 Small, independent client fixes. Each one is its own PR and can go in any order.
