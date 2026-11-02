@@ -574,10 +574,10 @@ export function clampMoveDestinationWithObstacles(
 
   // Snap y to walkable surface if point is on a platform
   const candPoint = { x, y, z };
-  const platform = findWalkablePlatformAt(state, candPoint);
-  if (platform && platform.elevation !== undefined && y >= platform.elevation - 0.5) {
-    y = platform.elevation;
-  } else if (!platform && y < 0.5) {
+  const surface = findWalkableSurfaceAt(state, candPoint);
+  if (surface && y >= surface.topY - 0.5) {
+    y = surface.topY;
+  } else if (!surface && y < 0.5) {
     y = 0;
   }
 
@@ -588,76 +588,90 @@ export function clampMoveDestinationWithObstacles(
   };
 }
 
+/** A standable floor: a footprint (piece-local XZ box) and the height of its top face. */
+export interface WalkableSurface {
+  piece: TerrainPiece;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  topY: number;
+}
+
+/**
+ * Standable floors of a piece. Structured pieces expose their `walkable` solids (deck, catwalk,
+ * ruin ledge) at the height of each solid's top face. Legacy pieces flagged walkable/elevated
+ * (older saved maps) expose their whole footprint at `elevation`.
+ */
+export function getWalkableSurfaces(piece: TerrainPiece): WalkableSurface[] {
+  const baseY = piece.position.y ?? 0;
+  const surfaces: WalkableSurface[] = [];
+  for (const solid of resolveTerrainStructure(piece).solids) {
+    if (solid.walkable) {
+      surfaces.push({
+        piece,
+        minX: solid.minX,
+        maxX: solid.maxX,
+        minZ: solid.minZ,
+        maxZ: solid.maxZ,
+        topY: baseY + solid.maxY,
+      });
+    }
+  }
+  if (surfaces.length > 0) return surfaces;
+
+  if (
+    piece.isWalkable ||
+    piece.terrainType === 'platform' ||
+    piece.terrainType === 'floor' ||
+    (piece.elevation !== undefined && piece.elevation > 0)
+  ) {
+    const { hx, hz } = terrainHalfExtents(piece);
+    return [
+      { piece, minX: -hx, maxX: hx, minZ: -hz, maxZ: hz, topY: piece.elevation ?? piece.position.y ?? 2.5 },
+    ];
+  }
+  return [];
+}
+
+/**
+ * The standable floor under `point` (within `margin` of its footprint). With several floors
+ * stacked, the one whose top is closest to the point's height wins (highest when y is unknown).
+ */
+export function findWalkableSurfaceAt(
+  state: GameState,
+  point: { x: number; z: number; y?: number },
+  margin: number = 0.1,
+  excludePieceId?: string
+): WalkableSurface | null {
+  let best: WalkableSurface | null = null;
+  let bestScore = Infinity;
+  for (const piece of state.terrain) {
+    if (piece.id === excludePieceId) continue;
+    for (const surface of getWalkableSurfaces(piece)) {
+      const l = worldToLocal(piece, { x: point.x, y: 0, z: point.z });
+      if (
+        l.x >= surface.minX - margin &&
+        l.x <= surface.maxX + margin &&
+        l.z >= surface.minZ - margin &&
+        l.z <= surface.maxZ + margin
+      ) {
+        const score = point.y === undefined ? -surface.topY : Math.abs(point.y - surface.topY);
+        if (score < bestScore) {
+          bestScore = score;
+          best = surface;
+        }
+      }
+    }
+  }
+  return best;
+}
+
 /**
  * Finds a walkable elevated platform terrain piece at `point`.
  */
 export function findWalkablePlatformAt(state: GameState, point: Vector3): TerrainPiece | null {
-  for (const piece of state.terrain) {
-    if (
-      piece.isWalkable ||
-      piece.terrainType === 'platform' ||
-      piece.terrainType === 'floor' ||
-      (piece.elevation !== undefined && piece.elevation > 0)
-    ) {
-      const { hx, hz } = terrainHalfExtents(piece);
-      const yaw = piece.rotation.y || 0;
-      const cos = Math.cos(yaw);
-      const sin = Math.sin(yaw);
-      const dx = point.x - piece.position.x;
-      const dz = point.z - piece.position.z;
-      const localX = dx * cos - dz * sin;
-      const localZ = dx * sin + dz * cos;
-      if (Math.abs(localX) <= hx + 0.1 && Math.abs(localZ) <= hz + 0.1) {
-        return piece;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Distance from an elevated point on a platform to the platform's perimeter edge
- * in the direction toward another point on the XZ plane.
- */
-export function getPlatformEdgeDistance(
-  point: Vector3,
-  toward: Vector3,
-  platform: TerrainPiece
-): number {
-  const { hx, hz } = terrainHalfExtents(platform);
-  const yaw = platform.rotation.y || 0;
-  const cos = Math.cos(yaw);
-  const sin = Math.sin(yaw);
-
-  const dx = toward.x - point.x;
-  const dz = toward.z - point.z;
-  const dist = Math.hypot(dx, dz);
-  if (dist < 1e-4) return 0;
-
-  const dirX = dx / dist;
-  const dirZ = dz / dist;
-
-  const ox = point.x - platform.position.x;
-  const oz = point.z - platform.position.z;
-  const localOx = ox * cos - oz * sin;
-  const localOz = ox * sin + oz * cos;
-  const localDx = dirX * cos - dirZ * sin;
-  const localDz = dirX * sin + dirZ * cos;
-
-  let tExit = Infinity;
-  if (localDx > 1e-6) {
-    tExit = Math.min(tExit, (hx - localOx) / localDx);
-  } else if (localDx < -1e-6) {
-    tExit = Math.min(tExit, (-hx - localOx) / localDx);
-  }
-
-  if (localDz > 1e-6) {
-    tExit = Math.min(tExit, (hz - localOz) / localDz);
-  } else if (localDz < -1e-6) {
-    tExit = Math.min(tExit, (-hz - localOz) / localDz);
-  }
-
-  return Math.max(0, tExit === Infinity ? 0 : tExit);
+  return findWalkableSurfaceAt(state, point)?.piece ?? null;
 }
 
 type SpatialSubject = Pick<Unit, 'position'> & { id?: string; models?: Unit['models']; status?: Unit['status'] };
@@ -756,29 +770,6 @@ export function traceLineOfSight(
   const attackerY = attacker.position.y ?? 0;
   const targetY = target.position.y ?? 0;
 
-  // Setback Blind Spot:
-  // If target is elevated >= 1.0" above attacker, check if target is set back from platform edge
-  if (targetY >= attackerY + 1.0) {
-    const platform = findWalkablePlatformAt(state, target.position);
-    if (platform) {
-      const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
-      if (setback > 1.05) {
-        return { clear: false }; // Ground shooter's sight is blocked by the floor plane
-      }
-    }
-  }
-
-  // If attacker is elevated >= 1.0" above target, check if attacker is set back from platform edge
-  if (attackerY >= targetY + 1.0) {
-    const platform = findWalkablePlatformAt(state, attacker.position);
-    if (platform) {
-      const setback = getPlatformEdgeDistance(attacker.position, target.position, platform);
-      if (setback > 1.05) {
-        return { clear: false }; // Elevated shooter cannot see over floor lip to ground below
-      }
-    }
-  }
-
   const eye: Vector3 = { x: attacker.position.x, y: attackerY + EYE_HEIGHT, z: attacker.position.z };
   let firstBlock: LineOfSightTrace = { clear: false };
   let recorded = false;
@@ -844,18 +835,6 @@ export function findCoverSource(
 
   const attackerY = attacker.position.y ?? 0;
   const targetY = target.position.y ?? 0;
-
-  // 1. Parapet / Ledge Cover:
-  // If target is on an elevated platform >= 1.0" above attacker, and within 1.0" of the edge facing attacker
-  if (targetY >= attackerY + 1.0) {
-    const platform = findWalkablePlatformAt(state, target.position);
-    if (platform) {
-      const setback = getPlatformEdgeDistance(target.position, attacker.position, platform);
-      if (setback <= 1.05) {
-        return { pieceId: platform.id, reason: 'Parapet cover (target within 1.0" of platform edge)' };
-      }
-    }
-  }
 
   const isPlungingFire = attackerY >= targetY + 2.0;
 
@@ -1536,30 +1515,8 @@ export function getStairWaypoints(
     z: piece.position.z - hz * cos,
   };
 
-  const isPlatformAt = (point: { x: number; z: number }) => {
-    for (const p of state.terrain) {
-      if (p.id === piece.id) continue;
-      if (
-        p.isWalkable ||
-        p.terrainType === 'platform' ||
-        p.terrainType === 'floor' ||
-        (p.elevation !== undefined && p.elevation > 0)
-      ) {
-        const { hx: phx, hz: phz } = terrainHalfExtents(p);
-        const pyaw = p.rotation.y || 0;
-        const pcos = Math.cos(pyaw);
-        const psin = Math.sin(pyaw);
-        const dx = point.x - p.position.x;
-        const dz = point.z - p.position.z;
-        const localX = dx * pcos - dz * psin;
-        const localZ = dx * psin + dz * pcos;
-        if (Math.abs(localX) <= phx + 0.25 && Math.abs(localZ) <= phz + 0.25) {
-          return p;
-        }
-      }
-    }
-    return null;
-  };
+  const isPlatformAt = (point: { x: number; z: number }) =>
+    findWalkableSurfaceAt(state, { x: point.x, z: point.z }, 0.25, piece.id)?.piece ?? null;
 
   const platA = isPlatformAt(endA);
   const platB = isPlatformAt(endB);
@@ -1639,38 +1596,38 @@ export function addPlatformAscentPoints(
   refPoint: Vector3,
   waypoints: Vector3[]
 ): void {
-  const { hx, hz } = terrainHalfExtents(plat);
   const yaw = plat.rotation.y || 0;
   const cos = Math.cos(yaw);
   const sin = Math.sin(yaw);
-  const platY = plat.elevation ?? plat.position.y ?? 2.5;
 
-  const dx = refPoint.x - plat.position.x;
-  const dz = refPoint.z - plat.position.z;
-  const lx = dx * cos + dz * sin;
-  const lz = -dx * sin + dz * cos;
+  for (const surface of getWalkableSurfaces(plat)) {
+    const dx = refPoint.x - plat.position.x;
+    const dz = refPoint.z - plat.position.z;
+    const lx = dx * cos + dz * sin;
+    const lz = -dx * sin + dz * cos;
 
-  const clampedX = Math.max(-hx, Math.min(hx, lx));
-  const clampedZ = Math.max(-hz, Math.min(hz, lz));
+    const clampedX = Math.max(surface.minX, Math.min(surface.maxX, lx));
+    const clampedZ = Math.max(surface.minZ, Math.min(surface.maxZ, lz));
 
-  let edgeX = clampedX;
-  let edgeZ = clampedZ;
-  const distToLeft = Math.abs(clampedX - (-hx));
-  const distToRight = Math.abs(clampedX - hx);
-  const distToNear = Math.abs(clampedZ - (-hz));
-  const distToFar = Math.abs(clampedZ - hz);
-  const minDist = Math.min(distToLeft, distToRight, distToNear, distToFar);
+    let edgeX = clampedX;
+    let edgeZ = clampedZ;
+    const distToLeft = Math.abs(clampedX - surface.minX);
+    const distToRight = Math.abs(clampedX - surface.maxX);
+    const distToNear = Math.abs(clampedZ - surface.minZ);
+    const distToFar = Math.abs(clampedZ - surface.maxZ);
+    const minDist = Math.min(distToLeft, distToRight, distToNear, distToFar);
 
-  if (minDist === distToLeft) edgeX = -hx;
-  else if (minDist === distToRight) edgeX = hx;
-  else if (minDist === distToNear) edgeZ = -hz;
-  else edgeZ = hz;
+    if (minDist === distToLeft) edgeX = surface.minX;
+    else if (minDist === distToRight) edgeX = surface.maxX;
+    else if (minDist === distToNear) edgeZ = surface.minZ;
+    else edgeZ = surface.maxZ;
 
-  const wx = Math.round((plat.position.x + edgeX * cos - edgeZ * sin) * 100) / 100;
-  const wz = Math.round((plat.position.z + edgeX * sin + edgeZ * cos) * 100) / 100;
+    const wx = Math.round((plat.position.x + edgeX * cos - edgeZ * sin) * 100) / 100;
+    const wz = Math.round((plat.position.z + edgeX * sin + edgeZ * cos) * 100) / 100;
 
-  waypoints.push({ x: wx, y: 0, z: wz });
-  waypoints.push({ x: wx, y: platY, z: wz });
+    waypoints.push({ x: wx, y: 0, z: wz });
+    waypoints.push({ x: wx, y: surface.topY, z: wz });
+  }
 }
 
 /**
@@ -1842,29 +1799,30 @@ export function findNavPath(
     }
   }
 
-  // 3b. Platform decks & wall-base ascent fallback
+  // 3b. Walkable floors (decks, catwalks, ledges) & wall-base ascent fallback
   for (const piece of state.terrain) {
-    if (
-      piece.isWalkable ||
-      piece.terrainType === 'platform' ||
-      (piece.elevation !== undefined && piece.elevation > 0)
-    ) {
-      const { hx, hz } = terrainHalfExtents(piece);
-      const platY = piece.elevation ?? piece.position.y ?? 2.5;
-      const yaw = piece.rotation.y || 0;
-      const cos = Math.cos(yaw);
-      const sin = Math.sin(yaw);
+    const surfaces = getWalkableSurfaces(piece);
+    if (surfaces.length === 0) continue;
+    const yaw = piece.rotation.y || 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
 
-      // Deck corners and face midpoints at platY
+    for (const surface of surfaces) {
+      const platY = surface.topY;
+      const inset = Math.min(0.2, (surface.maxX - surface.minX) / 4, (surface.maxZ - surface.minZ) / 4);
+      const midX = (surface.minX + surface.maxX) / 2;
+      const midZ = (surface.minZ + surface.maxZ) / 2;
+
+      // Deck corners and face midpoints at the floor height
       const deckPoints = [
-        { x: -hx + 0.2, z: -hz + 0.2 },
-        { x: hx - 0.2, z: -hz + 0.2 },
-        { x: hx - 0.2, z: hz - 0.2 },
-        { x: -hx + 0.2, z: hz - 0.2 },
-        { x: 0, z: -hz },
-        { x: 0, z: hz },
-        { x: -hx, z: 0 },
-        { x: hx, z: 0 },
+        { x: surface.minX + inset, z: surface.minZ + inset },
+        { x: surface.maxX - inset, z: surface.minZ + inset },
+        { x: surface.maxX - inset, z: surface.maxZ - inset },
+        { x: surface.minX + inset, z: surface.maxZ - inset },
+        { x: midX, z: surface.minZ },
+        { x: midX, z: surface.maxZ },
+        { x: surface.minX, z: midZ },
+        { x: surface.maxX, z: midZ },
       ];
 
       for (const pt of deckPoints) {
@@ -1884,12 +1842,12 @@ export function findNavPath(
           });
         }
       }
+    }
 
-      // Add closest ascent points if transitioning between ground and this platform
-      if ((startY <= 0.35 && endY > 0.35) || (startY > 0.35 && endY <= 0.35)) {
-        addPlatformAscentPoints(piece, from, candidateWaypoints);
-        addPlatformAscentPoints(piece, target, candidateWaypoints);
-      }
+    // Add closest ascent points if transitioning between ground and this floor
+    if ((startY <= 0.35 && endY > 0.35) || (startY > 0.35 && endY <= 0.35)) {
+      addPlatformAscentPoints(piece, from, candidateWaypoints);
+      addPlatformAscentPoints(piece, target, candidateWaypoints);
     }
   }
 

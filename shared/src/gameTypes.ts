@@ -142,6 +142,8 @@ export interface TerrainSolid extends TerrainBox {
   blocksLineOfSight?: boolean;
   /** Provides partial (sight-blocker) cover to a model standing behind it. Default true. */
   providesCover?: boolean;
+  /** Its top face is a standable floor (deck, catwalk, ledge, roof). Default false. */
+  walkable?: boolean;
 }
 
 /**

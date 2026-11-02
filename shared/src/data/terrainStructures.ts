@@ -133,11 +133,80 @@ export const TERRAIN_STRUCTURES: Record<string, TerrainGroup> = {
   },
 };
 
+// --- Elevation (13.6C) ------------------------------------------------------------------------
+/** Floor tier: deck tops sit at 3.0"; decks are 0.25" thick; supports are 0.5" square. */
+const TIER = 3.0;
+const DECK_T = 0.25;
+const PILLAR = 0.5;
+const PILLAR_INSET = 0.25;
+
+/** One support pillar from the ground to the deck underside, centred at (cx, cz) (inches from centre). */
+function pillar(id: string, cxIn: number, czIn: number, lenX: number, lenZ: number): TerrainSolid {
+  return solid(
+    [(cxIn - PILLAR / 2) / lenX, (cxIn + PILLAR / 2) / lenX],
+    [0, (TIER - DECK_T) / TIER],
+    [(czIn - PILLAR / 2) / lenZ, (czIn + PILLAR / 2) / lenZ],
+    id
+  );
+}
+
+/** Walkable deck filling the footprint, its top face at the floor tier. */
+const deckSolid = (id: string): TerrainSolid =>
+  solid(FULL, [(TIER - DECK_T) / TIER, 1], FULL, id, { walkable: true });
+
+/** Platform: a deck on four corner support pillars (the same pillar as the standalone piece). */
+function platform(id: string, lenX: number, lenZ: number): TerrainGroup {
+  const ox = lenX / 2 - PILLAR_INSET - PILLAR / 2;
+  const oz = lenZ / 2 - PILLAR_INSET - PILLAR / 2;
+  return {
+    id,
+    solids: [
+      deckSolid(`${id}-deck`),
+      pillar(`${id}-pillar-1`, -ox, -oz, lenX, lenZ),
+      pillar(`${id}-pillar-2`, ox, -oz, lenX, lenZ),
+      pillar(`${id}-pillar-3`, -ox, oz, lenX, lenZ),
+      pillar(`${id}-pillar-4`, ox, oz, lenX, lenZ),
+    ],
+  };
+}
+
+TERRAIN_STRUCTURES['platform-small'] = platform('platform-small', 4, 4);
+TERRAIN_STRUCTURES['platform-large'] = platform('platform-large', 6, 4);
+/** Catwalk: a bare walkable deck (no legs) that spans between platforms. */
+TERRAIN_STRUCTURES.catwalk = { id: 'catwalk', solids: [deckSolid('catwalk-deck')] };
+/** Standalone support pillar (2.75" tall: ground to deck underside). */
+TERRAIN_STRUCTURES['support-pillar'] = { id: 'support-pillar', solids: [solid(FULL, [0, 1], FULL, 'pillar-body')] };
+/** Deck railing (1.0" tall, low cover: set blocksLineOfSight false on the piece) and parapet wall (1.5"). */
+TERRAIN_STRUCTURES['deck-railing'] = { id: 'deck-railing', solids: [solid(FULL, [0, 1], FULL, 'railing-body')] };
+TERRAIN_STRUCTURES['deck-parapet'] = { id: 'deck-parapet', solids: [solid(FULL, [0, 1], FULL, 'parapet-body')] };
+
 // L-corner ruin: a group of two port walls (north and west). The courtyard is empty space.
-// The second-floor ledge arrives with 13.6C.
+
+const LEDGE_DEPTH = 1.25;
+const LEDGE_Y: Range = [(TIER - DECK_T) / RUIN_SIZE, TIER / RUIN_SIZE];
 const RUIN: TerrainGroup = {
   id: 'ruin-l',
   groups: [
+    // Second-floor L-ledge at the floor tier, running along the inside faces of the north and west walls
+    {
+      id: 'ledge',
+      solids: [
+        solid(
+          [-0.5 + RUIN_T, 0.5],
+          LEDGE_Y,
+          [0.5 - RUIN_T - LEDGE_DEPTH / RUIN_SIZE, 0.5 - RUIN_T],
+          'ledge-north',
+          { walkable: true }
+        ),
+        solid(
+          [-0.5 + RUIN_T, -0.5 + RUIN_T + LEDGE_DEPTH / RUIN_SIZE],
+          LEDGE_Y,
+          [-0.5, 0.5 - RUIN_T - LEDGE_DEPTH / RUIN_SIZE],
+          'ledge-west',
+          { walkable: true }
+        ),
+      ],
+    },
     portWallAlongX('north-wall', [0.5 - RUIN_T, 0.5], fx(0.5, RUIN_SIZE), 1, ruinY(1.0), ruinY(2.25)),
     portWallAlongZ('west-wall', [-0.5, -0.5 + RUIN_T], fx(0.5, RUIN_SIZE), 1, ruinY(1.0), ruinY(2.25)),
   ],

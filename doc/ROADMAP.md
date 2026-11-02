@@ -651,6 +651,12 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] All catalog heights, thicknesses and openings are multiples of 0.25" at default scale (test-guarded): wall/window/doorway thickness 0.25", window port 2.5" wide, doorway opening 1.5" × 2.25", column 1.25", ruin 4" × 4" × 4" with a 1.0" sill and 0.25" walls.
 - [x] 2" wall component (`wall-short`); 4" and 6" walls are 2 and 3 flush segments (fixes the see-through seams in the 6" wall mesh).
 
+### Sub-phase 13.6C-2: Elevation Engine (`shared/`)
+- [x] `walkable` solids, `FLOOR_TIER` = 3.0", `getWalkableSurfaces` / `findWalkableSurfaceAt` (replace whole-footprint platform checks for structured pieces; legacy pieces still work).
+- [x] Structures: `platform-small`, `platform-large`, `catwalk`, `support-pillar`, `deck-railing`, `deck-parapet`; ruin gets its 3.0" L-ledge (ruin is 4"×4"×4").
+- [x] Setback blind spot and parapet cover hacks removed in favour of 3D geometry.
+- [ ] Client meshes, palette stacking/ladder snapping, F9 colours, playtest checklist (next PRs).
+
 ### Sub-phase 13.6C: Vertical Elevation & Walkable Catwalks ($y = 3.0"$) (`client/` & `shared/`)
 - [ ] Standardize floor elevation tier at $y = 3.0"$ (providing clearance for standard 28–32mm infantry models underneath).
 - [ ] Procedural **Walkable Platforms** ($4" \times 4" \times 0.25"$ and $6" \times 4" \times 0.25"$): industrial diamond-tread / grate floor, safety kick-plates, and pillar mounting sockets at $y = 3.0"$.

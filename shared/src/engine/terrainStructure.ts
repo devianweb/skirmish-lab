@@ -2,6 +2,9 @@ import { TerrainAperture, TerrainBox, TerrainGroup, TerrainPiece, TerrainSolid, 
 import { Vector3 } from '../types';
 import { TERRAIN_STRUCTURES } from '../data/terrainStructures';
 
+/** Standard elevated floor tier (inches): decks and ledges sit with their top at this height. */
+export const FLOOR_TIER = 3.0;
+
 /** Eye height (inches) of a hero-scale fighter standing on a 1.0" base. */
 export const EYE_HEIGHT = 1.1;
 /**

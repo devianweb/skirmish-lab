@@ -102,9 +102,9 @@ describe('procedural wargaming terrain', () => {
     }
   });
 
-  it('ruin has an open courtyard: no mesh in the interior', () => {
+  it('ruin has an open courtyard: no mesh at ground level in the interior', () => {
     const ruin = createProceduralLCornerRuin();
-    expect(occupied(ruin, new THREE.Box3(new THREE.Vector3(-0.3, 0, -0.4), new THREE.Vector3(0.4, 1, 0.3)))).toBe(false);
+    expect(occupied(ruin, new THREE.Box3(new THREE.Vector3(-0.3, 0, -0.4), new THREE.Vector3(0.4, 0.5, 0.3)))).toBe(false);
   });
 
   it('segmented walls have no gaps: 2", 4" and 6" meshes are continuous along their length', () => {
