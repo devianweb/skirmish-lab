@@ -223,6 +223,7 @@ interface TerrainSolid extends TerrainBox {   // wall section, jamb, sill, linte
   isObstacle?: boolean;        // blocks model movement (default true)
   blocksLineOfSight?: boolean; // blocks sight at the heights it spans (default true)
   providesCover?: boolean;     // sight-blocker cover to a model manning it (default true)
+  walkable?: boolean;          // its top face is a standable floor (deck, catwalk, ledge)
 }
 interface TerrainAperture extends TerrainBox { // firing port / window opening
   id?: string;
@@ -238,7 +239,8 @@ interface TerrainGroup {                       // bundle of solids, apertures an
 ```
 
 - `resolveTerrainStructure(piece)` (`shared/src/engine/terrainStructure.ts`) flattens a piece's `structure` (or the catalog definition for its `terrainType`, or a single solid body as a fallback) into inch-sized boxes in the piece's local frame; groups nest and can be offset.
-- Catalog: `wall`, `wall-long` (one solid), `column`, `wall-window` (two jambs, sill, lintel + one aperture, the same port-wall helper the ruin uses), `wall-doorway` (two jambs + lintel, **no aperture**: open air), `ruin` / `ruin-l` (a group of two port walls; the courtyard is empty space).
+- Catalog: `wall-short`, `wall`, `wall-long` (1, 2 and 3 identical 2" wall segments, so any length is just more segments), `column`, `wall-window` (two jambs, sill, lintel + one aperture, the same port-wall helper the ruin uses), `wall-doorway` (two jambs + lintel, **no aperture**: open air), `ruin` / `ruin-l` (a group of two port walls; the courtyard is empty space).
+- **Elevation (13.6C):** a solid with `walkable: true` is a floor; its top face (`piece.position.y + maxY`) is where models stand (`getWalkableSurfaces` / `findWalkableSurfaceAt`). Decks are 0.25" thick with their top at the 3.0" floor tier (`FLOOR_TIER`). Catalog: `platform-small` (4"×4") and `platform-large` (6"×4") are a deck on four 0.5" corner pillars; `catwalk` (6"×2") is a bare deck; `support-pillar` is the same pillar as a standalone piece; `deck-railing` (1.0", low cover, does not block sight) and `deck-parapet` (1.5", blocks sight) stack on decks; `ruin-l` has an L-shaped walkable ledge at 3.0". Legacy pieces flagged `isWalkable`/`elevation` still expose their whole footprint as a floor.
 - Lintels are ordinary solids that sit above head height, so they block sight but not movement beneath them. Heights come from the boxes, not special cases.
 - Piece state stays serializable: a stored piece only needs its `terrainType` (plus an optional `structure`).
 

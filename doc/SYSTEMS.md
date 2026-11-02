@@ -260,7 +260,7 @@ Track all modifiers to rolls:
 - **Standard Checks:** Line of sight is drawn directly between attacker and target on the board plane.
 - **Sight-Blockers:** Blocked by solid terrain with `blocksLineOfSight: true` (e.g. solid walls, columns) and by other living fighters (`LOS_UNIT_RADIUS = 0.4`).
 - **Apertures (Windows & Doorways):**
-  - **Doorways (`wall-doorway`):** A doorway is open air between two jambs under a lintel (1.4" opening on a 4" wall). Line of Sight and movement pass freely; there is no port, so standing in a doorway gives no cover by itself. A model tucked behind a jamb gets ordinary sight-blocker cover.
+  - **Doorways (`wall-doorway`):** A doorway is open air between two jambs under a lintel (1.5" wide × 2.25" tall opening on a 4" wall). Line of Sight and movement pass freely; there is no port, so standing in a doorway gives no cover by itself. A model tucked behind a jamb gets ordinary sight-blocker cover.
   - **Windows / Firing Ports (`wall-window`, ruin ports):** Windows block model movement. A ray that goes through the aperture is allowed only if at least one model (shooter or target) has its base edge within 1.0" of the opening ("manning the port"). A defender manning a port that the shot passes through gains +1 Defense (Cover). If both models are further away, the aperture blocks sight (preventing distant keyholing); rays that clip the sill or lintel are blocked as ordinary solids.
 
 ### Terrain Structure: Solids + Apertures
@@ -268,6 +268,7 @@ Terrain pieces resolve to **solids** (walls, jambs, sills, lintels, columns) and
 - **Movement:** solids with `isObstacle` block, by their height range (a lintel above head height does not block walking beneath it). Doorway gaps and the open courtyard of an L-corner ruin are walkable; window sills and apertures are not.
 - **Line of Sight (3D):** rays run from the attacker's eye (`EYE_HEIGHT` = 1.1" above its feet) to the target, sampled at head (1.1"), torso (0.6") and feet-top (0.1"). The target is visible if **any** sample ray is clear (one yes/no result). A ray is blocked by a solid it crosses at that height, or by an aperture it passes through unless the shooter or target is **manning** that port.
 - **Manning:** any model's base edge within 1.0" of the port box (centre within `MANNING_REACH + UNIT_BASE_RADIUS` = 1.5"; squads are tested per model).
+- **Elevation is geometry:** there are no "setback blind spot" or "parapet" special rules. A deck is a solid slab (top at 3.0"), so a close ground shooter cannot see a model standing back from the deck edge (the deck is in the way), while a distant shooter can see over the edge because the angle clears it. A model at the very edge is partly hidden by the slab and gets ordinary sight-blocker cover from it only when the shooter is close; real parapet cover comes from stacking a `deck-parapet` (hides a crouching model) or `deck-railing` (low cover) on the deck. An elevated shooter cannot see a target hugging the base of the deck because the floor is in the way.
 - **Visibility fan:** a slice of the 3D world at the shooter's eye height; overhead parts (lintels) don't shadow it.
 
 ### Cover Determination

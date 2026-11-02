@@ -11,7 +11,6 @@ import {
   findMoveBlocker,
   findNavPath,
   findWalkablePlatformAt,
-  getPlatformEdgeDistance,
   getSquadModelPositions,
   getStairSurfaceHeight,
   getStairWaypoints,
@@ -217,8 +216,12 @@ describe('spatial: line of sight & visibility polygon', () => {
       expect(p.z).toBeGreaterThan(5);
     }
 
-    // Through the solid wall jambs (e.g. x = 1.0, z > 0), rays should be blocked at z ≈ 2
-    const jambPoints = poly.filter((p) => Math.abs(p.x - 1.0) < 0.1 && p.z > 0);
+    // Rays that would cross the wall plane (z = 2) within the jamb (|x| between 1.0 and 1.4) must stop at the wall
+    const jambPoints = poly.filter((p) => {
+      if (p.z <= 0.5) return false;
+      const xAtWall = (Math.abs(p.x) * 1.5) / (p.z - 0.5);
+      return xAtWall > 1.0 && xAtWall < 1.4;
+    });
     expect(jambPoints.length).toBeGreaterThan(0);
     for (const p of jambPoints) {
       expect(p.z).toBeLessThanOrEqual(2.1);
@@ -676,7 +679,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
     });
   });
 
-  describe('3D Elevation Line of Sight, Parapets & Plunging Fire (Phase 11B)', () => {
+  describe('3D Elevation Line of Sight & Plunging Fire (Phase 11B; deck geometry tests live in elevation.test.ts)', () => {
     const platform: TerrainPiece = {
       id: 'plat-1',
       terrainType: 'platform',
@@ -689,41 +692,6 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       providesCover: true,
       isObstacle: false,
     };
-
-    it('calculates distance to platform edge along line of fire', () => {
-      // Platform extends X: -2..2, Z: -2..2
-      // Point at (1.5, 3.0, 0), facing target at (10, 0, 0) (facing +X)
-      // Edge is at X = 2.0 -> distance is 0.5"
-      const edgeDist = getPlatformEdgeDistance({ x: 1.5, y: 3.0, z: 0 }, { x: 10, y: 0, z: 0 }, platform);
-      expect(edgeDist).toBeCloseTo(0.5);
-
-      // Point at (0, 3.0, 0), facing target at (10, 0, 0)
-      // Edge is at X = 2.0 -> distance is 2.0"
-      const deepDist = getPlatformEdgeDistance({ x: 0, y: 3.0, z: 0 }, { x: 10, y: 0, z: 0 }, platform);
-      expect(deepDist).toBeCloseTo(2.0);
-    });
-
-    it('grants Parapet Cover (+1 Defense) to elevated models within 1.0" of platform edge', () => {
-      const groundAttacker = makeUnit('att', HOST, { x: 8, y: 0, z: 0 });
-      // Defender at X = 1.5 (0.5" from front edge at X = 2.0)
-      const ledgeDefender = makeUnit('def', GUEST, { x: 1.5, y: 3.0, z: 0 });
-      const state = makeState([groundAttacker, ledgeDefender], [platform]);
-
-      expect(hasLineOfSight(state, groundAttacker, ledgeDefender)).toBe(true);
-      expect(hasCoverAgainstAttack(state, groundAttacker, ledgeDefender)).toBe(true);
-    });
-
-    it('blocks Line of Sight with Setback Blind Spot when elevated model is set back > 1.0" from edge', () => {
-      const groundAttacker = makeUnit('att', HOST, { x: 8, y: 0, z: 0 });
-      // Defender at center of platform (X = 0, set back 2.0" from edge at X = 2.0)
-      const setbackDefender = makeUnit('def', GUEST, { x: 0, y: 3.0, z: 0 });
-      const state = makeState([groundAttacker, setbackDefender], [platform]);
-
-      // Ground attacker cannot see the setback defender
-      expect(hasLineOfSight(state, groundAttacker, setbackDefender)).toBe(false);
-      // Elevated defender cannot see down to ground attacker
-      expect(hasLineOfSight(state, setbackDefender, groundAttacker)).toBe(false);
-    });
 
     it('allows line of sight between models on adjacent elevated platforms at similar heights', () => {
       const platform2: TerrainPiece = {

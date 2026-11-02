@@ -273,6 +273,25 @@ describe('MarkerRenderer', () => {
     expect(colors.filter((c) => c === 0x76ff03)).toHaveLength(1);
   });
 
+  it('colours walkable floors purple in the F9 wireframes', () => {
+    const renderer = makeRenderer();
+    renderer.setTerrainDebug({
+      id: 'plat-1',
+      terrainType: 'platform-small',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 3, z: 4 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+      isWalkable: true,
+    });
+    const piece = scene.getObjectByName('marker-terrain-plat-1')!;
+    const colors = piece.children.map((c) => ((c as THREE.LineSegments).material as THREE.LineBasicMaterial).color.getHex());
+    expect(colors.filter((c) => c === 0xe040fb)).toHaveLength(1); // the deck
+    expect(colors.filter((c) => c === 0x00e5ff)).toHaveLength(4); // four pillars
+  });
+
   it('renders 3D shooting line, intersection rings, and flank rays for shooting debug', () => {
     const renderer = makeRenderer();
     renderer.setShootingDebugRay({
