@@ -393,3 +393,30 @@ describe('ladder paths stay on the spine from any approach', () => {
     expect(path[descent]).toMatchObject({ x: 2, z: 1, y: 0 });
   });
 });
+
+describe('bridging: a catwalk is reachable deck-to-deck without leaving the deck level', () => {
+  it('walks straight from a platform onto an attached catwalk (any rotation, flush or with a small gap), also when rushing', () => {
+    const rotations = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
+    for (const platformType of ['platform-small', 'platform-large']) {
+      for (const rot of rotations) {
+        for (const gap of [0, 0.5, 1]) {
+          const plat = piece(platformType, 0, 0, 0, 0);
+          const halfLen = platformType === 'platform-small' ? 2 : 3;
+          // Catwalk (6" x 2") centred along +X from the platform edge, rotated about its own centre
+          const cx = halfLen + gap + (rot % Math.PI === 0 ? 3 : 1);
+          const cat = piece('catwalk', cx, 0, 0, rot, 'cat');
+          const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 0 });
+          unit.speed = 12;
+          unit.remainingMovement = 12;
+          const state = makeState([unit], [plat, cat]);
+          const dest = { x: cx, y: 3, z: 0 };
+          for (const opts of [{}, { stopBeforeDifficult: true }]) {
+            const path = findNavPath(state, unit, dest, 24, opts);
+            expect(Math.min(...path.map((p) => p.y)), `${platformType} rot ${rot} gap ${gap}`).toBeGreaterThan(2.9);
+            expect(path[path.length - 1]).toMatchObject({ x: cx, z: 0 });
+          }
+        }
+      }
+    }
+  });
+});
