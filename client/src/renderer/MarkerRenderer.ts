@@ -443,7 +443,7 @@ export class MarkerRenderer {
         pieceGroup.add(wedgeLine);
       } else {
         // Per-box wireframes straight from the shared structure: solids in the piece colour
-        // (cyan = blocks sight, amber = low cover) and apertures (firing ports) in green.
+        // (cyan = blocks sight, amber = low cover, purple = walkable floor) and apertures (firing ports) in green.
         const structure = resolveTerrainStructure(piece);
         const baseY = piece.position.y ?? 0;
         const opacity = isActiveCover ? 0.95 : isHovered ? 0.85 : 0.45;
@@ -464,7 +464,10 @@ export class MarkerRenderer {
           geo.dispose();
         };
         for (const solid of structure.solids) {
-          addBox(solid, isActiveCover ? wireColor : solid.blocksLineOfSight ? 0x00e5ff : 0xffb300);
+          addBox(
+            solid,
+            isActiveCover ? wireColor : solid.walkable ? 0xe040fb : solid.blocksLineOfSight ? 0x00e5ff : 0xffb300
+          );
         }
         for (const ap of structure.apertures) {
           addBox(ap, isActiveCover ? wireColor : 0x76ff03);

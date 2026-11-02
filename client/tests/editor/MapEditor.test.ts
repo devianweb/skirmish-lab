@@ -345,4 +345,63 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(editor.loadMap('custom:does-not-exist')).toBe(false);
     expect(editor.loadMap('')).toBe(false);
   });
+
+  describe('elevation: stacking and ladder snapping (13.6C)', () => {
+    it('lists platforms and stairs & ladders categories in the palette', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const labels = Array.from(container.querySelectorAll('.editor-cat-btn')).map((b) => b.textContent ?? '');
+      expect(labels.join('|').toLowerCase()).toContain('platforms');
+      expect(labels.join('|').toLowerCase()).toContain('stairs');
+    });
+
+    it('a piece dropped near a deck top sits exactly on it (3.0") without becoming a floor itself', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 });
+      const rail = editor.placePieceAt('deck-railing', { x: 0, y: 2.9, z: 0 }, 0, 2.9);
+      expect(rail!.position.y).toBe(3.0);
+      expect(rail!.elevation).toBeUndefined();
+      expect(rail!.isWalkable).toBe(false);
+    });
+
+    it('floors, stairs and pillars are never auto-stacked', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 });
+      const pillar = editor.placePieceAt('support-pillar', { x: 0, y: 2.9, z: 0 }, 0, 2.9);
+      expect(pillar!.position.y).toBe(2.9);
+    });
+
+    it('a ladder snaps onto the nearest deck face, facing the deck, climbing to its top', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 }); // x/z in [-2, 2], top 3.0
+      const ladder = editor.placePieceAt('ladder', { x: 3, y: 0, z: 1 })!;
+      // Nearest face is the east face (x = 2): ladder centred on the face line, facing -x (into the deck)
+      expect(ladder.position.x).toBeCloseTo(2);
+      expect(ladder.position.z).toBeCloseTo(1);
+      expect(ladder.rotation.y).toBeCloseTo(-Math.PI / 2);
+      expect(ladder.scale.y).toBeCloseTo(3.0);
+    });
+
+    it('a ladder far from any floor stays where it was placed', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 });
+      const ladder = editor.placePieceAt('ladder', { x: 9, y: 0, z: 9 })!;
+      expect(ladder.position.x).toBe(9);
+      expect(ladder.rotation.y).toBe(0);
+    });
+
+    it('a ladder snaps to the ruin ledge face inside the courtyard', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('ruin-l', { x: 0, y: 0, z: 0 });
+      const ladder = editor.placePieceAt('ladder', { x: 1, y: 0, z: -0.5 })!;
+      // North ledge strip's south edge is at z = 0.5 (courtyard side)
+      expect(ladder.position.z).toBeCloseTo(0.5);
+      expect(ladder.scale.y).toBeCloseTo(3.0);
+    });
+  });
 });

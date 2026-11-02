@@ -420,6 +420,18 @@ function createProceduralStairWedge(): THREE.Object3D {
     const y = t * 1.0;
     treadPoints.push(new THREE.Vector3(-0.49, y, z), new THREE.Vector3(0.49, y, z));
   }
+  // Risers (vertical drops between treads) and side stringers along the slope edges
+  for (let s = 1; s <= stepCount; s++) {
+    const t = s / stepCount;
+    const zr = -0.5 + t * 1.0;
+    const yTop = t * 1.0;
+    const yBottom = (s - 1) / stepCount;
+    treadPoints.push(new THREE.Vector3(-0.49, yBottom, zr), new THREE.Vector3(-0.49, yTop, zr));
+    treadPoints.push(new THREE.Vector3(0.49, yBottom, zr), new THREE.Vector3(0.49, yTop, zr));
+  }
+  for (const x of [-0.49, 0.49]) {
+    treadPoints.push(new THREE.Vector3(x, 0, -0.5), new THREE.Vector3(x, 1, 0.5));
+  }
   if (treadPoints.length > 0) {
     const treadGeo = new THREE.BufferGeometry().setFromPoints(treadPoints);
     const treadMat = new THREE.LineBasicMaterial({ color: 0x222428 });
@@ -469,8 +481,11 @@ function structureSolids(terrainType: string): ResolvedSolid[] {
   }).solids;
 }
 
-/** Build a piece from the shared structure solids (apertures are open air, so they have no mesh). */
-function buildFromStructure(terrainType: string): THREE.Object3D {
+/**
+ * Build a piece from the shared structure solids (apertures are open air, so they have no mesh).
+ * `extras` are visual-only parts (kick-plates, tread ridges) that never affect collision.
+ */
+function buildFromStructure(terrainType: string, extras: Part[] = []): THREE.Object3D {
   const parts: Part[] = structureSolids(terrainType).map((s) => [
     (s.minX + s.maxX) / 2,
     s.minY,
@@ -479,7 +494,49 @@ function buildFromStructure(terrainType: string): THREE.Object3D {
     s.maxY - s.minY,
     s.maxZ - s.minZ,
   ]);
+  return buildFromParts([...parts, ...extras]);
+}
+
+/**
+ * Visual-only deck dressing for a deck of `w` x `h` x `d` inches: 0.15" kick-plates around the
+ * top edge and tread ridges every 0.5" across it (diamond-tread feel). Never part of collision.
+ */
+function deckDecor(w: number, h: number, d: number): Part[] {
+  const t = 0.1; // kick-plate thickness
+  const kick = 0.15 / h;
+  const parts: Part[] = [
+    [0, 1, -0.5 + t / 2 / d, 1, kick, t / d],
+    [0, 1, 0.5 - t / 2 / d, 1, kick, t / d],
+    [-0.5 + t / 2 / w, 1, 0, t / w, kick, 1 - (2 * t) / d],
+    [0.5 - t / 2 / w, 1, 0, t / w, kick, 1 - (2 * t) / d],
+  ];
+  for (let x = -w / 2 + 0.5; x < w / 2 - 0.25; x += 0.5) {
+    parts.push([x / w, 1, 0, 0.04 / w, 0.03 / h, 1 - (2 * t) / d]);
+  }
+  return parts;
+}
+
+/** Wall ladder: two rails with a rung every 0.25" up the face. */
+export function createProceduralLadder(): THREE.Object3D {
+  const parts: Part[] = [
+    [-0.4, 0, 0, 0.2, 1, 1],
+    [0.4, 0, 0, 0.2, 1, 1],
+  ];
+  const rungs = 11;
+  for (let i = 1; i <= rungs; i++) {
+    parts.push([0, (i / (rungs + 1)) - 0.01, 0, 0.6, 0.02, 0.6]);
+  }
   return buildFromParts(parts);
+}
+
+export function createProceduralPlatformSmall(): THREE.Object3D {
+  return buildFromStructure('platform-small', deckDecor(4, 3, 4));
+}
+export function createProceduralPlatformLarge(): THREE.Object3D {
+  return buildFromStructure('platform-large', deckDecor(6, 3, 4));
+}
+export function createProceduralCatwalk(): THREE.Object3D {
+  return buildFromStructure('catwalk', deckDecor(6, 3, 2));
 }
 
 /**
@@ -540,6 +597,13 @@ const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
   'wall-short': createProceduralShortWall,
   wall: createProceduralSolidWall,
   'wall-long': createProceduralLongWall,
+  'platform-small': createProceduralPlatformSmall,
+  'platform-large': createProceduralPlatformLarge,
+  catwalk: createProceduralCatwalk,
+  'support-pillar': () => buildFromStructure('support-pillar'),
+  'deck-railing': () => buildFromStructure('deck-railing'),
+  'deck-parapet': () => buildFromStructure('deck-parapet'),
+  ladder: createProceduralLadder,
   'wall-window': createProceduralWindowWall,
   'wall-doorway': createProceduralDoorwayWall,
   column: createProceduralColumn,

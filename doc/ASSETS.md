@@ -6,7 +6,7 @@ Asset registration, scaling, and orientation live in [`client/src/renderer/asset
 
 All terrain pieces are generated procedurally by [`client/src/renderer/ModelLoader.ts`](../client/src/renderer/ModelLoader.ts) at exact 1:1 wargaming scale ($1.0\text{ unit} = 1.0\text{ inch}$), ensuring absolute alignment with mathematical collision boxes, ramp physics, and F9 debug wireframes.
 
-**Terrain structure parity:** window walls, doorway walls and the L-corner ruin are built directly from the shared solid boxes in [`shared/src/data/terrainStructures.ts`](../shared/src/data/terrainStructures.ts) (apertures/firing ports are open air and have no mesh), so the mesh, the collision and the F9 per-box wireframes are the same geometry. Doorway openings are 1.5" wide × 2.25" tall. **Grid rule:** every height, thickness and opening at a piece's default scale is a multiple of 0.25" (guarded by `shared/tests/data/terrainStructures.test.ts`). Solid walls are built from 2" segments (`wall-short` = 1, `wall` = 2, `wall-long` = 3) with no gaps between them. The L-corner ruin's second-floor ledge is deferred to 13.6C.
+**Terrain structure parity:** window walls, doorway walls and the L-corner ruin are built directly from the shared solid boxes in [`shared/src/data/terrainStructures.ts`](../shared/src/data/terrainStructures.ts) (apertures/firing ports are open air and have no mesh), so the mesh, the collision and the F9 per-box wireframes are the same geometry. Doorway openings are 1.5" wide × 2.25" tall. **Grid rule:** every height, thickness and opening at a piece's default scale is a multiple of 0.25" (guarded by `shared/tests/data/terrainStructures.test.ts`). Solid walls are built from 2" segments (`wall-short` = 1, `wall` = 2, `wall-long` = 3) with no gaps between them. The L-corner ruin's second-floor ledge is a walkable solid at 3.0" (13.6C).
 
 ---
 
@@ -62,6 +62,24 @@ The default testing map layout is defined in [`shared/src/data/scenario.ts`](../
 | `terrain-pipe-center` | Center Industrial Pipe | `pipe` | Procedural Conduit | `(3, 0, -2)` | `3.0 × 0.8 × 0.8` | Industrial conduit: low cover waist-height obstacle. |
 | `terrain-toxic-sludge` | Toxic Sludge Hazard | `toxic` | Procedural Hazard Plane | `(0, 0, 0)` | `3.0 × 0.05 × 3.0` | Dangerous & Difficult Terrain: 1d6 hazard check per model (1s inflict unsaved wounds); 6.0" movement speed cap. |
 | `terrain-toxic-sludge` | Toxic Sludge Hazard | `toxic` | *(Procedural Green Plane)* | `(0, 0, 0)` | `3.0 × 0.05 × 3.0` | Dangerous & Difficult Terrain: 1d6 hazard check per model (1s inflict unsaved wounds); 6.0" movement speed cap. |
+
+---
+
+## 2b. Elevation Pieces (13.6C, procedural)
+
+All built from the shared structure definitions in `shared/src/data/terrainStructures.ts` (mesh = collision); floors sit at the 3.0" tier. Kick-plates (0.15") and tread ridges are visual-only dressing.
+
+| `terrainType` | Display name | Default scale (W × H × D) | Structure / behaviour |
+| :--- | :--- | :---: | :--- |
+| `platform-small` | Platform (4"×4") | `4 × 3 × 4` | Walkable deck (top 3.0", 0.25" thick) on four 0.5" corner pillars; models walk beneath. |
+| `platform-large` | Platform (6"×4") | `6 × 3 × 4` | Same, larger deck. |
+| `catwalk` | Catwalk (6"×2") | `6 × 3 × 2` | Bare walkable deck (no legs) spanning between platforms. |
+| `support-pillar` | Support Pillar | `0.5 × 2.75 × 0.5` | Same 0.5" pillar as the platform legs; ground to deck underside. |
+| `deck-railing` | Deck Railing (3") | `3 × 1 × 0.25` | Low 1.0" cover that does not block sight; stacks on a deck. |
+| `deck-parapet` | Deck Parapet (4") | `4 × 1.5 × 0.25` | Solid 1.5" wall that hides a crouching model; stacks on a deck. |
+| `stairs` | Stairs (2"×4") | `2 × 3 × 4` | Continuous ramp (wedge physics) up to 3.0"; mesh has risers and stringers. |
+| `ladder` | Wall Ladder | `0.5 × 3 × 0.25` | Rails and rungs; snaps to the nearest deck/ledge face in the editor. |
+| `ruin-l` | L-Corner Ruin | `4 × 4 × 4` | Now includes the walkable L-ledge at 3.0" inside the north and west walls. |
 
 ---
 

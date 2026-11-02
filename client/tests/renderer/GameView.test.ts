@@ -207,6 +207,31 @@ describe('GameView', () => {
       expect(picks[0].position.z).toBeCloseTo(0, 1);
     });
 
+    it('picks the floor height when clicking the ruin ledge, but ground level inside the courtyard', () => {
+      const { gameView, inputElement } = makePickableView();
+      gameView.syncFromState(
+        makeState({
+          terrain: [
+            makeTerrain({
+              id: 'ruin-1',
+              terrainType: 'ruin-l',
+              position: { x: 0, y: 0, z: 0 },
+              scale: { x: 4, y: 4, z: 4 },
+            }),
+          ],
+        })
+      );
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+
+      click(inputElement, 100, 112); // screen-down = +z: world z = 1.2, on the north ledge strip
+      click(inputElement, 100, 95); // world z = -0.5: open courtyard
+
+      expect(picks[0].kind).toBe('position');
+      expect(picks[0].position.y).toBeCloseTo(3.0);
+      expect(picks[1].position.y).toBe(0);
+    });
+
     it('ignores clicks that are camera drags (pointer travel above tolerance)', () => {
       const { gameView, inputElement } = makePickableView();
       const picks: any[] = [];

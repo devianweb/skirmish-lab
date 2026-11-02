@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { GameState, Objective, ShootingRayDebugInfo, TerrainPiece, Unit, Vector3 } from '@skirmish-lab/shared';
+import {
+  GameState,
+  Objective,
+  ShootingRayDebugInfo,
+  TerrainPiece,
+  Unit,
+  Vector3,
+  findWalkableSurfaceAt,
+} from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
@@ -333,6 +341,27 @@ export class GameView {
           position: {
             x: Math.round(terrainHit.point.x * 100) / 100,
             y,
+            z: Math.round(terrainHit.point.z * 100) / 100,
+          },
+          terrainId: terrainHit.terrainId,
+        };
+      }
+    }
+
+    // Structured floors (decks, catwalks, the ruin ledge): a hit on a floor's top face picks that floor height
+    // so models and stacked pieces land on it; hits on walls or legs fall through to the ground plane.
+    if (terrainHit && terrainHit.point && terrainHit.piece) {
+      const surface = findWalkableSurfaceAt(
+        { terrain: [terrainHit.piece] } as unknown as GameState,
+        terrainHit.point,
+        0.05
+      );
+      if (surface && Math.abs(terrainHit.point.y - surface.topY) <= 0.15) {
+        return {
+          kind: 'position',
+          position: {
+            x: Math.round(terrainHit.point.x * 100) / 100,
+            y: surface.topY,
             z: Math.round(terrainHit.point.z * 100) / 100,
           },
           terrainId: terrainHit.terrainId,
