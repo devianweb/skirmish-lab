@@ -238,7 +238,7 @@ interface TerrainGroup {                       // bundle of solids, apertures an
 ```
 
 - `resolveTerrainStructure(piece)` (`shared/src/engine/terrainStructure.ts`) flattens a piece's `structure` (or the catalog definition for its `terrainType`, or a single solid body as a fallback) into inch-sized boxes in the piece's local frame; groups nest and can be offset.
-- Catalog: `wall`, `wall-long` (one solid), `column`, `wall-window` (two jambs, sill, lintel + one aperture, the same port-wall helper the ruin uses), `wall-doorway` (two jambs + lintel, **no aperture**: open air), `ruin` / `ruin-l` (a group of two port walls; the courtyard is empty space).
+- Catalog: `wall-short`, `wall`, `wall-long` (1, 2 and 3 identical 2" wall segments, so any length is just more segments), `column`, `wall-window` (two jambs, sill, lintel + one aperture, the same port-wall helper the ruin uses), `wall-doorway` (two jambs + lintel, **no aperture**: open air), `ruin` / `ruin-l` (a group of two port walls; the courtyard is empty space).
 - Lintels are ordinary solids that sit above head height, so they block sight but not movement beneath them. Heights come from the boxes, not special cases.
 - Piece state stays serializable: a stored piece only needs its `terrainType` (plus an optional `structure`).
 

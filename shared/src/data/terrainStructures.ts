@@ -79,22 +79,48 @@ function portWallAlongZ(
 }
 
 const FULL: Range = [-0.5, 0.5];
-/** L-corner ruin wall thickness: 0.25" on a 4" footprint. */
-const RUIN_T = 0.0625;
 
-/** Doorway opening width as a fraction of the wall length (1.4" on a 4" wall). */
-export const DOORWAY_OPENING_FRACTION = 0.35;
-const DOOR_HALF = DOORWAY_OPENING_FRACTION / 2;
+/**
+ * Grid rule: every height, thickness and opening is a multiple of 0.25" at the piece's default
+ * scale (see TERRAIN_PALETTE_CATALOG). Bounds are stored as fractions of scale, so each piece
+ * declares its default size and writes dimensions in inches via `fx` / `fy`; a test guards the grid.
+ */
+const fx = (inches: number, lengthInches: number): number => inches / lengthInches;
 
-const SOLID_WALL: TerrainGroup = { id: 'wall', solids: [solid(FULL, [0, 1], FULL, 'wall-body')] };
+/** Wall pieces: 2.5" tall, 0.25" thick. */
+const WALL_H = 2.5;
+const WALL_LEN = 4;
+const wallY = (inches: number): number => fx(inches, WALL_H);
+
+/** L-corner ruin: 4" x 4" x 4"; walls 0.25" thick. */
+const RUIN_SIZE = 4;
+const ruinY = (inches: number): number => fx(inches, RUIN_SIZE);
+const RUIN_T = fx(0.25, RUIN_SIZE);
+
+/** Doorway opening: 1.5" wide, 2.25" tall, on a 4" wall. */
+const DOOR_HALF = fx(0.75, WALL_LEN);
+export const DOORWAY_OPENING_FRACTION = DOOR_HALF * 2;
+
+/**
+ * A solid wall made of `segments` equal 2" components laid end to end, so 2", 4" and 6" walls are
+ * the same building block (and a custom wall is just more segments).
+ */
+function segmentedWall(id: string, segments: number): TerrainGroup {
+  const solids: TerrainSolid[] = [];
+  for (let i = 0; i < segments; i++) {
+    solids.push(solid([-0.5 + i / segments, -0.5 + (i + 1) / segments], [0, 1], FULL, `${id}-segment-${i + 1}`));
+  }
+  return { id, solids };
+}
 
 export const TERRAIN_STRUCTURES: Record<string, TerrainGroup> = {
-  wall: SOLID_WALL,
-  'wall-long': SOLID_WALL,
+  'wall-short': segmentedWall('wall-short', 1),
+  wall: segmentedWall('wall', 2),
+  'wall-long': segmentedWall('wall-long', 3),
   column: { id: 'column', solids: [solid(FULL, [0, 1], FULL, 'column-body')] },
 
-  // Window wall: full-height jambs either side of a port, a sill beneath it and a lintel above it.
-  'wall-window': portWallAlongX('wall-window', FULL, 0.3, 1, 0.4, 0.9),
+  // Window wall: full-height jambs either side of a 2.5" port, a 1.0" sill beneath it and a lintel above.
+  'wall-window': portWallAlongX('wall-window', FULL, fx(1.25, WALL_LEN), 1, wallY(1.0), wallY(2.25)),
 
   // Doorway wall: two jambs and a lintel; no sill and no aperture (open air, free to walk and see).
   'wall-doorway': {
@@ -102,18 +128,18 @@ export const TERRAIN_STRUCTURES: Record<string, TerrainGroup> = {
     solids: [
       solid([-0.5, -DOOR_HALF], [0, 1], FULL, 'jamb-left'),
       solid([DOOR_HALF, 0.5], [0, 1], FULL, 'jamb-right'),
-      solid([-DOOR_HALF, DOOR_HALF], [0.88, 1], FULL, 'lintel'),
+      solid([-DOOR_HALF, DOOR_HALF], [wallY(2.25), 1], FULL, 'lintel'),
     ],
   },
 };
 
 // L-corner ruin: a group of two port walls (north and west). The courtyard is empty space.
-// The second-floor ledge is deferred to 13.6C.
+// The second-floor ledge arrives with 13.6C.
 const RUIN: TerrainGroup = {
   id: 'ruin-l',
   groups: [
-    portWallAlongX('north-wall', [0.5 - RUIN_T, 0.5], 0.1, 0.75, 0.3, 0.5),
-    portWallAlongZ('west-wall', [-0.5, -0.5 + RUIN_T], 0.1, 0.75, 0.3, 0.5),
+    portWallAlongX('north-wall', [0.5 - RUIN_T, 0.5], fx(0.5, RUIN_SIZE), 1, ruinY(1.0), ruinY(2.25)),
+    portWallAlongZ('west-wall', [-0.5, -0.5 + RUIN_T], fx(0.5, RUIN_SIZE), 1, ruinY(1.0), ruinY(2.25)),
   ],
 };
 TERRAIN_STRUCTURES.ruin = RUIN;

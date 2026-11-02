@@ -482,15 +482,31 @@ function buildFromStructure(terrainType: string): THREE.Object3D {
   return buildFromParts(parts);
 }
 
-/** Solid wall: three panels with thin seams under a continuous coping strip (all inside the unit box). */
-export function createProceduralSolidWall(): THREE.Object3D {
-  const gap = 0.01;
-  const panelW = (1 - 2 * gap) / 3;
-  const parts: Part[] = [[0, 0.94, 0, 1, 0.06, 1]];
-  for (let i = 0; i < 3; i++) {
-    parts.push([-0.5 + panelW / 2 + i * (panelW + gap), 0, 0, panelW, 0.94, 1]);
+/**
+ * Solid wall built from the shared 2" segments (1, 2 or 3 of them): each segment is a body with a
+ * coping strip stacked on top, flush against its neighbours so there are no gaps between segments.
+ */
+function createSegmentedWall(terrainType: string): THREE.Object3D {
+  const parts: Part[] = [];
+  for (const s of structureSolids(terrainType)) {
+    const cx = (s.minX + s.maxX) / 2;
+    const cz = (s.minZ + s.maxZ) / 2;
+    const w = s.maxX - s.minX;
+    const d = s.maxZ - s.minZ;
+    parts.push([cx, 0, cz, w, 0.94, d]);
+    parts.push([cx, 0.94, cz, w, 0.06, d]);
   }
   return buildFromParts(parts);
+}
+
+export function createProceduralSolidWall(): THREE.Object3D {
+  return createSegmentedWall('wall');
+}
+export function createProceduralShortWall(): THREE.Object3D {
+  return createSegmentedWall('wall-short');
+}
+export function createProceduralLongWall(): THREE.Object3D {
+  return createSegmentedWall('wall-long');
 }
 
 /** Window wall: two jambs, a sill and a lintel framing the open port (shared structure). */
@@ -521,8 +537,9 @@ export function createProceduralLCornerRuin(): THREE.Object3D {
 }
 
 const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
+  'wall-short': createProceduralShortWall,
   wall: createProceduralSolidWall,
-  'wall-long': createProceduralSolidWall,
+  'wall-long': createProceduralLongWall,
   'wall-window': createProceduralWindowWall,
   'wall-doorway': createProceduralDoorwayWall,
   column: createProceduralColumn,

@@ -260,7 +260,7 @@ Track all modifiers to rolls:
 - **Standard Checks:** Line of sight is drawn directly between attacker and target on the board plane.
 - **Sight-Blockers:** Blocked by solid terrain with `blocksLineOfSight: true` (e.g. solid walls, columns) and by other living fighters (`LOS_UNIT_RADIUS = 0.4`).
 - **Apertures (Windows & Doorways):**
-  - **Doorways (`wall-doorway`):** A doorway is open air between two jambs under a lintel (1.4" opening on a 4" wall). Line of Sight and movement pass freely; there is no port, so standing in a doorway gives no cover by itself. A model tucked behind a jamb gets ordinary sight-blocker cover.
+  - **Doorways (`wall-doorway`):** A doorway is open air between two jambs under a lintel (1.5" wide × 2.25" tall opening on a 4" wall). Line of Sight and movement pass freely; there is no port, so standing in a doorway gives no cover by itself. A model tucked behind a jamb gets ordinary sight-blocker cover.
   - **Windows / Firing Ports (`wall-window`, ruin ports):** Windows block model movement. A ray that goes through the aperture is allowed only if at least one model (shooter or target) has its base edge within 1.0" of the opening ("manning the port"). A defender manning a port that the shot passes through gains +1 Defense (Cover). If both models are further away, the aperture blocks sight (preventing distant keyholing); rays that clip the sill or lintel are blocked as ordinary solids.
 
 ### Terrain Structure: Solids + Apertures

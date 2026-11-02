@@ -6,7 +6,7 @@ Asset registration, scaling, and orientation live in [`client/src/renderer/asset
 
 All terrain pieces are generated procedurally by [`client/src/renderer/ModelLoader.ts`](../client/src/renderer/ModelLoader.ts) at exact 1:1 wargaming scale ($1.0\text{ unit} = 1.0\text{ inch}$), ensuring absolute alignment with mathematical collision boxes, ramp physics, and F9 debug wireframes.
 
-**Terrain structure parity:** window walls, doorway walls and the L-corner ruin are built directly from the shared solid boxes in [`shared/src/data/terrainStructures.ts`](../shared/src/data/terrainStructures.ts) (apertures/firing ports are open air and have no mesh), so the mesh, the collision and the F9 per-box wireframes are the same geometry. Doorway openings are 35% of wall length (1.4" on a 4" wall). The L-corner ruin's second-floor ledge is deferred to 13.6C.
+**Terrain structure parity:** window walls, doorway walls and the L-corner ruin are built directly from the shared solid boxes in [`shared/src/data/terrainStructures.ts`](../shared/src/data/terrainStructures.ts) (apertures/firing ports are open air and have no mesh), so the mesh, the collision and the F9 per-box wireframes are the same geometry. Doorway openings are 1.5" wide × 2.25" tall. **Grid rule:** every height, thickness and opening at a piece's default scale is a multiple of 0.25" (guarded by `shared/tests/data/terrainStructures.test.ts`). Solid walls are built from 2" segments (`wall-short` = 1, `wall` = 2, `wall-long` = 3) with no gaps between them. The L-corner ruin's second-floor ledge is deferred to 13.6C.
 
 ---
 
