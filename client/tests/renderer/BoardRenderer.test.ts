@@ -140,4 +140,39 @@ describe('BoardRenderer', () => {
       expect(loadFn).toHaveBeenCalledWith('crate.glb');
     });
   });
+
+  describe('raycastTerrainHit and decorative lines', () => {
+    function stairsBoard() {
+      const { renderer } = setup();
+      renderer.renderTerrain(
+        makeState({
+          terrain: [
+            makeTerrain({
+              id: 'stairs-1',
+              terrainType: 'stairs',
+              position: { x: 0, y: 0, z: 0 },
+              scale: { x: 2, y: 3, z: 4 },
+              isObstacle: false,
+            }),
+          ],
+        })
+      );
+      return renderer;
+    }
+    const down = (x: number, z: number) =>
+      new THREE.Raycaster(new THREE.Vector3(x, 10, z), new THREE.Vector3(0, -1, 0));
+
+    it('does not snap to step lines when the ray only passes near them', () => {
+      const renderer = stairsBoard();
+      // 0.6" outside the stair side: inside the 1" line threshold of the stringers, but misses the mesh.
+      expect(renderer.raycastTerrainHit(down(1.6, 0))).toBeNull();
+    });
+
+    it('still picks the stair slope', () => {
+      const renderer = stairsBoard();
+      const hit = renderer.raycastTerrainHit(down(0, 0));
+      expect(hit?.terrainId).toBe('stairs-1');
+      expect(hit!.point.y).toBeCloseTo(1.5, 1);
+    });
+  });
 });

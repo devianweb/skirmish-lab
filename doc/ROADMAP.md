@@ -671,6 +671,9 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Procedural **Wall Ladders** ($0.6" \times 3.0" \times 0.15"$): vertical side-rails with modeled horizontal rungs snapped to vertical wall/platform faces.
 - [x] Enhanced procedural **Stair / Ramp Wedges** ($2" \times 3.0" \times 4"$): wargaming step risers and side stringers matching continuous ramp physics 1:1.
 
+### Playtest fixes (13.6)
+- [x] Terrain picking ignores decorative lines (stair step lines) and `userData.decor` meshes, so the move target no longer snaps to the stairs' top corners.
+
 ### Sub-phase 13.6D: Low Cover, Barricades & Scatter (`client/` & `shared/`)
 - [x] Waist **Barricades** ($3.0" \times 0.5" \times 0.25"$): chamfered concrete jersey barriers / armored barricades providing low cover (+1 Defense).
 - [x] **Supply Crates** ($1.0" \times 0.75" \times 1.0"$): reinforced corner brackets and hazard markings.
