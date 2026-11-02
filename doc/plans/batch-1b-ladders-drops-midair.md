@@ -2,7 +2,7 @@
 Status: approved (2026-11-02)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
-The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: PR 1 → PR 5 → PR 3 (3a engine, then 3b pick) → PR 2.
+The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: PR 1 ✓ → PR 5 ✓ → PR 3b (pick) → then batch 1E (E1–E4) → PR 2. (PR 3a is replaced by 1E E1.)
 
 ## PR 1: Ladder standing spots + mid-air guard fix (branch: `fix/ladder-standing-spots`)
 **Owner report:** "Rush to the bottom of the ladder correctly moves the mini to the bottom of the ladder … but it's mashed the models together." The mini's base ends up inside the ladder and half under the deck.
@@ -57,6 +57,7 @@ The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: P
 ---
 
 ## PR 3: Drops from decks / never path into mid-air (branch: `fix/deck-drops`)
+> **Superseded in part by batch 1E (2026-11-02):** PR 3a (engine) is replaced by 1E **E1**. Only **PR 3b** (the pick accepts only upward-facing top-face hits) remains here. The engine notes below are kept as background for E1.
 **Owner report (screenshot, deployed build):** the cursor was over the **ground in the gap** between two decks. The Rush preview showed "GAP JUMP (4.9"): roll 2 dice" and a destination marker floating at deck height over the gap. Owner: "I think it should have pathfound including a drop to the floor, rather than trying to jump into mid air … Dropping from the platform seems to be entirely broken honestly."
 
 **Agreed behaviour (Decision 5):** when the target is the ground (or any lower floor), the path walks to the deck edge and drops down: free if ≤ 3", the jump test if 3–6". It never crosses the gap at deck height, and it never ends over open air.
