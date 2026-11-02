@@ -12,8 +12,12 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   isSegmentOnRampOrStairs,
+  isSuspendedInMidAir,
+  computeShootingRayDebug,
 } from '../../src/engine/spatial';
 import { detectPathGapJump } from '../../src/engine/traversal';
+import { createAction } from '../../src/gameState';
+import { validateAction } from '../../src/engine/actions';
 
 const HOST = 'host-1';
 const GUEST = 'guest-1';
@@ -234,5 +238,72 @@ describe('elevation: hopping between decks', () => {
     const gapState = makeState([], [plat, farCatwalk]);
     const jump = detectPathGapJump(gapState, [{ x: 1.5, y: 3, z: 0 }, { x: 5.5, y: 3, z: 0 }], unit);
     expect(jump.isGapJump).toBe(true);
+  });
+});
+
+describe('elevation: climbing down (no hanging in mid-air)', () => {
+  const ruin = piece('ruin-l', 0, 0, 0);
+
+  it('a drop the budget cannot finish leaves the model at the ledge edge, not hanging part-way down', () => {
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
+    const state = makeState([unit], [ruin]);
+    // 0.7" along the ledge to the edge, then a 3.0" drop: 2.0" of budget cannot finish the drop
+    const short = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 2.0);
+    const end = short[short.length - 1];
+    expect(end.y).toBeCloseTo(3.0);
+    expect(end.z).toBeCloseTo(0.5, 1);
+    // Enough budget finishes the drop to the ground
+    const full = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 6.0);
+    expect(full[full.length - 1].y).toBe(0);
+  });
+
+  it('every clamped path end is either on a floor, on the ground or on a slope, never suspended', () => {
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
+    const state = makeState([unit], [ruin]);
+    for (const budget of [0.5, 1, 1.5, 2, 3, 3.7, 4, 5, 6]) {
+      const path = findNavPath(state, unit, { x: 0.5, y: 0, z: -1 }, budget);
+      expect(isSuspendedInMidAir(state, path[path.length - 1]), `budget ${budget}`).toBe(false);
+    }
+  });
+
+  it('the host rejects a move that ends suspended in mid-air', () => {
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
+    const state = makeState([unit], [ruin]);
+    state.turnState.activeUnitId = 'u';
+    state.turnState.currentPlayerId = HOST;
+    unit.isActivated = true;
+    const hanging = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'u',
+      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: 0.5 }, { x: 0, y: 1.5, z: 0.5 }],
+      finalPosition: { x: 0, y: 1.5, z: 0.5 },
+    });
+    const res = validateAction(state, hanging);
+    expect(res.valid).toBe(false);
+    expect(res.reason).toMatch(/suspended in mid-air/i);
+    const landed = createAction(HOST, 'move-unit', {
+      type: 'move-unit',
+      unitId: 'u',
+      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: 0.5 }, { x: 0, y: 0, z: 0.5 }],
+      finalPosition: { x: 0, y: 0, z: 0.5 },
+    });
+    expect(validateAction(state, landed).reason ?? '').not.toMatch(/suspended in mid-air/i);
+  });
+});
+
+describe('F9 shooting ray: the line follows the 3D ray (not one flat plane)', () => {
+  it('entry/exit heights interpolate from the shooter eye to the target', () => {
+    const wall = piece('wall', 0, 0, 6);
+    const shooter = makeUnit('s', HOST, { x: 0, y: 0, z: 0 });
+    const target = makeUnit('t', GUEST, { x: 0, y: 3, z: 12 });
+    const debug = computeShootingRayDebug(makeState([shooter, target], [wall]), shooter, target);
+    expect(debug.from.y).toBeCloseTo(1.1);
+    expect(debug.to.y).toBeCloseTo(4.1);
+    const hit = debug.intersections.find((i) => i.pieceId === wall.id)!;
+    // Halfway along the ray the height is halfway between eye (1.1) and target (4.1)
+    const mid = (hit.entryPoint.y + hit.exitPoint.y) / 2;
+    expect(mid).toBeCloseTo(2.6, 0);
+    expect(hit.entryPoint.y).toBeGreaterThan(debug.from.y);
+    expect(hit.exitPoint.y).toBeGreaterThanOrEqual(hit.entryPoint.y);
   });
 });
