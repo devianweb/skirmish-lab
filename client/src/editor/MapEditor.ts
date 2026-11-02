@@ -3,7 +3,12 @@ import {
   MapValidationNotice,
   Objective,
   createBlankMap,
+  GameState,
   TerrainCategory,
+  findWalkableSurfaceAt,
+  getWalkableSurfaces,
+  localToWorldXZ,
+  worldToLocal,
   TERRAIN_PALETTE_CATALOG,
   TerrainPiece,
   validateMapDefinition,
@@ -151,23 +156,36 @@ export class MapEditor {
     const defaultScale = meta?.defaultScale ?? { x: 2, y: 1, z: 2 };
 
     const pieceId = `terrain-${type}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1000)}`;
+    const x = this.snapCoord(pos.x);
+    const z = this.snapCoord(pos.z);
+    let y = customElevation !== undefined ? customElevation : (pos.y || 0);
+
+    // Stacking: a piece dropped near a floor's top face (deck, catwalk, ruin ledge) sits exactly on it.
+    // Floors themselves, stairs, ladders and pillars always start from the ground.
+    const isStackable = !meta?.isWalkable && !meta?.climbType && type !== 'support-pillar';
+    if (isStackable && y > 0) {
+      const surface = findWalkableSurfaceAt({ terrain: this.currentMap.terrain } as GameState, { x, y, z }, 0.1);
+      if (surface && Math.abs(y - surface.topY) <= 0.5) y = surface.topY;
+    }
+
     const newPiece: TerrainPiece = {
       id: pieceId,
       terrainType: type,
-      position: {
-        x: this.snapCoord(pos.x),
-        y: customElevation !== undefined ? customElevation : (pos.y || 0),
-        z: this.snapCoord(pos.z),
-      },
+      position: { x, y, z },
       rotation: { x: 0, y: rotationY, z: 0 },
       scale: { ...defaultScale },
       blocksLineOfSight: meta ? meta.blocksLineOfSight : true,
       providesCover: meta ? meta.providesCover : true,
       isObstacle: meta ? meta.isObstacle : true,
       isWalkable: meta?.isWalkable ?? false,
-      elevation: customElevation !== undefined ? customElevation : (meta?.elevation ?? undefined),
+      // `elevation` marks a legacy whole-footprint floor, so only floors get one (stacked rails and walls don't).
+      elevation: !meta || meta.isWalkable || meta.elevation !== undefined
+        ? (customElevation !== undefined ? customElevation : meta?.elevation)
+        : undefined,
       climbType: meta?.climbType,
     };
+
+    if (type === 'ladder') this.snapLadderToFace(newPiece);
 
     this.currentMap.terrain.push(newPiece);
     this.selectedPieceId = pieceId;
@@ -176,6 +194,54 @@ export class MapEditor {
     this.render();
     this.syncGameView();
     return newPiece;
+  }
+
+  /** Nearest face of a floor (deck, catwalk, ledge) within this distance attracts a ladder. */
+  static readonly LADDER_SNAP_DISTANCE = 2.0;
+
+  /**
+   * Snap a ladder onto the nearest floor edge: centred on the face line, facing the floor, with its
+   * climb height set to reach the floor's top. Returns false (ladder untouched) if no floor is near.
+   */
+  snapLadderToFace(ladder: TerrainPiece): boolean {
+    let best: { dist: number; x: number; z: number; nx: number; nz: number; topY: number } | null = null;
+    for (const other of this.currentMap.terrain) {
+      if (other.id === ladder.id) continue;
+      const yaw = other.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      for (const surface of getWalkableSurfaces(other)) {
+        const l = worldToLocal(other, ladder.position);
+        const cx = Math.max(surface.minX, Math.min(surface.maxX, l.x));
+        const cz = Math.max(surface.minZ, Math.min(surface.maxZ, l.z));
+        const edges = [
+          { d: Math.abs(cx - surface.minX), ex: surface.minX, ez: cz, nx: -1, nz: 0 },
+          { d: Math.abs(cx - surface.maxX), ex: surface.maxX, ez: cz, nx: 1, nz: 0 },
+          { d: Math.abs(cz - surface.minZ), ex: cx, ez: surface.minZ, nx: 0, nz: -1 },
+          { d: Math.abs(cz - surface.maxZ), ex: cx, ez: surface.maxZ, nx: 0, nz: 1 },
+        ].sort((a, b) => a.d - b.d);
+        const edge = edges[0];
+        const dist = Math.hypot(l.x - edge.ex, l.z - edge.ez);
+        if (dist <= MapEditor.LADDER_SNAP_DISTANCE && (!best || dist < best.dist)) {
+          const w = localToWorldXZ(other, edge.ex, edge.ez);
+          best = {
+            dist,
+            x: w.x,
+            z: w.z,
+            nx: edge.nx * cos + edge.nz * sin,
+            nz: -edge.nx * sin + edge.nz * cos,
+            topY: surface.topY,
+          };
+        }
+      }
+    }
+    if (!best) return false;
+    ladder.position.x = Math.round(best.x * 100) / 100;
+    ladder.position.z = Math.round(best.z * 100) / 100;
+    // Local +Z points into the floor (inward = opposite the outward face normal)
+    ladder.rotation.y = Math.atan2(-best.nx, -best.nz);
+    ladder.scale.y = Math.max(0.25, Math.round((best.topY - ladder.position.y) * 100) / 100);
+    return true;
   }
 
   placeObjectiveAt(pos: Vector3): Objective {
@@ -532,7 +598,7 @@ export class MapEditor {
     const categories: Array<{ id: TerrainCategory | 'objectives'; label: string; icon: string }> = [
       { id: 'structures', label: 'Structures', icon: '🏢' },
       { id: 'walls', label: 'Walls & Doors', icon: '🧱' },
-      { id: 'platforms', label: 'Catwalks', icon: '🔲' },
+      { id: 'platforms', label: 'Platforms & Decks', icon: '🔲' },
       { id: 'stairs-ladders', label: 'Stairs & Ladders', icon: '🪜' },
       { id: 'scatter', label: 'Cover & Pipes', icon: '📦' },
       { id: 'objectives', label: 'Objectives', icon: '🎯' },

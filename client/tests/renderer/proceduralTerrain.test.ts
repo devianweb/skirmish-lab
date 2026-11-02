@@ -9,6 +9,10 @@ import {
   createProceduralLCornerRuin,
   createProceduralShortWall,
   createProceduralLongWall,
+  createProceduralPlatformSmall,
+  createProceduralPlatformLarge,
+  createProceduralCatwalk,
+  createProceduralLadder,
 } from '../../src/renderer/ModelLoader';
 import { resolveTerrainStructure } from '@skirmish-lab/shared';
 
@@ -122,5 +126,63 @@ describe('procedural wargaming terrain', () => {
         expect(occupied(wall, slice), `${segments}-segment wall slice x=${x.toFixed(3)}`).toBe(true);
       }
     }
+  });
+
+  describe('elevation pieces (13.6C)', () => {
+    const unitPiece = (type: string) => ({
+      id: 'u',
+      terrainType: type,
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    });
+
+    for (const [type, build] of [
+      ['platform-small', createProceduralPlatformSmall],
+      ['platform-large', createProceduralPlatformLarge],
+      ['catwalk', createProceduralCatwalk],
+    ] as const) {
+      it(`${type} contains a mesh for every structure solid (deck, legs) plus visual-only decor`, () => {
+        const solids = resolveTerrainStructure(unitPiece(type)).solids;
+        const group = build();
+        group.updateMatrixWorld(true);
+        const boxes: THREE.Box3[] = [];
+        group.traverse((c) => {
+          if ((c as THREE.Mesh).isMesh) boxes.push(new THREE.Box3().setFromObject(c));
+        });
+        expect(boxes.length).toBeGreaterThan(solids.length); // kick-plates and tread ridges
+        for (const s of solids) {
+          const match = boxes.some(
+            (m) =>
+              Math.abs(m.min.x - s.minX) < 1e-6 && Math.abs(m.max.x - s.maxX) < 1e-6 &&
+              Math.abs(m.min.y - s.minY) < 1e-6 && Math.abs(m.max.y - s.maxY) < 1e-6 &&
+              Math.abs(m.min.z - s.minZ) < 1e-6 && Math.abs(m.max.z - s.maxZ) < 1e-6
+          );
+          expect(match, `${type} solid ${s.id}`).toBe(true);
+        }
+      });
+    }
+
+    it('a platform leaves the space under the deck open between its pillars', () => {
+      const plat = createProceduralPlatformSmall();
+      expect(occupied(plat, new THREE.Box3(new THREE.Vector3(-0.2, 0, -0.2), new THREE.Vector3(0.2, 0.8, 0.2)))).toBe(false);
+    });
+
+    it('kick-plates are visual dressing above the deck top (never inside the collision structure)', () => {
+      const plat = createProceduralPlatformSmall();
+      expect(bounds(plat).max.y).toBeGreaterThan(1);
+    });
+
+    it('ladder has two rails and rungs', () => {
+      const ladder = createProceduralLadder();
+      let meshes = 0;
+      ladder.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) meshes++;
+      });
+      expect(meshes).toBe(2 + 11);
+    });
   });
 });
