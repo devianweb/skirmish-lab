@@ -1,6 +1,6 @@
 # Manual Test Checklist (consolidated)
 
-One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last pass: 2026-11-02, which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
+One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, and batch 1A the same evening; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
 
 Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-batch-1.md`; retest them after that PR lands.
 
@@ -11,14 +11,12 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ---
 
 ## 1. Map builder & editor
-- [ ] Objectives placed by Auto Obj or loaded with a map can be selected (click near the beacon, or use the Objectives tab list) and removed (Delete, Remove Objective, or the list's remove button); clicking open ground deselects.
+- All items verified 2026-11-02.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified 2026-11-02.
 
 ## 3. Elevation, ladders, stairs
-- [ ] **Stairs look solid:** the stair wedge renders with properly lit outer faces (no see-through or inside-out sides, step lines visible on the slope and sides), and its F9 wireframe slopes the same way as the mesh at every rotation (0°, 90°, 180°, 270°).
-- [ ] **Stairs picking:** with a unit on a deck next to stairs, hovering near the stairs never snaps the move target to the stair corners or step lines; hovering the stair slope still targets the slope.
 
 - [ ] **Ladder spots:** rush/move toward a ladder with a budget too short to climb: the mini stops at the ladder foot with its base against the wall, outside the ladder and not under the deck. With enough budget it climbs and ends standing fully on the deck at the head (not half over the edge). The short shuffle on and off the ladder costs nothing (only the climb height counts). Climbing back down mirrors it. Check a ladder on each side of a deck and on the shipping container.
 
@@ -39,7 +37,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified 2026-11-02.
 
 ## 7. Movement, rush and shooting
-- [ ] A 0-wound attack shows a "0" digit in the same style and size as the 1-5 digits (neutral grey rather than red), floating over the target.
+- All items verified 2026-11-02.
 
 ## 8. Melee & objectives
 - All items verified 2026-11-02.
