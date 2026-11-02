@@ -10,6 +10,7 @@ import {
   localToWorldXZ,
   worldToLocal,
   TERRAIN_PALETTE_CATALOG,
+  TERRAIN_STRUCTURES,
   TerrainPiece,
   validateMapDefinition,
   Vector3,
@@ -178,10 +179,13 @@ export class MapEditor {
       providesCover: meta ? meta.providesCover : true,
       isObstacle: meta ? meta.isObstacle : true,
       isWalkable: meta?.isWalkable ?? false,
-      // `elevation` marks a legacy whole-footprint floor, so only floors get one (stacked rails and walls don't).
-      elevation: !meta || meta.isWalkable || meta.elevation !== undefined
-        ? (customElevation !== undefined ? customElevation : meta?.elevation)
-        : undefined,
+      // `elevation` marks a legacy whole-footprint floor. Structured pieces (decks, catwalks, ruins, containers)
+      // define their floors in their structure and never carry one; stacked rails and walls don't either.
+      elevation: TERRAIN_STRUCTURES[type]
+        ? undefined
+        : !meta || meta.isWalkable || meta.elevation !== undefined
+          ? (customElevation !== undefined ? customElevation : meta?.elevation)
+          : undefined,
       climbType: meta?.climbType,
     };
 

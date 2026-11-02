@@ -26,6 +26,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - [ ] Meshes still line up with the F9 per-box wireframes for walls, windows, doorways and the ruin.
 
 ## 3. Elevation, ladders, stairs
+- [ ] **Clicking** the top of a platform, catwalk, ruin ledge or container roof picks that floor height (3.0" / 2.25"), even on older saved maps. Hovering or clicking a pillar, wall side or the underside of a deck picks the ground (the cursor never floats in mid-air).
 - [ ] Platforms (4×4 / 6×4) stand on corner pillars; models walk under the deck and under a catwalk; pillars block movement and sight.
 - [ ] A model reaches a deck by stairs (continuous slope; can stop part-way) or by ladder (must reach the top; stops at the foot if the budget can't finish; never hangs on the rungs).
 - [ ] **Ladder path:** the move preview walks to the ladder foot, climbs straight up the ladder's centre line to the head, then continues. Same going down. No slanted line beside the ladder.
@@ -41,12 +42,14 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - [ ] A drop **above 6"** warns it can't be jumped; the model falls (Falling damage, activation ends).
 - [ ] A move can never end with the model hanging in mid-air (it stays at the edge if it can't finish).
 - [ ] Climbing (ladders, stairs) still costs its full length; Difficult Terrain caps still apply.
-- [ ] *Known gap:* horizontal gap jumps still use a single Quality test (not the X+1 dice at 3+ test used for drops).
+- [ ] **Gap jumps** use the same test as drops: a horizontal gap of 1" or less is regular movement; 1-6" needs X+1 dice (1 die under 3", 2 from 3"), all 3+ (Pathfinder 2+, Airborne auto-passes); a failed jump falls into the gap (Falling damage if from 3"+ up, activation ends); a gap over 6" shows GAP TOO WIDE and the host rejects the move.
+- [ ] Walking from a platform onto a flush catwalk (and across to the next platform) shows **no** gap warning; only real open air between decks does.
+- [ ] **Dice log:** every jump, fall and dangerous-terrain roll appears in the Dice panel ("Movement hazards", with the rolled dice coloured pass/fail) and in the action log line ("moved X — Jump down 4.0" ... landed"). A move with no hazards shows nothing extra.
 
 ## 5. Low cover & scatter
 - [ ] Barricade (0.5"), Crate (0.75") and Pipe (0.75"): you can see over them; they block movement; they give +1 Defense only to a defender within 1" behind them.
 - [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs; you can stack pieces on it.
-- [ ] *Known quirk:* a crate's collision footprint is 70% of its visual size (legacy), so units can brush its edges.
+- [ ] A crate's collision footprint matches its visual size (1"×1"): units stop at its edge, not inside it.
 
 ## 6. Squads
 - [ ] Squad roster and DataCard show model counts (`Models: 4/4`).

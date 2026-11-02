@@ -1466,7 +1466,7 @@ describe('GameHUD', () => {
       const { hud, container } = setup(HOST, state);
 
       clickByText(container, 'Move');
-      hud.handleBoardPick({ kind: 'position', position: { x: 0.5, y: 0, z: 0.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: -0.5, y: 0, z: -0.5 } });
 
       expect(container.textContent).toContain('Difficult Terrain: 6.0" speed cap');
     });
@@ -1621,13 +1621,45 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 2, y: 2.5, z: 0 } });
 
       expect(container.textContent).toContain('GAP JUMP');
-      expect(container.textContent).toContain(`Quality Q${unit.quality}+ check required`);
+      // Platforms span x -3..-1 and 1..3: a ~2" gap is a 1-die jump test (3+)
+      expect(container.textContent).toContain('roll 1 dice, all 3+');
 
       clickByText(container, 'Confirm');
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
       const action = controller.submitAction.mock.calls[0][0];
       expect(action.payload.gapJump).toBeDefined();
-      expect(action.payload.gapJump.gapDistance).toBe(4);
+      expect(action.payload.gapJump.gapDistance).toBeCloseTo(2, 0);
+    });
+
+    it('shows movement hazard dice (jump, fall) in the dice panel and the log', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      state.actionLog.push({
+        action: { id: 'a1', timestamp: 0, actorId: HOST, type: 'move-unit', payload: { type: 'move-unit', unitId: unit.id } } as any,
+        result: 'accepted',
+        appliedAt: 0,
+        dice: {
+          rollId: 'a1',
+          specs: [{ count: 2, sides: 6, purpose: 'drop_jump' }],
+          results: [{ rolls: [3, 2], total: 5, finalTotal: 5, purpose: 'drop_jump' }],
+          context: { attackerId: unit.id, targetId: unit.id, actionId: 'a1' },
+          outcome: {
+            attackCount: 0,
+            hitCount: 0,
+            blockedCount: 0,
+            wounds: 1,
+            targetDestroyed: false,
+            traversal: [
+              { type: 'drop-jump', rolls: [3, 2], target: 3, passed: false, text: 'Jump down 4.0" (2 dice, all 3+): rolled 3, 2 → failed, falls' },
+              { type: 'fall', wounds: 1, rolls: [1], text: 'Fell 4.0": Falling damage (AP 1), save roll 1 → 1 wound' },
+            ],
+          },
+        },
+      });
+      const { container } = setup(HOST, state);
+      expect(container.textContent).toContain('Movement hazards');
+      expect(container.textContent).toContain('Jump down 4.0" (2 dice, all 3+)');
+      expect(container.textContent).toContain('Fell 4.0"');
     });
 
     it('melee-consolidation reaction: picks destination, locks path preview on hover while confirming, and submits', () => {

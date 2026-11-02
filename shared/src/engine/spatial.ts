@@ -40,9 +40,6 @@ export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: numbe
   ) {
     return { hx: 0.5 * sx, hz: 0.5 * sz };
   }
-  if (piece.terrainType === 'crate') {
-    return { hx: 0.35 * sx, hz: 0.35 * sz };
-  }
   return { hx: 0.5 * sx, hz: 0.5 * sz };
 }
 
@@ -100,6 +97,22 @@ export function describeTerrainPiece(piece: TerrainPiece): TerrainDebugInfo {
 }
 
 /**
+ * The legacy whole-footprint elevation of a piece (older maps flag a piece `isWalkable` + `elevation`).
+ * Ignored for pieces whose structure defines walkable solids (their floors come from the boxes), and
+ * for `elevation <= 0`, which just means ground level.
+ */
+export function legacyElevation(piece: TerrainPiece): number | undefined {
+  if (piece.elevation === undefined || piece.elevation <= 0) return undefined;
+  if (resolveTerrainStructure(piece).solids.some((solid) => solid.walkable)) return undefined;
+  return piece.elevation;
+}
+
+/** True if the piece's structure has at least one walkable solid (deck, catwalk, ledge, roof). */
+export function hasStructuredFloor(piece: TerrainPiece): boolean {
+  return resolveTerrainStructure(piece).solids.some((solid) => solid.walkable);
+}
+
+/**
  * Find the terrain piece whose 2D oriented bounding box (plus a small hover
  * margin) contains `point` on the XZ board plane.
  */
@@ -126,7 +139,7 @@ export function findTerrainAtPosition(
       }
       const pieceBaseY = piece.position.y ?? 0;
       const pieceHeight = piece.scale.y ?? 1.0;
-      const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+      const pieceTopY = legacyElevation(piece) ?? pieceBaseY + pieceHeight;
 
       if (point.y >= pieceBaseY - 0.25 && point.y <= pieceTopY + 0.6) {
         const vertDiff = Math.abs(point.y - pieceTopY);
@@ -307,7 +320,7 @@ export function findMoveBlocker(
 
         const pieceBaseY = piece.position.y ?? 0;
         const pieceHeight = piece.scale.y ?? 1.0;
-        const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+        const pieceTopY = legacyElevation(piece) ?? pieceBaseY + pieceHeight;
 
         // If the stair segment connects to the top/roof level of this landing piece
         if (maxSegY >= pieceTopY - 0.25) {
@@ -322,11 +335,11 @@ export function findMoveBlocker(
 
       const pieceBaseY = piece.position.y ?? 0;
       const pieceHeight = piece.scale.y ?? 1.0;
-      const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+      const pieceTopY = legacyElevation(piece) ?? pieceBaseY + pieceHeight;
 
       // 1. If piece is walkable or an elevated platform, moving on top does not collide with the obstacle
-      if (piece.isWalkable || piece.elevation !== undefined) {
-        if (minSegY >= (piece.elevation ?? pieceTopY) - 0.15) {
+      if (piece.isWalkable || legacyElevation(piece) !== undefined) {
+        if (minSegY >= (legacyElevation(piece) ?? pieceTopY) - 0.15) {
           continue;
         }
       }
@@ -484,10 +497,10 @@ export function clampMoveDestinationWithObstacles(
       if (!piece.isObstacle) continue;
       const pieceBaseY = piece.position.y ?? 0;
       const pieceHeight = piece.scale.y ?? 1.0;
-      const pieceTopY = piece.elevation !== undefined ? piece.elevation : pieceBaseY + pieceHeight;
+      const pieceTopY = legacyElevation(piece) ?? pieceBaseY + pieceHeight;
 
-      if (piece.isWalkable || piece.elevation !== undefined) {
-        if (Math.min(startY, y) >= (piece.elevation ?? pieceTopY) - 0.15) {
+      if (piece.isWalkable || legacyElevation(piece) !== undefined) {
+        if (Math.min(startY, y) >= (legacyElevation(piece) ?? pieceTopY) - 0.15) {
           continue;
         }
       }
@@ -628,7 +641,7 @@ export function getWalkableSurfaces(piece: TerrainPiece): WalkableSurface[] {
   ) {
     const { hx, hz } = terrainHalfExtents(piece);
     return [
-      { piece, minX: -hx, maxX: hx, minZ: -hz, maxZ: hz, topY: piece.elevation ?? piece.position.y ?? 2.5 },
+      { piece, minX: -hx, maxX: hx, minZ: -hz, maxZ: hz, topY: legacyElevation(piece) ?? piece.position.y ?? 2.5 },
     ];
   }
   return [];
@@ -1389,7 +1402,7 @@ export function getStairSurfaceHeight(
   }
 
   const botY = piece.position.y ?? 0;
-  const topY = piece.elevation !== undefined ? piece.elevation : botY + (piece.scale.y ?? 2.5);
+  const topY = legacyElevation(piece) ?? botY + (piece.scale.y ?? 2.5);
 
   let footLocalZ = -hz;
   let headLocalZ = hz;
@@ -1427,7 +1440,7 @@ export function findLadderForSegment(
     const margin = 0.5;
     const botY = Math.min(0, piece.position.y ?? 0);
     const topY = Math.max(
-      piece.elevation ?? 0,
+      legacyElevation(piece) ?? 0,
       (piece.position.y ?? 0) + (piece.scale.y ?? 2.5),
       (piece as any).size?.y ?? 0
     );
@@ -1475,7 +1488,7 @@ export function isSegmentOnRampOrStairs(
     const margin = 0.35; // tight clearance margin around stair/ladder spine
     const botY = Math.min(0, piece.position.y ?? 0);
     const topY = Math.max(
-      piece.elevation ?? 0,
+      legacyElevation(piece) ?? 0,
       (piece.position.y ?? 0) + (piece.scale.y ?? 2.5),
       (piece as any).size?.y ?? 0
     );
@@ -1518,7 +1531,7 @@ export function getStairWaypoints(
   piece: TerrainPiece
 ): { foot: Vector3; head: Vector3 } {
   const botY = piece.position.y ?? 0;
-  const topY = piece.elevation !== undefined ? piece.elevation : botY + (piece.scale.y ?? 2.5);
+  const topY = legacyElevation(piece) ?? botY + (piece.scale.y ?? 2.5);
 
   if (piece.terrainType === 'ladder' || piece.climbType === 'ladder') {
     return {

@@ -76,8 +76,8 @@ export function resolveTerrainStructure(piece: TerrainPiece): ResolvedStructure 
     z: Math.max(0.05, piece.scale.z),
   };
   const group = piece.structure ?? TERRAIN_STRUCTURES[piece.terrainType];
-  // Fallback: one solid body matching the piece's collision footprint (crates are inset to 70%).
-  const fx = piece.terrainType === 'crate' ? 0.35 : 0.5;
+  // Fallback: one solid body matching the piece's footprint.
+  const fx = 0.5;
   const body: TerrainGroup = group ?? {
     id: `${piece.id}-body`,
     solids: [{ id: `${piece.id}-body`, minX: -fx, maxX: fx, minY: 0, maxY: 1, minZ: -fx, maxZ: fx }],
