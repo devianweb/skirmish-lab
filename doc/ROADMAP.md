@@ -682,6 +682,9 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 *(13.6D gameplay is done: pieces, structures, collision and cover. Visual dressing — chamfered barriers, hazard stripes, round pipes, per-type colours — is deferred.)*
 
+### 13.6 playtest fixes
+- [x] Map editor: objectives from Auto Obj / loaded / imported maps can be selected by clicking near them (within 1") or from the Objectives tab list, and removed (PR 12).
+
 ### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
 - [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
 - [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.

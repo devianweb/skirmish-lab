@@ -12,6 +12,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 1. Map builder & editor
 - All items verified 2026-11-02.
+- [ ] Objectives placed by Auto Obj or loaded with a map can be selected (click near the beacon, or use the Objectives tab list) and removed (Delete, Remove Objective, or the list's remove button); clicking open ground deselects.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified 2026-11-02.
