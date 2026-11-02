@@ -323,7 +323,10 @@ export class GameView {
         terrainHit.point,
         0.05
       );
-      if (surface && Math.abs(terrainHit.point.y - surface.topY) <= 0.15) {
+      // Only an upward-facing hit counts: a ray grazing the deck's side face near its top must fall
+      // through to the ground instead of picking deck height off the edge.
+      const facesUp = (terrainHit.normal?.y ?? 0) > 0.7;
+      if (facesUp && surface && Math.abs(terrainHit.point.y - surface.topY) <= 0.15) {
         return {
           kind: 'position',
           position: {

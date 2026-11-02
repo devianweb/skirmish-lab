@@ -451,15 +451,17 @@ type Part = [cx: number, cy: number, cz: number, w: number, h: number, d: number
  * expressed as fractions of the collision box (e.g. 4"x2.5"x0.3" wall).
  * Each part is [centreX, baseY, centreZ, width, height, depth].
  */
-function buildFromParts(parts: Part[]): THREE.Object3D {
+function buildFromParts(parts: Part[], decorFrom = Infinity): THREE.Object3D {
   const group = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.1 });
-  for (const [cx, by, cz, w, h, d] of parts) {
+  for (const [index, [cx, by, cz, w, h, d]] of parts.entries()) {
     const geometry = new THREE.BoxGeometry(w, h, d);
     geometry.translate(cx, by + h / 2, cz);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // Visual-only dressing (kick-plates, tread ridges) must never be picked.
+    if (index >= decorFrom) mesh.userData.decor = true;
     group.add(mesh);
   }
   return group;
@@ -495,7 +497,7 @@ function buildFromStructure(terrainType: string, extras: Part[] = []): THREE.Obj
     s.maxY - s.minY,
     s.maxZ - s.minZ,
   ]);
-  return buildFromParts([...parts, ...extras]);
+  return buildFromParts([...parts, ...extras], parts.length);
 }
 
 /**

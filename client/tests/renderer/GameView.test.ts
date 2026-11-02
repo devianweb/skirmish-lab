@@ -288,6 +288,62 @@ describe('GameView', () => {
       expect(picks[0].position.y).toBe(0);
     });
 
+    describe('deck edges', () => {
+      function deckPick(camPos: [number, number, number], lookAt: [number, number, number]) {
+        const scene = new THREE.Scene();
+        const sceneManager: SceneManagerLike = { getScene: () => scene, startAnimationLoop: () => {} };
+        const inputElement = document.createElement('div');
+        document.body.appendChild(inputElement);
+        inputElement.getBoundingClientRect = () =>
+          ({ left: 0, top: 0, width: 200, height: 200, x: 0, y: 0, right: 200, bottom: 200, toJSON: () => ({}) }) as DOMRect;
+        const camera = new THREE.PerspectiveCamera(20, 1, 0.1, 100);
+        camera.position.set(...camPos);
+        camera.lookAt(...lookAt);
+        camera.updateMatrixWorld();
+        const gameView = new GameView({ sceneManager, camera, inputElement });
+        gameView.syncFromState(
+          makeState({
+            terrain: [
+              makeTerrain({
+                id: 'plat-1',
+                terrainType: 'platform-small',
+                position: { x: 0, y: 0, z: 0 },
+                scale: { x: 4, y: 3, z: 4 },
+                isWalkable: true,
+              }),
+            ],
+          })
+        );
+        const picks: any[] = [];
+        gameView.onPick((target) => picks.push(target));
+        inputElement.dispatchEvent(new MouseEvent('pointerdown', { clientX: 100, clientY: 100 }));
+        inputElement.dispatchEvent(new MouseEvent('click', { clientX: 100, clientY: 100 }));
+        return picks[0];
+      }
+
+      it('a ray hitting the deck side face near the top resolves to the ground', () => {
+        // Mid-edge on +X (between pillars), at deck height, descending gently.
+        const pick = deckPick([12, 3.4, 0], [2, 2.9, 0]);
+        expect(pick.kind).toBe('position');
+        expect(pick.position.y).toBe(0);
+      });
+
+      it('a ray hitting the deck top resolves to the deck height', () => {
+        const pick = deckPick([6, 9, 0.5], [0.5, 3.0, 0.5]);
+        expect(pick.kind).toBe('position');
+        expect(pick.position.y).toBeCloseTo(3.0);
+      });
+
+      it('a ray grazing the kick-plate never picks deck height off the deck footprint', () => {
+        // Skims the kick-plate (3.0-3.15") and continues past the deck.
+        const pick = deckPick([12, 3.2, 0], [2, 3.1, 0]);
+        expect(pick.kind).toBe('position');
+        const onDeck = Math.abs(pick.position.x) <= 2.05 && Math.abs(pick.position.z) <= 2.05;
+        if (pick.position.y > 0) expect(onDeck).toBe(true);
+        else expect(pick.position.y).toBe(0);
+      });
+    });
+
     it('ignores clicks that are camera drags (pointer travel above tolerance)', () => {
       const { gameView, inputElement } = makePickableView();
       const picks: any[] = [];

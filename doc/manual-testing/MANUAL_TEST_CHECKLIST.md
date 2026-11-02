@@ -19,6 +19,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 3. Elevation, ladders, stairs
 
 - [ ] **Ladder spots:** rush/move toward a ladder with a budget too short to climb: the mini stops at the ladder foot with its base against the wall, outside the ladder and not under the deck. With enough budget it climbs and ends standing fully on the deck at the head (not half over the edge). The short shuffle on and off the ladder costs nothing (only the climb height counts). Climbing back down mirrors it. Check a ladder on each side of a deck and on the shipping container.
+- [ ] **Deck edge pick:** hover the ground just past a deck edge (low camera angle, also over kick-plates): the target is the ground, never deck height at the edge. Hovering the deck top still picks the deck.
 
 ## 4. Drops, jumps and movement cost
 - [ ] **(known bug, plan PR 3)** Stepping off a ledge of **3" or less** is regular movement: no test, no warning, and it costs only the horizontal distance walked.
