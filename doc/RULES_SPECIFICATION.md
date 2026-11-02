@@ -255,12 +255,13 @@ Every special rule is modeled as a declarative modifier or state machine interce
 Whenever a target model receives a **Suppressed (Shaken)** result from an attack, the attacking player may roll 1d6. On a **4+**, the attacker displaces the target model by up to **2"** in any horizontal direction.
 
 ### 10.2 Gaps & Drops (Jumping)
-- **Regular movement:** Models cross horizontal gaps $\le 1"$ and drop off elevations $\le 3"$ as regular movement, with no test. Movement is measured along the board, so a drop costs only its horizontal distance (climbs, stairs, ramps and ladders cost their full length).
+- **Regular movement:** Models cross horizontal gaps $\le 1"$ and drop off elevations $\le 3"$ as regular movement, with no test. A gap is open air with nothing to stand on beneath the path (not the distance between two decks that touch). Movement is measured along the board, so a drop costs only its horizontal distance (climbs, stairs, ramps and ladders cost their full length).
 - **Extended Clearance ($\le 6"$):**
   - Requires a Jump test: Roll $X + 1$ dice testing for $3+$, where $X$ is 1 die per full 3" traversed (2+ with `pathfinder`; `airborne` auto-passes).
   - If all dice succeed ($3+$), the model clears the distance without it counting toward its move and the activation continues.
   - If any die fails, the model falls (see 10.3) and its activation ends.
-- **Beyond 6":** the model cannot jump and falls.
+- **Beyond 6":** a drop cannot be jumped and the model falls; a gap this wide cannot be crossed (the move is rejected).
+- Gaps and drops use the same test; every jump, fall and hazard roll is recorded in the dice log.
 - A model never finishes a move suspended in mid-air: if its allowance cannot finish a drop it stops at the edge.
 
 ### 10.3 Falling Damage

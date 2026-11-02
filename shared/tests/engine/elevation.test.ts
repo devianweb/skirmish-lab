@@ -420,3 +420,50 @@ describe('bridging: a catwalk is reachable deck-to-deck without leaving the deck
     }
   });
 });
+
+describe('maps saved with a stray legacy `elevation` (e.g. elevation: 0 on a catwalk)', () => {
+  // Taken from a real saved map: catwalk bridging two large platforms, each carrying isWalkable/elevation metadata
+  const stray = (type: string, x: number, z: number, rot: number, elevation: number): TerrainPiece => ({
+    ...piece(type, x, 0, z, rot),
+    elevation,
+  });
+  const terrain = [
+    stray('platform-large', -7, 3, 0, 0),
+    stray('catwalk', -6, -2, Math.PI / 2, 0),
+    stray('platform-large', -7, -7, 0, 0),
+  ];
+
+  it('structured floors ignore a stray elevation: the deck is still at 3.0" and the pillars still block', () => {
+    const state = makeState([], terrain);
+    expect(findWalkableSurfaceAt(state, { x: -6, y: 3, z: -2 })?.topY).toBeCloseTo(3.0);
+    const mover = makeUnit('m', HOST, { x: -11, y: 0, z: 3 });
+    const withPillars = makeState([mover], terrain);
+    // platform-large pillars sit 2.5" in from the centre along X and 1.5" along Z: (-9.5, 4.5)
+    expect(
+      findMoveBlocker(withPillars, mover, [{ x: -12, y: 0, z: 4.5 }, { x: -8, y: 0, z: 4.5 }]).blocked
+    ).toBe(true);
+  });
+
+  it('walking platform -> catwalk -> platform is not a gap jump (the decks are flush)', () => {
+    const state = makeState([], terrain);
+    const unit = makeUnit('u', HOST, { x: -7, y: 3, z: 3 });
+    for (const path of [
+      [{ x: -7, y: 3, z: 3 }, { x: -6, y: 3, z: -2 }],
+      [{ x: -7, y: 3, z: 3 }, { x: -7, y: 3, z: -7 }],
+    ]) {
+      expect(detectPathGapJump(state, path, unit).isGapJump).toBe(false);
+    }
+  });
+
+  it('a unit on one platform paths straight along the deck onto the catwalk and the far platform', () => {
+    const unit = makeUnit('u', HOST, { x: -7, y: 3, z: 3 });
+    unit.speed = 12;
+    unit.remainingMovement = 12;
+    const state = makeState([unit], terrain);
+    for (const dest of [{ x: -6, y: 3, z: -2 }, { x: -7, y: 3, z: -7 }]) {
+      const path = findNavPath(state, unit, dest, 24, { stopBeforeDifficult: true });
+      expect(Math.min(...path.map((p) => p.y))).toBeGreaterThan(2.9);
+      expect(path[path.length - 1]).toMatchObject({ x: dest.x, z: dest.z });
+    }
+  });
+});

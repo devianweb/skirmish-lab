@@ -506,24 +506,24 @@ describe('applyAction: move-unit', () => {
     unit.speed = 6;
     unit.position = { x: 0, y: 0, z: 0 };
     unit.models = [
-      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -0.9, y: 0, z: 0 } },
-      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.9, y: 0, z: 0 } },
+      { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: -1.0, y: 0, z: 0 } },
+      { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1.0, y: 0, z: 0 } },
     ];
 
-    // Both models flank on either side of the crate (x: -0.9 and x: 0.9), staying coherent (1.8" <= 2.0")
+    // Both models flank on either side of the crate (x: -1.0 and x: 1.0), staying coherent (1.8" <= 2.0")
     // Centroid line goes from (0, 0, 0) to (0, 0, 4) straight through the crate at (0, 0, 2)
     const flankingPositions: Vector3[] = [
-      { x: -0.9, y: 0, z: 4 },
-      { x: 0.9, y: 0, z: 4 },
+      { x: -1.0, y: 0, z: 4 },
+      { x: 1.0, y: 0, z: 4 },
     ];
     const flankingPaths: Vector3[][] = [
       [
-        { x: -0.9, y: 0, z: 0 },
-        { x: -0.9, y: 0, z: 4 },
+        { x: -1.0, y: 0, z: 0 },
+        { x: -1.0, y: 0, z: 4 },
       ],
       [
-        { x: 0.9, y: 0, z: 0 },
-        { x: 0.9, y: 0, z: 4 },
+        { x: 1.0, y: 0, z: 0 },
+        { x: 1.0, y: 0, z: 4 },
       ],
     ];
 
@@ -542,8 +542,8 @@ describe('applyAction: move-unit', () => {
     const outcome = act(state, action);
     expect(outcome.ok).toBe(true);
     const postUnit = outcome.state!.units.find((u) => u.id === 'h1')!;
-    expect(postUnit.models[0].position).toEqual({ x: -0.9, y: 0, z: 4 });
-    expect(postUnit.models[1].position).toEqual({ x: 0.9, y: 0, z: 4 });
+    expect(postUnit.models[0].position).toEqual({ x: -1.0, y: 0, z: 4 });
+    expect(postUnit.models[1].position).toEqual({ x: 1.0, y: 0, z: 4 });
   });
 
   it('rejects move-unit if an individual squad model path intersects an obstacle', () => {

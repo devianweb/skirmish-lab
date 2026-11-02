@@ -232,6 +232,62 @@ describe('GameView', () => {
       expect(picks[1].position.y).toBe(0);
     });
 
+    it('picks the catwalk top at 3.0" even when the saved piece carries a stray elevation: 0', () => {
+      const { gameView, inputElement } = makePickableView();
+      gameView.syncFromState(
+        makeState({
+          terrain: [
+            makeTerrain({
+              id: 'catwalk-1',
+              terrainType: 'catwalk',
+              position: { x: 0, y: 0, z: 0 },
+              scale: { x: 6, y: 3, z: 2 },
+              isWalkable: true,
+              elevation: 0,
+            }),
+          ],
+        })
+      );
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+      click(inputElement, 100, 100); // top-down onto the deck centre
+      expect(picks[0].kind).toBe('position');
+      expect(picks[0].position.y).toBeCloseTo(3.0);
+    });
+
+    it('clicking a platform pillar (not a top face) picks the ground, never a height in mid-air', () => {
+      const scene = new THREE.Scene();
+      const sceneManager: SceneManagerLike = { getScene: () => scene, startAnimationLoop: () => {} };
+      const inputElement = document.createElement('div');
+      document.body.appendChild(inputElement);
+      inputElement.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, width: 200, height: 200, x: 0, y: 0, right: 200, bottom: 200, toJSON: () => ({}) }) as DOMRect;
+      // Side-on camera looking slightly down at the +X face of the pillar at (1.5, 1.5)
+      const camera = new THREE.PerspectiveCamera(20, 1, 0.1, 100);
+      camera.position.set(12, 2.2, 1.5);
+      camera.lookAt(1.75, 1.2, 1.5);
+      camera.updateMatrixWorld();
+      const gameView = new GameView({ sceneManager, camera, inputElement });
+      gameView.syncFromState(
+        makeState({
+          terrain: [
+            makeTerrain({
+              id: 'plat-1',
+              terrainType: 'platform-small',
+              position: { x: 0, y: 0, z: 0 },
+              scale: { x: 4, y: 3, z: 4 },
+              isWalkable: true,
+            }),
+          ],
+        })
+      );
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+      click(inputElement, 100, 100);
+      expect(picks[0].kind).toBe('position');
+      expect(picks[0].position.y).toBe(0);
+    });
+
     it('ignores clicks that are camera drags (pointer travel above tolerance)', () => {
       const { gameView, inputElement } = makePickableView();
       const picks: any[] = [];

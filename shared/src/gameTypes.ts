@@ -342,6 +342,19 @@ export interface WeaponAttackOutcome {
  * plus the deterministic combat outcome the host derived from them. Both
  * peers render dice displays from this data — never from local rolls.
  */
+/** One traversal hazard resolved during a move: a jump, a fall or dangerous terrain (rolled with server dice). */
+export interface TraversalEvent {
+  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard';
+  /** Human-readable result for the dice panel and log. */
+  text: string;
+  /** The dice rolled for this event (each d6). */
+  rolls?: number[];
+  /** Target number each die needed (jumps). */
+  target?: number;
+  passed?: boolean;
+  wounds?: number;
+}
+
 export interface DiceResolution {
   rollId: string;
   specs: DiceSpec[];
@@ -362,6 +375,8 @@ export interface DiceResolution {
     wardSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
+    /** Movement hazards resolved by this action (gap/drop jumps, falls, dangerous terrain). */
+    traversal?: TraversalEvent[];
     targetShaken?: boolean;
     effectiveQuality?: number;
     effectiveDefense?: number;

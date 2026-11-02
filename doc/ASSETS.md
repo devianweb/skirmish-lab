@@ -76,7 +76,7 @@ All built from the shared structure definitions in `shared/src/data/terrainStruc
 | `catwalk` | Catwalk (6"×2") | `6 × 3 × 2` | Bare walkable deck (no legs) spanning between platforms. |
 | `support-pillar` | Support Pillar | `0.5 × 2.75 × 0.5` | Same 0.5" pillar as the platform legs; ground to deck underside. |
 | `barricade` | Barricade (3") | `3 × 0.5 × 0.25` | Low 0.5" cover; does not block sight; stacks on decks. |
-| `crate` | Supply Crate | `1 × 0.75 × 1` | Low 0.75" cover; does not block sight (legacy 70% collision footprint). |
+| `crate` | Supply Crate | `1 × 0.75 × 1` | Low 0.75" cover; does not block sight (full 1"×1" collision footprint). |
 | `industrial-pipe` | Industrial Pipe (4") | `4 × 0.75 × 0.75` | Low 0.75" conduit cover (box collision; round mesh later). |
 | `shipping-container` | Shipping Container (5") | `5 × 2.25 × 2.25` | Solid sight blocker with a walkable 2.25" roof. |
 | `stairs` | Stairs (2"×4") | `2 × 3 × 4` | Continuous ramp (wedge physics) up to 3.0"; mesh has risers and stringers. |

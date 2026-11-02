@@ -233,15 +233,18 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(res.passed).toBe(true);
     });
 
-    it('requires a Quality test for gaps > 1.0"', () => {
-      // Quality 4: roll of 3 fails; roll of 4 passes
-      const fail = resolveGapJump(2.5, dummyUnit, 3);
-      expect(fail.requiresTest).toBe(true);
-      expect(fail.passed).toBe(false);
+    it('gaps of 1-6" use the jump test: X+1 dice (one per full 3"), all 3+', () => {
+      // Under 3": X = 0 so 1 die; from 3": 2 dice
+      expect(resolveGapJump(2.5, dummyUnit)).toMatchObject({ requiresTest: true, dice: 1, target: 3, passed: false });
+      expect(resolveGapJump(2.5, dummyUnit, [3]).passed).toBe(true);
+      expect(resolveGapJump(2.5, dummyUnit, [2]).passed).toBe(false);
+      expect(resolveGapJump(3.5, dummyUnit)).toMatchObject({ dice: 2 });
+      expect(resolveGapJump(3.5, dummyUnit, [6, 3]).passed).toBe(true);
+      expect(resolveGapJump(3.5, dummyUnit, [6, 2]).passed).toBe(false);
+    });
 
-      const pass = resolveGapJump(2.5, dummyUnit, 4);
-      expect(pass.requiresTest).toBe(true);
-      expect(pass.passed).toBe(true);
+    it('a gap wider than 6" cannot be jumped', () => {
+      expect(resolveGapJump(7, dummyUnit, [6, 6, 6])).toMatchObject({ canJump: false, passed: false });
     });
 
     it('airborne units auto-pass gap jumps without testing', () => {
@@ -253,11 +256,8 @@ describe('Phase 11A: Shared Traversal Engine', () => {
 
     it('pathfinder units pass gap jumps on 2+', () => {
       const scout: Unit = { ...dummyUnit, quality: 5, specialRules: ['pathfinder'] };
-      const passOnTwo = resolveGapJump(3.0, scout, 2);
-      expect(passOnTwo.passed).toBe(true);
-
-      const failOnOne = resolveGapJump(3.0, scout, 1);
-      expect(failOnOne.passed).toBe(false);
+      expect(resolveGapJump(3.5, scout, [2, 2]).passed).toBe(true);
+      expect(resolveGapJump(3.5, scout, [2, 1]).passed).toBe(false);
     });
 
     it('detects gap jumps along a path between distinct elevated platforms', () => {
@@ -291,8 +291,10 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       ];
       const res = detectPathGapJump(state, jumpPath, dummyUnit);
       expect(res.isGapJump).toBe(true);
-      expect(res.gapDistance).toBe(4);
-      expect(res.targetQuality).toBe(dummyUnit.quality);
+      // Platforms span x -1..1 and 3..5: the open gap between them is ~2" (path y = 2.5)
+      expect(res.gapDistance).toBeCloseTo(2, 0);
+      expect(res.dice).toBe(1);
+      expect(res.target).toBe(3);
 
       const samePlatPath = [
         { x: 0, y: 2.5, z: 0 },

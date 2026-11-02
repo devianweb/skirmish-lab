@@ -4,6 +4,7 @@ import {
   DiceResolution,
   GameAction,
   GameState,
+  TraversalEvent,
   Model,
   PendingReaction,
   RetaliationOutcome,
@@ -59,6 +60,7 @@ import {
   calculateJumpDice,
   FREE_DROP_MAX,
   JUMP_DROP_MAX,
+  detectPathGapJump,
   allocateSquadCasualties,
   validateMeleeVerticalReach,
 } from './traversal';
@@ -322,6 +324,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
+        if (detectPathGapJump(state, path, unit.result).tooWide) {
+          return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
+        }
         if (isSuspendedInMidAir(state, end)) {
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
@@ -419,6 +424,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
+        if (detectPathGapJump(state, mPath, unit.result).tooWide) {
+          return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
+        }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
         }
@@ -639,6 +647,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (finalPosition && boardDistance(end, finalPosition) > 0.01) {
           return { valid: false, reason: 'Final position does not match path end' };
         }
+        if (detectPathGapJump(state, fullPath, unit).tooWide) {
+          return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
+        }
         if (isSuspendedInMidAir(state, end)) {
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
@@ -745,6 +756,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
+        if (detectPathGapJump(state, mPath, unit).tooWide) {
+          return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
+        }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
         }
@@ -912,18 +926,22 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     const path = payload.path;
     if (unit && path && path.length > 0) {
       const specs: DiceSpec[] = [];
-      if (payload.gapJump && payload.gapJump.gapDistance > 1.05 && !hasTrait(unit.specialRules, 'airborne')) {
-        specs.push({ count: 1, sides: 6, purpose: 'gap_jump' });
+      const gap = detectPathGapJump(state, path, unit);
+      if (gap.isGapJump) {
+        specs.push({ count: gap.dice, sides: 6, purpose: 'gap_jump' });
       }
       if (isPathDangerous(state, path, unit)) {
         const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
         specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
       const fall = detectPathFall(path, state);
-      if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
-        if (fall.maxDrop <= JUMP_DROP_MAX) {
-          specs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
-        }
+      const dropNeedsDice = fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
+      if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
+        specs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
+      }
+      // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
+      const gapMayFall = gap.isGapJump && (path[0].y ?? 0) > FREE_DROP_MAX;
+      if (dropNeedsDice || gapMayFall) {
         specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         specs.push({ count: 1, sides: 6, purpose: 'trauma' });
       }
@@ -1053,22 +1071,21 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     const chargePayload = action.payload as { path?: Vector3[]; gapJump?: { gapDistance: number } };
     if (chargePayload.path && chargePayload.path.length > 0) {
       const traversalSpecs: DiceSpec[] = [];
-      if (
-        chargePayload.gapJump &&
-        chargePayload.gapJump.gapDistance > 1.05 &&
-        !hasTrait(attacker.specialRules, 'airborne')
-      ) {
-        traversalSpecs.push({ count: 1, sides: 6, purpose: 'gap_jump' });
+      const chargeGap = detectPathGapJump(state, chargePayload.path, attacker);
+      if (chargeGap.isGapJump) {
+        traversalSpecs.push({ count: chargeGap.dice, sides: 6, purpose: 'gap_jump' });
       }
       if (isPathDangerous(state, chargePayload.path, attacker)) {
         const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
         traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
       const fall = detectPathFall(chargePayload.path, state);
-      if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne')) {
-        if (fall.maxDrop <= JUMP_DROP_MAX) {
-          traversalSpecs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
-        }
+      const dropNeedsDice = fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne');
+      if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
+        traversalSpecs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
+      }
+      const gapMayFall = chargeGap.isGapJump && (chargePayload.path[0].y ?? 0) > FREE_DROP_MAX;
+      if (dropNeedsDice || gapMayFall) {
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
       }
@@ -1081,6 +1098,18 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   return attackSpecs;
 }
 
+/** Traversal hazards resolved per action, so the log entry can show the dice story (jumps, falls, hazards). */
+const traversalLog = new WeakMap<GameAction, { unitId: string; events: TraversalEvent[]; results: DiceResult[] }>();
+
+function recordTraversal(action: GameAction, unit: Unit, events: TraversalEvent[], dice?: DiceResult[]): void {
+  if (events.length === 0) return;
+  const entry = traversalLog.get(action) ?? { unitId: unit.id, events: [], results: dice ?? [] };
+  entry.events.push(...events);
+  traversalLog.set(action, entry);
+}
+
+const rollsText = (rolls: number[]) => rolls.join(', ');
+
 function applyTraversalHazardsAndFalls(
   state: GameState,
   unit: Unit,
@@ -1089,15 +1118,49 @@ function applyTraversalHazardsAndFalls(
   dice?: DiceResult[]
 ): { terminated: boolean; wounds: number } {
   const payload = action.payload as any;
+  const events: TraversalEvent[] = [];
+  const done = (result: { terminated: boolean; wounds: number }) => {
+    recordTraversal(action, unit, events, dice);
+    return result;
+  };
 
-  // 1. Gap Jump
-  if (payload.gapJump && payload.gapJump.gapDistance > 1.05) {
-    const jumpRoll =
-      dice?.find((d) => d.purpose === 'gap_jump')?.rolls[0] ??
-      payload.gapJump.jumpRoll ??
-      payload.gapJumpRoll;
-    const jumpRes = resolveGapJump(payload.gapJump.gapDistance, unit, jumpRoll);
-    if (jumpRes.requiresTest && !jumpRes.passed) {
+  // Fall damage roll helper shared by failed jumps and plain falls
+  const resolveFall = (height: number, cause: string) => {
+    const defRoll =
+      dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ?? payload.fallingDefenseRoll;
+    const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
+    const fallRes = resolveFallingDamage(unit, height, defRoll);
+    if (fallRes.wounds > 0) {
+      applyWounds(unit, fallRes.wounds, traumaRolls);
+    }
+    events.push({
+      type: 'fall',
+      wounds: fallRes.wounds,
+      rolls: defRoll !== undefined ? [defRoll] : undefined,
+      text: fallRes.isDangerous
+        ? `${cause} Fell ${height.toFixed(1)}": Falling damage (AP ${fallRes.armorPiercing})${
+            defRoll !== undefined ? `, save roll ${defRoll}` : ''
+          } → ${fallRes.wounds > 0 ? `${fallRes.wounds} wound` : 'saved'}`
+        : `${cause} Fell ${height.toFixed(1)}"`,
+    });
+    return fallRes;
+  };
+
+  // 1. Gap jump (X+1 dice, all 3+): a failed jump falls into the gap
+  const gap = detectPathGapJump(state, path, unit);
+  if (gap.isGapJump) {
+    const rolls = dice?.find((d) => d.purpose === 'gap_jump')?.rolls ?? payload.gapJumpRolls;
+    const jump = resolveGapJump(gap.gapDistance, unit, rolls);
+    events.push({
+      type: 'gap-jump',
+      rolls: rolls?.slice(0, jump.dice),
+      target: jump.target,
+      passed: jump.passed,
+      text: `Gap jump ${gap.gapDistance.toFixed(1)}" (${jump.dice} dice, all ${jump.target}+)${
+        rolls ? `: rolled ${rollsText(rolls.slice(0, jump.dice))}` : ''
+      } → ${jump.passed ? 'cleared the gap' : 'failed'}`,
+    });
+    if (!jump.passed) {
       // Model plummets into the gap to ground level
       const startPt = path[0] ?? unit.position;
       const endPt = path[path.length - 1] ?? unit.position;
@@ -1112,20 +1175,13 @@ function applyTraversalHazardsAndFalls(
           m.position = { ...unit.position };
         }
       }
-      if (dropHeight > 3.05 && !hasTrait(unit.specialRules, 'airborne')) {
-        const defRoll =
-          dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
-          payload.fallingDefenseRoll;
-        const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
-        const fallRes = resolveFallingDamage(unit, dropHeight, defRoll);
-        if (fallRes.wounds > 0) {
-          applyWounds(unit, fallRes.wounds, traumaRolls);
-        }
+      if (dropHeight > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
+        resolveFall(dropHeight, 'Fell into the gap.');
       }
       unit.hasMoved = true;
       unit.remainingMovement = 0;
       finishActivation(state, dice);
-      return { terminated: true, wounds: 1 };
+      return done({ terminated: true, wounds: 1 });
     }
   }
 
@@ -1135,6 +1191,14 @@ function applyTraversalHazardsAndFalls(
       dice?.find((d) => d.purpose === 'hazard')?.rolls ?? payload.hazardDice;
     if (hazardDice && hazardDice.length > 0) {
       const hazardRes = resolveDangerousTerrain(unit, hazardDice);
+      events.push({
+        type: 'hazard',
+        rolls: hazardDice,
+        wounds: hazardRes.woundsInflicted,
+        text: `Dangerous terrain: rolled ${rollsText(hazardDice)} → ${
+          hazardRes.woundsInflicted > 0 ? `${hazardRes.woundsInflicted} wound${hazardRes.woundsInflicted > 1 ? 's' : ''} (each 1)` : 'no wounds'
+        }`,
+      });
       if (hazardRes.woundsInflicted > 0) {
         if (payload.casualtyModelIds && unit.models && unit.models.length > 1) {
           allocateSquadCasualties(unit, hazardRes.woundsInflicted, payload.casualtyModelIds);
@@ -1149,24 +1213,28 @@ function applyTraversalHazardsAndFalls(
   if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
     const jumpRolls = dice?.find((d) => d.purpose === 'drop_jump')?.rolls ?? payload.dropJumpRolls;
     const jump = resolveDropJump(unit, fall.maxDrop, jumpRolls);
+    if (jump.canJump) {
+      events.push({
+        type: 'drop-jump',
+        rolls: jumpRolls?.slice(0, jump.dice),
+        target: jump.target,
+        passed: jump.passed,
+        text: `Jump down ${fall.maxDrop.toFixed(1)}" (${jump.dice} dice, all ${jump.target}+)${
+          jumpRolls ? `: rolled ${rollsText(jumpRolls.slice(0, jump.dice))}` : ''
+        } → ${jump.passed ? 'landed' : 'failed, falls'}`,
+      });
+    }
     if (jump.canJump && jump.passed) {
-      return { terminated: false, wounds: 0 }; // landed the jump
+      return done({ terminated: false, wounds: 0 }); // landed the jump
     }
-    const defRoll =
-      dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ??
-      payload.fallingDefenseRoll;
-    const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
-    const fallRes = resolveFallingDamage(unit, fall.maxDrop, defRoll);
-    if (fallRes.wounds > 0) {
-      applyWounds(unit, fallRes.wounds, traumaRolls);
-    }
+    const fallRes = resolveFall(fall.maxDrop, jump.canJump ? '' : 'Too far to jump.');
     unit.hasMoved = true;
     unit.remainingMovement = 0;
     finishActivation(state, dice);
-    return { terminated: true, wounds: fallRes.wounds };
+    return done({ terminated: true, wounds: fallRes.wounds });
   }
 
-  return { terminated: false, wounds: 0 };
+  return done({ terminated: false, wounds: 0 });
 }
 
 export function createConsolidationReaction(
@@ -2532,6 +2600,29 @@ function checkGameEnd(state: GameState): void {
 }
 
 function acceptedEntry(action: GameAction, dice?: DiceResolution): ActionLogEntry {
+  const traversal = traversalLog.get(action);
+  if (traversal && traversal.events.length > 0) {
+    const wounds = traversal.events.reduce((sum, e) => sum + (e.wounds ?? 0), 0);
+    if (dice) {
+      dice.outcome.traversal = traversal.events; // charge: shown alongside the attack dice
+    } else {
+      // Movement with hazards: the dice story is just the traversal events
+      dice = {
+        rollId: action.id,
+        specs: traversal.results.map((r) => ({ count: r.rolls.length, sides: 6, purpose: r.purpose })),
+        results: traversal.results,
+        context: { attackerId: traversal.unitId, targetId: traversal.unitId, actionId: action.id },
+        outcome: {
+          attackCount: 0,
+          hitCount: 0,
+          blockedCount: 0,
+          wounds,
+          targetDestroyed: false,
+          traversal: traversal.events,
+        },
+      };
+    }
+  }
   return { action, result: 'accepted', dice, appliedAt: Date.now() };
 }
 

@@ -5,6 +5,7 @@ import { WEAPONS } from '../../src/data/weapons';
 import {
   calculateJumpDice,
   describeDrop,
+  detectPathGapJump,
   pathMovementCost,
   resolveDropJump,
 } from '../../src/engine/traversal';
@@ -175,6 +176,12 @@ describe('drops: resolution through the host', () => {
     expect(u.wounds).toBe(0);
     expect(u.position.y).toBe(0);
     expect(out.state.turnState.activeUnitId).toBe('u'); // activation not forced to end
+    // The dice story is in the action log so both players see the rolls
+    const logged = out.state.actionLog[out.state.actionLog.length - 1].dice!;
+    expect(logged.outcome.traversal).toHaveLength(1);
+    expect(logged.outcome.traversal![0]).toMatchObject({ type: 'drop-jump', rolls: [3, 5], passed: true });
+    expect(logged.outcome.traversal![0].text).toMatch(/Jump down 4\.0".*3, 5.*landed/);
+    expect(logged.results.map((r) => r.purpose)).toContain('drop_jump');
   });
 
   it('a failed jump falls: Falling damage and the activation ends', () => {
@@ -187,5 +194,51 @@ describe('drops: resolution through the host', () => {
     ]);
     expect(out.state.units[0].wounds).toBeGreaterThan(0);
     expect(out.state.turnState.activeUnitId).not.toBe('u'); // activation ended
+    const events = out.state.actionLog[out.state.actionLog.length - 1].dice!.outcome.traversal!;
+    expect(events.map((e) => e.type)).toEqual(['drop-jump', 'fall']);
+    expect(events[0]).toMatchObject({ passed: false, rolls: [3, 2] });
+    expect(events[1].wounds).toBeGreaterThan(0);
+  });
+});
+
+describe('gaps: only real open air is a gap', () => {
+  const deckAt = (id: string, x: number, z: number): TerrainPiece => ({
+    id,
+    terrainType: 'platform',
+    position: { x, y: 3, z },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 4, y: 0.3, z: 4 },
+    elevation: 3,
+    isWalkable: true,
+    blocksLineOfSight: false,
+    providesCover: false,
+    isObstacle: false,
+  });
+  const trooper = makeUnit('u', { x: 0, y: 3, z: 0 });
+
+  it('crossing from one deck onto a flush neighbour is not a gap, however far the path runs', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    state.terrain = [deckAt('a', 0, 0), deckAt('b', 4, 0)]; // x -2..2 and 2..6: flush
+    const res = detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 5, y: 3, z: 0 }], trooper);
+    expect(res.isGapJump).toBe(false);
+  });
+
+  it('a 2" gap between decks is a jump of 1 die; a gap over 6" is too wide', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    state.terrain = [deckAt('a', 0, 0), deckAt('b', 6, 0)]; // x -2..2 and 4..8: 2" gap
+    const res = detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 6, y: 3, z: 0 }], trooper);
+    expect(res).toMatchObject({ isGapJump: true, tooWide: false, dice: 1, target: 3 });
+    expect(res.gapDistance).toBeCloseTo(2, 0);
+
+    const far = createInitialGameState(HOST, GUEST);
+    far.terrain = [deckAt('a', 0, 0), deckAt('b', 14, 0)]; // 10" gap
+    expect(detectPathGapJump(far, [{ x: 0, y: 3, z: 0 }, { x: 14, y: 3, z: 0 }], trooper).tooWide).toBe(true);
+  });
+
+  it('Airborne never has a gap', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    state.terrain = [deckAt('a', 0, 0), deckAt('b', 14, 0)];
+    const flyer = makeUnit('f', { x: 0, y: 3, z: 0 }, ['airborne']);
+    expect(detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 14, y: 3, z: 0 }], flyer).isGapJump).toBe(false);
   });
 });
