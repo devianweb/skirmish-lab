@@ -54,7 +54,7 @@ The default testing map layout is defined in [`shared/src/data/scenario.ts`](../
 | `terrain-crate-ne` | NE Low Crate | `crate` | Procedural Crate Block | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
 | `terrain-col-nw` | NW Column | `column` | Procedural Pillar | `(-8, 0, 6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
 | `terrain-col-se` | SE Column | `column` | Procedural Pillar | `(8, 0, -6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
-| `terrain-platform-west` | West Overlook Platform | `platform` | Procedural Deck Platform | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Walkable elevation ($y = 2.5″$): Parapet Cover within 1.0" of edge; floor blind spot $> 1.0″$. |
+| `terrain-platform-west` | West Overlook Platform | `platform` | Procedural Deck Platform | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Legacy walkable elevation ($y = 2.5″$); new platforms use the 3.0" deck structures (`platform-small`, `platform-large`). |
 | `terrain-ladder-west` | West Access Ladder | `ladder` | Procedural Ladder Strip | `(-7.1, 0, -2)` | `0.5 × 2.5 × 0.5` | Ladder access: 1:1 climb speed onto West Platform without Difficult Terrain penalty. |
 | `terrain-platform-east` | East Catwalk Platform | `platform` | Procedural Deck Platform | `(9, 2.5, 2)` | `3.5 × 0.3 × 3.5` | Walkable catwalk ($y = 2.5″$): elevated vantage point overlooking East lane. |
 | `terrain-stairs-east` | East Access Stairs | `stairs` | Procedural Triangular Wedge (1:1 with collision math) | `(7.1, 0, 2)` | `1.8 × 2.5 × 1.2` | Stair ramp: 1:1 movement onto East Catwalk without Difficult Terrain penalty. |
