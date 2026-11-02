@@ -44,6 +44,18 @@ function deferred<T>() {
 }
 
 describe('ModelLoader', () => {
+  it('flags deck kick-plates and tread ridges as decor but not the deck solids', () => {
+    const loader = new ModelLoader();
+    const deck = loader.createTerrainMesh('platform-small');
+    const meshes: THREE.Mesh[] = [];
+    deck.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+    });
+    const decor = meshes.filter((m) => m.userData.decor === true);
+    expect(decor.length).toBeGreaterThan(0);
+    expect(meshes.length - decor.length).toBeGreaterThan(0);
+  });
+
   it('caches loaded models — a second load does not hit the load function', async () => {
     const loadFn = vi.fn().mockResolvedValue(makeProto());
     const loader = new ModelLoader(loadFn);
