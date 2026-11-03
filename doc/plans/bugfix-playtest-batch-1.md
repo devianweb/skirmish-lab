@@ -13,17 +13,24 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 3. Ladders stay non-blocking terrain (`isObstacle: false`). We fix the standing spots instead of making the ladder an obstacle.
 4. **The ladder step-on/step-off is free.** A ladder costs only its vertical climb, as today. The ~0.55" shuffle between the climb line and the foot/head spot is not measured, just as a tabletop player wouldn't measure it. Owner: "I don't think you'd measure that whilst playing the tabletop right?"
 5. **Targeting the ground from a deck means walk to the edge and drop** (free ≤ 3", jump test 3–6"). Never a level crossing into mid-air. Owner: "it should have pathfound including a drop to the floor, rather than trying to jump into mid air."
-6. **If the budget can't complete a gap jump, the path drops instead.** The model walks to the take-off edge, drops to the level below (free ≤ 3", jump test 3–6") and moves along the lower level toward the point under the cursor, as far as the budget allows. It never ends over open air and never offers a jump it can't finish. Owner: "unless you have the movement range to make the jump, it should imply a drop and movement along the lower level to meet the cursor."
+6. ~~**If the budget can't complete a gap jump, the path drops instead.**~~ *(Superseded by Decision 16.)* The model walks to the take-off edge, drops to the level below (free ≤ 3", jump test 3–6") and moves along the lower level toward the point under the cursor, as far as the budget allows. It never ends over open air and never offers a jump it can't finish. Owner: "unless you have the movement range to make the jump, it should imply a drop and movement along the lower level to meet the cursor."
 7. **A drop's step-off counts.** Before dropping, the model's whole base moves off the edge (`DROP_STANDOFF` ≈ 0.55"). That horizontal movement is measured like any other (unlike the free ladder step-on in Decision 4). Owner: "Yes it should."
-8. **Climbing up to 3".** A model may climb terrain up to 3" tall (a height difference of ≤ 3.0" between the floor it leaves and the floor it climbs onto) as part of a normal move. The vertical distance counts as movement, like any other movement, and it is **not** difficult terrain. It can't end a move part-way up (all-or-nothing, like ladders). Taller rises need a ladder or stairs. Decks (3.0"), the ruin ledge (3.0") and the container roof (2.25") therefore become climbable without a ladder. Before climbing, the model stands a full base off the face (same stand-off as drops, Decision 7), and that horizontal step counts. Replaces the old "sheer wall = difficult terrain + 15" nav penalty" code and the unagreed "no free climbing" line in RULES_SPECIFICATION §8. Owner agreed 2026-11-02 after reading the Beginner's Guide.
+8. **Climbing up to 3"** *(amended by Decision 17: only onto pieces whose `climbable` is true)*. A model may climb terrain up to 3" tall (a height difference of ≤ 3.0" between the floor it leaves and the floor it climbs onto) as part of a normal move. The vertical distance counts as movement, like any other movement, and it is **not** difficult terrain. It can't end a move part-way up (all-or-nothing, like ladders). Taller rises need a ladder or stairs. Decks (3.0"), the ruin ledge (3.0") and the container roof (2.25") therefore become climbable without a ladder. Before climbing, the model stands a full base off the face (same stand-off as drops, Decision 7), and that horizontal step counts. Replaces the old "sheer wall = difficult terrain + 15" nav penalty" code and the unagreed "no free climbing" line in RULES_SPECIFICATION §8. Owner agreed 2026-11-02 after reading the Beginner's Guide.
 9. **Terrain 1" tall or less can be stepped over.** Pieces whose solids are all ≤ 1.0" above the floor they stand on (barricade 0.5", crate 0.75", pipe 0.75") don't block movement. A path goes straight over them at no extra cost (measure as if they weren't there). A model still can't **end** its move on or overlapping one (PR 2). They still give cover and are still drawn and collided for LoS exactly as now. Walls, columns, containers etc. (> 1") still block.
 10. **Split-level coherency.** Squad models on different levels (|Δy| > 0.5") may be up to 3" apart (edge to edge, i.e. 4.0" centre to centre with 1" bases) instead of 1". Simplification: the guide allows this when not all models fit on the elevated part. We allow it whenever models are on different levels rather than computing "fit". The 6" whole-squad limit is unchanged.
 11. **Squads follow the tabletop per-model rules.** For any interaction between units, measure between models, not unit centres: a target is valid if any shooting model sees and reaches any target model; only those models fire; cover by majority of target models; charges move each model into contact; only models within 2" horizontal / 4" vertical of an enemy model strike; the 1" keep-away rule is per model. `unit.position` is a display anchor only. Owner: "add those to the plan" (2026-11-02), after the per-model walkthrough.
 12. **Measure like the tabletop: from the closest points of the bases.** Model↔model distances (shooting range, charge reach, the 1" keep-away rule, engagement/contact, melee strike reach, coherency 1" and 6", range-gated special rules like "> 9"") use base edge to base edge (centre distance − both base radii). Model↔marker distances (objective control 3") use base edge to marker point (centre distance − one radius). Owner: "Base edges if it's not too much of a pain."
 13. **The "0" wound marker is the same digit model as 1–5, tinted neutral grey** (1–5 stay red). Owner: "Make it grey."
+14. **The pathfinder only uses ordinary movement** (walk, stairs, ladders, drops ≤ 3", gaps ≤ 1", climbs ≤ 3" onto climbable pieces) and never chooses a dice-tested move. See batch 1E P1.
+15. **Jumps are declared from where the model stands:** a jump down 3–6" or a gap jump 1–6" is offered only when the model is already at an edge and the cursor is across or below; drops over 6" are offered from an edge with a red "you will fall" warning; gaps over 6" are never offered. See 1E P2/P2b.
+16. **Decision 6 is superseded:** no automatic drop-instead-of-jump and no jump planning; a passed jump doesn't count toward the move. See 1E P3.
+17. **Climbability is data:** catalog default per terrain type (container and ruin yes; platforms and catwalk no; unknown no) plus a per-piece `climbable` override. Amends Decision 8. See 1E P4.
+18. **Edge snapping:** the cursor within 0.5" of a floor edge snaps to it; take-off/climb points are always the exact stand-off spots. See 1E P5.
+19. **The move preview shows how each part is traversed** (climb, drop, jump styles + labels); climbable pieces are outlined in F9 and the editor. See 1E P6.
+20. **Manual shift-click waypoints are deferred** (split moves cover manual routing). See 1E P7.
 
 ## Order
-PR 4 (pick ignores lines, independent quick win) → PR 1 (ladder spots + bug C) → PR 5 (drop clearance + stair wedge) → PR 3a (deck drops / nav / gap fallback) → PR 3b (pick top faces) → PR 2 (end-overlap guard) → PR 6 (climbing ≤ 3") → PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 11 (per-model charges, after 9a/9b and 10). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
+**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). **Next:** PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 11 (per-model charges, after 9a/9b and 10). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
 
 PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop in reverse), so it must come after PR 5 and PR 3a. PR 7 relies on PR 2 so a model can't end on top of a stepped-over piece.
 
@@ -46,10 +53,11 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 ## Sub-plans (hand one PR section at a time to the `implementer`)
 | Sub-plan | PRs | Theme |
 | :--- | :--- | :--- |
-| [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
-| [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) | 1, 5, 3, 2 | Ladder spots + mid-air guard, drop clearance, deck drops, end-overlap guard |
-| [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 6, 7, 8 | Climb ≤ 3", step over ≤ 1", split-level coherency |
+| [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
+| [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
+| [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
 | [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, per-model charges |
+| [batch-1e-movement-model.md](batch-1e-movement-model.md) ✓ done | E1–E4 | Safe-only pathfinding, declared jumps, climbable terrain, traversal preview. Replaces 1B PR 3a and 1C PR 6; supersedes Decision 6. |
 
 Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner's map export; copy into `shared/tests/fixtures/` when a test needs it).
 
@@ -63,3 +71,11 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 7. ~~Per-model rules for squads~~: answered. Yes (Decision 11).
 8. ~~Base-edge measuring~~: answered. Yes (Decision 12, PR 14).
 9. ~~Zero marker colour~~: answered. Grey (Decision 13).
+
+## Follow-ups found during 1B/1E (not yet planned)
+- **Squads can't declare jumps:** the move payload carries one `traversal` per action and the host rejects squad jumps. Per-model traversal is needed (fits batch 1D's per-model squad work).
+- **No jump option on charges.**
+- **Climbing from a deck or roof onto a stacked piece isn't planned:** climb stand-off spots are only generated at ground height.
+- **Segment labels are HUD-only:** the 3D preview line is styled but has no floating text labels.
+- **Squad moves without explicit `modelPositions`** (rigid translation) are only overlap-checked at the centroid.
+- **Editor:** the Cover / Blocks LoS / Obstacle inspector toggles don't redraw the F9 debug marker until the next sync (pre-existing).

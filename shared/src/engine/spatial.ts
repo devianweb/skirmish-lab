@@ -8,9 +8,13 @@ import {
   isManningBox,
   localToWorldXZ,
   resolveTerrainStructure,
+  distanceToBoxXZ,
   segmentBoxIntersection,
   worldToLocal,
 } from './terrainStructure';
+
+import { classifySegment, CLIMB_MAX, FREE_DROP_MAX } from './traversal';
+import { isClimbable } from '../data/mapSchema';
 
 export * from './terrainStructure';
 
@@ -27,6 +31,10 @@ export const UNIT_COLLISION_RADIUS = 0.45;
 export const UNIT_SEPARATION_DISTANCE = 1.0;
 /** Base radius of a fighter for Line of Sight blocking (board units). */
 export const LOS_UNIT_RADIUS = 0.4;
+/** How far a ladder's foot/head standing spots sit off its position along local Z (base radius 0.5 + 0.05 clearance). */
+export const LADDER_STANDOFF = 0.55;
+/** How far past a floor edge a model steps (base radius 0.5 + 0.05 clearance) so its whole base is clear before it drops. */
+export const DROP_STANDOFF = 0.55;
 
 /** Local XZ half-extents of a terrain piece before rotation. */
 export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: number } {
@@ -259,6 +267,79 @@ export function intersectRayCircle(
 }
 
 /**
+ * True if a straight vertical drop from `from` down to `to` (same x/z) would pass through terrain:
+ * a base circle of `UNIT_COLLISION_RADIUS` swept down the column must not overlap any solid whose
+ * vertical span lies in the fall, nor the stair wedge. The floor being landed on (top at the landing
+ * height) and ladders do not count; the floor being stepped off does, until the circle is clear of it.
+ */
+export function isFallColumnBlocked(state: GameState, from: Vector3, to: Vector3): boolean {
+  const topY = from.y ?? 0;
+  const botY = to.y ?? 0;
+  if (topY - botY <= 0.5) return false;
+  const r = UNIT_COLLISION_RADIUS;
+  const lo = botY + 0.05;
+  const hi = topY - 0.05;
+
+  for (const piece of state.terrain) {
+    if (isLadderPiece(piece)) continue;
+
+    if (isStairPiece(piece)) {
+      const { hx, hz } = terrainHalfExtents(piece);
+      const yaw = piece.rotation.y || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const dxp = from.x - piece.position.x;
+      const dzp = from.z - piece.position.z;
+      const lx = dxp * cos + dzp * sin;
+      const lz = -dxp * sin + dzp * cos;
+      const outX = Math.max(0, Math.abs(lx) - hx);
+      if (outX >= r) continue;
+      const half = Math.sqrt(r * r - outX * outX);
+      // Is the head end (higher side) toward +lz or -lz? Same rule as getStairSurfaceHeight.
+      const wp = getStairWaypoints(state, piece);
+      const flz = -(wp.foot.x - piece.position.x) * sin + (wp.foot.z - piece.position.z) * cos;
+      const headSign = flz > 0 ? -1 : 1;
+      const lzMin = Math.max(-hz, lz - half);
+      const lzMax = Math.min(hz, lz + half);
+      if (lzMin >= lzMax) continue;
+      const headLz = headSign > 0 ? lzMax : lzMin;
+      if (stairHeightAtLocalZ(piece, wp, headLz, hz) > lo) return true;
+      continue;
+    }
+
+    const baseY = piece.position.y ?? 0;
+    const local = worldToLocal(piece, from);
+    for (const solid of resolveTerrainStructure(piece).solids) {
+      // Obstacles and walkable floors are solid to a falling model; decorative boxes are not.
+      if (!solid.isObstacle && !solid.walkable) continue;
+      if (baseY + solid.minY >= hi || baseY + solid.maxY <= lo) continue;
+      const cx = Math.max(solid.minX, Math.min(local.x, solid.maxX));
+      const cz = Math.max(solid.minZ, Math.min(local.z, solid.maxZ));
+      if (Math.hypot(local.x - cx, local.z - cz) < r) return true;
+    }
+  }
+  return false;
+}
+
+/** Height of a stair's slope surface at local z (strictly inside the footprint), given its waypoints. */
+function stairHeightAtLocalZ(
+  piece: TerrainPiece,
+  wp: { foot: Vector3; head: Vector3 },
+  lz: number,
+  hz: number
+): number {
+  const botY = piece.position.y ?? 0;
+  const topY = legacyElevation(piece) ?? botY + (piece.scale.y ?? 2.5);
+  const yaw = piece.rotation.y || 0;
+  const flz =
+    -(wp.foot.x - piece.position.x) * Math.sin(yaw) + (wp.foot.z - piece.position.z) * Math.cos(yaw);
+  const footLz = flz > 0 ? hz : -hz;
+  const headLz = -footLz;
+  const t = Math.max(0, Math.min(1, (lz - footLz) / (headLz - footLz)));
+  return botY + t * (topY - botY);
+}
+
+/**
  * Check whether a movement path for `movingUnit` is blocked by obstacle
  * terrain (`isObstacle`) or by any other living fighter on the board.
  */
@@ -274,7 +355,13 @@ export function findMoveBlocker(
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const segLen = Math.hypot(dx, dz);
-    if (segLen < 1e-6) continue;
+    if (segLen < 1e-6) {
+      // A vertical drop has no horizontal length: sweep the base circle down the fall column instead.
+      if (isFallColumnBlocked(state, from, to)) {
+        return { blocked: true, reason: 'Move path is blocked: a drop needs clear air below the base' };
+      }
+      continue;
+    }
     const dirX = dx / segLen;
     const dirZ = dz / segLen;
 
@@ -283,6 +370,17 @@ export function findMoveBlocker(
     const minSegY = Math.min(fromY, toY);
     const maxSegY = Math.max(fromY, toY);
     const isOnStairs = isSegmentOnRampOrStairs(state, from, to);
+
+    // A near-vertical descent that is not on stairs or a ladder is a drop: the base must be clear of
+    // everything below at the take-off spot and at the landing spot (it steps off first, then falls).
+    if (fromY - toY > 0.5 && segLen <= 0.7 && !isOnStairs) {
+      if (
+        isFallColumnBlocked(state, from, to) ||
+        isFallColumnBlocked(state, { x: to.x, y: fromY, z: to.z }, to)
+      ) {
+        return { blocked: true, reason: 'Move path is blocked: a drop needs clear air below the base' };
+      }
+    }
 
     for (const piece of state.terrain) {
       if (isStairPiece(piece)) {
@@ -298,6 +396,27 @@ export function findMoveBlocker(
           const entryY = fromY + (toY - fromY) * (segLen > 1e-6 ? entryT / segLen : 0);
           const slopeY = getStairSurfaceHeight(piece, { x: entryX, y: entryY, z: entryZ }, state);
           if (slopeY !== null && entryY < slopeY - 0.15) {
+            return { blocked: true, reason: 'Move path is blocked by stairs' };
+          }
+        }
+        // A segment that starts on the slope can still dive into the body (e.g. mid-slope straight down
+        // to the ground at the head end): sample the part inside the footprint.
+        const { hx, hz } = terrainHalfExtents(piece);
+        const yawS = piece.rotation.y || 0;
+        const cosS = Math.cos(yawS);
+        const sinS = Math.sin(yawS);
+        const t1 = hit ? Math.min(segLen, hit.tExit) : -1;
+        for (let t = hit ? Math.max(0, hit.tEntry) : 0; t <= t1 + 1e-6; t += 0.1) {
+          const px = from.x + dirX * t;
+          const pz = from.z + dirZ * t;
+          const py = fromY + (toY - fromY) * (t / segLen);
+          const ddx = px - piece.position.x;
+          const ddz = pz - piece.position.z;
+          const plx = ddx * cosS + ddz * sinS;
+          const plz = -ddx * sinS + ddz * cosS;
+          if (Math.abs(plx) >= hx - 0.05 || Math.abs(plz) >= hz - 0.05) continue;
+          const sY = getStairSurfaceHeight(piece, { x: px, y: py, z: pz }, state);
+          if (sY !== null && py < sY - 0.15) {
             return { blocked: true, reason: 'Move path is blocked by stairs' };
           }
         }
@@ -657,23 +776,40 @@ export function findWalkableSurfaceAt(
   margin: number = 0.1,
   excludePieceId?: string
 ): WalkableSurface | null {
+  return findWalkableSurfaceIn(collectWalkableSurfaces(state), point, margin, excludePieceId);
+}
+
+/** Every standable floor on the board (resolve once, then query many points with `findWalkableSurfaceIn`). */
+export function collectWalkableSurfaces(state: GameState): WalkableSurface[] {
+  const out: WalkableSurface[] = [];
+  for (const piece of state.terrain) out.push(...getWalkableSurfaces(piece));
+  return out;
+}
+
+/** `findWalkableSurfaceAt` over a pre-collected list of floors (hot loops such as gap sampling). */
+export function findWalkableSurfaceIn(
+  surfaces: WalkableSurface[],
+  point: { x: number; z: number; y?: number },
+  margin: number = 0.1,
+  excludePieceId?: string
+): WalkableSurface | null {
   let best: WalkableSurface | null = null;
   let bestScore = Infinity;
-  for (const piece of state.terrain) {
+  const probe = { x: point.x, y: 0, z: point.z };
+  for (const surface of surfaces) {
+    const piece = surface.piece;
     if (piece.id === excludePieceId) continue;
-    for (const surface of getWalkableSurfaces(piece)) {
-      const l = worldToLocal(piece, { x: point.x, y: 0, z: point.z });
-      if (
-        l.x >= surface.minX - margin &&
-        l.x <= surface.maxX + margin &&
-        l.z >= surface.minZ - margin &&
-        l.z <= surface.maxZ + margin
-      ) {
-        const score = point.y === undefined ? -surface.topY : Math.abs(point.y - surface.topY);
-        if (score < bestScore) {
-          bestScore = score;
-          best = surface;
-        }
+    const l = worldToLocal(piece, probe);
+    if (
+      l.x >= surface.minX - margin &&
+      l.x <= surface.maxX + margin &&
+      l.z >= surface.minZ - margin &&
+      l.z <= surface.maxZ + margin
+    ) {
+      const score = point.y === undefined ? -surface.topY : Math.abs(point.y - surface.topY);
+      if (score < bestScore) {
+        bestScore = score;
+        best = surface;
       }
     }
   }
@@ -701,9 +837,141 @@ export function isSuspendedInMidAir(state: GameState, point: Vector3): boolean {
       const slopeY = getStairSurfaceHeight(piece, point, state);
       if (slopeY !== null && Math.abs(y - slopeY) <= 0.3) return false;
     }
-    if (isLadderPiece(piece)) return false; // handled by the ladder deck-arrival rule
+    if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, point)) return false; // the ladder deck-arrival rule covers it
   }
   return true;
+}
+
+/** Two models of different units closer than this (centre to centre, at a similar height) overlap. */
+export const MODEL_OVERLAP_DISTANCE = 0.9;
+/** Lets a base that stops exactly at the movement clearance (`UNIT_COLLISION_RADIUS`) count as clear. */
+const OVERLAP_TOLERANCE = 0.02;
+
+export type EndOverlap =
+  | { kind: 'terrain'; pieceId: string; solidId?: string }
+  | { kind: 'model'; unitId: string };
+
+/**
+ * What a model standing at `point` would overlap, or null. Terrain: the base circle (`UNIT_COLLISION_RADIUS`)
+ * intersects an obstacle solid whose height span overlaps the model body (`y + 0.15` to `y + EYE_HEIGHT`), so the
+ * floor stood on and lintels overhead don't count. Other models: any living model of another unit within
+ * `MODEL_OVERLAP_DISTANCE` at a similar height. Stairs and ladders are skipped (they have their own rules).
+ */
+export function findEndOverlap(state: GameState, unitId: string, point: Vector3): EndOverlap | null {
+  const y = point.y ?? 0;
+  const bodyLo = y + 0.15;
+  const bodyHi = y + EYE_HEIGHT;
+  for (const piece of state.terrain) {
+    if (isLadderPiece(piece) || isStairPiece(piece)) continue;
+    const baseY = piece.position.y ?? 0;
+    // Legacy raised pieces (saved maps with an elevation): standing on the top is not an overlap
+    const legacyTop = legacyElevation(piece);
+    if (legacyTop !== undefined && y >= legacyTop - 0.15) continue;
+    for (const solid of resolveTerrainStructure(piece).solids) {
+      if (!solid.isObstacle) continue;
+      if (baseY + solid.maxY <= bodyLo || baseY + solid.minY >= bodyHi) continue;
+      if (distanceToBoxXZ(piece, solid, point.x, point.z) < UNIT_COLLISION_RADIUS - OVERLAP_TOLERANCE) {
+        return { kind: 'terrain', pieceId: piece.id, solidId: solid.id };
+      }
+    }
+  }
+  for (const other of state.units) {
+    if (other.isDestroyed || other.id === unitId) continue;
+    const models =
+      other.models && other.models.length > 0
+        ? other.models.filter((m) => !m.isDestroyed).map((m) => m.position ?? other.position)
+        : [other.position];
+    for (const pos of models) {
+      if (Math.abs((pos.y ?? 0) - y) >= 1.0) continue;
+      if (Math.hypot(pos.x - point.x, pos.z - point.z) < MODEL_OVERLAP_DISTANCE) {
+        return { kind: 'model', unitId: other.id };
+      }
+    }
+  }
+  return null;
+}
+
+/** Player-facing rejection text for an end overlap. */
+export function describeEndOverlap(o: EndOverlap): string {
+  return o.kind === 'terrain'
+    ? 'Models cannot end movement overlapping terrain - stop short of it'
+    : 'Models cannot end movement overlapping another model - stop short of it';
+}
+
+/**
+ * Pull a path's end back to the first point that doesn't overlap terrain or another model, walking back along
+ * the path in 0.05" steps (across segments). Never returns a point further along the path; if nothing is clear
+ * it returns just the start.
+ */
+export function settleMoveEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
+  return pullBackEnd(path, (pt) => findEndOverlap(state, unit.id, pt) !== null);
+}
+
+/**
+ * Shortens a path's end until `bad` is false: walks back along the last segment (then earlier ones) in 0.05"
+ * steps, never forward. A straight climb or drop (`isSheer`) is all or nothing.
+ */
+function pullBackEnd(
+  path: Vector3[],
+  bad: (pt: Vector3) => boolean,
+  isSheer: (a: Vector3, b: Vector3) => boolean = (a, b) =>
+    Math.abs((b.y ?? 0) - (a.y ?? 0)) > 0.5 && Math.hypot(b.x - a.x, b.z - a.z) < 0.1
+): Vector3[] {
+  if (path.length < 2) return path;
+  const out = path.map((p) => ({ ...p }));
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  while (out.length > 1 && bad(out[out.length - 1])) {
+    const a = out[out.length - 2];
+    const b = out[out.length - 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z) / 0.05));
+    let found: Vector3 | null = null;
+    const sheer = isSheer(a, b);
+    for (let k = steps - 1; !sheer && k >= 1; k--) {
+      const t = k / steps;
+      const pt = {
+        x: r2(a.x + (b.x - a.x) * t),
+        y: r2((a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t),
+        z: r2(a.z + (b.z - a.z) * t),
+      };
+      if (!bad(pt)) {
+        found = pt;
+        break;
+      }
+    }
+    if (found) {
+      out[out.length - 1] = found;
+      break;
+    }
+    out.pop();
+  }
+  return out;
+}
+
+/**
+ * True if `point` is on the ladder's climb line: directly above the foot (within `tolerance` horizontally)
+ * at a height between just above the ground and the top of the climb.
+ */
+export function isOnLadderClimbLine(state: GameState, ladder: TerrainPiece, point: Vector3, tolerance = 0.3): boolean {
+  const { foot, head } = getStairWaypoints(state, ladder);
+  if (Math.hypot(point.x - foot.x, point.z - foot.z) > tolerance) return false;
+  const y = point.y ?? 0;
+  return y > foot.y + 0.2 && y <= head.y + 0.05;
+}
+
+/**
+ * True if `a` -> `b` is the free level step between the top of a ladder's climb line and its head spot
+ * (either direction). Like on the tabletop, the shuffle on or off the ladder isn't measured.
+ */
+export function isLadderStepSegment(state: GameState, a: Vector3, b: Vector3): boolean {
+  if (Math.abs((a.y ?? 0) - (b.y ?? 0)) > 0.05) return false;
+  for (const piece of state.terrain) {
+    if (!isLadderPiece(piece)) continue;
+    const { foot, head } = getStairWaypoints(state, piece);
+    if (Math.abs((a.y ?? 0) - head.y) > 0.05) continue;
+    const near = (p: Vector3, q: Vector3) => Math.hypot(p.x - q.x, p.z - q.z) < 0.05;
+    if ((near(a, foot) && near(b, head)) || (near(b, foot) && near(a, head))) return true;
+  }
+  return false;
 }
 
 /**
@@ -1485,7 +1753,8 @@ export function isSegmentOnRampOrStairs(
     const yaw = piece.rotation.y || 0;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
-    const margin = 0.35; // tight clearance margin around stair/ladder spine
+    // tight clearance margin around the stair spine; a ladder's foot and head stand LADDER_STANDOFF off it
+    const margin = isLadderPiece(piece) ? LADDER_STANDOFF + 0.1 : 0.35;
     const botY = Math.min(0, piece.position.y ?? 0);
     const topY = Math.max(
       legacyElevation(piece) ?? 0,
@@ -1506,6 +1775,11 @@ export function isSegmentOnRampOrStairs(
     const allInFootprint = testPoints.every((pt) => {
       const py = pt.y ?? 0;
       if (py < botY - 0.5 || py > topY + 0.5) return false;
+      // Stairs are a solid wedge: only a segment that follows the slope surface is "on" them
+      if (isStairPiece(piece)) {
+        const slopeY = getStairSurfaceHeight(piece, pt, state);
+        if (slopeY === null || Math.abs(py - slopeY) > 0.3) return false;
+      }
       const dx = pt.x - piece.position.x;
       const dz = pt.z - piece.position.z;
       const lx = dx * cos + dz * sin;
@@ -1534,16 +1808,21 @@ export function getStairWaypoints(
   const topY = legacyElevation(piece) ?? botY + (piece.scale.y ?? 2.5);
 
   if (piece.terrainType === 'ladder' || piece.climbType === 'ladder') {
+    // The ladder sits on the deck face; local +Z points into the deck. The foot is a base off the face on
+    // the ground, the head is the same distance in over the deck, so neither base overlaps the ladder or deck.
+    const lyaw = piece.rotation.y || 0;
+    const dx = Math.sin(lyaw) * LADDER_STANDOFF;
+    const dz = Math.cos(lyaw) * LADDER_STANDOFF;
     return {
       foot: {
-        x: Math.round(piece.position.x * 100) / 100,
+        x: Math.round((piece.position.x - dx) * 100) / 100 + 0, // + 0 turns -0 into 0
         y: botY,
-        z: Math.round(piece.position.z * 100) / 100,
+        z: Math.round((piece.position.z - dz) * 100) / 100 + 0, // + 0 turns -0 into 0
       },
       head: {
-        x: Math.round(piece.position.x * 100) / 100,
+        x: Math.round((piece.position.x + dx) * 100) / 100 + 0, // + 0 turns -0 into 0
         y: topY,
-        z: Math.round(piece.position.z * 100) / 100,
+        z: Math.round((piece.position.z + dz) * 100) / 100 + 0, // + 0 turns -0 into 0
       },
     };
   }
@@ -1617,6 +1896,77 @@ export function isSegmentSurfaceConstrained(
 }
 
 /**
+ * Nav candidates on a walkable surface at floor height: the four inset corners and the four edge midpoints,
+ * in world space (rounded to 0.01"). Local-to-world uses `localToWorldXZ`, the convention collision uses, so
+ * rotated pieces get their points on the surface.
+ */
+export function getDeckPoints(piece: TerrainPiece, surface: WalkableSurface): Vector3[] {
+  const inset = Math.min(0.2, (surface.maxX - surface.minX) / 4, (surface.maxZ - surface.minZ) / 4);
+  const midX = (surface.minX + surface.maxX) / 2;
+  const midZ = (surface.minZ + surface.maxZ) / 2;
+  const local = [
+    { x: surface.minX + inset, z: surface.minZ + inset },
+    { x: surface.maxX - inset, z: surface.minZ + inset },
+    { x: surface.maxX - inset, z: surface.maxZ - inset },
+    { x: surface.minX + inset, z: surface.maxZ - inset },
+    { x: midX, z: surface.minZ },
+    { x: midX, z: surface.maxZ },
+    { x: surface.minX, z: midZ },
+    { x: surface.maxX, z: midZ },
+  ];
+  return local.map((pt) => {
+    const w = localToWorldXZ(piece, pt.x, pt.z);
+    return { x: Math.round(w.x * 100) / 100, y: surface.topY, z: Math.round(w.z * 100) / 100 };
+  });
+}
+
+/** Segment kinds the pathfinder may plan: ordinary, test-free movement (including climbs of climbable terrain). */
+const PLANNABLE_KINDS: readonly string[] = ['walk', 'stairs', 'ladder', 'climb', 'drop', 'gap'];
+
+/** True if `a` -> `b` is ordinary movement (no jump, fall, climb or impossible crossing). */
+export function isOrdinarySegment(state: GameState, a: Vector3, b: Vector3, unit?: Unit): boolean {
+  return PLANNABLE_KINDS.includes(classifySegment(state, a, b, unit).kind);
+}
+
+/**
+ * True if `a` -> `b` is the step from a short ladder's head onto the top of its climb line (the way down). A
+ * ladder of 3" or less is only climbed up; going down it is simply a free drop, which the planner finds itself.
+ */
+function isShortLadderDescentStep(state: GameState, a: Vector3, b: Vector3): boolean {
+  if (!isLadderStepSegment(state, a, b)) return false;
+  for (const piece of state.terrain) {
+    if (!isLadderPiece(piece)) continue;
+    const { foot, head } = getStairWaypoints(state, piece);
+    const near = (p: Vector3, q: Vector3) => Math.hypot(p.x - q.x, p.z - q.z) < 0.05;
+    if (near(a, head) && near(b, foot)) return head.y - foot.y <= FREE_DROP_MAX;
+  }
+  return false;
+}
+
+/**
+ * Pull a planned path's end back so the model never stops suspended in mid-air or part-way up a ladder.
+ * Walks back along the last segment (then earlier ones) to the nearest standable point, never forward.
+ */
+function settleEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
+  if (path.length < 2) return path;
+  const airborne = hasTrait(unit.specialRules, 'airborne');
+  const bad = (pt: Vector3): boolean =>
+    findEndOverlap(state, unit.id, pt) !== null ||
+    (!airborne &&
+      (isSuspendedInMidAir(state, pt) ||
+        state.terrain.some((p) => isLadderPiece(p) && isOnLadderClimbLine(state, p, pt))));
+  // A straight climb or drop (no ladder, no stairs) has no standable point part-way: all or nothing
+  return pullBackEnd(
+    path,
+    bad,
+    (a, b) =>
+      Math.abs((b.y ?? 0) - (a.y ?? 0)) > 0.5 &&
+      Math.hypot(b.x - a.x, b.z - a.z) < 0.1 &&
+      !isSegmentOnRampOrStairs(state, a, b)
+  );
+}
+
+/**
  * Calculates projection points on a platform perimeter to provide a clean vertical
  * wall-base ascent fallback when climbing sheer walls.
  */
@@ -1625,15 +1975,8 @@ export function addPlatformAscentPoints(
   refPoint: Vector3,
   waypoints: Vector3[]
 ): void {
-  const yaw = plat.rotation.y || 0;
-  const cos = Math.cos(yaw);
-  const sin = Math.sin(yaw);
-
   for (const surface of getWalkableSurfaces(plat)) {
-    const dx = refPoint.x - plat.position.x;
-    const dz = refPoint.z - plat.position.z;
-    const lx = dx * cos + dz * sin;
-    const lz = -dx * sin + dz * cos;
+    const { x: lx, z: lz } = worldToLocal(plat, refPoint);
 
     const clampedX = Math.max(surface.minX, Math.min(surface.maxX, lx));
     const clampedZ = Math.max(surface.minZ, Math.min(surface.maxZ, lz));
@@ -1651,8 +1994,9 @@ export function addPlatformAscentPoints(
     else if (minDist === distToNear) edgeZ = surface.minZ;
     else edgeZ = surface.maxZ;
 
-    const wx = Math.round((plat.position.x + edgeX * cos - edgeZ * sin) * 100) / 100;
-    const wz = Math.round((plat.position.z + edgeX * sin + edgeZ * cos) * 100) / 100;
+    const w = localToWorldXZ(plat, edgeX, edgeZ);
+    const wx = Math.round(w.x * 100) / 100;
+    const wz = Math.round(w.z * 100) / 100;
 
     waypoints.push({ x: wx, y: 0, z: wz });
     waypoints.push({ x: wx, y: surface.topY, z: wz });
@@ -1754,7 +2098,8 @@ export function findNavPath(
   };
 
   // 2. Fast path: check if straight line [from, target] is unblocked AND surface-constrained
-  const isDirectSurfaceValid = isSegmentSurfaceConstrained(state, from, target, unit);
+  const isDirectSurfaceValid =
+    isSegmentSurfaceConstrained(state, from, target, unit) && isOrdinarySegment(state, from, target, unit);
   if (isDirectSurfaceValid) {
     const directCheck = findMoveBlocker(state, unit, [from, target], options);
     if (!directCheck.blocked) {
@@ -1798,14 +2143,14 @@ export function findNavPath(
         return [from, target];
       }
       const ratio = maxDistance / dist;
-      return [
+      return settleEnd(state, unit, [
         from,
         {
           x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
           y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
           z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
         },
-      ];
+      ]);
     }
   }
 
@@ -1825,68 +2170,96 @@ export function findNavPath(
       const { foot, head } = getStairWaypoints(state, piece);
       candidateWaypoints.push(foot);
       candidateWaypoints.push(head);
+      if (isLadderPiece(piece)) candidateWaypoints.push({ x: foot.x, y: head.y, z: foot.z }); // top of the climb line
+      if (isStairPiece(piece)) {
+        // Clearance points round the wedge's footprint corners, so a unit beside the stairs can walk round to
+        // the foot (a straight line from the side is blocked by the wedge body).
+        const { hx, hz } = terrainHalfExtents(piece);
+        const off = UNIT_COLLISION_RADIUS + 0.12;
+        for (const sx of [-1, 1]) {
+          for (const sz of [-1, 1]) {
+            const w = localToWorldXZ(piece, sx * (hx + off), sz * (hz + off));
+            if (Math.abs(w.x) <= halfW && Math.abs(w.z) <= halfH) {
+              candidateWaypoints.push({
+                x: Math.round(w.x * 100) / 100,
+                y: piece.position.y ?? 0,
+                z: Math.round(w.z * 100) / 100,
+              });
+            }
+          }
+        }
+      }
     }
   }
+
+  // Drop spots come in pairs (over-air point at floor height, ground point below it). Only the descent from one
+  // to the other is a legal edge, so these points can never serve as a stepping stone for climbing.
+  const dropTwin = new Map<Vector3, Vector3>();
+  const dropAirPts = new Set<Vector3>();
+  // A climb is a drop in reverse: from the ground spot straight up to the over-air spot (climbable floors up to 3" only)
+  const climbUp = new Map<Vector3, Vector3>();
 
   // 3b. Walkable floors (decks, catwalks, ledges) & wall-base ascent fallback
   for (const piece of state.terrain) {
     const surfaces = getWalkableSurfaces(piece);
     if (surfaces.length === 0) continue;
-    const yaw = piece.rotation.y || 0;
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
 
+    // Deck corners and edge midpoints at floor height (local -> world with the collision convention)
     for (const surface of surfaces) {
-      const platY = surface.topY;
-      const inset = Math.min(0.2, (surface.maxX - surface.minX) / 4, (surface.maxZ - surface.minZ) / 4);
-      const midX = (surface.minX + surface.maxX) / 2;
-      const midZ = (surface.minZ + surface.maxZ) / 2;
-
-      // Deck corners and face midpoints at the floor height
-      const deckPoints = [
-        { x: surface.minX + inset, z: surface.minZ + inset },
-        { x: surface.maxX - inset, z: surface.minZ + inset },
-        { x: surface.maxX - inset, z: surface.maxZ - inset },
-        { x: surface.minX + inset, z: surface.maxZ - inset },
-        { x: midX, z: surface.minZ },
-        { x: midX, z: surface.maxZ },
-        { x: surface.minX, z: midZ },
-        { x: surface.maxX, z: midZ },
-      ];
-
-      for (const pt of deckPoints) {
-        const wx = piece.position.x + pt.x * cos - pt.z * sin;
-        const wz = piece.position.z + pt.x * sin + pt.z * cos;
-        if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
-          candidateWaypoints.push({
-            x: Math.round(wx * 100) / 100,
-            y: platY,
-            z: Math.round(wz * 100) / 100,
-          });
-          // Ground-level base ascent point directly below
-          candidateWaypoints.push({
-            x: Math.round(wx * 100) / 100,
-            y: 0,
-            z: Math.round(wz * 100) / 100,
-          });
-        }
+      for (const pt of getDeckPoints(piece, surface)) {
+        if (Math.abs(pt.x) <= halfW && Math.abs(pt.z) <= halfH) candidateWaypoints.push(pt);
       }
     }
 
-    // Add closest ascent points if transitioning between ground and this floor
-    if ((startY <= 0.35 && endY > 0.35) || (startY > 0.35 && endY <= 0.35)) {
-      addPlatformAscentPoints(piece, from, candidateWaypoints);
-      addPlatformAscentPoints(piece, target, candidateWaypoints);
+    // Drop points: step a full base off an edge (DROP_STANDOFF) at floor height, then fall to the ground
+    // below. The edge midpoints plus the edge points nearest the start and the target.
+    for (const surface of surfaces) {
+      const platY = surface.topY;
+      if (platY <= 0.5) continue;
+      const midX = (surface.minX + surface.maxX) / 2;
+      const midZ = (surface.minZ + surface.maxZ) / 2;
+      const edgeSpots: Array<{ x: number; z: number; nx: number; nz: number }> = [
+        { x: midX, z: surface.minZ, nx: 0, nz: -1 },
+        { x: midX, z: surface.maxZ, nx: 0, nz: 1 },
+        { x: surface.minX, z: midZ, nx: -1, nz: 0 },
+        { x: surface.maxX, z: midZ, nx: 1, nz: 0 },
+      ];
+      for (const ref of [from, target]) {
+        const l = worldToLocal(piece, ref);
+        const cx = Math.max(surface.minX, Math.min(surface.maxX, l.x));
+        const cz = Math.max(surface.minZ, Math.min(surface.maxZ, l.z));
+        const gaps = [
+          { d: cx - surface.minX, x: surface.minX, z: cz, nx: -1, nz: 0 },
+          { d: surface.maxX - cx, x: surface.maxX, z: cz, nx: 1, nz: 0 },
+          { d: cz - surface.minZ, x: cx, z: surface.minZ, nx: 0, nz: -1 },
+          { d: surface.maxZ - cz, x: cx, z: surface.maxZ, nx: 0, nz: 1 },
+        ];
+        gaps.sort((a, b) => a.d - b.d);
+        edgeSpots.push(gaps[0]);
+      }
+      for (const e of edgeSpots) {
+        const ox = e.x + e.nx * DROP_STANDOFF;
+        const oz = e.z + e.nz * DROP_STANDOFF;
+        const edgeW = localToWorldXZ(piece, e.x, e.z);
+        const outW = localToWorldXZ(piece, ox, oz);
+        if (Math.abs(outW.x) > halfW || Math.abs(outW.z) > halfH) continue;
+        const r2 = (n: number) => Math.round(n * 100) / 100;
+        const airPt = { x: r2(outW.x), y: platY, z: r2(outW.z) };
+        const groundPt = { x: r2(outW.x), y: 0, z: r2(outW.z) };
+        candidateWaypoints.push({ x: r2(edgeW.x), y: platY, z: r2(edgeW.z) });
+        candidateWaypoints.push(airPt, groundPt);
+        dropTwin.set(airPt, groundPt);
+        dropTwin.set(groundPt, airPt);
+        dropAirPts.add(airPt);
+        if (isClimbable(piece) && platY <= CLIMB_MAX) climbUp.set(groundPt, airPt);
+      }
     }
+
   }
 
   // 3c. Ground Obstacles
   for (const piece of state.terrain) {
     if (!piece.isObstacle) continue;
-    const { hx, hz } = terrainHalfExtents(piece);
-    const yaw = piece.rotation.y || 0;
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
     const pieceBaseY = piece.position.y ?? 0;
 
     const addLocalBoxCorners = (minX: number, maxX: number, minZ: number, maxZ: number) => {
@@ -1897,8 +2270,7 @@ export function findNavPath(
         { x: minX - clearance, z: maxZ + clearance },
       ];
       for (const c of corners) {
-        const wx = piece.position.x + c.x * cos - c.z * sin;
-        const wz = piece.position.z + c.x * sin + c.z * cos;
+        const { x: wx, z: wz } = localToWorldXZ(piece, c.x, c.z);
         if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
           candidateWaypoints.push({
             x: Math.round(wx * 100) / 100,
@@ -1969,6 +2341,24 @@ export function findNavPath(
   }
 
   // 4. A* Search
+  /** Movement cost of the edge a -> b if it is ordinary (test-free) movement, otherwise null. */
+  const hangCache = new Map<Vector3, boolean>();
+  const hangs = (p: Vector3): boolean => {
+    let h = hangCache.get(p);
+    if (h === undefined) {
+      h = (p.y ?? 0) >= 1.0 && isSuspendedInMidAir(state, p);
+      hangCache.set(p, h);
+    }
+    return h;
+  };
+  const safeEdgeCost = (a: Vector3, b: Vector3): number | null => {
+    if (isShortLadderDescentStep(state, a, b)) return null; // a short ladder is climbed up; down it is just a drop
+    // Two points over open air (a drop's step-off spots) must not be chained: short gaps would add up to a jump
+    if (Math.abs((a.y ?? 0) - (b.y ?? 0)) <= 0.5 && hangs(a) && hangs(b)) return null;
+    const cls = classifySegment(state, a, b, unit);
+    return PLANNABLE_KINDS.includes(cls.kind) ? cls.cost : null;
+  };
+
   interface Node {
     pos: Vector3;
     g: number;
@@ -1980,7 +2370,7 @@ export function findNavPath(
   const startNode: Node = {
     pos: from,
     g: 0,
-    h: Math.hypot(target.x - from.x, endY - startY, target.z - from.z),
+    h: Math.hypot(target.x - from.x, target.z - from.z),
     f: 0,
   };
   startNode.f = startNode.h;
@@ -1992,7 +2382,7 @@ export function findNavPath(
     ...validWaypoints.map((p) => ({
       pos: p,
       g: Infinity,
-      h: Math.hypot(target.x - p.x, endY - (p.y ?? 0), target.z - p.z),
+      h: Math.hypot(target.x - p.x, target.z - p.z), // horizontal: drops cost only their horizontal distance
       f: Infinity,
     })),
   ];
@@ -2023,17 +2413,9 @@ export function findNavPath(
       isSegmentSurfaceConstrained(state, current.pos, targetNode.pos, unit)
     ) {
       const directBlk = findMoveBlocker(state, unit, [current.pos, targetNode.pos], options);
-      if (!directBlk.blocked) {
-        const isClimbingSheerWall =
-          Math.abs((targetNode.pos.y ?? 0) - (current.pos.y ?? 0)) > 0.5 &&
-          !isSegmentOnRampOrStairs(state, current.pos, targetNode.pos);
-        const edgeCost =
-          Math.hypot(
-            targetNode.pos.x - current.pos.x,
-            (targetNode.pos.y ?? 0) - (current.pos.y ?? 0),
-            targetNode.pos.z - current.pos.z
-          ) + (isClimbingSheerWall ? 15.0 : 0);
-        const tentG = current.g + edgeCost;
+      const directCost = directBlk.blocked ? null : safeEdgeCost(current.pos, targetNode.pos);
+      if (directCost !== null) {
+        const tentG = current.g + directCost;
         if (tentG < targetNode.g) {
           targetNode.g = tentG;
           targetNode.f = tentG;
@@ -2052,6 +2434,17 @@ export function findNavPath(
       );
       if (d > 16.0) continue;
 
+      // Drop spots only link level (walking) or from their air point straight down to their ground twin
+      const dropSpot = dropTwin.has(neighbor.pos) || dropTwin.has(current.pos);
+      if (dropSpot) {
+        const dyAbs = Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0));
+        const isTwinDescent =
+          dropAirPts.has(current.pos) && dropTwin.get(current.pos) === neighbor.pos;
+        const isTwinClimb = climbUp.get(current.pos) === neighbor.pos;
+        if (dyAbs > 0.35 && !isTwinDescent && !isTwinClimb) continue;
+        if (dropTwin.get(current.pos) === neighbor.pos && !isTwinDescent && !isTwinClimb) continue;
+      }
+
       // Surface constraint check: non-airborne cannot fly diagonally across open air
       if (!isSegmentSurfaceConstrained(state, current.pos, neighbor.pos, unit)) {
         continue;
@@ -2060,12 +2453,10 @@ export function findNavPath(
       const blk = findMoveBlocker(state, unit, [current.pos, neighbor.pos], options);
       if (blk.blocked) continue;
 
-      // Climbing penalty: scaling a sheer vertical wall without stairs/ladder adds cost penalty,
-      // ensuring stairs & ladders are naturally prioritized
-      const isClimbingSheerWall =
-        Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0)) > 0.5 &&
-        !isSegmentOnRampOrStairs(state, current.pos, neighbor.pos);
-      const edgeCost = d + (isClimbingSheerWall ? 15.0 : 0);
+      // Only ordinary movement is in the graph: walking, stairs, ladders, drops of 3" or less and gaps of 1" or
+      // less. Jumps and falls are never planned; climbs only onto climbable floors.
+      const edgeCost = safeEdgeCost(current.pos, neighbor.pos);
+      if (edgeCost === null) continue;
 
       const tentativeG = current.g + edgeCost;
       if (tentativeG < neighbor.g) {
@@ -2094,7 +2485,20 @@ export function findNavPath(
       ? destination
       : { ...destination, y: startY };
     const clamped = clampMoveDestinationWithObstacles(state, unit, flatTarget, maxDistance);
-    return [from, clamped];
+    // Never plan across a gap or off an edge: shorten the straight line to its ordinary (test-free) prefix
+    let end: Vector3 = clamped;
+    for (let t = 1; t > 0 && !isOrdinarySegment(state, from, end, unit); t -= 0.05) {
+      end = {
+        x: Math.round((from.x + (clamped.x - from.x) * t) * 100) / 100,
+        y: clamped.y ?? startY,
+        z: Math.round((from.z + (clamped.z - from.z) * t) * 100) / 100,
+      };
+      if (t <= 0.05) {
+        end = { ...from };
+        break;
+      }
+    }
+    return settleEnd(state, unit, [from, end]);
   }
 
   // 5. String pulling / shortcutting (preserving surface constraints)
@@ -2112,6 +2516,7 @@ export function findNavPath(
       if (!isSegmentSurfaceConstrained(state, rawPath[curIdx], rawPath[test], unit)) {
         continue;
       }
+      if (!isOrdinarySegment(state, rawPath[curIdx], rawPath[test], unit)) continue; // never shortcut over a gap
       const blk = findMoveBlocker(state, unit, [rawPath[curIdx], rawPath[test]], options);
       if (!blk.blocked) {
         furthest = test;
@@ -2132,13 +2537,29 @@ export function findNavPath(
     const p1 = climbed[climbed.length - 1];
     const p2 = smoothed[i];
     if (Math.abs((p2.y ?? 0) - (p1.y ?? 0)) > 0.5 && !hasTrait(unit.specialRules, 'airborne')) {
-      const ladder = findLadderForSegment(state, p1, p2);
+      // A straight fall of up to 3" with clear air below is a free drop, not a ladder descent (the drop spot
+      // a base off a deck edge and a ladder foot can share the same column)
+      const isFreeFall =
+        (p1.y ?? 0) - (p2.y ?? 0) > 0.5 &&
+        (p1.y ?? 0) - (p2.y ?? 0) <= FREE_DROP_MAX &&
+        Math.hypot(p2.x - p1.x, p2.z - p1.z) < 0.05 &&
+        !isFallColumnBlocked(state, p1, p2);
+      const ladder = isFreeFall ? null : findLadderForSegment(state, p1, p2);
       if (ladder) {
         const { foot, head } = getStairWaypoints(state, ladder);
-        const sequence = (p2.y ?? 0) > (p1.y ?? 0) ? [foot, head] : [head, foot];
+        // Climb line: straight up/down above the foot, then a short level step to/from the head spot
+        const top = { x: foot.x, y: head.y, z: foot.z };
+        const goingUp = (p2.y ?? 0) > (p1.y ?? 0);
+        const sequence = goingUp ? [foot, top, head] : [head, top, foot];
+        // Ascent points sit on the deck face at the ladder itself; the standing spots replace them
+        const atLadder = (pt: Vector3) =>
+          Math.hypot(pt.x - ladder.position.x, pt.z - ladder.position.z) < 0.15;
+        if (climbed.length > 1 && atLadder(p1)) climbed.pop();
         for (const pt of sequence) {
           if (!sameSpot(climbed[climbed.length - 1], pt)) climbed.push({ ...pt });
         }
+        if (sequence.some((pt) => sameSpot(pt, p2))) continue;
+        if (atLadder(p2) && i < smoothed.length - 1) continue;
       }
     }
     if (!sameSpot(climbed[climbed.length - 1], p2)) climbed.push(p2);
@@ -2150,34 +2571,28 @@ export function findNavPath(
   const result: Vector3[] = [{ ...smoothed[0] }];
   let distLeft = maxDistance;
 
-  // Movement cost of a segment: drops cost their horizontal distance only; everything else is 3D length.
-  const segCost = (a: Vector3, b: Vector3): number =>
-    isFreeDropSegment(state, a, b)
-      ? Math.hypot(b.x - a.x, b.z - a.z)
-      : Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z);
+  // Movement cost of a segment (same classification the host and the HUD use): drops cost their horizontal
+  // distance only, the ladder shuffle is free, everything else is 3D length.
+  const segCost = (a: Vector3, b: Vector3, prev?: Vector3): number => classifySegment(state, a, b, unit, prev).cost;
 
   let totalSmoothedLen = 0;
   for (let j = 1; j < smoothed.length; j++) {
-    totalSmoothedLen += segCost(smoothed[j - 1], smoothed[j]);
+    totalSmoothedLen += segCost(smoothed[j - 1], smoothed[j], smoothed[j - 2]);
   }
 
   for (let i = 1; i < smoothed.length; i++) {
     const p1 = smoothed[i - 1];
     const p2 = smoothed[i];
-    const segLen = segCost(p1, p2);
+    const segLen = segCost(p1, p2, smoothed[i - 2]);
 
     // If stopBeforeDifficult is requested (e.g. for Rush actions where entering difficult terrain
-    // would negate double speed and cap movement to 6"), stop at the base of sheer climbs or
+    // would negate double speed and cap movement to 6"), stop
     // before difficult terrain pieces if the full traversal would exceed 6.0".
     if (
       options.stopBeforeDifficult &&
       !hasTrait(unit.specialRules, 'pathfinder') &&
       !hasTrait(unit.specialRules, 'airborne')
     ) {
-      const isSheerClimb =
-        (p2.y ?? 0) - (p1.y ?? 0) > 0.5 &&
-        !isSegmentOnRampOrStairs(state, p1, p2);
-
       const p2Piece = findTerrainAtPosition(state, p2);
       const isP2Difficult =
         p2Piece &&
@@ -2195,10 +2610,6 @@ export function findNavPath(
           p1Piece.terrainType === 'forest');
 
       const isEnteringDifficult = isP2Difficult && !isP1Difficult;
-
-      if (isSheerClimb && totalSmoothedLen > 6.0) {
-        break;
-      }
 
       if (isEnteringDifficult && totalSmoothedLen > 6.0) {
         if (p2Piece) {
@@ -2241,10 +2652,20 @@ export function findNavPath(
         // if movement is insufficient, the model remains at the ladder foot (p1) rather than hanging suspended on rungs.
         break;
       }
+      // The step off an edge (level, over open air) is part of the drop: if the budget can't cover the step
+      // and the fall, the model stays at the edge instead of stopping with its base over the air.
+      const nextPt = smoothed[i + 1];
+      const isStepOffBeforeDrop =
+        !hasTrait(unit.specialRules, 'airborne') &&
+        Math.abs(y1 - y2) <= 0.05 &&
+        nextPt !== undefined &&
+        classifySegment(state, p2, nextPt, unit).kind === 'drop' &&
+        Math.hypot(nextPt.x - p2.x, nextPt.z - p2.z) < 0.05;
+      if (isStepOffBeforeDrop) break;
       const isFreeDrop =
         y1 - y2 > 0.5 &&
         !hasTrait(unit.specialRules, 'airborne') &&
-        !isSegmentOnRampOrStairs(state, p1, p2);
+        classifySegment(state, p1, p2, unit).kind === 'drop';
       if (isFreeDrop) {
         // A drop is a step off an edge, not a slope: a model cannot stop hanging in mid-air part-way
         // down, so if the budget cannot finish the drop it stays at the edge (p1).
@@ -2260,7 +2681,7 @@ export function findNavPath(
     }
   }
 
-  return result;
+  return settleEnd(state, unit, result);
 }
 
 /**

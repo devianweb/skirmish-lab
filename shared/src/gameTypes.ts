@@ -183,6 +183,8 @@ export interface TerrainPiece {
   isWalkable?: boolean;
   /** Type of climb access: 'ladder' | 'stairs' | 'ramp' | 'sheer'. */
   climbType?: 'ladder' | 'stairs' | 'ramp' | 'sheer';
+  /** Per-piece override of the type's climbable default: may models climb onto this piece's floor (rise up to 3") without a ladder? */
+  climbable?: boolean;
   /** Optional structure override (solids, apertures, nested groups). Defaults to the catalog definition for `terrainType`. */
   structure?: TerrainGroup;
   data?: Record<string, any>;

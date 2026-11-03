@@ -16,7 +16,7 @@ import {
   isSuspendedInMidAir,
   computeShootingRayDebug,
 } from '../../src/engine/spatial';
-import { detectPathGapJump } from '../../src/engine/traversal';
+import { classifySegment, detectPathGapJump, pathMovementCost } from '../../src/engine/traversal';
 import { createAction } from '../../src/gameState';
 import { validateAction } from '../../src/engine/actions';
 
@@ -246,15 +246,15 @@ describe('elevation: reaching the deck', () => {
 
   it('a ladder climb to the deck reaches y = 3.0, and cannot stop suspended on the rungs', () => {
     const plat = piece('platform-small', 0, 0, 0);
-    const ladder = piece('ladder', -2.25, 0, 0, Math.PI / 2, 'ladder-1');
+    const ladder = piece('ladder', -2, 0, 0, Math.PI / 2, 'ladder-1'); // snapped to the west face
     const unit = makeUnit('u', HOST, { x: -5, y: 0, z: 0 });
     unit.speed = 6;
     unit.remainingMovement = 6;
     const state = makeState([unit], [plat, ladder]);
     const full = findNavPath(state, unit, { x: -1, y: 3, z: 0 }, 12);
     expect(full[full.length - 1].y).toBeCloseTo(3.0);
-    // The climb runs up the ladder's spine: through the foot and the head, vertically
-    const foot = full.findIndex((p) => Math.abs(p.x + 2.25) < 0.01 && Math.abs(p.z) < 0.01 && p.y === 0);
+    // The climb runs up the climb line beside the deck face: from the foot (a base off the face), vertically
+    const foot = full.findIndex((p) => Math.abs(p.x + 2.55) < 0.01 && Math.abs(p.z) < 0.01 && p.y === 0);
     expect(foot).toBeGreaterThanOrEqual(0);
     expect(full[foot + 1]).toMatchObject({ x: full[foot].x, z: full[foot].z });
     expect(full[foot + 1].y).toBeCloseTo(3.0);
@@ -286,8 +286,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
   it('a 3" drop costs no movement: a budget that reaches the edge finishes the drop', () => {
     const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 1.2 });
     const state = makeState([unit], [ruin]);
-    // 0.7" along the ledge to the edge; the 3" drop itself is free
-    const path = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 1.0);
+    // 0.7" along the ledge to the edge, a 0.55" step to get the whole base off it (both count); the 3" drop is free
+    const path = findNavPath(state, unit, { x: 0, y: 0, z: 0.2 }, 1.6);
     expect(path[path.length - 1].y).toBe(0);
   });
 
@@ -318,8 +318,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
     const hanging = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'u',
-      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: 0.5 }, { x: 0, y: 1.5, z: 0.5 }],
-      finalPosition: { x: 0, y: 1.5, z: 0.5 },
+      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: -0.05 }, { x: 0, y: 1.5, z: -0.05 }],
+      finalPosition: { x: 0, y: 1.5, z: -0.05 },
     });
     const res = validateAction(state, hanging);
     expect(res.valid).toBe(false);
@@ -327,8 +327,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
     const landed = createAction(HOST, 'move-unit', {
       type: 'move-unit',
       unitId: 'u',
-      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: 0.5 }, { x: 0, y: 0, z: 0.5 }],
-      finalPosition: { x: 0, y: 0, z: 0.5 },
+      path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: -0.05 }, { x: 0, y: 0, z: -0.05 }],
+      finalPosition: { x: 0, y: 0, z: -0.05 },
     });
     expect(validateAction(state, landed).reason ?? '').not.toMatch(/suspended in mid-air/i);
   });
@@ -375,12 +375,13 @@ describe('ladder paths stay on the spine from any approach', () => {
     const path = findNavPath(state, unit, { x: 0, y: 3, z: 0 }, 20);
     const climb = path.findIndex((p, i) => i > 0 && p.y > path[i - 1].y + 1);
     expect(climb).toBeGreaterThan(0);
-    expect(path[climb - 1]).toMatchObject({ x: 2, z: 1, y: 0 });
-    expect(path[climb]).toMatchObject({ x: 2, z: 1 });
+    expect(path[climb - 1]).toMatchObject({ x: 2.55, z: 1, y: 0 }); // the foot, a base off the east face
+    expect(path[climb]).toMatchObject({ x: 2.55, z: 1 });
     expect(path[climb].y).toBeCloseTo(3.0);
   });
 
-  it('climbing down uses the same spine', () => {
+  it('a 3" deck is only laddered going up: coming down the planner takes the free drop off the edge', () => {
+    // Batch 1E: a drop of 3" or less is ordinary movement, so a 3" ladder descent is never planned.
     const plat = piece('platform-small', 0, 0, 0);
     const ladder = piece('ladder', 2, 0, 1, -Math.PI / 2, 'ladder-east');
     const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 0 });
@@ -389,8 +390,23 @@ describe('ladder paths stay on the spine from any approach', () => {
     const state = makeState([unit], [plat, ladder]);
     const path = findNavPath(state, unit, { x: 5, y: 0, z: -2 }, 20);
     const descent = path.findIndex((p, i) => i > 0 && p.y < path[i - 1].y - 1);
-    expect(path[descent - 1]).toMatchObject({ x: 2, z: 1 });
-    expect(path[descent]).toMatchObject({ x: 2, z: 1, y: 0 });
+    expect(descent).toBeGreaterThan(0);
+    expect(classifySegment(state, path[descent - 1], path[descent], unit).kind).toBe('drop');
+    expect(path[descent].y).toBe(0);
+    // the ladder is not used at all on the way down
+    for (let i = 1; i < path.length; i++) {
+      expect(classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).kind).not.toBe('ladder');
+    }
+  });
+
+  it('a ladder descent that is declared as a path still costs the climb (arriving by the ladder head)', () => {
+    const plat = piece('platform-small', 0, 0, 0);
+    const ladder = piece('ladder', 2, 0, 1, -Math.PI / 2, 'ladder-east');
+    const unit = makeUnit('u', HOST, { x: 0, y: 3, z: 0 });
+    const state = makeState([unit], [plat, ladder]);
+    const { foot, head } = getStairWaypoints(state, ladder);
+    const down = [head, { x: foot.x, y: head.y, z: foot.z }, foot];
+    expect(pathMovementCost(state, down)).toBeCloseTo(3.0, 2);
   });
 });
 

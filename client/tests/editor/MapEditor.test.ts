@@ -339,6 +339,40 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(editor.getMap().terrain).toHaveLength(1);
   });
 
+  it('Climbable checkbox reflects the catalog default, writes piece.climbable and round-trips through export/import', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+    const crate = editor.placePieceAt('shipping-container', { x: 0, y: 0, z: 0 })!;
+    editor.selectPiece(crate.id);
+    let box = container.querySelector('#inspectClimbable') as HTMLInputElement;
+    expect(box).toBeTruthy();
+    expect(box.checked).toBe(true);
+
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    expect(editor.getMap().terrain.find((t) => t.id === crate.id)?.climbable).toBe(false);
+
+    const json = editor.exportJson();
+    editor.importJson(json);
+    const back = editor.getMap().terrain.find((t) => t.id === crate.id);
+    expect(back?.climbable).toBe(false);
+
+    editor.selectPiece(crate.id);
+    box = container.querySelector('#inspectClimbable') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    expect(editor.getMap().terrain.find((t) => t.id === crate.id)?.climbable).toBe(true);
+  });
+
+  it('Climbable checkbox is hidden for pieces without a walkable floor', () => {
+    const editor = new MapEditor(container);
+    editor.show();
+    const wall = editor.placePieceAt('wall', { x: 0, y: 0, z: 0 })!;
+    editor.selectPiece(wall.id);
+    expect(container.querySelector('#inspectClimbable')).toBeNull();
+  });
+
   it('loadMap returns false for unknown ids', () => {
     const editor = new MapEditor(container);
     editor.show();

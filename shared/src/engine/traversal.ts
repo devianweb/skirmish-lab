@@ -1,12 +1,22 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
+import { isClimbable } from '../data/mapSchema';
 import {
+  DROP_STANDOFF,
   computeSquadCentroid,
+  findEndOverlap,
+  findMoveBlocker,
   findTerrainAtPosition,
+  collectWalkableSurfaces,
   findWalkableSurfaceAt,
-  isFreeDropSegment,
+  findWalkableSurfaceIn,
+  getWalkableSurfaces,
+  isFallColumnBlocked,
+  isLadderStepSegment,
+  isSegmentOnLadder,
   isSegmentOnRampOrStairs,
+  worldToLocal,
 } from './spatial';
 
 /** 3D Euclidean distance between two points. */
@@ -36,17 +46,166 @@ export const FREE_DROP_MAX = 3.05;
 /** Drops above FREE_DROP_MAX up to this height can be jumped (test); anything higher is a fall. */
 export const JUMP_DROP_MAX = 6.05;
 
+/** Longest climb (inches of rise) a model can make without a ladder or stairs. */
+export const CLIMB_MAX = 3.05;
+/** How close (inches, horizontally) a model must stand to a floor edge to jump or fall from it. */
+export const EDGE_SNAP_TOLERANCE = 0.5;
+
+/** How a stretch of a path is traversed. Jumps and falls need a dice test and must be declared by the player. */
+export type SegmentKind =
+  | 'walk'
+  | 'stairs'
+  | 'ladder'
+  | 'climb'
+  | 'drop'
+  | 'gap'
+  | 'jump-drop'
+  | 'jump-gap'
+  | 'fall'
+  | 'blocked';
+
+/** Kinds that need a dice test (or a guaranteed fall) and therefore an explicit declaration. */
+export type JumpKind = 'jump-drop' | 'jump-gap' | 'fall';
+export const JUMP_KINDS: readonly SegmentKind[] = ['jump-drop', 'jump-gap', 'fall'];
+
+export interface SegmentClass {
+  kind: SegmentKind;
+  /** Movement allowance the segment uses (a passed jump costs nothing). */
+  cost: number;
+  /** Horizontal length (board distance). */
+  horizontal: number;
+  /** Vertical change in inches (absolute). */
+  height: number;
+  /** Gap width (jump-gap) or drop height (drop kinds); the figure the dice depend on. 0 otherwise. */
+  distance: number;
+  /** Jump test dice (0 = no test). */
+  dice: number;
+  /** Target number each die needs (0 = no test). */
+  target: number;
+}
+
+/**
+ * True if the upward step `a` -> `b` is a legal climb: a rise of at most 3" that ends at the height of a
+ * floor of a climbable piece, at the stand-off spot beside that floor's edge (a full base off the face) or
+ * on the floor itself, with the climb column clear of terrain (a climb is a drop in reverse). Climbing onto
+ * a piece that is not climbable, or past a wall that stands in the way, is not possible.
+ */
+export function canClimbBetween(state: GameState, a: Vector3, b: Vector3): boolean {
+  const ay = a.y ?? 0;
+  const by = b.y ?? 0;
+  if (by - ay > CLIMB_MAX || by - ay <= 0.5) return false;
+  for (const surface of collectWalkableSurfaces(state)) {
+    if (!isClimbable(surface.piece) || Math.abs(surface.topY - by) > 0.1) continue;
+    const l = worldToLocal(surface.piece, b);
+    const dx = Math.max(surface.minX - l.x, 0, l.x - surface.maxX);
+    const dz = Math.max(surface.minZ - l.z, 0, l.z - surface.maxZ);
+    if (Math.hypot(dx, dz) > DROP_STANDOFF + 0.05) continue;
+    if (distanceHorizontal(a, b) > 0.7) continue;
+    if (isFallColumnBlocked(state, { x: b.x, y: by, z: b.z }, { x: b.x, y: ay, z: b.z })) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Host-side check of every upward step in a path: each rise over half an inch must be a stairs/ladder
+ * step or a legal climb. Returns a rejection reason, or null when fine.
+ */
+export function validatePathClimbs(state: GameState, unit: Unit, path: Vector3[]): string | null {
+  for (let i = 1; i < path.length; i++) {
+    const dy = (path[i].y ?? 0) - (path[i - 1].y ?? 0);
+    if (dy <= 0.5) continue;
+    if (classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).kind === 'blocked') {
+      return 'Cannot climb there: only climbable terrain up to 3" can be climbed without a ladder or stairs, from a clear spot beside it';
+    }
+  }
+  return null;
+}
+
+/** Ordinary, test-free movement vs jump vs fall, from the height of a descent. */
+export function classifyDropHeight(height: number): 'drop' | 'jump-drop' | 'fall' {
+  if (height <= FREE_DROP_MAX) return 'drop';
+  return height <= JUMP_DROP_MAX ? 'jump-drop' : 'fall';
+}
+
+/**
+ * The single source of truth for how a straight stretch `a` -> `b` is traversed: walk, stairs, ladder,
+ * climb (sheer face up to 3"), drop (up to 3"), gap (up to 1"), or the declared kinds jump-drop (3-6"),
+ * jump-gap (1-6") and fall (over 6"). A rise over 3" or a gap over 6" is blocked. The movement cost, the
+ * move preview and the host's jump check all read this.
+ */
+export function classifySegment(
+  state: GameState,
+  a: Vector3,
+  b: Vector3,
+  unit?: Unit,
+  prev?: Vector3
+): SegmentClass {
+  const dy = (b.y ?? 0) - (a.y ?? 0);
+  const horizontal = distanceHorizontal(a, b);
+  const length = Math.hypot(horizontal, dy);
+  const airborne = !!unit && hasTrait(unit.specialRules, 'airborne');
+  const target = unit && hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
+  const make = (kind: SegmentKind, cost: number, extra: Partial<SegmentClass> = {}): SegmentClass => ({
+    kind,
+    cost,
+    horizontal,
+    height: Math.abs(dy),
+    distance: 0,
+    dice: 0,
+    target: 0,
+    ...extra,
+  });
+
+  if (isLadderStepSegment(state, a, b)) return make('ladder', 0); // the shuffle on or off a ladder is free
+
+  if (Math.abs(dy) > 0.5) {
+    const onSlope = isSegmentOnRampOrStairs(state, a, b);
+    const onLadder = onSlope && isSegmentOnLadder(state, a, b);
+    if (dy > 0) {
+      if (onSlope) return make(onLadder ? 'ladder' : 'stairs', length);
+      if (airborne) return make('walk', length);
+      return canClimbBetween(state, a, b) ? make('climb', length) : make('blocked', length);
+    }
+    const height = -dy;
+    if (onSlope) {
+      // A short straight fall (3" or less, clear air) at a ladder's column is a plain drop, free like any other
+      const arrivedByLadder = !!prev && isLadderStepSegment(state, prev, a);
+      if (onLadder && !arrivedByLadder && height <= FREE_DROP_MAX && horizontal < 0.7 && !isFallColumnBlocked(state, a, b)) {
+        return make('drop', horizontal, { distance: height });
+      }
+      return make(onLadder ? 'ladder' : 'stairs', length);
+    }
+    if (airborne) return make('drop', horizontal, { distance: height });
+    const kind = classifyDropHeight(height);
+    if (kind === 'drop') return make('drop', horizontal, { distance: height });
+    if (kind === 'jump-drop') {
+      return make('jump-drop', 0, { distance: height, dice: calculateJumpDice(height), target });
+    }
+    return make('fall', horizontal, { distance: height });
+  }
+
+  // Level movement: open air beneath an elevated stretch is a gap
+  if (airborne) return make('walk', length);
+  if (isSegmentOnRampOrStairs(state, a, b) && !isSegmentOnLadder(state, a, b)) return make('stairs', length);
+  const gap = measureElevatedGap(state, [a, b]);
+  if (gap <= 0) return make('walk', length);
+  if (gap <= FREE_GAP_MAX) return make('gap', length, { distance: gap });
+  if (gap <= JUMP_GAP_MAX) {
+    return make('jump-gap', 0, { distance: gap, dice: calculateJumpDice(gap), target });
+  }
+  return make('blocked', length, { distance: gap });
+}
+
 /**
  * Movement a path uses from a model's allowance. Tabletop movement is measured along the board, so
- * drops (regular, jumped or fallen) cost only their horizontal distance; climbs, stairs, ramps and
- * ladders cost their full length.
+ * drops cost only their horizontal distance; climbs, stairs, ramps and ladders cost their full length.
+ * A jump (a declared leap over a gap or down 3-6") that is passed does not count toward the move.
  */
-export function pathMovementCost(state: GameState, path: Vector3[]): number {
+export function pathMovementCost(state: GameState, path: Vector3[], unit?: Unit): number {
   let total = 0;
   for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1];
-    const b = path[i];
-    total += isFreeDropSegment(state, a, b) ? distanceHorizontal(a, b) : distance3D(a, b);
+    total += classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).cost;
   }
   return total;
 }
@@ -98,8 +257,9 @@ export function resolveDropJump(unit: Unit, drop: number, rolls?: number[]): Jum
 
 /** Human-readable warning for the highest drop on a path (empty when it is regular movement). */
 export function describeDrop(drop: number, unit: Unit): string {
-  if (drop <= FREE_DROP_MAX || hasTrait(unit.specialRules, 'airborne')) return '';
-  if (drop > JUMP_DROP_MAX) {
+  const kind = classifyDropHeight(drop);
+  if (kind === 'drop' || hasTrait(unit.specialRules, 'airborne')) return '';
+  if (kind === 'fall') {
     return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls, Falling damage and ends activation!`;
   }
   const res = resolveDropJump(unit, drop);
@@ -119,7 +279,7 @@ export function validateMeleeVerticalReach(a: Vector3, b: Vector3): boolean {
 }
 
 /**
- * Checks whether a movement path encounters Difficult Terrain or scales sheer vertical walls.
+ * Checks whether a movement path encounters Difficult Terrain (climbing is ordinary movement, never difficult).
  */
 export function isPathDifficult(
   state: GameState,
@@ -131,27 +291,6 @@ export function isPathDifficult(
   }
   if (unit && hasTrait(unit.specialRules, 'airborne')) {
     return false; // Airborne ignores all terrain effects
-  }
-
-  // Check sheer wall climb (vertical ascent > 0.5" without a designated ladder/stairs/ramp)
-  for (let i = 1; i < path.length; i++) {
-    const prev = path[i - 1];
-    const curr = path[i];
-    const verticalRise = (curr.y ?? 0) - (prev.y ?? 0);
-    if (verticalRise > 0.5) {
-      const piece = findTerrainAtPosition(state, curr) || findTerrainAtPosition(state, prev);
-      const isClimbPiece =
-        piece &&
-        (piece.terrainType === 'ladder' ||
-          piece.terrainType === 'stairs' ||
-          piece.climbType === 'ladder' ||
-          piece.climbType === 'stairs' ||
-          piece.climbType === 'ramp');
-      const isClimbRamp = isClimbPiece || isSegmentOnRampOrStairs(state, prev, curr);
-      if (!isClimbRamp) {
-        return true; // Free-climbing a sheer wall counts as Difficult Terrain
-      }
-    }
   }
 
   // Check difficult terrain pieces along the path
@@ -221,8 +360,8 @@ export function detectPathFall(
     const drop = prevY - currY;
     if (drop > maxDrop) {
       if (state) {
-        const isStairsOrLadder = isSegmentOnRampOrStairs(state, prev, curr);
-        if (isStairsOrLadder) {
+        const kind = classifySegment(state, prev, curr).kind;
+        if (kind === 'stairs' || kind === 'ladder') {
           continue;
         }
       }
@@ -364,6 +503,7 @@ export function measureElevatedGap(state: GameState, path: Vector3[]): number {
   let widest = 0;
   let run = 0;
   const step = 0.1;
+  let surfaces: ReturnType<typeof collectWalkableSurfaces> | undefined; // resolved lazily, once
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1];
     const b = path[i];
@@ -375,10 +515,11 @@ export function measureElevatedGap(state: GameState, path: Vector3[]): number {
       continue;
     }
     const n = Math.max(1, Math.ceil(len / step));
+    surfaces ??= collectWalkableSurfaces(state);
     for (let k = 0; k <= n; k++) {
       const t = k / n;
       const pt = { x: a.x + (b.x - a.x) * t, y: aY + (bY - aY) * t, z: a.z + (b.z - a.z) * t };
-      const surface = findWalkableSurfaceAt(state, pt, 0.05);
+      const surface = findWalkableSurfaceIn(surfaces, pt, 0.05);
       const supported = surface !== null && Math.abs(surface.topY - pt.y) <= 0.5;
       if (supported) {
         run = 0;
@@ -423,6 +564,148 @@ export function detectPathGapJump(
 /** Jump test for crossing a horizontal gap (same dice as a drop: X+1 dice, all 3+). */
 export function resolveGapJump(gapDistance: number, unit: Unit, rolls?: number[]): JumpResult {
   return resolveJump(unit, gapDistance, FREE_GAP_MAX, JUMP_GAP_MAX, rolls);
+}
+
+/** A jump or fall the player has chosen to make, sent with the move that contains it. */
+export interface DeclaredTraversal {
+  kind: JumpKind;
+  /** Where the leap starts (the model's spot at the edge). */
+  takeoff: Vector3;
+  /** Where the model lands (or, for a fall, ends up). */
+  landing: Vector3;
+}
+
+export interface JumpOption extends DeclaredTraversal {
+  /** Gap width (jump-gap) or drop height (jump-drop, fall) in inches. */
+  distance: number;
+  /** Jump dice (0 for a fall: it is guaranteed). */
+  dice: number;
+  /** Target number each die needs (0 for a fall). */
+  target: number;
+  /** The path to send: just the leap from takeoff to landing. */
+  path: Vector3[];
+}
+
+/**
+ * True if `point` stands on a floor within `EDGE_SNAP_TOLERANCE` of an edge that the line toward `toward`
+ * leaves through (the leap must head out over that edge, not across the deck).
+ */
+export function isAtFloorEdgeToward(state: GameState, point: Vector3, toward: Vector3): boolean {
+  const y = point.y ?? 0;
+  for (const piece of state.terrain) {
+    for (const surface of getWalkableSurfaces(piece)) {
+      if (Math.abs(surface.topY - y) > 0.3) continue;
+      const l = worldToLocal(piece, point);
+      const eps = 0.1;
+      if (
+        l.x < surface.minX - eps ||
+        l.x > surface.maxX + eps ||
+        l.z < surface.minZ - eps ||
+        l.z > surface.maxZ + eps
+      ) {
+        continue;
+      }
+      const t = worldToLocal(piece, toward);
+      const dx = t.x - l.x;
+      const dz = t.z - l.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const edges: Array<{ dist: number; nx: number; nz: number }> = [
+        { dist: l.x - surface.minX, nx: -1, nz: 0 },
+        { dist: surface.maxX - l.x, nx: 1, nz: 0 },
+        { dist: l.z - surface.minZ, nx: 0, nz: -1 },
+        { dist: surface.maxZ - l.z, nx: 0, nz: 1 },
+      ];
+      for (const e of edges) {
+        if (e.dist <= EDGE_SNAP_TOLERANCE + 1e-6 && (dx * e.nx + dz * e.nz) / len > 0.2) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * The jump (or fall) a model standing at `from` could declare to reach `target`, or null.
+ *
+ * Offered only when the model is already at a floor edge (within `EDGE_SNAP_TOLERANCE`, heading out over it)
+ * and the target is across a 1-6" gap at the same height (jump-gap), 3-6" below (jump-drop) or more than 6"
+ * below (fall: no dice, a guaranteed fall). Everything else is ordinary movement the pathfinder handles, or
+ * impossible. There is no path search: a jump is one hop from where the model stands.
+ */
+export function findJumpOption(
+  state: GameState,
+  unit: Unit,
+  from: Vector3,
+  target: Vector3
+): JumpOption | null {
+  if (hasTrait(unit.specialRules, 'airborne')) return null;
+  const fromY = from.y ?? 0;
+  const targetY = target.y ?? 0;
+  if (fromY < 1.0 || targetY - fromY > 0.5) return null;
+  if (distanceHorizontal(from, target) > JUMP_GAP_MAX) return null;
+  if (!isAtFloorEdgeToward(state, from, target)) return null;
+  if (targetY > 0.3) {
+    const floor = findWalkableSurfaceAt(state, { x: target.x, y: targetY, z: target.z }, 0);
+    if (!floor || Math.abs(floor.topY - targetY) > 0.3) return null;
+  }
+  const cls = classifySegment(state, from, target, unit);
+  if (!(JUMP_KINDS as readonly string[]).includes(cls.kind)) return null;
+  if (findMoveBlocker(state, unit, [from, target]).blocked) return null;
+  if (findEndOverlap(state, unit.id, { x: target.x, y: targetY, z: target.z })) return null;
+  const takeoff = { x: from.x, y: fromY, z: from.z };
+  const landing = { x: target.x, y: targetY, z: target.z };
+  return {
+    kind: cls.kind as JumpKind,
+    takeoff,
+    landing,
+    distance: Math.round(cls.distance * 10) / 10,
+    dice: cls.dice,
+    target: cls.target,
+    path: [takeoff, landing],
+  };
+}
+
+/**
+ * Host-side check of the jump a move needs. Recomputes everything from the path (never trusts the client):
+ * a path containing a jump or fall must carry a matching `traversal` declaration, made from a floor edge;
+ * a declaration with nothing to declare is rejected. Returns a rejection reason, or null when fine.
+ */
+export function validateDeclaredTraversal(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  traversal?: DeclaredTraversal | null
+): string | null {
+  const climbProblem = validatePathClimbs(state, unit, path);
+  if (climbProblem) return climbProblem;
+  const jumps: Array<{ a: Vector3; b: Vector3; kind: SegmentKind }> = [];
+  for (let i = 1; i < path.length; i++) {
+    const cls = classifySegment(state, path[i - 1], path[i], unit);
+    if ((JUMP_KINDS as readonly string[]).includes(cls.kind)) {
+      jumps.push({ a: path[i - 1], b: path[i], kind: cls.kind });
+    }
+  }
+  const pathGap = detectPathGapJump(state, path, unit);
+  const needsGapJump = pathGap.isGapJump && !jumps.some((j) => j.kind === 'jump-gap');
+  if (!traversal) {
+    if (jumps.length > 0 || needsGapJump) {
+      return 'This move needs a jump: choose it explicitly (move to the edge, then declare the jump)';
+    }
+    return null;
+  }
+  if (needsGapJump) return 'This move needs a jump: choose it explicitly (move to the edge, then declare the jump)';
+  if (jumps.length === 0) return 'Declared jump does not match the path: there is no jump to declare';
+  if (jumps.length > 1) return 'Only one jump or fall can be made in a single move';
+  const jump = jumps[0];
+  if (traversal.kind !== jump.kind) return 'Declared jump does not match the path (wrong kind)';
+  if (distance3D(jump.a, traversal.takeoff) > 0.1 || distance3D(jump.b, traversal.landing) > 0.1) {
+    return 'Declared jump does not match the path (takeoff or landing differs)';
+  }
+  const option = findJumpOption(state, unit, jump.a, jump.b);
+  if (!option || option.kind !== traversal.kind) {
+    return 'Models can only jump or fall from the edge of a floor: move to the edge first';
+  }
+  return null;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as THREE from 'three';
-import { MarkerRenderer } from '../../src/renderer/MarkerRenderer';
+import { MarkerRenderer, segmentStyle } from '../../src/renderer/MarkerRenderer';
 import { getStairWaypoints } from '@skirmish-lab/shared';
 import { ModelLoader } from '../../src/renderer/ModelLoader';
 
@@ -136,6 +136,42 @@ describe('MarkerRenderer', () => {
 
     renderer.setObjectivesDebug(null);
     expect(renderer.getRenderedMarkerNames()).not.toContain('marker-objectives-debug');
+  });
+
+  it('styles each move-path leg by traversal kind: climb orange, drop amber, jump dashed red', () => {
+    const renderer = makeRenderer();
+    const A = { x: 0, y: 0, z: 0 };
+    const B = { x: 1, y: 0, z: 0 };
+    const C = { x: 1, y: 2, z: 0 };
+    const D = { x: 2, y: 0, z: 0 };
+    const E = { x: 6, y: 0, z: 0 };
+    renderer.setMovePath({
+      from: A,
+      to: E,
+      waypoints: [A, B, C, D, E],
+      segments: [
+        { from: A, to: B, kind: 'walk' },
+        { from: B, to: C, kind: 'climb' },
+        { from: C, to: D, kind: 'drop' },
+        { from: D, to: E, kind: 'jump-gap' },
+      ],
+    });
+    const group = scene.getObjectByName('marker-move-path')!;
+    const line = (kind: string) => group.getObjectByName(`marker-move-segment-${kind}`) as THREE.Line;
+    const color = (kind: string) => (line(kind).material as THREE.LineBasicMaterial).color.getHex();
+    expect(color('climb')).toBe(0xff9800);
+    expect(color('drop')).toBe(0xffc107);
+    expect(color('jump-gap')).toBe(0xf44336);
+    expect(line('jump-gap').material).toBeInstanceOf(THREE.LineDashedMaterial);
+    expect(line('climb').material).not.toBeInstanceOf(THREE.LineDashedMaterial);
+    expect(line('walk').material).not.toBeInstanceOf(THREE.LineDashedMaterial);
+  });
+
+  it('segmentStyle keeps the normal colour for walking, stairs and ladders', () => {
+    for (const kind of ['walk', 'stairs', 'ladder'] as const) {
+      expect(segmentStyle(kind, 0x123456)).toEqual({ color: 0x123456, dashed: false });
+    }
+    expect(segmentStyle('fall', 0).dashed).toBe(true);
   });
 
   it('clears everything on clearAll', () => {
@@ -465,6 +501,43 @@ describe('MarkerRenderer', () => {
     // Ring outer radius is 2.0, inner radius is 2.0 - 0.06 = 1.94 (0.06 thin border)
     expect(geo.parameters.outerRadius).toBeCloseTo(2.0, 2);
     expect(geo.parameters.innerRadius).toBeCloseTo(1.94, 2);
+  });
+
+  describe('climbable outline in terrain debug', () => {
+    const CLIMB_COLOR = 0xff9800;
+    const piece = (terrainType: string, extra: Partial<TerrainPiece> = {}): TerrainPiece => ({
+      id: `p-${terrainType}`,
+      terrainType,
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 1, z: 3 },
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+      ...extra,
+    });
+    const outlineCount = (p: TerrainPiece): number => {
+      const renderer = makeRenderer();
+      renderer.setTerrainDebug(p);
+      const group = scene.getObjectByName(`marker-terrain-${p.id}`)!;
+      let n = 0;
+      group.traverse((o) => {
+        const mat = (o as THREE.Line).material as THREE.LineBasicMaterial | undefined;
+        if (mat && mat.color && mat.color.getHex() === CLIMB_COLOR) n++;
+      });
+      return n;
+    };
+
+    it('outlines the walkable floor of a climbable shipping container', () => {
+      expect(outlineCount(piece('shipping-container'))).toBeGreaterThan(0);
+    });
+    it('draws nothing for a non-climbable platform', () => {
+      expect(outlineCount(piece('platform-small'))).toBe(0);
+    });
+    it('outlines a platform with climbable: true and not with climbable: false on a container', () => {
+      expect(outlineCount(piece('platform-small', { climbable: true }))).toBeGreaterThan(0);
+      expect(outlineCount(piece('shipping-container', { climbable: false }))).toBe(0);
+    });
   });
 
   it('renders right-angled triangular prism wireframe geometry for stairs in terrain debug mode', () => {

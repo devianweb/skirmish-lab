@@ -8,8 +8,8 @@ import {
   describeTerrainPiece,
   describeTrait,
   detectPathFall,
-  detectPathGapJump,
   findNavPath,
+  JumpOption,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
@@ -39,6 +39,13 @@ import {
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
+import {
+  PreviewSegment,
+  describePathSegments,
+  jumpChip,
+  resolveMoveTarget,
+  segmentSummary,
+} from './movePreview';
 import { soundFx } from '../audio/SoundFx';
 import {
   DeploymentZoneBounds,
@@ -137,6 +144,10 @@ export class GameHUD {
   private movePathPreview: Vector3[] | null = null;
   /** Whether the currently previewed path encounters Difficult Terrain or vertical climb. */
   private movePreviewDifficult = false;
+  /** The declared jump/fall the engine offers for the previewed target (null: safe path preview). */
+  private moveJump: JumpOption | null = null;
+  /** Engine classification of each leg of the previewed path (for styling and labels). */
+  private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
   private hoveredEngagedTargetId: string | null = null;
   /** Designated model in a multi-model squad to allocate hazard casualties to. */
@@ -248,6 +259,8 @@ export class GameHUD {
     }
     this.movePreview = null;
     this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
     if (this.selectedDeployUnitId) {
@@ -499,6 +512,8 @@ export class GameHUD {
         this.emitMarkers();
       } else {
         this.movePathPreview = null;
+        this.moveJump = null;
+        this.moveSegments = null;
         this.movePreview = null;
         this.emitMarkers();
       }
@@ -516,12 +531,16 @@ export class GameHUD {
           ? active.remainingMovement
           : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
         const nominalMax = remainingBudget;
-        let path = findNavPath(this.state, active, target.position, nominalMax, {
-          startPosition: startPos,
-          stopBeforeDifficult: isRush || !!active.isRushing,
-        });
+        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, alive.length <= 1);
+        const cursor = resolved.target;
+        let path = resolved.jump
+          ? resolved.jump.path
+          : findNavPath(this.state, active, cursor, nominalMax, {
+              startPosition: startPos,
+              stopBeforeDifficult: isRush || !!active.isRushing,
+            });
 
-        const targetTerrain = findTerrainAtPosition(this.state, target.position);
+        const targetTerrain = findTerrainAtPosition(this.state, cursor);
         const isTargetDifficult =
           targetTerrain &&
           (targetTerrain.isDifficult ||
@@ -530,20 +549,23 @@ export class GameHUD {
             targetTerrain.terrainType === 'forest');
 
         const isElevationObstacle =
-          path.length > 0 && (target.position.y ?? 0) - (path[path.length - 1].y ?? 0) > 0.5;
+          !resolved.jump &&
+          path.length > 0 && (cursor.y ?? 0) - (path[path.length - 1].y ?? 0) > 0.5;
 
         const stoppedAtBase =
+          !resolved.jump &&
           (isRush || !!active.isRushing) &&
           path.length > 0 &&
           !hasTrait(active.specialRules, 'airborne') &&
           (isElevationObstacle ||
-            (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], target.position) > 0.1));
+            (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], cursor) > 0.1));
 
         const isDifficult =
+          !resolved.jump &&
           !stoppedAtBase &&
           (path.length > 0
             ? isPathDifficult(this.state, path, active)
-            : isPathDifficult(this.state, [startPos, target.position], active));
+            : isPathDifficult(this.state, [startPos, cursor], active));
 
         const effectiveCap = getEffectiveMaxMovement(
           active,
@@ -552,13 +574,15 @@ export class GameHUD {
         );
         const cappedAllowance = Math.min(effectiveCap, remainingBudget);
         if (isDifficult && nominalMax > cappedAllowance) {
-          path = findNavPath(this.state, active, target.position, cappedAllowance, {
+          path = findNavPath(this.state, active, cursor, cappedAllowance, {
             startPosition: startPos,
             stopBeforeDifficult: isRush || !!active.isRushing,
           });
         }
 
         this.movePreviewDifficult = isDifficult;
+        this.moveJump = resolved.jump;
+        this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
@@ -575,9 +599,12 @@ export class GameHUD {
           this.hoveredEngagedTargetId = null;
         }
         this.updateMoveWarning(isDifficult, this.flow.action, stoppedAtBase, isElevationObstacle);
+        this.showTraversalChip();
       } else {
         this.movePreview = null;
         this.movePathPreview = null;
+        this.moveJump = null;
+        this.moveSegments = null;
         this.movePreviewDifficult = false;
         this.hoveredEngagedTargetId = null;
         this.updateMoveWarning(false, this.flow.action, false);
@@ -616,6 +643,8 @@ export class GameHUD {
         this.updateMoveWarning(isDifficult, this.flow.action);
       } else {
         this.movePathPreview = null;
+        this.moveJump = null;
+        this.moveSegments = null;
         this.movePreview = null;
         this.movePreviewDifficult = false;
         this.hoveredEngagedTargetId = null;
@@ -715,6 +744,8 @@ export class GameHUD {
     this.selectedSquadModelId = model.id;
     this.movePreview = null;
     this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
     this.render();
     this.emitMarkers();
   }
@@ -783,6 +814,8 @@ export class GameHUD {
     if (!active || active.ownerId !== this.localPlayerId) return;
     this.movePreview = null;
     this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
@@ -822,6 +855,8 @@ export class GameHUD {
     if (!currentModel) return;
 
     const startPos = currentModel.position ?? active.position;
+    // Squads cannot declare a jump yet (host rule), but the cursor still snaps to floor edges
+    rawDestination = resolveMoveTarget(this.state, active, startPos, rawDestination, false).target;
 
     const isRush = actionKind === 'rush';
     const remainingBudget = active.isRushing
@@ -925,6 +960,8 @@ export class GameHUD {
         this.selectedSquadModelId = nextUnplaced.id;
       }
       this.movePathPreview = null;
+      this.moveJump = null;
+      this.moveSegments = null;
       this.movePreview = null;
       this.render();
       this.emitMarkers();
@@ -964,6 +1001,8 @@ export class GameHUD {
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
     this.movePreview = finalCentroid;
     this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
 
     this.beginConfirmation(
       createAction(this.localPlayerId, actionKind === 'rush' ? 'rush' : 'move-unit', {
@@ -987,8 +1026,11 @@ export class GameHUD {
       ? active.remainingMovement
       : Math.min(active.speed, active.remainingMovement ?? active.speed);
     let maxAllowance = currentBudget;
-    let path = findNavPath(this.state, active, rawDestination, maxAllowance);
-    const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
+    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    const jump = resolved.jump;
+    rawDestination = resolved.target;
+    let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance);
+    const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
     const effectiveCap = getEffectiveMaxMovement(active, active.isRushing ? 'rush' : 'move', isDifficult);
     const maxMove = Math.min(effectiveCap, currentBudget);
     if (isDifficult && maxAllowance > maxMove) {
@@ -1001,7 +1043,7 @@ export class GameHUD {
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path);
-    if (distance < 0.05) {
+    if (distance < 0.05 && !jump) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
@@ -1031,12 +1073,7 @@ export class GameHUD {
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
-    const gapJump = detectPathGapJump(this.state, path, active);
-    if (gapJump.isGapJump) {
-      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): roll ${gapJump.dice} dice, all ${gapJump.target}+ or fall!`;
-    } else if (gapJump.tooWide) {
-      summary += ` · ❌ GAP TOO WIDE (${gapJump.gapDistance.toFixed(1)}"): cannot be jumped (6" maximum)`;
-    }
+    summary += this.traversalSummary(active, path, jump);
 
     this.selectedCasualtyModelId =
       active.models && active.models.length > 1
@@ -1045,6 +1082,8 @@ export class GameHUD {
 
     this.movePreview = destination;
     this.movePathPreview = path;
+    this.moveJump = jump;
+    this.moveSegments = describePathSegments(this.state, active, path);
     this.beginConfirmation(
       createAction(this.localPlayerId, 'move-unit', {
         type: 'move-unit',
@@ -1052,7 +1091,7 @@ export class GameHUD {
         path,
         finalPosition: destination,
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
-        ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
+        ...(jump ? { traversal: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing } } : {}),
       }),
       summary
     );
@@ -1064,9 +1103,14 @@ export class GameHUD {
 
     const currentRushBudget = active.isRushing ? active.remainingMovement : active.speed * 2;
     let maxAllowance = currentRushBudget;
-    let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
-      stopBeforeDifficult: true,
-    });
+    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    const jump = resolved.jump;
+    rawDestination = resolved.target;
+    let path = jump
+      ? jump.path
+      : findNavPath(this.state, active, rawDestination, maxAllowance, {
+          stopBeforeDifficult: true,
+        });
 
     const targetTerrain = findTerrainAtPosition(this.state, rawDestination);
     const isTargetDifficult =
@@ -1077,15 +1121,18 @@ export class GameHUD {
         targetTerrain.terrainType === 'forest');
 
     const isElevationObstacle =
+      !jump &&
       path.length > 0 && (rawDestination.y ?? 0) - (path[path.length - 1].y ?? 0) > 0.5;
 
     const stoppedAtBase =
+      !jump &&
       path.length > 0 &&
       !hasTrait(active.specialRules, 'airborne') &&
       (isElevationObstacle ||
         (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], rawDestination) > 0.1));
 
     const isDifficult =
+      !jump &&
       !stoppedAtBase &&
       path.length > 0 &&
       isPathDifficult(this.state, path, active);
@@ -1104,7 +1151,7 @@ export class GameHUD {
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path);
-    if (distance < 0.05) {
+    if (distance < 0.05 && !jump) {
       this.showToast('Pick a destination away from the unit');
       return;
     }
@@ -1148,12 +1195,7 @@ export class GameHUD {
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
-    const gapJump = detectPathGapJump(this.state, path, active);
-    if (gapJump.isGapJump) {
-      summary += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): roll ${gapJump.dice} dice, all ${gapJump.target}+ or fall!`;
-    } else if (gapJump.tooWide) {
-      summary += ` · ❌ GAP TOO WIDE (${gapJump.gapDistance.toFixed(1)}"): cannot be jumped (6" maximum)`;
-    }
+    summary += this.traversalSummary(active, path, jump);
 
     this.selectedCasualtyModelId =
       active.models && active.models.length > 1
@@ -1162,6 +1204,8 @@ export class GameHUD {
 
     this.movePreview = destination;
     this.movePathPreview = path;
+    this.moveJump = jump;
+    this.moveSegments = describePathSegments(this.state, active, path);
     this.movePreviewDifficult = isDifficult;
     this.beginConfirmation(
       createAction(this.localPlayerId, 'rush', {
@@ -1170,7 +1214,7 @@ export class GameHUD {
         path,
         finalPosition: destination,
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
-        ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
+        ...(jump ? { traversal: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing } } : {}),
       }),
       summary
     );
@@ -1346,11 +1390,9 @@ export class GameHUD {
       if (isPathDangerous(this.state!, path, active)) {
         traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
       }
-      const gapJump = detectPathGapJump(this.state!, path, active);
-      if (gapJump.isGapJump) {
-        traversalNotes += ` · ⚠️ GAP JUMP (${gapJump.gapDistance.toFixed(1)}"): ${gapJump.dice} dice, all ${gapJump.target}+`;
-      } else if (gapJump.tooWide) {
-        traversalNotes += ` · ❌ GAP TOO WIDE (${gapJump.gapDistance.toFixed(1)}")`;
+      const chargeLegs = segmentSummary(describePathSegments(this.state!, active, path));
+      if (chargeLegs) {
+        traversalNotes += ` · ${chargeLegs}`;
       }
 
       const isFatigued = active.status.includes('fatigued') || active.status.includes('shaken');
@@ -1380,6 +1422,8 @@ export class GameHUD {
 
       this.movePreview = end;
       this.movePathPreview = path;
+      this.moveJump = null;
+      this.moveSegments = describePathSegments(this.state!, active, path);
       this.hoveredEngagedTargetId = target.id;
 
       this.beginConfirmation(
@@ -1389,7 +1433,6 @@ export class GameHUD {
           targetId: target.id,
           path,
           weaponId: weapon.id,
-          ...(gapJump.isGapJump ? { gapJump: { gapDistance: gapJump.gapDistance } } : {}),
         }),
         `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into base contact) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
@@ -1557,6 +1600,8 @@ export class GameHUD {
     const action = this.flow.action;
     this.movePreview = null;
     this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
     this.movePreviewDifficult = false;
     this.hoveredEngagedTargetId = null;
     this.shootAllocations.clear();
@@ -1571,6 +1616,8 @@ export class GameHUD {
     if (this.flow.mode === 'waiting') return; // already sent, nothing to cancel
     this.movePreview = null;
     this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
     this.movePreviewDifficult = false;
     this.hoveredEngagedTargetId = null;
     this.shootAllocations.clear();
@@ -2915,6 +2962,39 @@ export class GameHUD {
     }
   }
 
+  /** Summary text for the traversal part of a previewed move: the declared jump, or the labelled legs. */
+  private traversalSummary(active: Unit, path: Vector3[], jump: JumpOption | null): string {
+    if (jump) return ` · ${jumpChip(jump).text}`;
+    const legs = segmentSummary(describePathSegments(this.state!, active, path));
+    return legs ? ` · ${legs}` : '';
+  }
+
+  /** Hover chip for the previewed move: the declared jump / fall, or the labelled legs (climb, drop). */
+  private showTraversalChip(): void {
+    const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
+    if (!el) return;
+    if (this.moveJump) {
+      const chip = jumpChip(this.moveJump);
+      el.textContent = chip.text;
+      el.style.display = 'block';
+      el.style.background = chip.warning ? 'rgba(244, 67, 54, 0.25)' : 'rgba(255, 112, 67, 0.2)';
+      el.style.borderColor = chip.warning ? '#f44336' : '#ff7043';
+      el.style.color = chip.warning ? '#ff8a80' : '#ffab91';
+      return;
+    }
+    const legs = this.moveSegments ? segmentSummary(this.moveSegments) : '';
+    if (!legs) return;
+    if (el.style.display === 'none') {
+      el.textContent = legs;
+      el.style.display = 'block';
+      el.style.background = 'rgba(255, 193, 7, 0.15)';
+      el.style.borderColor = '#ffc107';
+      el.style.color = '#ffd54f';
+    } else {
+      el.insertAdjacentText('beforeend', ` · ${legs}`);
+    }
+  }
+
   private updateMoveWarning(
     isDifficult: boolean,
     actionKind: string,
@@ -3031,6 +3111,8 @@ export class GameHUD {
             this.stagedSquadModelPaths.clear();
             this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
+            this.moveJump = null;
+            this.moveSegments = null;
             this.movePreview = null;
             this.render();
             this.emitMarkers();
@@ -3356,6 +3438,7 @@ export class GameHUD {
           waypoints: this.movePathPreview,
           isMeleeContact: !!this.hoveredEngagedTargetId,
           color: this.movePreviewDifficult ? 0xffa726 : undefined,
+          segments: this.moveSegments ?? undefined,
         };
       } else if (this.movePreview) {
         markers.movePath = {
@@ -3375,6 +3458,7 @@ export class GameHUD {
         to: this.movePathPreview[this.movePathPreview.length - 1],
         waypoints: this.movePathPreview,
         isMeleeContact: true,
+        segments: this.moveSegments ?? undefined,
       };
     }
 

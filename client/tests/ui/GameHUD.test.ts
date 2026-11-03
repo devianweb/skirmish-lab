@@ -1377,7 +1377,9 @@ describe('GameHUD', () => {
   });
 
   describe('Phase 11C: Traversal HUD Warnings & Casualty Allocation', () => {
-    it('warns about the jump test when dropping 3-6" (X+1 dice, 3+) and the fall when dropping further', () => {
+    // Batch 1E: the pathfinder only plans ordinary movement. A jump (3-6" down) or a fall (over 6") is declared
+    // from an edge; the HUD for that arrives with E3, so the preview must never plan one on its own.
+    it('does not auto-plan a 3-6" jump down: no jump warning, no preview that drops more than 3"', () => {
       const state = scenarioState();
       const unit = state.units.find((u) => u.ownerId === HOST)!;
       unit.position = { x: 0, y: 4.0, z: 0 };
@@ -1387,12 +1389,14 @@ describe('GameHUD', () => {
       clickByText(container, 'Move');
       hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
 
-      expect(container.textContent).toContain('JUMP DOWN');
-      expect(container.textContent).toContain('2 dice');
-      expect(container.textContent).toContain('3+');
+      expect(container.textContent).not.toContain('JUMP DOWN');
+      const preview = ((hud as any).movePathPreview ?? []) as Array<{ y?: number }>;
+      for (let i = 1; i < preview.length; i++) {
+        expect((preview[i - 1].y ?? 0) - (preview[i].y ?? 0)).toBeLessThanOrEqual(3.05);
+      }
     });
 
-    it('warns that a drop above 6" cannot be jumped and falls', () => {
+    it('does not auto-plan a fall over 6" either', () => {
       const state = scenarioState();
       const unit = state.units.find((u) => u.ownerId === HOST)!;
       unit.position = { x: 0, y: 7.0, z: 0 };
@@ -1402,8 +1406,11 @@ describe('GameHUD', () => {
       clickByText(container, 'Move');
       hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
 
-      expect(container.textContent).toContain('HIGH DROP');
-      expect(container.textContent).toContain('too far to jump');
+      expect(container.textContent).not.toContain('HIGH DROP');
+      const preview = ((hud as any).movePathPreview ?? []) as Array<{ y?: number }>;
+      for (let i = 1; i < preview.length; i++) {
+        expect((preview[i - 1].y ?? 0) - (preview[i].y ?? 0)).toBeLessThanOrEqual(3.05);
+      }
     });
 
     it('displays dangerous terrain hazard warning and allocates squad casualties', () => {
@@ -1483,6 +1490,7 @@ describe('GameHUD', () => {
           scale: { x: 4, y: 2.5, z: 4 },
           isWalkable: true,
           elevation: 2.5,
+          isObstacle: true,
         },
       ];
       const unit = state.units.find((u) => u.ownerId === HOST)!;
@@ -1507,7 +1515,7 @@ describe('GameHUD', () => {
       expect(preview.length).toBeGreaterThanOrEqual(2);
       const endPoint = preview[preview.length - 1];
       expect(endPoint.y).toBe(0);
-      expect(endPoint.z).toBeGreaterThanOrEqual(5.8);
+      expect(endPoint.z).toBeGreaterThanOrEqual(5.3);
       expect(endPoint.z).toBeLessThanOrEqual(6.2);
     });
 
@@ -1523,6 +1531,7 @@ describe('GameHUD', () => {
           scale: { x: 4, y: 2.5, z: 4 },
           isWalkable: true,
           elevation: 2.5,
+          isObstacle: true,
         },
       ];
       const unit = state.units.find((u) => u.ownerId === HOST)!;
@@ -1552,11 +1561,11 @@ describe('GameHUD', () => {
       expect(action.type).toBe('rush');
       const finalPos = action.payload.finalPosition;
       expect(finalPos.y).toBe(0);
-      expect(finalPos.z).toBeGreaterThanOrEqual(5.8);
+      expect(finalPos.z).toBeGreaterThanOrEqual(5.3);
       expect(finalPos.z).toBeLessThanOrEqual(6.2);
     });
 
-    it('allows climbing onto platform deck on turn 2 when starting from wall base', () => {
+    it('does not plan a free climb onto the deck from the wall base (climbable terrain arrives with E2)', () => {
       const state = scenarioState();
       state.terrain = [
         {
@@ -1568,6 +1577,7 @@ describe('GameHUD', () => {
           scale: { x: 4, y: 2.5, z: 4 },
           isWalkable: true,
           elevation: 2.5,
+          isObstacle: true,
         },
       ];
       const unit = state.units.find((u) => u.ownerId === HOST)!;
@@ -1579,16 +1589,13 @@ describe('GameHUD', () => {
       clickByText(container, 'Rush');
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 2.5, z: 8 } });
 
-      // Because the unit starts at the wall base, climbing 2.5" is within the 6.0" difficult terrain cap
-      clickByText(container, 'Confirm');
-      expect(controller.submitAction).toHaveBeenCalledTimes(1);
-      const action = controller.submitAction.mock.calls[0][0];
-      expect(action.type).toBe('rush');
-      const finalPos = action.payload.finalPosition;
-      expect(finalPos.y).toBe(2.5);
+      // Batch 1E: the pathfinder never plans a sheer climb; nothing is queued to confirm
+      expect(controller.submitAction).not.toHaveBeenCalled();
+      const preview = ((hud as any).movePathPreview ?? []) as Array<{ y?: number }>;
+      expect(preview.every((p) => (p.y ?? 0) < 0.5)).toBe(true);
     });
 
-    it('displays gap jump risk warning in move confirmation bar when traversing platform gap > 1.0"', () => {
+    it('does not auto-plan a gap jump across a platform gap > 1.0"; the preview stays on the near deck', () => {
       const state = scenarioState();
       state.terrain = [
         {
@@ -1620,15 +1627,12 @@ describe('GameHUD', () => {
       clickByText(container, 'Move');
       hud.handleBoardPick({ kind: 'position', position: { x: 2, y: 2.5, z: 0 } });
 
-      expect(container.textContent).toContain('GAP JUMP');
-      // Platforms span x -3..-1 and 1..3: a ~2" gap is a 1-die jump test (3+)
-      expect(container.textContent).toContain('roll 1 dice, all 3+');
-
-      clickByText(container, 'Confirm');
-      expect(controller.submitAction).toHaveBeenCalledTimes(1);
-      const action = controller.submitAction.mock.calls[0][0];
-      expect(action.payload.gapJump).toBeDefined();
-      expect(action.payload.gapJump.gapDistance).toBeCloseTo(2, 0);
+      // Batch 1E: platforms span x -3..-1 and 1..3, a 2" gap (a 1-die jump). The pathfinder never plans a jump,
+      // so the preview stops on the near deck; declaring the jump from the edge is the E3 HUD.
+      expect(container.textContent).not.toContain('GAP JUMP');
+      const preview = ((hud as any).movePathPreview ?? []) as Array<{ x: number }>;
+      expect(preview.every((p) => p.x <= -0.8)).toBe(true);
+      expect(controller.submitAction).not.toHaveBeenCalled();
     });
 
     it('shows movement hazard dice (jump, fall) in the dice panel and the log', () => {
@@ -1916,12 +1920,12 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
       expect(container.textContent).toContain('Place Model 3 of 4');
 
-      // Model 3 placed at (4.0, 0, -2) [Pair 2 leader, 4.0" from M1 / 3.0" from M2 — within 6" spread, starts new pair!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -2 } });
+      // Model 3 placed at (4.0, 0, -4.5) [Pair 2 leader, 4.7" from M1, within 6" spread, starts new pair!]
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
       expect(container.textContent).toContain('Place Model 4 of 4');
 
-      // Model 4 placed at (5.0, 0, -2) [Pair 2 buddy, 1.0" from M3, 5.0" from M1 — full squad coherency satisfied!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -2 } });
+      // Model 4 placed at (5.0, 0, -4.5) [Pair 2 buddy, 1.0" from M3, 5.5" from M1 — full squad coherency satisfied!]
+      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
 
       // Should enter Move Confirmation successfully!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -1934,8 +1938,8 @@ describe('GameHUD', () => {
       expect(action.payload.modelPositions).toHaveLength(4);
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -2 });
       expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -2 });
-      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -2 });
-      expect(action.payload.modelPositions[3]).toEqual({ x: 5.0, y: 0, z: -2 });
+      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -4.5 });
+      expect(action.payload.modelPositions[3]).toEqual({ x: 5.0, y: 0, z: -4.5 });
     });
 
     it('allows player to select squad models to move in any arbitrary order via chips or board clicks', () => {
@@ -1973,15 +1977,15 @@ describe('GameHUD', () => {
       // Place Model 4 at (1.0, 0, -2) [buddy to M3 with 1.0" base contact]
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
 
-      // 3. Player clicks Model 1 chip and places it at (4.0, 0, -2)
+      // 3. Player clicks Model 1 chip and places it at (4.0, 0, -4.5)
       const m1Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]');
       expect(m1Chip).toBeTruthy();
       m1Chip!.click();
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
 
-      // 4. Finally place Model 2 at (5.0, 0, -2) [buddy to M1 with 1.0" base contact]
+      // 4. Finally place Model 2 at (5.0, 0, -4.5) [buddy to M1 with 1.0" base contact]
       expect(container.textContent).toContain('Place Model 2 of 4');
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
 
       // All 4 models placed in arbitrary order (M3 -> M4 -> M1 -> M2)!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -1991,8 +1995,8 @@ describe('GameHUD', () => {
       const action = controller.submitAction.mock.calls[0][0];
       expect(action.type).toBe('move-unit');
       // Payload positions must be indexed according to living model order [m1, m2, m3, m4]
-      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -2 }); // m1
-      expect(action.payload.modelPositions[1]).toEqual({ x: 5.0, y: 0, z: -2 }); // m2
+      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -4.5 }); // m1
+      expect(action.payload.modelPositions[1]).toEqual({ x: 5.0, y: 0, z: -4.5 }); // m2
       expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -2 });   // m3
       expect(action.payload.modelPositions[3]).toEqual({ x: 1.0, y: 0, z: -2 }); // m4
     });

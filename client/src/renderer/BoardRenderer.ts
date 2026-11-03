@@ -100,7 +100,7 @@ export class BoardRenderer {
    */
   raycastTerrainHit(
     raycaster: THREE.Raycaster
-  ): { terrainId: string; point: THREE.Vector3; piece?: TerrainPiece } | null {
+  ): { terrainId: string; point: THREE.Vector3; normal?: THREE.Vector3; piece?: TerrainPiece } | null {
     this.terrainGroup.updateMatrixWorld(true);
     const hits = raycaster.intersectObjects(this.terrainGroup.children, true);
     for (const hit of hits) {
@@ -108,12 +108,17 @@ export class BoardRenderer {
       // their corners; only real mesh surfaces, not flagged decor, count.
       const object = hit.object as THREE.Mesh;
       if (!object.isMesh || object.userData?.decor === true) continue;
+      // Face normal in world space, so callers can tell a top face from a side or underside.
+      const normal = hit.face
+        ? hit.face.normal.clone().transformDirection(object.matrixWorld)
+        : undefined;
       let current: THREE.Object3D | null = hit.object;
       while (current && current !== this.terrainGroup) {
         if (typeof current.userData?.terrainId === 'string') {
           return {
             terrainId: current.userData.terrainId,
             point: hit.point,
+            ...(normal ? { normal } : {}),
             piece: current.userData.piece as TerrainPiece | undefined,
           };
         }

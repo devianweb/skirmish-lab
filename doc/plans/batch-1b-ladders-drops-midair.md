@@ -1,8 +1,8 @@
 # Batch 1B: ladders, drops, gaps and mid-air
-Status: approved (2026-11-02)
+Status: done (2026-11-03): PRs #160, #162, #165, #171 (PR 3a replaced by 1E E1)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
-The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: PR 1 → PR 5 → PR 3 (3a engine, then 3b pick) → PR 2.
+The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: PR 1 ✓ → PR 5 ✓ → PR 3b (pick) → then batch 1E (E1–E4) → PR 2. (PR 3a is replaced by 1E E1.)
 
 ## PR 1: Ladder standing spots + mid-air guard fix (branch: `fix/ladder-standing-spots`)
 **Owner report:** "Rush to the bottom of the ladder correctly moves the mini to the bottom of the ladder … but it's mashed the models together." The mini's base ends up inside the ladder and half under the deck.
@@ -57,6 +57,7 @@ The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: P
 ---
 
 ## PR 3: Drops from decks / never path into mid-air (branch: `fix/deck-drops`)
+> **Superseded in part by batch 1E (2026-11-02):** PR 3a (engine) is replaced by 1E **E1**. Only **PR 3b** (the pick accepts only upward-facing top-face hits) remains here. The engine notes below are kept as background for E1.
 **Owner report (screenshot, deployed build):** the cursor was over the **ground in the gap** between two decks. The Rush preview showed "GAP JUMP (4.9"): roll 2 dice" and a destination marker floating at deck height over the gap. Owner: "I think it should have pathfound including a drop to the floor, rather than trying to jump into mid air … Dropping from the platform seems to be entirely broken honestly."
 
 **Agreed behaviour (Decision 5):** when the target is the ground (or any lower floor), the path walks to the deck edge and drops down: free if ≤ 3", the jump test if 3–6". It never crosses the gap at deck height, and it never ends over open air.
@@ -75,6 +76,14 @@ The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: P
   3. **The clamp can stop over open air** on a level gap segment (no all-or-nothing guard like drops/ladders).
   4. Bug C hides it from the host (PR 1).
 - **Pick (secondary, still worth fixing):** `GameView.computePickTarget` can accept a deck **side-face** or kick-plate hit as "on the floor" (within 0.05" of the footprint and 0.15" of the top). Require an upward-facing hit.
+- **Update after PR 1 (#160) and PR 5 (#162) merged (replayed on the fixture):**
+  - PR 5 added per-surface drop spots (edge point → over-air point one `DROP_STANDOFF` out → ground point), made A* cost drops by horizontal distance, and made "step off, then fall" all-or-nothing. **Build on these. Don't duplicate them.**
+  - Still wrong:
+    - Ruin ledge (−1,3,0) → ground (2.5,0,0) still crosses the 5" gap at deck height to the ladder's climb-top, then climbs down (cost 10.7, gap 4.6). It should step off the ledge's open east end and drop 3".
+    - Platform A (7,3,−1) → ground (2.5,0,−1) climbs down the ladder (cost 6.4) instead of the cheaper free edge drop (≈5.0).
+    - Ledge → platform A with a 4" budget still ends at (2.97,3,−0.5) over the gap (host now rejects it via the mid-air guard, but the nav must not produce it: Decision 6).
+  - **New, pre-existing nav gap: stairs can't be reached from the side.** From ground (10,0,4), next to the stairs at (7,0,3) (yaw π, foot waypoint (7,0,5.2)), the direct segment to the foot is correctly blocked by the wedge, but there are no nav waypoints around the wedge's foot corners. So the planner never finds the stairs. A target on the slope (7,1.5,3) or on platform A routes to the ladder instead. Add clearance waypoints around the stair wedge's footprint corners (at least the two foot-end corners, offset by `UNIT_COLLISION_RADIUS` + margin), and test: from (10,0,4) the path to platform A goes round the corner, up the stairs, cost ≈ 10.
+  - **Suspected bug, verify with a test:** `findNavPath` step 3b `deckPoints` converts local → world with `x*cos − z*sin`, while `localToWorldXZ` uses the opposite sign. It's likely wrong for rotated pieces (the catwalk at yaw π/2 in the owner's first map). Use `localToWorldXZ`.
 - **Layer:** shared engine (PR 3a: nav drop edges, costing, clamp) then client pick (PR 3b).
 - **Tests first:**
   1. Pick: a ray that hits a deck's side face or kick-plate (normal not pointing up) never picks the deck top. Only hits whose face normal points up (`face.normal.y > 0.7` in world space) on the top face count. A ray over the gap resolves to the ground.

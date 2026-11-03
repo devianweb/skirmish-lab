@@ -19,11 +19,12 @@ import {
   resolveTerrainStructure,
   traceLineOfSight,
   isSegmentOnRampOrStairs,
+  LADDER_STANDOFF,
   isSegmentSurfaceConstrained,
   validateFormationMove,
   validateSquadCoherency,
 } from '../../src/engine/spatial';
-import { isPathDifficult } from '../../src/engine/traversal';
+import { isPathDifficult, pathMovementCost } from '../../src/engine/traversal';
 import { WEAPONS } from '../../src/data/weapons';
 
 const HOST = 'host-1';
@@ -944,8 +945,11 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         const ladderConn = getStairWaypoints(state, ladderWest);
         expect(ladderConn.foot.y).toBe(0);
         expect(ladderConn.head.y).toBe(2.5);
-        expect(ladderConn.foot.x).toBe(-4.5);
-        expect(ladderConn.head.x).toBe(-4.5);
+        // yaw -PI/2: local +Z points to -X, so the foot is 0.55" outside (+X) and the head 0.55" in (-X)
+        expect(ladderConn.foot.x).toBeCloseTo(-4.5 + LADDER_STANDOFF, 2);
+        expect(ladderConn.head.x).toBeCloseTo(-4.5 - LADDER_STANDOFF, 2);
+        expect(ladderConn.foot.z).toBe(2);
+        expect(ladderConn.head.z).toBe(2);
       });
 
       it('recognizes line segments on stairs and ladders as ramp traversals', () => {
@@ -1051,7 +1055,8 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         expect(isPathDifficult(state, path, unit)).toBe(false);
       });
 
-      it('falls back to wall-base ascent when climbing sheer walls without stairs and applies Difficult Terrain cap', () => {
+      // The pathfinder only climbs onto climbable pieces (a platform is not climbable by default).
+      it('does not plan a climb up a sheer wall of a non-climbable piece: it stops at the wall base', () => {
         const sheerPlatform: TerrainPiece = {
           id: 'plat-sheer',
           terrainType: 'platform',
@@ -1071,21 +1076,15 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         const state = makeState([unit], [sheerPlatform]);
 
         const path = findNavPath(state, unit, { x: 5, y: 2.5, z: 0 }, 12.0);
-        expect(path.length).toBeGreaterThanOrEqual(3);
+        expect(path.length).toBeGreaterThanOrEqual(2);
         expect(path[0].y).toBe(0);
-        expect(path[path.length - 1].y).toBe(2.5);
-
-        // Sheer wall climb must route along ground to wall base, then ascend vertically
-        const hasVerticalAscent = path.some(
-          (p, idx) => idx > 0 && (p.y ?? 0) - (path[idx - 1].y ?? 0) > 1.5
-        );
-        expect(hasVerticalAscent).toBe(true);
-
-        // Sheer wall climb IS Difficult Terrain
-        expect(isPathDifficult(state, path, unit)).toBe(true);
+        expect(path[path.length - 1].y).toBe(0);
+        expect(path.some((p, idx) => idx > 0 && (p.y ?? 0) - (path[idx - 1].y ?? 0) > 0.5)).toBe(false);
+        // It still heads for the wall (x = 3 is the wall base for a deck spanning 3..7)
+        expect(path[path.length - 1].x).toBeGreaterThan(2);
       });
 
-      it('stops at wall base when stopBeforeDifficult is requested and path exceeds 6.0" (Rush pacing)', () => {
+      it('stops at the base of a non-climbable wall when stopBeforeDifficult is requested', () => {
         const sheerPlatform: TerrainPiece = {
           id: 'plat-sheer-rush',
           terrainType: 'platform',
@@ -1114,19 +1113,35 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         // Ends on ground at base of wall
         const lastPt = path[path.length - 1];
         expect(lastPt.y).toBe(0);
-        expect(lastPt.x).toBeGreaterThanOrEqual(5.8);
-        expect(lastPt.x).toBeLessThanOrEqual(6.2);
 
         // Path is on open ground, NOT Difficult Terrain
         expect(isPathDifficult(state, path, unit)).toBe(false);
+      });
 
-        // Next turn: Starting from base of wall (x=6, y=0), climbing 2.5" is within 6.0"
-        unit.position = { x: 6, y: 0, z: 0 };
-        const climbPath = findNavPath(state, unit, { x: 8, y: 2.5, z: 0 }, 6.0, {
-          stopBeforeDifficult: true,
-        });
-        expect(climbPath[climbPath.length - 1].y).toBe(2.5);
-        expect(isPathDifficult(state, climbPath, unit)).toBe(true);
+      it('climbs a sheer wall of a climbable piece as ordinary movement: not difficult, vertical counts, ends on the deck', () => {
+        const climbablePlatform: TerrainPiece = {
+          id: 'plat-climbable',
+          terrainType: 'platform',
+          climbable: true,
+          position: { x: 5, y: 2.5, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 0.3, z: 4 },
+          elevation: 2.5,
+          isWalkable: true,
+          blocksLineOfSight: false,
+          providesCover: true,
+          isObstacle: true,
+        };
+        const unit = makeUnit('u-climb', HOST, { x: 0, y: 0, z: 0 });
+        unit.speed = 12;
+        unit.remainingMovement = 12;
+        const state = makeState([unit], [climbablePlatform]);
+        const path = findNavPath(state, unit, { x: 5, y: 2.5, z: 0 }, 12.0, { stopBeforeDifficult: true });
+        expect(path[path.length - 1]).toMatchObject({ x: 5, y: 2.5, z: 0 });
+        expect(path.some((p, idx) => idx > 0 && (p.y ?? 0) - (path[idx - 1].y ?? 0) > 2)).toBe(true);
+        expect(isPathDifficult(state, path, unit)).toBe(false);
+        // 5" over the ground to the deck's centre plus the 2.5" rise
+        expect(pathMovementCost(state, path, unit)).toBeCloseTo(7.5, 0);
       });
 
       it('stops at difficult terrain boundary when stopBeforeDifficult is requested and path exceeds 6.0" (Rush pacing before mud)', () => {
