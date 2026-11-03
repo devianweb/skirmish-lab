@@ -44,6 +44,7 @@ import {
   isLadderPiece,
   isOnLadderClimbLine,
   isSuspendedInMidAir,
+  isBaseOverhanging,
   findEndOverlap,
   describeEndOverlap,
   validateSquadCoherency,
@@ -97,6 +98,8 @@ export function pathLength(path: Vector3[]): number {
 }
 
 /** Engagement distance: how close a charging unit ends to its target. */
+/** Rejection text for an end position whose base hangs over an edge. */
+const OVERHANG_REASON = 'Models cannot end movement partly overhanging an edge — the whole base must rest on the floor';
 const ENGAGEMENT_DISTANCE = 1;
 /** Melee is legal within this many board units of the target. */
 const ENGAGEMENT_RANGE = 1.5;
@@ -341,6 +344,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (isSuspendedInMidAir(state, end)) {
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
         }
+        if (isBaseOverhanging(state, end)) {
+          return { valid: false, reason: OVERHANG_REASON };
+        }
         for (const piece of state.terrain) {
           if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
             return {
@@ -437,6 +443,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
+        }
+        if (isBaseOverhanging(state, mEnd)) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${OVERHANG_REASON}` };
         }
         for (const piece of state.terrain) {
           if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, mEnd)) {
@@ -583,6 +592,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       );
       if (chargeJumpProblem) return { valid: false, reason: chargeJumpProblem };
       const end = path[path.length - 1];
+      if (isBaseOverhanging(state, end)) return { valid: false, reason: OVERHANG_REASON };
       const chargeOverlap = findEndOverlap(state, attacker.result.id, end);
       if (chargeOverlap) return { valid: false, reason: describeEndOverlap(chargeOverlap) };
       const distToEnd = boardDistance(end, target.result.position);
@@ -675,6 +685,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (jumpProblem) return { valid: false, reason: jumpProblem };
         if (isSuspendedInMidAir(state, end)) {
           return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
+        }
+        if (isBaseOverhanging(state, end)) {
+          return { valid: false, reason: OVERHANG_REASON };
         }
         for (const piece of state.terrain) {
           if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
@@ -781,6 +794,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
+        }
+        if (isBaseOverhanging(state, mEnd)) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${OVERHANG_REASON}` };
         }
         for (const piece of state.terrain) {
           if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, mEnd)) {

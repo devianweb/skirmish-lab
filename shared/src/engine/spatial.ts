@@ -13,7 +13,7 @@ import {
   worldToLocal,
 } from './terrainStructure';
 
-import { classifySegment, CLIMB_MAX, FREE_DROP_MAX } from './traversal';
+import { classifySegment, CLIMB_MAX, FREE_DROP_MAX, pathMovementCost } from './traversal';
 import { isClimbable } from '../data/mapSchema';
 
 export * from './terrainStructure';
@@ -27,6 +27,10 @@ export * from './terrainStructure';
 
 /** Base collision radius of a fighter for movement blocking (board units: 1.0" base -> 0.45" radius). */
 export const UNIT_COLLISION_RADIUS = 0.45;
+/** Points sampled round a base to test that it is fully supported (`isBaseOverhanging`). */
+const BASE_SUPPORT_SAMPLES = 16;
+/** Slack so a base placed exactly at its radius from an edge (after 0.01" rounding) still counts as supported. */
+const BASE_SUPPORT_TOLERANCE = 0.02;
 /** Minimum center-to-center distance between two fighters during movement (1.0" base contact). */
 export const UNIT_SEPARATION_DISTANCE = 1.0;
 /** Base radius of a fighter for Line of Sight blocking (board units). */
@@ -840,6 +844,43 @@ export function isSuspendedInMidAir(state: GameState, point: Vector3): boolean {
     if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, point)) return false; // the ladder deck-arrival rule covers it
   }
   return true;
+}
+
+/**
+ * True if a model standing at `point` would have its base hanging over open air: elevated, and some part of
+ * the base circle (`UNIT_COLLISION_RADIUS`) is not over a walkable floor at the model's height. Floors are
+ * taken as a union, so standing across the seam of two flush decks is fine. Ground-level points are not
+ * judged here, and a stair slope or a ladder arrival counts as support (they have their own rules). A centre
+ * in open air also counts, so this covers `isSuspendedInMidAir` for floors.
+ */
+export function isBaseOverhanging(
+  state: GameState,
+  point: Vector3,
+  surfaces: WalkableSurface[] = collectWalkableSurfaces(state)
+): boolean {
+  const y = point.y ?? 0;
+  if (y <= 0.3) return false;
+  const supportedAt = (x: number, z: number): boolean => {
+    const surface = findWalkableSurfaceIn(surfaces, { x, z, y }, BASE_SUPPORT_TOLERANCE);
+    if (surface && Math.abs(y - surface.topY) <= 0.3) return true;
+    for (const piece of state.terrain) {
+      if (!isStairPiece(piece)) continue;
+      const slopeY = getStairSurfaceHeight(piece, { x, y, z }, state);
+      if (slopeY !== null && Math.abs(y - slopeY) <= 0.3) return true;
+    }
+    return false;
+  };
+  if (!supportedAt(point.x, point.z)) {
+    // Centre not on a floor: a ladder arrival is judged by its own rule
+    return !state.terrain.some((p) => isLadderPiece(p) && isOnLadderClimbLine(state, p, point));
+  }
+  for (let k = 0; k < BASE_SUPPORT_SAMPLES; k++) {
+    const ang = (k / BASE_SUPPORT_SAMPLES) * Math.PI * 2;
+    if (!supportedAt(point.x + Math.cos(ang) * UNIT_COLLISION_RADIUS, point.z + Math.sin(ang) * UNIT_COLLISION_RADIUS)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Two models of different units closer than this (centre to centre, at a similar height) overlap. */
@@ -1947,14 +1988,21 @@ function isShortLadderDescentStep(state: GameState, a: Vector3, b: Vector3): boo
  * Pull a planned path's end back so the model never stops suspended in mid-air or part-way up a ladder.
  * Walks back along the last segment (then earlier ones) to the nearest standable point, never forward.
  */
-function settleEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
+function settleEnd(state: GameState, unit: Unit, path: Vector3[], budget?: number): Vector3[] {
   if (path.length < 2) return path;
   const airborne = hasTrait(unit.specialRules, 'airborne');
+  const surfaces = collectWalkableSurfaces(state);
   const bad = (pt: Vector3): boolean =>
     findEndOverlap(state, unit.id, pt) !== null ||
     (!airborne &&
       (isSuspendedInMidAir(state, pt) ||
+        isBaseOverhanging(state, pt, surfaces) ||
         state.terrain.some((p) => isLadderPiece(p) && isOnLadderClimbLine(state, p, pt))));
+  // Climbed onto a floor but stopped at its lip: step on until the whole base is on the floor, if the budget allows
+  if (budget !== undefined && !airborne && path.length >= 3 && bad(path[path.length - 1])) {
+    const onto = stepFullyOntoFloor(state, unit, path, budget, bad);
+    if (onto) return onto;
+  }
   // A straight climb or drop (no ladder, no stairs) has no standable point part-way: all or nothing
   return pullBackEnd(
     path,
@@ -1964,6 +2012,43 @@ function settleEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
       Math.hypot(b.x - a.x, b.z - a.z) < 0.1 &&
       !isSegmentOnRampOrStairs(state, a, b)
   );
+}
+
+/**
+ * When a path's last leg is the level step from the top of a climb onto the floor, and the end would leave the
+ * base over the lip, push the end on along that step to the first spot where the base is fully on the floor.
+ * Null when the path is not that shape, no such spot is close, or the extra distance exceeds `budget`.
+ */
+function stepFullyOntoFloor(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  budget: number,
+  bad: (pt: Vector3) => boolean
+): Vector3[] | null {
+  const n = path.length;
+  const [prev, a, last] = [path[n - 3], path[n - 2], path[n - 1]];
+  const climbedUp = (a.y ?? 0) - (prev.y ?? 0) > 0.5 && Math.hypot(a.x - prev.x, a.z - prev.z) < 0.1;
+  if (!climbedUp || Math.abs((last.y ?? 0) - (a.y ?? 0)) > 0.05 || isSegmentOnRampOrStairs(state, prev, a)) return null;
+  const len = Math.hypot(last.x - a.x, last.z - a.z);
+  if (len < 1e-6) return null;
+  for (let d = len; d <= len + 1.5; d += 0.05) {
+    const pt = {
+      x: Math.round((a.x + ((last.x - a.x) / len) * d) * 100) / 100,
+      y: last.y ?? 0,
+      z: Math.round((a.z + ((last.z - a.z) / len) * d) * 100) / 100,
+    };
+    if (bad(pt)) continue;
+    // a little further in, so the base is clear of the lip rather than exactly touching it
+    const ahead = {
+      x: Math.round((pt.x + ((last.x - a.x) / len) * 0.05) * 100) / 100,
+      y: pt.y,
+      z: Math.round((pt.z + ((last.z - a.z) / len) * 0.05) * 100) / 100,
+    };
+    const extended = [...path.slice(0, n - 1), bad(ahead) ? pt : ahead];
+    return pathMovementCost(state, extended, unit) <= budget + 1e-4 ? extended : null;
+  }
+  return null;
 }
 
 /**
@@ -2140,7 +2225,7 @@ export function findNavPath(
       }
 
       if (dist <= maxDistance + 1e-4) {
-        return [from, target];
+        return settleEnd(state, unit, [from, target]);
       }
       const ratio = maxDistance / dist;
       return settleEnd(state, unit, [
@@ -2681,7 +2766,7 @@ export function findNavPath(
     }
   }
 
-  return settleEnd(state, unit, result);
+  return settleEnd(state, unit, result, maxDistance);
 }
 
 /**

@@ -18,6 +18,8 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 3. Elevation, ladders, stairs
 - All items verified.
+- [ ] Climb onto the ruin ledge (or any deck) from the ground, with the cursor on or just past the lip: the preview says "climb 3.0\"" with no "gap 0.6\"", and the model ends with its whole base on the floor, never half over the edge. With too little movement left it stays at the foot of the wall instead.
+- [ ] Hover on a deck within 0.5" of its edge: the cursor snaps to a spot a full base inside the edge (the ghost base is entirely on the deck), and a jump from a deck edge is still offered.
 
 ## 4. Drops, jumps and movement cost
 Movement model (batch 1E): the pathfinder only plans ordinary movement (walking, stairs, ladders, drops of 3" or less, gaps of 1" or less). Jumps and falls are never planned: the player declares them from where the model stands at an edge. The move preview styles each leg by how it is traversed: walking, stairs and ladders normal, climbs orange, safe drops amber, jumps dashed red, with a label and cost in the summary chip ("climb 2.3"", "drop 3.0"", "jump 4.9" · 2 dice"). Squads cannot declare jumps yet (the host rejects them), so jump chips are offered to single-model units only.

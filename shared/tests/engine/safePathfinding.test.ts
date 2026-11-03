@@ -330,7 +330,7 @@ describe('one source of truth for traversal', () => {
   it('a passed jump leaves the budget untouched when the jump path is just the leap', () => {
     const unit = makeUnit('u', P(1.8, 3, 0), 2);
     const state = makeState(unit, [deckAt('a', 0), deckAt('b', 6)]);
-    const opt = findJumpOption(state, unit, P(1.8, 3, 0), P(4.4, 3, 0))!;
+    const opt = findJumpOption(state, unit, P(1.8, 3, 0), P(4.6, 3, 0))!;
     expect(opt.kind).toBe('jump-gap');
     expect(pathMovementCost(state, opt.path, unit)).toBe(0);
   });
