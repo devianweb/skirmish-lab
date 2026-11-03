@@ -187,6 +187,51 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     expect(action.payload.traversal.kind).toBe('fall');
   });
 
+  const deckPiece = (id: string, x: number, topY: number): TerrainPiece =>
+    ({
+      id,
+      terrainType: 'platform',
+      position: { x, y: topY, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 0.3, z: 4 },
+      elevation: topY,
+      isWalkable: true,
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+    }) as TerrainPiece;
+  const confirmSummary = (container: HTMLElement) =>
+    (container.querySelector('.sl-hud-confirm-summary') as HTMLElement).textContent ?? '';
+  const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
+
+  it('a pure 4" drop from an edge shows exactly one jump line: "Jump down 4.2" · 2 dice" (the tape reading)', () => {
+    const { hud, container, state } = setup(P(1.8, 4, 0));
+    state.terrain = [deckPiece('tall', 0, 4)];
+    hud.syncFromState(state);
+    clickByText(container, 'Move');
+    hud.handleBoardHover({ kind: 'position', position: P(3, 0, 0) });
+    expect(chip(container).textContent).toBe('Jump down 4.2" · 2 dice (3+)');
+    hud.handleBoardPick({ kind: 'position', position: P(3, 0, 0) });
+    const summary = confirmSummary(container);
+    expect(occurrences(summary, 'Jump down 4.2" · 2 dice')).toBe(1);
+    expect(summary).not.toMatch(/JUMP DOWN/);
+  });
+
+  it('a gap hop that also drops shows one jump line with the engine dice, and no separate drop warning', () => {
+    const { hud, container, state } = setup(P(1.6, 8, 0));
+    state.terrain = [deckPiece('up', 0, 8), deckPiece('lo', 5.2, 3.5)]; // 1.2" gap, 4.5" drop
+    hud.syncFromState(state);
+    clickByText(container, 'Move');
+    hud.handleBoardHover({ kind: 'position', position: P(4.1, 3.5, 0) });
+    const text = chip(container).textContent!;
+    expect(text).toMatch(/^Jump gap 5\.1" · 2 dice \(3\+\)$/);
+    hud.handleBoardPick({ kind: 'position', position: P(4.1, 3.5, 0) });
+    const summary = confirmSummary(container);
+    expect(occurrences(summary, 'Jump gap 5.1" · 2 dice')).toBe(1);
+    expect(summary).not.toMatch(/JUMP DOWN/);
+    expect(summary).not.toMatch(/dice, all|roll \d dice/);
+  });
+
   it('squads get no jump chip (the host does not accept a declared jump for a multi-model move)', () => {
     const { hud, container, state, unit } = setup(P(-0.2, 3, 0));
     unit.models = [

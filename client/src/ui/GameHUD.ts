@@ -7,7 +7,7 @@ import {
   createAction,
   describeTerrainPiece,
   describeTrait,
-  detectPathFall,
+  classifySegment,
   findNavPath,
   JumpOption,
   findTerrainAtPosition,
@@ -1002,11 +1002,12 @@ export class GameHUD {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
 
-    const maxDrop = Math.max(
-      ...orderedPaths.map((p) => detectPathFall(p, this.state!).maxDrop)
-    );
-    if (describeDrop(maxDrop, active)) {
-      summary += ` · ${describeDrop(maxDrop, active)}`;
+    for (const p of orderedPaths) {
+      const warning = this.dropWarning(active, p, null);
+      if (warning) {
+        summary += ` · ${warning}`;
+        break;
+      }
     }
 
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
@@ -1077,10 +1078,8 @@ export class GameHUD {
     if (isDifficult) {
       summary += ' · [Difficult Terrain: 6.0" speed cap]';
     }
-    const fall = detectPathFall(path, this.state);
-    if (describeDrop(fall.maxDrop, active)) {
-      summary += ` · ${describeDrop(fall.maxDrop, active)}`;
-    }
+    const dropNote = this.dropWarning(active, path, jump);
+    if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
@@ -1200,10 +1199,8 @@ export class GameHUD {
     } else if (isDifficult) {
       summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
     }
-    const fall = detectPathFall(path, this.state);
-    if (describeDrop(fall.maxDrop, active)) {
-      summary += ` · ${describeDrop(fall.maxDrop, active)}`;
-    }
+    const dropNote = this.dropWarning(active, path, jump);
+    if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
@@ -1395,10 +1392,8 @@ export class GameHUD {
       if (isDifficult) {
         traversalNotes += ' · [Difficult Terrain 6.0" cap]';
       }
-      const fall = detectPathFall(path, this.state);
-      if (describeDrop(fall.maxDrop, active)) {
-        traversalNotes += ` · ${describeDrop(fall.maxDrop, active)}`;
-      }
+      const dropNote = this.dropWarning(active, path, null);
+      if (dropNote) traversalNotes += ` · ${dropNote}`;
       if (isPathDangerous(this.state!, path, active)) {
         traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
       }
@@ -2974,6 +2969,20 @@ export class GameHUD {
     if (slot) {
       slot.innerHTML = this.renderDataCard();
     }
+  }
+
+  /**
+   * The one extra warning a previewed path needs beyond its jump chip / leg labels: only the too-high "fall"
+   * leg. Jumps and gap jumps are already described, with the engine's distance and dice, by the chip or the
+   * leg label, so they never get a second line here.
+   */
+  private dropWarning(active: Unit, path: Vector3[], jump: JumpOption | null): string {
+    if (jump) return '';
+    for (let i = 1; i < path.length; i++) {
+      const cls = classifySegment(this.state!, path[i - 1], path[i], active, path[i - 2], path[i + 1]);
+      if (cls.kind === 'fall') return describeDrop(cls.height, active);
+    }
+    return '';
   }
 
   /** Summary text for the traversal part of a previewed move: the declared jump, or the labelled legs. */
