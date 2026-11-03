@@ -7,6 +7,7 @@ import {
   TerrainCategory,
   findWalkableSurfaceAt,
   getWalkableSurfaces,
+  isClimbable,
   localToWorldXZ,
   worldToLocal,
   TERRAIN_PALETTE_CATALOG,
@@ -742,6 +743,7 @@ export class MapEditor {
     if (selectedPiece) {
       const pieceMeta = TERRAIN_PALETTE_CATALOG[selectedPiece.terrainType];
       const displayName = pieceMeta?.displayName ?? selectedPiece.terrainType;
+      const canClimb = getWalkableSurfaces(selectedPiece).length > 0;
       inspectorHtml = `
         <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 8px; padding: 14px; width: 280px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
           <div style="font-size: 13px; font-weight: bold; color: #90caf9; margin-bottom: 4px; text-transform: uppercase;">
@@ -765,6 +767,7 @@ export class MapEditor {
             <label><input type="checkbox" id="inspectLos" ${selectedPiece.blocksLineOfSight ? 'checked' : ''} /> Blocks Line of Sight</label>
             <label><input type="checkbox" id="inspectObstacle" ${selectedPiece.isObstacle ? 'checked' : ''} /> Impassable Obstacle</label>
             <label><input type="checkbox" id="inspectWalkable" ${selectedPiece.isWalkable ? 'checked' : ''} /> Walkable Surface</label>
+            ${canClimb ? `<label title="Models may climb onto this piece's floor (up to 3 inches) without a ladder. Shown with an orange outline."><input type="checkbox" id="inspectClimbable" ${isClimbable(selectedPiece) ? 'checked' : ''} /> Climbable (up to 3")</label>` : ''}
           </div>
 
           <div style="display: flex; gap: 4px; margin-bottom: 6px;">
@@ -1013,6 +1016,17 @@ export class MapEditor {
             piece.elevation = piece.scale.y;
           }
         }
+      }
+    });
+
+    const climbableCheck = this.rootElement.querySelector<HTMLInputElement>('#inspectClimbable');
+    climbableCheck?.addEventListener('change', () => {
+      const piece = this.selectedPieceId
+        ? this.currentMap.terrain.find((t) => t.id === this.selectedPieceId)
+        : undefined;
+      if (piece) {
+        piece.climbable = climbableCheck.checked;
+        this.syncGameView();
       }
     });
 

@@ -6,18 +6,20 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 **How to use:** tick items as you check them. When a sub-phase changes behaviour, update or add the matching item here (don't create a new per-phase file).
 
-**Setup:** two browser windows (Host and Guest) against the dev server (`npm run dev`) or the deployed build. Press **F9** in game for the LoS/cover debugger (solids cyan, low cover amber, walkable floors purple, firing ports green, eye-level ray).
+**Setup:** two browser windows (Host and Guest) against the dev server (`npm run dev`) or the deployed build. Press **F9** in game for the LoS/cover debugger (solids cyan, low cover amber, walkable floors purple, climbable floors outlined orange, firing ports green, eye-level ray).
 
 ---
 
 ## 1. Map builder & editor
 - All items verified 2026-11-02.
+- [ ] **Climbable checkbox:** select a shipping container in the editor: the inspector shows "Climbable (up to 3")" ticked and the piece has an orange outline on its top. Untick it: the outline disappears. Select a platform (unticked by default), tick it: the outline appears. Pieces with no walkable floor (walls) show no checkbox. Export JSON, re-import (and Save, reload the map): the setting persists.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified 2026-11-02.
 
 ## 3. Elevation, ladders, stairs
 
+- [ ] **F9 climbable outline:** with F9 on, climbable pieces (shipping container, ruin ledge) show an orange outline around their top floor; platforms and catwalks do not, unless marked Climbable in the editor.
 - [ ] **Ladder spots:** rush/move toward a ladder with a budget too short to climb: the mini stops at the ladder foot with its base against the wall, outside the ladder and not under the deck. With enough budget it climbs and ends standing fully on the deck at the head (not half over the edge). The short shuffle on and off the ladder costs nothing (only the climb height counts). Climbing back down mirrors it. Check a ladder on each side of a deck and on the shipping container.
 - [ ] **Climb the ruin ledge (3.0"):** from inside the ruin courtyard, move a model onto the ledge: it steps a base off the face, climbs straight up and steps in, with no ladder; movement spent is the walk plus 3". Behind the 4" back wall (outside the ruin) it cannot climb there and walks round instead. With too little movement it stops at the foot, never part-way up. The preview shows the climb leg in orange with a label like "climb 3.0"" and the summary repeats it.
 - [ ] **Deck edge pick:** hover the ground just past a deck edge (low camera angle, also over kick-plates): the target is the ground, never deck height at the edge. Hovering the deck top still picks the deck.

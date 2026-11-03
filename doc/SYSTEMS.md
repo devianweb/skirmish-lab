@@ -292,7 +292,7 @@ Pressing `F9` in-game activates the real-time spatial debugger:
 - **Shooting Ray Trace:** Renders the 3D trajectory from shooter eye level (1.1" above its feet) to the target's eye/aim point, color-coded by obstruction (Cyan = clear LoS, Amber = passing through cover, Red = blocked LoS).
 - **Boundary Intersections:** 3D disc rings highlight exact entry and exit coordinates where the shooting line breaches terrain bounding boxes.
 - **Flank Rays:** Shows left and right torso-height rays (±0.3" from target center, 0.6" up) to verify partial obscuration by walls, jambs and sills.
-- **Cover Map Wireframes:** Renders one wireframe per terrain solid and aperture (Cyan = solid LoS blockers, Amber = low cover, Green = firing-port apertures, Gold highlight = piece actively granting cover to target).
+- **Cover Map Wireframes:** Renders one wireframe per terrain solid and aperture (Cyan = solid LoS blockers, Amber = low cover, Green = firing-port apertures, Gold highlight = piece actively granting cover to target). An orange outline on the top face of a walkable floor marks a climbable piece (`isClimbable`: models can climb onto it without a ladder, rise up to 3"); the map editor shows the same outline on the selected piece.
 - **HUD Analysis Card:** Displays real-time calculations: distance, Line of Sight status, cover reason, piece IDs, and coordinate breakdown of all intersected pieces.
 
 ## Game State Transitions

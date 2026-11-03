@@ -503,6 +503,43 @@ describe('MarkerRenderer', () => {
     expect(geo.parameters.innerRadius).toBeCloseTo(1.94, 2);
   });
 
+  describe('climbable outline in terrain debug', () => {
+    const CLIMB_COLOR = 0xff9800;
+    const piece = (terrainType: string, extra: Partial<TerrainPiece> = {}): TerrainPiece => ({
+      id: `p-${terrainType}`,
+      terrainType,
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 3, y: 1, z: 3 },
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+      ...extra,
+    });
+    const outlineCount = (p: TerrainPiece): number => {
+      const renderer = makeRenderer();
+      renderer.setTerrainDebug(p);
+      const group = scene.getObjectByName(`marker-terrain-${p.id}`)!;
+      let n = 0;
+      group.traverse((o) => {
+        const mat = (o as THREE.Line).material as THREE.LineBasicMaterial | undefined;
+        if (mat && mat.color && mat.color.getHex() === CLIMB_COLOR) n++;
+      });
+      return n;
+    };
+
+    it('outlines the walkable floor of a climbable shipping container', () => {
+      expect(outlineCount(piece('shipping-container'))).toBeGreaterThan(0);
+    });
+    it('draws nothing for a non-climbable platform', () => {
+      expect(outlineCount(piece('platform-small'))).toBe(0);
+    });
+    it('outlines a platform with climbable: true and not with climbable: false on a container', () => {
+      expect(outlineCount(piece('platform-small', { climbable: true }))).toBeGreaterThan(0);
+      expect(outlineCount(piece('shipping-container', { climbable: false }))).toBe(0);
+    });
+  });
+
   it('renders right-angled triangular prism wireframe geometry for stairs in terrain debug mode', () => {
     const renderer = makeRenderer();
     const stairsPiece: TerrainPiece = {
