@@ -28,9 +28,11 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 18. **Edge snapping:** the cursor within 0.5" of a floor edge snaps to it; take-off/climb points are always the exact stand-off spots. See 1E P5.
 19. **The move preview shows how each part is traversed** (climb, drop, jump styles + labels); climbable pieces are outlined in F9 and the editor. See 1E P6.
 20. **Manual shift-click waypoints are deferred** (split moves cover manual routing). See 1E P7.
+21. **Split charges:** a Charge keeps its single budget (12" base) but may be made in legs: declare the target, make safe legs (obeying the 1" keep-away rule, base edge to base edge, against every other enemy unit), declare a jump from an edge like a move (a pass is free; a fail falls, ends the activation, no melee), then a final leg into contact. If contact becomes impossible, the charge ends without melee. A separate move action before a charge is not allowed (one action per activation). Owner: "is a better alternative that we allow movement actions before a charge … then we don't have to do any pathfinding" → agreed as legs within the one Charge action. See 1D PR 16.
+22. **A declared charge can't be undone** or changed into another action. Owner: "Agreed, no undoing."
 
 ## Order
-**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). **Next:** batch 1F (PR 17 → 18 → 19), then PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (charge jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
+**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). **Next:** batch 1F (PR 17 → 18 → 19), then PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
 
 PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop in reverse), so it must come after PR 5 and PR 3a. PR 7 relies on PR 2 so a model can't end on top of a stepped-over piece.
 
@@ -75,7 +77,7 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 
 ## Follow-ups found during 1B/1E
 - Squads can't declare jumps → **1D PR 15**.
-- No jump option on charges → **1D PR 16** (open question: charge-path jumps).
+- No jump option on charges → **1D PR 16** (split charges in legs, Decisions 21–22).
 - Climbing/dropping between a deck and stacked pieces → **1F PR 17**.
 - Failed gap jumps (no damage from 3" decks, lands at y=0/inside things, squads stacked, wrong wound count) → **1F PR 18**.
 - Segment labels HUD-only → **1F PR 19**.
