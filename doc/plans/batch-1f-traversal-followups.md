@@ -1,5 +1,5 @@
 # Batch 1F: traversal follow-ups (stacked levels, failed jumps, 3D labels)
-Status: approved (2026-11-03), not started
+Status: done (2026-11-03): PR 20 #180, PR 17 #181, PR 18 #182, PR 19 #183
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
 Follow-ups found during batches 1B/1E. None of these needs a new rule. PR 17 and PR 18 bring the engine in line with rules already agreed. Order: PR 20 (owner-reported) → PR 17 → PR 18 → PR 19 (independent).
