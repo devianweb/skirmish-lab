@@ -18,6 +18,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 3. Elevation, ladders, stairs
 - All items verified.
+- [ ] Raised stairs: on a map with stairs standing on a deck (e.g. Testy McTestface #2), a model can path up them onto the higher deck, and stop part-way up the slope.
 
 ## 4. Drops, jumps and movement cost
 - All items verified.
