@@ -218,3 +218,14 @@ describe('failed gap jump: squads', () => {
     expect(u.traumaTokens).toBe(1);
   });
 });
+
+describe('falling damage AP per full 3"', () => {
+  it('a forced 2-2.99" fall is one AP(0) hit; 3" is AP(1); 6" is AP(2)', async () => {
+    const { calculateFallingDamage } = await import('../../src/engine/traversal');
+    expect(calculateFallingDamage(2.0, true)).toEqual({ isDangerous: true, damageHits: 1, armorPiercing: 0 });
+    expect(calculateFallingDamage(2.9, true).armorPiercing).toBe(0);
+    expect(calculateFallingDamage(3.0, true).armorPiercing).toBe(1);
+    expect(calculateFallingDamage(6.0, true).armorPiercing).toBe(2);
+    expect(calculateFallingDamage(1.9, true).isDangerous).toBe(false);
+  });
+});

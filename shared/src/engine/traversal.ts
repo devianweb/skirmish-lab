@@ -434,7 +434,7 @@ export function calculateFallingDamage(
     return { isDangerous: false, damageHits: 0, armorPiercing: 0 };
   }
   const full3Inches = Math.floor((verticalDrop + 0.05) / 3.0);
-  const ap = Math.max(1, full3Inches);
+  const ap = full3Inches; // AP(1) per FULL 3" fallen: a 2-2.99" fall is an AP(0) hit
   return {
     isDangerous: true,
     damageHits: 1,
