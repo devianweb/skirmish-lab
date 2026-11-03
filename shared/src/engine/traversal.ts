@@ -47,6 +47,11 @@ export const FREE_DROP_MAX = 3.05;
 /** Drops above FREE_DROP_MAX up to this height can be jumped (test); anything higher is a fall. */
 export const JUMP_DROP_MAX = 6.05;
 
+/** A model that falls (e.g. a failed jump) takes falling damage from this height (inches) up. */
+export const FALL_DAMAGE_MIN = 2.0;
+/** A fallen model is placed within this distance (inches) of where it fell. */
+export const FALL_LANDING_RADIUS = 2.0;
+
 /** Longest climb (inches of rise) a model can make without a ladder or stairs. */
 export const CLIMB_MAX = 3.05;
 /** How close (inches, horizontally) a model must stand to a floor edge to jump or fall from it. */
@@ -415,16 +420,21 @@ export function getEffectiveMaxMovement(
 /**
  * Drops <= 3.0" are safe. Drops > 3.0" inflict Falling Damage: 1 hit with AP(1) per full 3.0" fallen.
  */
-export function calculateFallingDamage(verticalDrop: number): {
+export function calculateFallingDamage(
+  verticalDrop: number,
+  forcedFall: boolean = false
+): {
   isDangerous: boolean;
   damageHits: number;
   armorPiercing: number;
 } {
-  if (verticalDrop <= 3.05) {
+  // A voluntary drop of up to 3" is safe movement; a model that actually falls (failed jump) is hurt from 2" up.
+  const threshold = forcedFall ? FALL_DAMAGE_MIN - 0.05 : FREE_DROP_MAX;
+  if (forcedFall ? verticalDrop < threshold : verticalDrop <= threshold) {
     return { isDangerous: false, damageHits: 0, armorPiercing: 0 };
   }
   const full3Inches = Math.floor((verticalDrop + 0.05) / 3.0);
-  const ap = Math.max(1, full3Inches);
+  const ap = full3Inches; // AP(1) per FULL 3" fallen: a 2-2.99" fall is an AP(0) hit
   return {
     isDangerous: true,
     damageHits: 1,
@@ -438,7 +448,8 @@ export function calculateFallingDamage(verticalDrop: number): {
 export function resolveFallingDamage(
   unit: Unit,
   verticalDrop: number,
-  defenseRoll?: number
+  defenseRoll?: number,
+  forcedFall: boolean = false
 ): {
   isDangerous: boolean;
   damageHits: number;
@@ -446,7 +457,7 @@ export function resolveFallingDamage(
   saved: boolean;
   wounds: number;
 } {
-  const calc = calculateFallingDamage(verticalDrop);
+  const calc = calculateFallingDamage(verticalDrop, forcedFall);
   if (!calc.isDangerous) {
     return {
       isDangerous: false,
@@ -838,4 +849,46 @@ export function allocateSquadCasualties(
   }
 
   return { modelsDestroyed, remainingWounds: unallocated };
+}
+
+
+/**
+ * Where a model that fell from `startY` at (`from.x`, `from.z`) comes to rest: the highest floor below the start
+ * floor (a lower deck, or the ground) at a spot with the whole base supported and clear of terrain and other
+ * models, as near the fall point as possible and within `FALL_LANDING_RADIUS`. If nothing is clear, the fall
+ * point itself on its floor. `height` is the real fall (start floor minus landing floor).
+ */
+export function findFallLanding(
+  state: GameState,
+  unit: Unit,
+  from: { x: number; z: number },
+  startY: number
+): { position: Vector3; height: number } {
+  const surfaces = collectWalkableSurfaces(state);
+  const floorAt = (x: number, z: number): number => {
+    let best = 0;
+    for (const s of surfaces) {
+      if (s.topY > startY - 0.5 || s.topY <= best) continue;
+      const l = worldToLocal(s.piece, { x, y: 0, z });
+      if (l.x >= s.minX && l.x <= s.maxX && l.z >= s.minZ && l.z <= s.maxZ) best = s.topY;
+    }
+    return best;
+  };
+  const candidates: Array<{ x: number; z: number }> = [{ x: from.x, z: from.z }];
+  for (let r = 0.25; r <= FALL_LANDING_RADIUS + 1e-6; r += 0.25) {
+    const n = Math.max(8, Math.round(r * 16));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      candidates.push({ x: from.x + Math.cos(a) * r, z: from.z + Math.sin(a) * r });
+    }
+  }
+  for (const c of candidates) {
+    const y = floorAt(c.x, c.z);
+    const pt: Vector3 = { x: Math.round(c.x * 100) / 100, y, z: Math.round(c.z * 100) / 100 };
+    if (findEndOverlap(state, unit.id, pt) === null && !isBaseOverhanging(state, pt, surfaces)) {
+      return { position: pt, height: startY - y };
+    }
+  }
+  const y = floorAt(from.x, from.z);
+  return { position: { x: from.x, y, z: from.z }, height: startY - y };
 }
