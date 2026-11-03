@@ -1378,7 +1378,7 @@ describe('applyAction: charge', () => {
     // Ensure direct Line of Sight is actually blocked
     expect(hasLineOfSight(state, state.units[0], state.units[1])).toBe(false);
 
-    // Path routes around the wall to engagement range (0, 0, 4.2) of target at (0, 0, 5)
+    // Path routes around the wall to engagement range (0, 0, 4.0) of target at (0, 0, 5)
     const action = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
@@ -1386,7 +1386,7 @@ describe('applyAction: charge', () => {
       path: [
         { x: 3, y: 0, z: 1 },
         { x: 3, y: 0, z: 4 },
-        { x: 0, y: 0, z: 4.2 },
+        { x: 0, y: 0, z: 4.0 },
       ],
     });
     const outcome = act(state, action, [
@@ -1451,20 +1451,21 @@ describe('applyAction: charge', () => {
   it('Phase 9B: defending squad members consolidate up to 3" into contact when charged', () => {
     const state = chargeState();
     const defender = state.units.find((u) => u.id === 'g1')!;
-    // Target squad with front model at (0, 0, 5.0) and rear model at (0, 0, 5.8)
-    // Centroid is (0, 0, 5.4)
+    // Target squad with front model at (0, 0, 5.0) and rear model at (0, 0, 5.4)
+    // Centroid is (0, 0, 5.2)
     defender.models = [
       { id: 'gm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.0 } },
-      { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.8 } },
+      { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.4 } },
     ];
-    defender.position = { x: 0, y: 0, z: 5.4 };
+    defender.position = { x: 0, y: 0, z: 5.2 };
 
-    // Charger ends at z=4.5 (0.9" from defender centroid, <= 1.0" engagement range)
+    // Charger ends at z=4.0 (1.2" from the defender centroid, within the 1.25" charge reach, and a full
+    // base clear of the front model)
     const action = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
       targetId: 'g1',
-      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4.5 }],
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4.0 }],
       weaponId: 'blade',
     });
 
@@ -1478,11 +1479,11 @@ describe('applyAction: charge', () => {
     expect(outcome.ok).toBe(true);
 
     const postDefender = outcome.state!.units.find((u) => u.id === 'g1')!;
-    // Front model was already at z=5.0 (0.5" from charger at z=4.5) -> <= 1.0" so stays in place
+    // Front model is already in base contact (1.0" from charger at z=4.0) so stays in place
     expect(postDefender.models[0].position?.z).toBeCloseTo(5.0, 1);
-    // Rear model was at z=5.8 (1.3" from charger at z=4.5) -> consolidates into base contact (z=5.5)
-    expect(postDefender.models[1].position?.z).toBeLessThan(5.8);
-    expect(postDefender.models[1].position?.z).toBeCloseTo(5.5, 1);
+    // Rear model was at z=5.4 (1.4" from the charger) -> consolidates into base contact (z=5.0)
+    expect(postDefender.models[1].position?.z).toBeLessThan(5.4);
+    expect(postDefender.models[1].position?.z).toBeCloseTo(5.0, 1);
   });
 });
 

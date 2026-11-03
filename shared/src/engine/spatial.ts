@@ -8,6 +8,7 @@ import {
   isManningBox,
   localToWorldXZ,
   resolveTerrainStructure,
+  distanceToBoxXZ,
   segmentBoxIntersection,
   worldToLocal,
 } from './terrainStructure';
@@ -839,6 +840,111 @@ export function isSuspendedInMidAir(state: GameState, point: Vector3): boolean {
     if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, point)) return false; // the ladder deck-arrival rule covers it
   }
   return true;
+}
+
+/** Two models of different units closer than this (centre to centre, at a similar height) overlap. */
+export const MODEL_OVERLAP_DISTANCE = 0.9;
+/** Lets a base that stops exactly at the movement clearance (`UNIT_COLLISION_RADIUS`) count as clear. */
+const OVERLAP_TOLERANCE = 0.02;
+
+export type EndOverlap =
+  | { kind: 'terrain'; pieceId: string; solidId?: string }
+  | { kind: 'model'; unitId: string };
+
+/**
+ * What a model standing at `point` would overlap, or null. Terrain: the base circle (`UNIT_COLLISION_RADIUS`)
+ * intersects an obstacle solid whose height span overlaps the model body (`y + 0.15` to `y + EYE_HEIGHT`), so the
+ * floor stood on and lintels overhead don't count. Other models: any living model of another unit within
+ * `MODEL_OVERLAP_DISTANCE` at a similar height. Stairs and ladders are skipped (they have their own rules).
+ */
+export function findEndOverlap(state: GameState, unitId: string, point: Vector3): EndOverlap | null {
+  const y = point.y ?? 0;
+  const bodyLo = y + 0.15;
+  const bodyHi = y + EYE_HEIGHT;
+  for (const piece of state.terrain) {
+    if (isLadderPiece(piece) || isStairPiece(piece)) continue;
+    const baseY = piece.position.y ?? 0;
+    // Legacy raised pieces (saved maps with an elevation): standing on the top is not an overlap
+    const legacyTop = legacyElevation(piece);
+    if (legacyTop !== undefined && y >= legacyTop - 0.15) continue;
+    for (const solid of resolveTerrainStructure(piece).solids) {
+      if (!solid.isObstacle) continue;
+      if (baseY + solid.maxY <= bodyLo || baseY + solid.minY >= bodyHi) continue;
+      if (distanceToBoxXZ(piece, solid, point.x, point.z) < UNIT_COLLISION_RADIUS - OVERLAP_TOLERANCE) {
+        return { kind: 'terrain', pieceId: piece.id, solidId: solid.id };
+      }
+    }
+  }
+  for (const other of state.units) {
+    if (other.isDestroyed || other.id === unitId) continue;
+    const models =
+      other.models && other.models.length > 0
+        ? other.models.filter((m) => !m.isDestroyed).map((m) => m.position ?? other.position)
+        : [other.position];
+    for (const pos of models) {
+      if (Math.abs((pos.y ?? 0) - y) >= 1.0) continue;
+      if (Math.hypot(pos.x - point.x, pos.z - point.z) < MODEL_OVERLAP_DISTANCE) {
+        return { kind: 'model', unitId: other.id };
+      }
+    }
+  }
+  return null;
+}
+
+/** Player-facing rejection text for an end overlap. */
+export function describeEndOverlap(o: EndOverlap): string {
+  return o.kind === 'terrain'
+    ? 'Models cannot end movement overlapping terrain - stop short of it'
+    : 'Models cannot end movement overlapping another model - stop short of it';
+}
+
+/**
+ * Pull a path's end back to the first point that doesn't overlap terrain or another model, walking back along
+ * the path in 0.05" steps (across segments). Never returns a point further along the path; if nothing is clear
+ * it returns just the start.
+ */
+export function settleMoveEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
+  return pullBackEnd(path, (pt) => findEndOverlap(state, unit.id, pt) !== null);
+}
+
+/**
+ * Shortens a path's end until `bad` is false: walks back along the last segment (then earlier ones) in 0.05"
+ * steps, never forward. A straight climb or drop (`isSheer`) is all or nothing.
+ */
+function pullBackEnd(
+  path: Vector3[],
+  bad: (pt: Vector3) => boolean,
+  isSheer: (a: Vector3, b: Vector3) => boolean = (a, b) =>
+    Math.abs((b.y ?? 0) - (a.y ?? 0)) > 0.5 && Math.hypot(b.x - a.x, b.z - a.z) < 0.1
+): Vector3[] {
+  if (path.length < 2) return path;
+  const out = path.map((p) => ({ ...p }));
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  while (out.length > 1 && bad(out[out.length - 1])) {
+    const a = out[out.length - 2];
+    const b = out[out.length - 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z) / 0.05));
+    let found: Vector3 | null = null;
+    const sheer = isSheer(a, b);
+    for (let k = steps - 1; !sheer && k >= 1; k--) {
+      const t = k / steps;
+      const pt = {
+        x: r2(a.x + (b.x - a.x) * t),
+        y: r2((a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t),
+        z: r2(a.z + (b.z - a.z) * t),
+      };
+      if (!bad(pt)) {
+        found = pt;
+        break;
+      }
+    }
+    if (found) {
+      out[out.length - 1] = found;
+      break;
+    }
+    out.pop();
+  }
+  return out;
 }
 
 /**
@@ -1842,41 +1948,22 @@ function isShortLadderDescentStep(state: GameState, a: Vector3, b: Vector3): boo
  * Walks back along the last segment (then earlier ones) to the nearest standable point, never forward.
  */
 function settleEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
-  if (path.length < 2 || hasTrait(unit.specialRules, 'airborne')) return path;
+  if (path.length < 2) return path;
+  const airborne = hasTrait(unit.specialRules, 'airborne');
   const bad = (pt: Vector3): boolean =>
-    isSuspendedInMidAir(state, pt) ||
-    state.terrain.some((p) => isLadderPiece(p) && isOnLadderClimbLine(state, p, pt));
-  const out = path.map((p) => ({ ...p }));
-  const r2 = (n: number) => Math.round(n * 100) / 100;
-  while (out.length > 1 && bad(out[out.length - 1])) {
-    const a = out[out.length - 2];
-    const b = out[out.length - 1];
-    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z) / 0.05));
-    let found: Vector3 | null = null;
-    // A straight climb or drop (no ladder, no stairs) has no standable point part-way: all or nothing
-    const sheer =
+    findEndOverlap(state, unit.id, pt) !== null ||
+    (!airborne &&
+      (isSuspendedInMidAir(state, pt) ||
+        state.terrain.some((p) => isLadderPiece(p) && isOnLadderClimbLine(state, p, pt))));
+  // A straight climb or drop (no ladder, no stairs) has no standable point part-way: all or nothing
+  return pullBackEnd(
+    path,
+    bad,
+    (a, b) =>
       Math.abs((b.y ?? 0) - (a.y ?? 0)) > 0.5 &&
       Math.hypot(b.x - a.x, b.z - a.z) < 0.1 &&
-      !isSegmentOnRampOrStairs(state, a, b);
-    for (let k = steps - 1; !sheer && k >= 1; k--) {
-      const t = k / steps;
-      const pt = {
-        x: r2(a.x + (b.x - a.x) * t),
-        y: r2((a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t),
-        z: r2(a.z + (b.z - a.z) * t),
-      };
-      if (!bad(pt)) {
-        found = pt;
-        break;
-      }
-    }
-    if (found) {
-      out[out.length - 1] = found;
-      break;
-    }
-    out.pop();
-  }
-  return out;
+      !isSegmentOnRampOrStairs(state, a, b)
+  );
 }
 
 /**

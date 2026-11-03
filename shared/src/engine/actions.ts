@@ -44,6 +44,8 @@ import {
   isLadderPiece,
   isOnLadderClimbLine,
   isSuspendedInMidAir,
+  findEndOverlap,
+  describeEndOverlap,
   validateSquadCoherency,
 } from './spatial';
 import {
@@ -347,6 +349,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
             };
           }
         }
+        const endOverlap = findEndOverlap(state, unit.result.id, end);
+        if (endOverlap) return { valid: false, reason: describeEndOverlap(endOverlap) };
         return { valid: true };
       }
 
@@ -441,6 +445,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
               reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot`,
             };
           }
+        }
+        const mOverlap = findEndOverlap(state, unit.result.id, mEnd);
+        if (mOverlap) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${describeEndOverlap(mOverlap)}` };
         }
       }
       const wouldEngage = state.units.some(
@@ -575,6 +583,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       );
       if (chargeJumpProblem) return { valid: false, reason: chargeJumpProblem };
       const end = path[path.length - 1];
+      const chargeOverlap = findEndOverlap(state, attacker.result.id, end);
+      if (chargeOverlap) return { valid: false, reason: describeEndOverlap(chargeOverlap) };
       const distToEnd = boardDistance(end, target.result.position);
       if (distToEnd > 1.25) {
         return { valid: false, reason: 'Charge must end in engagement range' };
@@ -674,6 +684,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
             };
           }
         }
+        const endOverlap = findEndOverlap(state, unit.id, end);
+        if (endOverlap) return { valid: false, reason: describeEndOverlap(endOverlap) };
         const wouldEngage = state.units.some(
           (u) =>
             !u.isDestroyed &&
@@ -777,6 +789,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
               reason: `Squad model ${i + 1} cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot`,
             };
           }
+        }
+        const mOverlap = findEndOverlap(state, unit.id, mEnd);
+        if (mOverlap) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${describeEndOverlap(mOverlap)}` };
         }
       }
       const wouldEngage = state.units.some(

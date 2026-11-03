@@ -48,6 +48,7 @@ Movement model (batch 1E): the pathfinder only plans ordinary movement (walking,
 
 ## 7. Movement, rush and shooting
 - All items verified 2026-11-02.
+- [ ] Moving or rushing into a crate, pillar, wall corner, ladder or another unit: the preview and the final position stop with the base touching, never overlapping it. Try a squad too (every model ends clear). Standing on a crate/deck or walking under a doorway lintel is still allowed.
 
 ## 8. Melee & objectives
 - All items verified 2026-11-02.
