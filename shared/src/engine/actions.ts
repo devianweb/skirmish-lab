@@ -968,9 +968,10 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
       const fall = detectPathFall(path, state);
-      const dropNeedsDice = fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
+      // a hop that is already a gap jump rolls once, on its straight-line length
+      const dropNeedsDice = !gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
       if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-        specs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
+        specs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: 'drop_jump' });
       }
       // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
       const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
@@ -1113,9 +1114,9 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
       }
       const fall = detectPathFall(chargePayload.path, state);
-      const dropNeedsDice = fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne');
+      const dropNeedsDice = !chargeGap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne');
       if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-        traversalSpecs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
+        traversalSpecs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: 'drop_jump' });
       }
       const gapMayFall = chargeGap.isGapJump && (chargePayload.path[0].y ?? 0) >= FALL_DAMAGE_MIN;
       if (dropNeedsDice || gapMayFall) {
@@ -1262,16 +1263,16 @@ export function applyTraversalHazardsAndFalls(
 
   // 3. Drops: up to 3" is regular movement; 3-6" must be jumped (X+1 dice, all 3+); otherwise the model falls
   const fall = detectPathFall(path, state);
-  if (fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
+  if (!gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
     const jumpRolls = dice?.find((d) => d.purpose === 'drop_jump')?.rolls ?? payload.dropJumpRolls;
-    const jump = resolveDropJump(unit, fall.maxDrop, jumpRolls);
+    const jump = resolveDropJump(unit, fall.maxDrop, jumpRolls, fall.maxDropDistance);
     if (jump.canJump) {
       events.push({
         type: 'drop-jump',
         rolls: jumpRolls?.slice(0, jump.dice),
         target: jump.target,
         passed: jump.passed,
-        text: `Jump down ${fall.maxDrop.toFixed(1)}" (${jump.dice} dice, all ${jump.target}+)${
+        text: `Jump down ${fall.maxDropDistance.toFixed(1)}" (${jump.dice} dice, all ${jump.target}+)${
           jumpRolls ? `: rolled ${rollsText(jumpRolls.slice(0, jump.dice))}` : ''
         } → ${jump.passed ? 'landed' : 'failed, falls'}`,
       });

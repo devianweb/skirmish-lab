@@ -185,7 +185,7 @@ describe('drops: resolution through the host', () => {
     const logged = out.state.actionLog[out.state.actionLog.length - 1].dice!;
     expect(logged.outcome.traversal).toHaveLength(1);
     expect(logged.outcome.traversal![0]).toMatchObject({ type: 'drop-jump', rolls: [3, 5], passed: true });
-    expect(logged.outcome.traversal![0].text).toMatch(/Jump down 4\.0".*3, 5.*landed/);
+    expect(logged.outcome.traversal![0].text).toMatch(/Jump down 4\.3" \(2 dice.*3, 5.*landed/);
     expect(logged.results.map((r) => r.purpose)).toContain('drop_jump');
   });
 
@@ -231,9 +231,12 @@ describe('gaps: only real open air is a gap', () => {
   it('a 2" gap between decks is a jump of 1 die; a gap over 6" is too wide', () => {
     const state = createInitialGameState(HOST, GUEST);
     state.terrain = [deckAt('a', 0, 0), deckAt('b', 6, 0)]; // x -2..2 and 4..8: 2" gap
-    const res = detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 6, y: 3, z: 0 }], trooper);
+    // measured like a tape from the take-off spot to the landing spot (0.4" inside each edge): 2.8"
+    const res = detectPathGapJump(state, [{ x: 1.6, y: 3, z: 0 }, { x: 4.4, y: 3, z: 0 }], trooper);
     expect(res).toMatchObject({ isGapJump: true, tooWide: false, dice: 1, target: 3 });
-    expect(res.gapDistance).toBeCloseTo(2, 0);
+    expect(res.gapDistance).toBeCloseTo(2.8, 1);
+    // the same 2" gap crossed from deck centre to deck centre is a 6" hop: 3 dice
+    expect(detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 6, y: 3, z: 0 }], trooper)).toMatchObject({ dice: 3 });
 
     const far = createInitialGameState(HOST, GUEST);
     far.terrain = [deckAt('a', 0, 0), deckAt('b', 14, 0)]; // 10" gap

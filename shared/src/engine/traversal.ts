@@ -187,9 +187,16 @@ export function classifySegment(
     }
     if (airborne) return make('drop', horizontal, { distance: height });
     const kind = classifyDropHeight(height);
+    // A hop that also crosses more than 1" of open air is a gap jump, whatever its height change. A jump is
+    // measured like a tape: the straight line from take-off to landing (`length`), and a hop longer than 6"
+    // cannot be jumped (it is not a fall either)
+    if (measureElevatedGap(state, [a, b]) > FREE_GAP_MAX) {
+      if (length > JUMP_GAP_MAX) return make('blocked', length, { distance: length });
+      return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length), target });
+    }
     if (kind === 'drop') return make('drop', horizontal, { distance: height });
     if (kind === 'jump-drop') {
-      return make('jump-drop', 0, { distance: height, dice: calculateJumpDice(height), target });
+      return make('jump-drop', 0, { distance: length, dice: calculateJumpDice(length), target });
     }
     return make('fall', horizontal, { distance: height });
   }
@@ -207,10 +214,10 @@ export function classifySegment(
     if (afterClimb || beforeDrop) return make('walk', length);
     return make('gap', length, { distance: gap });
   }
-  if (gap <= JUMP_GAP_MAX) {
-    return make('jump-gap', 0, { distance: gap, dice: calculateJumpDice(gap), target });
+  if (length <= JUMP_GAP_MAX) {
+    return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length), target });
   }
-  return make('blocked', length, { distance: gap });
+  return make('blocked', length, { distance: length });
 }
 
 /**
@@ -249,7 +256,8 @@ function resolveJump(
   distance: number,
   freeMax: number,
   jumpMax: number,
-  rolls?: number[]
+  rolls?: number[],
+  diceDistance: number = distance
 ): JumpResult {
   if (distance <= freeMax) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
@@ -261,14 +269,15 @@ function resolveJump(
   if (distance > jumpMax) {
     return { requiresTest: false, canJump: false, dice: 0, target, passed: false };
   }
-  const dice = calculateJumpDice(distance);
+  const dice = calculateJumpDice(diceDistance);
   const passed = !!rolls && rolls.length >= dice && rolls.slice(0, dice).every((r) => r >= target);
   return { requiresTest: true, canJump: true, dice, target, passed };
 }
 
 /** Jump test for dropping off an elevation: up to 3" is regular movement, 3-6" is jumped, more falls. */
-export function resolveDropJump(unit: Unit, drop: number, rolls?: number[]): JumpResult {
-  return resolveJump(unit, drop, FREE_DROP_MAX, JUMP_DROP_MAX, rolls);
+export function resolveDropJump(unit: Unit, drop: number, rolls?: number[], hopLength: number = drop): JumpResult {
+  // Whether it can be jumped depends on the height; the dice on the straight-line length of the hop
+  return resolveJump(unit, drop, FREE_DROP_MAX, JUMP_DROP_MAX, rolls, hopLength);
 }
 
 /** Human-readable warning for the highest drop on a path (empty when it is regular movement). */
@@ -364,9 +373,12 @@ export function detectPathFall(
 ): {
   maxDrop: number;
   dropStartIndex: number;
+  /** Straight-line length (take-off to landing) of the hop with the largest drop: what jump dice are rolled on. */
+  maxDropDistance: number;
 } {
   let maxDrop = 0;
   let dropStartIndex = -1;
+  let maxDropDistance = 0;
 
   for (let i = 1; i < path.length; i++) {
     const prev = path[i - 1];
@@ -383,10 +395,11 @@ export function detectPathFall(
       }
       maxDrop = drop;
       dropStartIndex = i - 1;
+      maxDropDistance = Math.hypot(distanceHorizontal(prev, curr), drop);
     }
   }
 
-  return { maxDrop, dropStartIndex };
+  return { maxDrop, dropStartIndex, maxDropDistance };
 }
 
 /**
@@ -571,8 +584,15 @@ export function detectPathGapJump(
 } {
   const none = { isGapJump: false, gapDistance: 0, tooWide: false, dice: 0, target: 0 };
   if (path.length < 2 || hasTrait(unit.specialRules, 'airborne')) return none;
-  const gap = measureElevatedGap(state, path);
-  if (gap <= FREE_GAP_MAX) return none;
+  const pathRun = measureElevatedGap(state, path);
+  if (pathRun <= FREE_GAP_MAX) return none;
+  // Jump distance is the straight line of the hop (take-off to landing), like a tape; a run chained over
+  // several segments is measured as the open-air run itself
+  let hop = 0;
+  for (let i = 1; i < path.length; i++) {
+    if (measureElevatedGap(state, [path[i - 1], path[i]]) > FREE_GAP_MAX) hop = Math.max(hop, distance3D(path[i - 1], path[i]));
+  }
+  const gap = Math.max(pathRun, hop);
   const res = resolveGapJump(gap, unit);
   return {
     isGapJump: res.canJump,
