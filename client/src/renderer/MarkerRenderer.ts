@@ -12,6 +12,8 @@ import {
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   isStairPiece,
   SegmentKind,
+  isClimbable,
+  getWalkableSurfaces,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
@@ -517,6 +519,27 @@ export class MarkerRenderer {
         }
         for (const ap of structure.apertures) {
           addBox(ap, isActiveCover ? wireColor : 0x76ff03);
+        }
+      }
+
+      // Orange outline on the top face of every walkable floor of a climbable piece (models can climb
+      // onto it without a ladder, rise up to 3").
+      if (!isStairPiece(piece) && isClimbable(piece)) {
+        for (const s of getWalkableSurfaces(piece)) {
+          const y = s.topY + 0.03;
+          const pts = [
+            new THREE.Vector3(s.minX, y, s.minZ),
+            new THREE.Vector3(s.maxX, y, s.minZ),
+            new THREE.Vector3(s.maxX, y, s.maxZ),
+            new THREE.Vector3(s.minX, y, s.maxZ),
+            new THREE.Vector3(s.minX, y, s.minZ),
+          ];
+          const line = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(pts),
+            new THREE.LineBasicMaterial({ color: 0xff9800 })
+          );
+          line.name = 'climbable-outline';
+          pieceGroup.add(line);
         }
       }
 
