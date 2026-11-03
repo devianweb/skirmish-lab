@@ -1,5 +1,5 @@
 # Batch 1E: movement model (safe auto-paths, declared jumps, climbable terrain)
-Status: approved (2026-11-02)
+Status: done (2026-11-03): E1 #167, E2 #168, E3 #169, E4 #170
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
 ## Why

@@ -1,5 +1,5 @@
 # Batch 1B: ladders, drops, gaps and mid-air
-Status: approved (2026-11-02)
+Status: done (2026-11-03): PRs #160, #162, #165, #171 (PR 3a replaced by 1E E1)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
 The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: PR 1 ✓ → PR 5 ✓ → PR 3b (pick) → then batch 1E (E1–E4) → PR 2. (PR 3a is replaced by 1E E1.)
