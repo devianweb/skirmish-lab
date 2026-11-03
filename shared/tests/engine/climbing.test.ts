@@ -122,13 +122,14 @@ describe('climbing a container (2.25")', () => {
   });
 
   it('a budget too short to finish the climb stops at the stand-off spot on the ground', () => {
-    // 1.325 to the stand-off spot, then 2.25 up and 0.55 in: 4.125 in all
-    for (const budget of [1.4, 2, 3, 3.9]) {
+    // 1.325 to the stand-off spot, then 2.25 up and 0.55 to the roof's lip: 4.125 in all, and a full base
+    // (a further 0.5") onto the roof makes 4.675 - stopping at the lip would leave the base over the edge
+    for (const budget of [1.4, 2, 3, 3.9, 4.3]) {
       const { end, state } = run([container], P(0, 0, -3), P(0, 2.25, 0), budget);
       expect(end.y, `budget ${budget}`).toBe(0);
       expect(isSuspendedInMidAir(state, end)).toBe(false);
     }
-    const ok = run([container], P(0, 0, -3), P(0, 2.25, 0), 4.3);
+    const ok = run([container], P(0, 0, -3), P(0, 2.25, 0), 4.7);
     expect(ok.end.y).toBeCloseTo(2.25);
     const stop = run([container], P(0, 0, -3), P(0, 2.25, 0), 3);
     expect(stop.end.z).toBeCloseTo(-1.675, 1); // the stand-off spot, a base off the north face

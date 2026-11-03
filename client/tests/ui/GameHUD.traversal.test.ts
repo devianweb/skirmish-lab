@@ -130,11 +130,11 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     expect('gapJump' in action.payload).toBe(false);
   });
 
-  it('a cursor within 0.5" of the far deck edge snaps onto the edge before the jump is computed', () => {
+  it('a cursor within 0.5" of the far deck edge snaps to the spot a base inside the edge before the jump is computed', () => {
     const { hud } = setup(P(-0.2, 3, 0));
     hud.handleBoardHover({ kind: 'position', position: P(5.4, 3, -1) });
     const path = (hud as any).movePathPreview as Vector3[];
-    expect(path[path.length - 1].x).toBeCloseTo(5, 5);
+    expect(path[path.length - 1].x).toBeCloseTo(5.5, 5);
   });
 
   it('a cursor 0.6" from the edge is not snapped', () => {

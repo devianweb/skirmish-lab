@@ -12,6 +12,7 @@ import {
   findWalkableSurfaceAt,
   findWalkableSurfaceIn,
   getWalkableSurfaces,
+  isBaseOverhanging,
   isFallColumnBlocked,
   isLadderStepSegment,
   isSegmentOnLadder,
@@ -50,6 +51,8 @@ export const JUMP_DROP_MAX = 6.05;
 export const CLIMB_MAX = 3.05;
 /** How close (inches, horizontally) a model must stand to a floor edge to jump or fall from it. */
 export const EDGE_SNAP_TOLERANCE = 0.5;
+/** How far inside an edge a model standing fully on the floor can be and still count as "at the edge" (base radius + 0.1"). */
+const FLOOR_EDGE_REACH = 0.55;
 
 /** How a stretch of a path is traversed. Jumps and falls need a dice test and must be declared by the player. */
 export type SegmentKind =
@@ -139,7 +142,8 @@ export function classifySegment(
   a: Vector3,
   b: Vector3,
   unit?: Unit,
-  prev?: Vector3
+  prev?: Vector3,
+  next?: Vector3
 ): SegmentClass {
   const dy = (b.y ?? 0) - (a.y ?? 0);
   const horizontal = distanceHorizontal(a, b);
@@ -190,7 +194,14 @@ export function classifySegment(
   if (isSegmentOnRampOrStairs(state, a, b) && !isSegmentOnLadder(state, a, b)) return make('stairs', length);
   const gap = measureElevatedGap(state, [a, b]);
   if (gap <= 0) return make('walk', length);
-  if (gap <= FREE_GAP_MAX) return make('gap', length, { distance: gap });
+  if (gap <= FREE_GAP_MAX) {
+    // The short level step off a climb's top onto the floor, or off a floor's edge before a drop, is part of
+    // that climb or drop (same cost as walking), not a gap
+    const afterClimb = !!prev && (a.y ?? 0) - (prev.y ?? 0) > 0.5 && distanceHorizontal(prev, a) < 0.1;
+    const beforeDrop = !!next && (a.y ?? 0) - (next.y ?? 0) > 0.5 && distanceHorizontal(b, next) < 0.1;
+    if (afterClimb || beforeDrop) return make('walk', length);
+    return make('gap', length, { distance: gap });
+  }
   if (gap <= JUMP_GAP_MAX) {
     return make('jump-gap', 0, { distance: gap, dice: calculateJumpDice(gap), target });
   }
@@ -205,7 +216,7 @@ export function classifySegment(
 export function pathMovementCost(state: GameState, path: Vector3[], unit?: Unit): number {
   let total = 0;
   for (let i = 1; i < path.length; i++) {
-    total += classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).cost;
+    total += classifySegment(state, path[i - 1], path[i], unit, path[i - 2], path[i + 1]).cost;
   }
   return total;
 }
@@ -617,7 +628,7 @@ export function isAtFloorEdgeToward(state: GameState, point: Vector3, toward: Ve
         { dist: surface.maxZ - l.z, nx: 0, nz: 1 },
       ];
       for (const e of edges) {
-        if (e.dist <= EDGE_SNAP_TOLERANCE + 1e-6 && (dx * e.nx + dz * e.nz) / len > 0.2) return true;
+        if (e.dist <= FLOOR_EDGE_REACH + 1e-6 && (dx * e.nx + dz * e.nz) / len > 0.2) return true;
       }
     }
   }
@@ -647,6 +658,8 @@ export function findJumpOption(
   if (targetY > 0.3) {
     const floor = findWalkableSurfaceAt(state, { x: target.x, y: targetY, z: target.z }, 0);
     if (!floor || Math.abs(floor.topY - targetY) > 0.3) return null;
+    // The landing must hold the whole base: a hop that would end half over the far edge is not offered
+    if (isBaseOverhanging(state, { x: target.x, y: targetY, z: target.z })) return null;
   }
   const cls = classifySegment(state, from, target, unit);
   if (!(JUMP_KINDS as readonly string[]).includes(cls.kind)) return null;

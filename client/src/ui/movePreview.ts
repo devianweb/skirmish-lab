@@ -4,6 +4,7 @@ import {
   GameState,
   JumpOption,
   SegmentKind,
+  UNIT_COLLISION_RADIUS,
   Unit,
   Vector3,
   classifySegment,
@@ -53,7 +54,7 @@ function segmentLabel(kind: SegmentKind, distance: number, height: number, dice:
 export function describePathSegments(state: GameState, unit: Unit, path: Vector3[]): PreviewSegment[] {
   const out: PreviewSegment[] = [];
   for (let i = 1; i < path.length; i++) {
-    const cls = classifySegment(state, path[i - 1], path[i], unit, path[i - 2]);
+    const cls = classifySegment(state, path[i - 1], path[i], unit, path[i - 2], path[i + 1]);
     out.push({
       from: path[i - 1],
       to: path[i],
@@ -87,8 +88,8 @@ export function segmentSummary(segments: PreviewSegment[]): string {
 
 /**
  * Edge snapping (cursor only): if the cursor is within `EDGE_SNAP_TOLERANCE` (horizontally) of the edge of an
- * elevated floor, return the point on that edge. A cursor on the deck is pulled to the deck's edge at deck
- * height; a cursor on a lower level just outside the deck is pulled to the stand-off spot beside the edge.
+ * elevated floor, return the point to stand at. A cursor on the deck is pulled to the spot a base radius (+0.05")
+ * inside the deck's edge, at deck height (fully on the deck, never over the lip); a cursor on a lower level just outside the deck is pulled to the stand-off spot beside the edge.
  * Anything farther away comes back unchanged, so points clearly on the deck or the ground are never grabbed.
  */
 export function snapCursorToEdge(state: GameState, cursor: Vector3): Vector3 {
@@ -139,6 +140,16 @@ export function snapCursorToEdge(state: GameState, cursor: Vector3): Vector3 {
       tz = ez + nz * DROP_STANDOFF;
       ty = cy;
     } else {
+      // Stand a full base (plus a hair) inside the edge, so the model is entirely on the deck, not over its lip
+      const inset = UNIT_COLLISION_RADIUS + 0.05;
+      const clampIn = (v: number, lo: number, hi: number) => (hi - lo < 2 * inset ? (lo + hi) / 2 : Math.max(lo + inset, Math.min(hi - inset, v)));
+      if (nx !== 0) {
+        tx = nx < 0 ? s.minX + inset : s.maxX - inset;
+        tz = clampIn(l.z, s.minZ, s.maxZ);
+      } else {
+        tz = nz < 0 ? s.minZ + inset : s.maxZ - inset;
+        tx = clampIn(l.x, s.minX, s.maxX);
+      }
       // An edge shared with another floor at the same height (one deck made of several parts) is not an edge
       const out = localToWorldXZ(s.piece, ex + nx * 0.3, ez + nz * 0.3);
       const neighbour = findWalkableSurfaceIn(surfaces, { x: out.x, z: out.z, y: s.topY }, 0, s.piece.id);
