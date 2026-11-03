@@ -187,6 +187,17 @@ export function classifySegment(
     }
     if (airborne) return make('drop', horizontal, { distance: height });
     const kind = classifyDropHeight(height);
+    if (kind !== 'fall') {
+      // A hop that also crosses more than 1" of open air is a gap jump (dice from the gap), whatever its
+      // (up to 6") height change: the same rule `detectPathGapJump` applies to the whole path
+      const gap = measureElevatedGap(state, [a, b]);
+      if (gap > FREE_GAP_MAX) {
+        if (gap <= JUMP_GAP_MAX) {
+          return make('jump-gap', 0, { distance: gap, dice: calculateJumpDice(gap), target });
+        }
+        return make('blocked', length, { distance: gap });
+      }
+    }
     if (kind === 'drop') return make('drop', horizontal, { distance: height });
     if (kind === 'jump-drop') {
       return make('jump-drop', 0, { distance: height, dice: calculateJumpDice(height), target });
