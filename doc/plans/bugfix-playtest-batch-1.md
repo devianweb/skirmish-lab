@@ -32,7 +32,7 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 22. **A declared charge can't be undone** or changed into another action. Owner: "Agreed, no undoing."
 
 ## Order
-**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). **Next:** batch 1F (PR 17 → 18 → 19), then PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
+**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). **Next:** batch 1F (PR 20 → 17 → 18 → 19), then PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
 
 PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop in reverse), so it must come after PR 5 and PR 3a. PR 7 relies on PR 2 so a model can't end on top of a stepped-over piece.
 
@@ -59,7 +59,7 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 | [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
 | [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
 | [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 15, 16, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, squad jumps, charge jumps, per-model charges |
-| [batch-1f-traversal-followups.md](batch-1f-traversal-followups.md) | 17, 18, 19 | Stacked-level climb/drop, failed-jump landing fixes, floating 3D path labels |
+| [batch-1f-traversal-followups.md](batch-1f-traversal-followups.md) | 20, 17, 18, 19 | No overhanging ends + climb label, stacked-level climb/drop, failed-jump landing fixes, floating 3D path labels |
 | [batch-1e-movement-model.md](batch-1e-movement-model.md) ✓ done | E1–E4 | Safe-only pathfinding, declared jumps, climbable terrain, traversal preview. Replaces 1B PR 3a and 1C PR 6; supersedes Decision 6. |
 
 Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner's map export; copy into `shared/tests/fixtures/` when a test needs it).

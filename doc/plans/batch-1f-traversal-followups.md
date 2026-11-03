@@ -2,7 +2,7 @@
 Status: approved (2026-11-03), not started
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
-Follow-ups found during batches 1B/1E. None of these needs a new rule. PR 17 and PR 18 bring the engine in line with rules already agreed. Order: PR 17 → PR 18 → PR 19 (independent).
+Follow-ups found during batches 1B/1E. None of these needs a new rule. PR 17 and PR 18 bring the engine in line with rules already agreed. Order: PR 20 (owner-reported) → PR 17 → PR 18 → PR 19 (independent).
 
 ## PR 17: Climb and drop between a deck and pieces stacked on it (branch: `fix/stacked-level-traversal`)
 - **Cause:** `findNavPath` (`shared/src/engine/spatial.ts` ~l.2247) creates each edge's drop/climb "ground twin" at `y: 0`. On a container or crate stacked on a deck, the twin floats at the wrong height and the fall-column check blocks it. So a model on a deck can't climb onto a stacked climbable piece, and can't drop from it back onto the deck.
@@ -25,3 +25,17 @@ Follow-ups found during batches 1B/1E. None of these needs a new rule. PR 17 and
 - **Why not canvas-texture sprites:** blurrier when zoomed, and jsdom has no canvas 2D context, so they're harder to test.
 - **Tests:** MarkerRenderer creates one CSS2DObject per labelled segment with the right text, and clears them with the preview. SceneManager renders the CSS2D layer (renderer mocked).
 - **Manual checks:** §4: preview labels float next to the climb, drop or jump part of the path and follow the camera.
+
+## PR 20: Climbing onto the ruin ledge leaves the model half off it; "gap 0.6"" label (branch: `fix/no-overhang-ends`)
+**Owner report (2026-11-03, deployed build, screenshot):** climbing onto the ruin ledge from the courtyard, the preview showed "climb 3.0" · gap 0.6"" and the model "didn't quite make it onto the ledge fully". Its base ended overhanging the ledge edge.
+
+- **Causes:**
+  1. **Edge snapping (E3, `client/src/ui/movePreview.ts` `snapCursorToEdge`)** pulls a cursor on the deck to the edge line *itself*, so the model's centre ends exactly on the edge, half its base over air. `isSuspendedInMidAir` only tests the centre, so the engine accepts it.
+  2. **The rules (Beginner's Guide, Impassable Terrain): a model may not end its move partially overhanging gaps or terrain.** We don't enforce that anywhere.
+  3. **The label:** after a climb, the short level step from the climb column onto the ledge (the stand-off, ~0.55") is classified as `gap` and labelled "gap 0.6"". It's part of the climb (Decision 7: the stand-off step counts but is not a gap).
+- **Fix:**
+  1. **Engine:** a move may not end with the model's base overhanging. The base circle (`UNIT_COLLISION_RADIUS`) must be supported by floor at the model's height, using the union of walkable surfaces (so standing across two flush decks is fine). Add it to `settleEnd` (pull back along the path to the first fully supported point, or forward onto the floor if the path's last leg is a climb/step-on that would otherwise stop at the lip) and to the host end checks, next to `isSuspendedInMidAir`.
+  2. **Edge snapping:** snap a deck-side cursor to the point **inset by the base radius + 0.05"** from the edge (fully on the deck), not the edge line. The ground-side snap (stand-off spot) is unchanged.
+  3. **Classification/labels:** the level step between a climb's top and the floor is part of the climb (`climb` kind or merged into the climb label), never `gap`. The same goes for a drop's step-off (already counted, Decision 7), which shouldn't be labelled as a gap.
+- **Tests first:** fixture ruin ledge: courtyard → ledge via a cursor snapped near the edge ends with the base fully on the ledge (centre ≥ 0.5" inside). Host rejects an end with the centre 0.2" inside the edge (overhanging). Two flush decks: standing across the seam is allowed. Preview labels for that climb read "climb 3.0"" with no "gap". A drop's step-off isn't labelled "gap".
+- **Manual checks:** §3: after climbing onto the ruin ledge (or any deck) the base is fully on the floor, never overhanging, and the preview says "climb 3.0"" with no "gap 0.6"".
