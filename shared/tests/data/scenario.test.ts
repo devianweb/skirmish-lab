@@ -17,7 +17,7 @@ import {
   validateMapDefinition,
 } from '../../src/index';
 import { WEAPONS } from '../../src/data/weapons';
-import { getActivatableUnits, isRoundComplete } from '../../src/engine/activation';
+import { getActivatableUnits, isRoundComplete, getDeploymentZoneBounds } from '../../src/engine/activation';
 
 const HOST = 'host-player';
 const GUEST = 'guest-player';
@@ -326,5 +326,71 @@ describe('scenario data pack', () => {
       // Warning 4: Objective inside obstacle piece
       expect(notices.some((n) => n.message.includes('appears inside obstacle terrain piece'))).toBe(true);
     });
+  });
+});
+
+describe('custom map board size and the TEST army', () => {
+  it('uses the custom map board size (not the 36x36 default)', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    const map: CustomMapDefinition = {
+      id: 'm',
+      name: 'Wide',
+      version: 1,
+      board: { width: 44, height: 30 },
+      terrain: [],
+      objectives: [],
+    };
+    applyDefaultScenario(state, { customMap: map });
+    expect(state.board.width).toBe(44);
+    expect(state.board.height).toBe(30);
+  });
+
+  it('the blank map is also 44x30', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, {});
+    expect(state.board.width).toBe(44);
+    expect(state.board.height).toBe(30);
+  });
+
+  it('the TEST army spawns one very fast single-model fighter per side', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { hostArmyId: 'test-army', guestArmyId: 'test-army' });
+    const host = state.units.filter((u) => u.ownerId === HOST);
+    const guest = state.units.filter((u) => u.ownerId === GUEST);
+    expect(host).toHaveLength(1);
+    expect(guest).toHaveLength(1);
+    expect(host[0].speed).toBeGreaterThanOrEqual(24);
+    expect(host[0].models.filter((m) => !m.isDestroyed)).toHaveLength(1);
+    expect(STARTER_ARMIES['test-army'].name).toMatch(/TEST/);
+  });
+});
+
+describe('deployment zones keep armies 24" apart', () => {
+  const zones = (width: number, height: number) => {
+    const state = createInitialGameState(HOST, GUEST);
+    state.board.width = width;
+    state.board.height = height;
+    return {
+      host: getDeploymentZoneBounds(state, state.hostId),
+      guest: getDeploymentZoneBounds(state, state.guestId),
+      vanguard: getDeploymentZoneBounds(state, state.hostId, true),
+    };
+  };
+  it('48" deep: the usual 12" zones', () => {
+    const z = zones(48, 48);
+    expect(z.host.maxZ).toBe(-12);
+    expect(z.guest.minZ).toBe(12);
+    expect(z.host.minZ).toBe(-24);
+  });
+  it('30" deep: zones shrink to 3" so they stay 24" apart', () => {
+    const z = zones(44, 30);
+    expect(z.host.minZ).toBe(-15);
+    expect(z.host.maxZ).toBe(-12);
+    expect(z.guest.minZ - z.host.maxZ).toBe(24);
+    expect(z.vanguard.maxZ).toBe(0);
+  });
+  it('60" deep: still 12" zones (36" apart)', () => {
+    const z = zones(48, 60);
+    expect(z.host.maxZ).toBe(-18);
   });
 });

@@ -293,6 +293,12 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     options.customMap ??
     createBlankMap();
 
+  // The game board takes the map's size (the editor builds on the same width/height).
+  if (selectedMap.board) {
+    state.board.width = selectedMap.board.width;
+    state.board.height = selectedMap.board.height;
+  }
+
   const mapTerrain: TerrainPiece[] = selectedMap.terrain.map((t) => ({
     ...t,
     position: { ...t.position },
