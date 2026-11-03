@@ -704,6 +704,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] PR 13: the "0" wound outcome marker now uses the same Kenney digit model as 1-5 (`number-0.glb`, tinted neutral grey) instead of a procedural torus.
 - [x] PR 20: no move ends with its base overhanging an edge. `isBaseOverhanging` (union of walkable floors, 16 samples round the base) is checked by the host for move/rush/charge (single and squad) and declared-jump landings; `settleEnd` steps on past a climb's lip when the budget allows, else stays at the stand-off spot; deck-side cursor snap is inset by base radius + 0.05"; the step after a climb or before a drop is no longer labelled "gap".
 - [x] Games use the custom map's board size (was always 36"×36"); deployment zones stay 24" apart on small boards; TEST army (one speed-24" fighter per side) for playtesting.
+- [x] PR 17 (batch 1F): climbing and dropping between a deck and a piece stacked on it. The drop/climb "lower twin" in `findNavPath` now stands on the highest walkable floor below the stand-off spot (else the ground) instead of always `y: 0`, and is skipped if it would overhang; the 3" climb limit uses the real rise (a container on a 6" deck is a 2.25" climb). Fixture `testy-mctestface-2.json`.
 
 ### Acceptance Criteria
 - [ ] Zero Kenney terrain `.glb` files loaded or downloaded in the client.

@@ -2285,6 +2285,18 @@ export function findNavPath(
   const climbUp = new Map<Vector3, Vector3>();
 
   // 3b. Walkable floors (decks, catwalks, ledges) & wall-base ascent fallback
+  const allSurfaces = collectWalkableSurfaces(state);
+  /** Highest walkable floor under (x, z) that is well below `belowY` (the drop/climb lower level), or null for the ground. */
+  const floorsUnder = (x: number, z: number, belowY: number) => {
+    let best: (typeof allSurfaces)[number] | null = null;
+    for (const s of allSurfaces) {
+      if (s.topY > belowY - 0.5 || s.topY <= 0.3) continue;
+      if (best && s.topY <= best.topY) continue;
+      const hit = findWalkableSurfaceIn([s], { x, z, y: s.topY }, 0);
+      if (hit) best = s;
+    }
+    return best;
+  };
   for (const piece of state.terrain) {
     const surfaces = getWalkableSurfaces(piece);
     if (surfaces.length === 0) continue;
@@ -2329,14 +2341,19 @@ export function findNavPath(
         const outW = localToWorldXZ(piece, ox, oz);
         if (Math.abs(outW.x) > halfW || Math.abs(outW.z) > halfH) continue;
         const r2 = (n: number) => Math.round(n * 100) / 100;
+        // The lower twin stands on the highest floor under the stand-off spot (a deck a container is stacked
+        // on), else the ground; it must itself be a legal standing spot
+        const lowerSurface = floorsUnder(outW.x, outW.z, platY);
+        const lowerY = lowerSurface ? lowerSurface.topY : 0;
         const airPt = { x: r2(outW.x), y: platY, z: r2(outW.z) };
-        const groundPt = { x: r2(outW.x), y: 0, z: r2(outW.z) };
+        const groundPt = { x: r2(outW.x), y: lowerY, z: r2(outW.z) };
+        if (lowerY > 0.3 && isBaseOverhanging(state, groundPt, allSurfaces)) continue;
         candidateWaypoints.push({ x: r2(edgeW.x), y: platY, z: r2(edgeW.z) });
         candidateWaypoints.push(airPt, groundPt);
         dropTwin.set(airPt, groundPt);
         dropTwin.set(groundPt, airPt);
         dropAirPts.add(airPt);
-        if (isClimbable(piece) && platY <= CLIMB_MAX) climbUp.set(groundPt, airPt);
+        if (isClimbable(piece) && platY - lowerY <= CLIMB_MAX) climbUp.set(groundPt, airPt);
       }
     }
 
