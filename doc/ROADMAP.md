@@ -691,6 +691,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Update map editor palette to display the new procedural wargaming terrain catalog.
 
 ### 13.6 playtest fixes (bugfix batch 1, see `doc/plans/bugfix-playtest-batch-1.md`)
+- [x] PR 26 (batch 1H): removed the stale "sheer climb ... next turn" rush message. A rush preview that ends short now says why in one line ("Can't reach that height from here — use stairs or a ladder", "Out of movement", or "Rush stops at the edge of difficult terrain"); nothing promises a later turn.
 - [x] Terrain picking ignores decorative lines (stair step lines) and `userData.decor` meshes, so the move target no longer snaps to the stairs' top corners.
 - [x] Map editor: objectives from Auto Obj / loaded / imported maps can be selected by clicking near them (within 1") or from the Objectives tab list, and removed (PR 12).
 - [x] PR 1: ladder foot/head are real standing spots (`LADDER_STANDOFF` 0.55" off/on the deck face; the step on/off is free), ladders onto the shipping container work, and the mid-air guard is no longer disabled on maps that contain a ladder.
