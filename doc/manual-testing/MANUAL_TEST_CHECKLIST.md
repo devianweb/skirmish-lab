@@ -41,7 +41,7 @@ Movement model (batch 1E): the pathfinder only plans ordinary movement (walking,
 - [ ] **Dice log:** every jump, fall and dangerous-terrain roll appears in the Dice panel ("Movement hazards", with the rolled dice coloured pass/fail) and in the action log line ("moved X — Jump down 4.0" ... landed"). A move with no hazards shows nothing extra.
 
 ## 5. Low cover & scatter
-- [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs or simply climbed from any of its four sides (2.25" rise; cost is the walk plus 2.25"). A platform or catwalk deck cannot be climbed without its ladder or stairs. A model cannot climb a container stacked on another (4.5" rise). The preview shows an orange "climb 2.3"" leg. (The Climbable toggle arrives with E4.) You can stack pieces on it.
+- [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs or simply climbed from any of its four sides (2.25" rise; cost is the walk plus 2.25"). A platform or catwalk deck cannot be climbed without its ladder or stairs. A model cannot climb a container stacked on another (4.5" rise). The preview shows an orange "climb 2.3"" leg. You can stack pieces on it.
 
 ## 6. Squads
 - All items verified 2026-11-02.
