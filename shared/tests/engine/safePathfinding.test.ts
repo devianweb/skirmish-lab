@@ -100,8 +100,20 @@ describe('classifySegment', () => {
     expect(classifySegment(state, P(0, 5, 0), P(0.5, 0, 0), flyer).kind).toBe('drop');
   });
 
-  it('a climb up a sheer face is a climb (E2 gates it by data); a rise over 3" is blocked', () => {
-    expect(classifySegment(state, P(0, 0, 0), P(0, 2.25, 0), unit).kind).toBe('climb');
+  it('a climb is only a climb up a climbable floor (rise at most 3"); elsewhere it is blocked', () => {
+    const container: TerrainPiece = {
+      id: 'c',
+      terrainType: 'shipping-container',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 5, y: 2.25, z: 2.25 },
+      blocksLineOfSight: true,
+      providesCover: true,
+      isObstacle: true,
+    };
+    const withBox = makeState(unit, [container]);
+    expect(classifySegment(withBox, P(0, 0, -1.675), P(0, 2.25, -1.675), unit)).toMatchObject({ kind: 'climb', cost: 2.25 });
+    expect(classifySegment(state, P(0, 0, 0), P(0, 2.25, 0), unit).kind).toBe('blocked'); // nothing to climb onto
     expect(classifySegment(state, P(0, 0, 0), P(0, 4.5, 0), unit).kind).toBe('blocked');
   });
 

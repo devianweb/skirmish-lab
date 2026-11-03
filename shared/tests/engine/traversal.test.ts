@@ -109,7 +109,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(getEffectiveMaxMovement(flyer, 'charge', true)).toBe(12.0);
     });
 
-    it('detects sheer wall climbs as difficult terrain without a ladder/stairs', () => {
+    it('a climb up a wall is ordinary movement, never difficult terrain', () => {
       const state = makeState();
       state.terrain = []; // empty terrain, sheer vertical ascent
 
@@ -117,7 +117,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
         { x: 0, y: 0, z: 0 },
         { x: 0, y: 2.0, z: 1.0 }, // scales 2" vertically
       ];
-      expect(isPathDifficult(state, path, dummyUnit)).toBe(true);
+      expect(isPathDifficult(state, path, dummyUnit)).toBe(false);
     });
 
     it('allows vertical ascent without difficult terrain penalty when climbing a ladder', () => {

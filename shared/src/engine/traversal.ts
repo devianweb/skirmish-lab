@@ -1,7 +1,9 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
+import { isClimbable } from '../data/mapSchema';
 import {
+  DROP_STANDOFF,
   computeSquadCentroid,
   findMoveBlocker,
   findTerrainAtPosition,
@@ -81,6 +83,44 @@ export interface SegmentClass {
   target: number;
 }
 
+/**
+ * True if the upward step `a` -> `b` is a legal climb: a rise of at most 3" that ends at the height of a
+ * floor of a climbable piece, at the stand-off spot beside that floor's edge (a full base off the face) or
+ * on the floor itself, with the climb column clear of terrain (a climb is a drop in reverse). Climbing onto
+ * a piece that is not climbable, or past a wall that stands in the way, is not possible.
+ */
+export function canClimbBetween(state: GameState, a: Vector3, b: Vector3): boolean {
+  const ay = a.y ?? 0;
+  const by = b.y ?? 0;
+  if (by - ay > CLIMB_MAX || by - ay <= 0.5) return false;
+  for (const surface of collectWalkableSurfaces(state)) {
+    if (!isClimbable(surface.piece) || Math.abs(surface.topY - by) > 0.1) continue;
+    const l = worldToLocal(surface.piece, b);
+    const dx = Math.max(surface.minX - l.x, 0, l.x - surface.maxX);
+    const dz = Math.max(surface.minZ - l.z, 0, l.z - surface.maxZ);
+    if (Math.hypot(dx, dz) > DROP_STANDOFF + 0.05) continue;
+    if (distanceHorizontal(a, b) > 0.7) continue;
+    if (isFallColumnBlocked(state, { x: b.x, y: by, z: b.z }, { x: b.x, y: ay, z: b.z })) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Host-side check of every upward step in a path: each rise over half an inch must be a stairs/ladder
+ * step or a legal climb. Returns a rejection reason, or null when fine.
+ */
+export function validatePathClimbs(state: GameState, unit: Unit, path: Vector3[]): string | null {
+  for (let i = 1; i < path.length; i++) {
+    const dy = (path[i].y ?? 0) - (path[i - 1].y ?? 0);
+    if (dy <= 0.5) continue;
+    if (classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).kind === 'blocked') {
+      return 'Cannot climb there: only climbable terrain up to 3" can be climbed without a ladder or stairs, from a clear spot beside it';
+    }
+  }
+  return null;
+}
+
 /** Ordinary, test-free movement vs jump vs fall, from the height of a descent. */
 export function classifyDropHeight(height: number): 'drop' | 'jump-drop' | 'fall' {
   if (height <= FREE_DROP_MAX) return 'drop';
@@ -124,7 +164,7 @@ export function classifySegment(
     if (dy > 0) {
       if (onSlope) return make(onLadder ? 'ladder' : 'stairs', length);
       if (airborne) return make('walk', length);
-      return dy <= CLIMB_MAX ? make('climb', length) : make('blocked', length);
+      return canClimbBetween(state, a, b) ? make('climb', length) : make('blocked', length);
     }
     const height = -dy;
     if (onSlope) {
@@ -238,7 +278,7 @@ export function validateMeleeVerticalReach(a: Vector3, b: Vector3): boolean {
 }
 
 /**
- * Checks whether a movement path encounters Difficult Terrain or scales sheer vertical walls.
+ * Checks whether a movement path encounters Difficult Terrain (climbing is ordinary movement, never difficult).
  */
 export function isPathDifficult(
   state: GameState,
@@ -250,27 +290,6 @@ export function isPathDifficult(
   }
   if (unit && hasTrait(unit.specialRules, 'airborne')) {
     return false; // Airborne ignores all terrain effects
-  }
-
-  // Check sheer wall climb (vertical ascent > 0.5" without a designated ladder/stairs/ramp)
-  for (let i = 1; i < path.length; i++) {
-    const prev = path[i - 1];
-    const curr = path[i];
-    const verticalRise = (curr.y ?? 0) - (prev.y ?? 0);
-    if (verticalRise > 0.5) {
-      const piece = findTerrainAtPosition(state, curr) || findTerrainAtPosition(state, prev);
-      const isClimbPiece =
-        piece &&
-        (piece.terrainType === 'ladder' ||
-          piece.terrainType === 'stairs' ||
-          piece.climbType === 'ladder' ||
-          piece.climbType === 'stairs' ||
-          piece.climbType === 'ramp');
-      const isClimbRamp = isClimbPiece || isSegmentOnRampOrStairs(state, prev, curr);
-      if (!isClimbRamp) {
-        return true; // Free-climbing a sheer wall counts as Difficult Terrain
-      }
-    }
   }
 
   // Check difficult terrain pieces along the path
@@ -655,6 +674,8 @@ export function validateDeclaredTraversal(
   path: Vector3[],
   traversal?: DeclaredTraversal | null
 ): string | null {
+  const climbProblem = validatePathClimbs(state, unit, path);
+  if (climbProblem) return climbProblem;
   const jumps: Array<{ a: Vector3; b: Vector3; kind: SegmentKind }> = [];
   for (let i = 1; i < path.length; i++) {
     const cls = classifySegment(state, path[i - 1], path[i], unit);
