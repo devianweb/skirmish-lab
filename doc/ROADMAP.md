@@ -706,6 +706,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Games use the custom map's board size (was always 36"×36"); deployment zones stay 24" apart on small boards; TEST army (one speed-24" fighter per side) for playtesting.
 - [x] PR 17 (batch 1F): climbing and dropping between a deck and a piece stacked on it. The drop/climb "lower twin" in `findNavPath` now stands on the highest walkable floor below the stand-off spot (else the ground) instead of always `y: 0`, and is skipped if it would overhang; the 3" climb limit uses the real rise (a container on a 6" deck is a 2.25" climb). Fixture `testy-mctestface-2.json`.
 - [x] PR 18 (batch 1F): a failed gap jump lands the model on the highest floor below the fall point (a lower deck, else the ground) at a clear, fully supported spot within 2" (`findFallLanding`), applies falling damage for any fall of 2" or more (AP(1) per full 3"; the dice are requested for jumps from 2" up), returns the real wound count (0 when saved), and in a squad only the jumping model falls (it is lost unless it is the last survivor).
+- [x] PR 19 (batch 1F): floating 3D labels on the move preview. Each labelled leg (climb, drop, jump, fall) shows a `CSS2DObject` HTML label at its midpoint, rendered by a `CSS2DRenderer` overlay in `SceneManager` (pointer-transparent, resized with the window) and removed with the preview.
 
 ### Acceptance Criteria
 - [ ] Zero Kenney terrain `.glb` files loaded or downloaded in the client.

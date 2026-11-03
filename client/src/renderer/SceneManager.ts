@@ -1,9 +1,12 @@
 import * as THREE from 'three';
+import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 export class SceneManager {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
+  /** DOM overlay for floating labels (CSS2DObjects); never intercepts pointer events. */
+  private labelRenderer: CSS2DRenderer;
 
   constructor(container: HTMLElement) {
     this.scene = new THREE.Scene();
@@ -23,6 +26,15 @@ export class SceneManager {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(this.renderer.domElement);
 
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    const labelEl = this.labelRenderer.domElement;
+    labelEl.style.position = 'absolute';
+    labelEl.style.top = '0';
+    labelEl.style.left = '0';
+    labelEl.style.pointerEvents = 'none';
+    container.appendChild(labelEl);
+
     this.setupLights();
     this.setupResizeHandler();
   }
@@ -41,6 +53,7 @@ export class SceneManager {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.labelRenderer.setSize(window.innerWidth, window.innerHeight);
     });
   }
 
@@ -58,6 +71,7 @@ export class SceneManager {
 
   render(): void {
     this.renderer.render(this.scene, this.camera);
+    this.labelRenderer.render(this.scene, this.camera);
   }
 
   startAnimationLoop(callback?: () => void): void {
