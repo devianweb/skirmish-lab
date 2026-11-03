@@ -739,6 +739,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 Planning and research use **Opus** in the main session; implementation uses **Sonnet** `implementer` agents, one per PR section of an approved plan in `doc/plans/`. See [AGENTS.md](../AGENTS.md#planning--implementation-workflow-opus-plans-sonnet-implements) and [doc/plans/README.md](plans/README.md). The per-phase "Recommended AI Model" notes above (4.0 / 3.8) date from the earlier toolchain and are historical.
 
 ## Future Considerations (Post-v1)
+- Optional "smart snap" for movement targets, with a toggle: destinations snap to a 0.5" grid, but rule spots win (edge and ladder stand-off spots, base contact for charges, in-cover positions, objective rings); movement is still measured as a straight line (no grid pathfinding), plus a ghost base showing exactly where the model will stand. Off by default, or user-selectable.
 - Custom army roster importer & builder (clean-room JSON import/export, points budget validation, and Army Forge plain-text roster parsing)
 - Full host migration if needed
 - Additional terrain types
