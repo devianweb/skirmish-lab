@@ -208,6 +208,7 @@ interface TerrainPiece {
   providesCover: boolean;
   isObstacle: boolean;
   structure?: TerrainGroup;  // Optional override of the catalog structure (see below)
+  climbable?: boolean;       // Override of the type's catalog default: may models climb onto this piece's floor (rise <= 3") without a ladder? `isClimbable(piece)` = override ?? catalog default ?? false
   data?: Record<string, any>;
 }
 ```

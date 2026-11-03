@@ -19,6 +19,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 3. Elevation, ladders, stairs
 
 - [ ] **Ladder spots:** rush/move toward a ladder with a budget too short to climb: the mini stops at the ladder foot with its base against the wall, outside the ladder and not under the deck. With enough budget it climbs and ends standing fully on the deck at the head (not half over the edge). The short shuffle on and off the ladder costs nothing (only the climb height counts). Climbing back down mirrors it. Check a ladder on each side of a deck and on the shipping container.
+- [ ] **Climb the ruin ledge (3.0"):** from inside the ruin courtyard, move a model onto the ledge: it steps a base off the face, climbs straight up and steps in, with no ladder; movement spent is the walk plus 3". Behind the 4" back wall (outside the ruin) it cannot climb there and walks round instead. With too little movement it stops at the foot, never part-way up. The HUD climb label and styling arrive with E3 (after E3).
 - [ ] **Deck edge pick:** hover the ground just past a deck edge (low camera angle, also over kick-plates): the target is the ground, never deck height at the edge. Hovering the deck top still picks the deck.
 
 ## 4. Drops, jumps and movement cost
@@ -37,7 +38,7 @@ Movement model (batch 1E): the pathfinder only plans ordinary movement (walking,
 - [ ] **Dice log:** every jump, fall and dangerous-terrain roll appears in the Dice panel ("Movement hazards", with the rolled dice coloured pass/fail) and in the action log line ("moved X — Jump down 4.0" ... landed"). A move with no hazards shows nothing extra.
 
 ## 5. Low cover & scatter
-- [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs (a ladder snapped to its side lets a model climb from the ground to the roof); you can stack pieces on it.
+- [ ] Shipping Container (2.25"): blocks sight and movement; its flat roof is a walkable floor reached by ladder/stairs or simply climbed from any of its four sides (2.25" rise; cost is the walk plus 2.25"). A platform or catwalk deck cannot be climbed without its ladder or stairs. A model cannot climb a container stacked on another (4.5" rise). The "climb" HUD label and the Climbable toggle arrive with E3/E4 (after E3). You can stack pieces on it.
 
 ## 6. Squads
 - All items verified 2026-11-02.

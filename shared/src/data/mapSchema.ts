@@ -20,6 +20,8 @@ export interface TerrainTypeMetadata {
   elevation?: number;
   climbType?: 'ladder' | 'stairs';
   climbSlope?: number;
+  /** Default for "models may climb onto this piece's floor (rise up to 3\") without a ladder". Pieces can override it. */
+  climbable?: boolean;
   description?: string;
 }
 
@@ -30,6 +32,7 @@ export interface TerrainTypeMetadata {
 export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
   'ruin-l': {
     type: 'ruin-l',
+    climbable: true,
     displayName: 'L-Corner Ruin',
     category: 'structures',
     defaultScale: { x: 4, y: 4, z: 4 },
@@ -102,6 +105,7 @@ export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
   // Elevation (13.6C): platforms, catwalks, supports and deck furniture
   'platform-small': {
     type: 'platform-small',
+    climbable: false,
     displayName: 'Platform (4"×4")',
     category: 'platforms',
     defaultScale: { x: 4, y: 3, z: 4 },
@@ -113,6 +117,7 @@ export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
   },
   'platform-large': {
     type: 'platform-large',
+    climbable: false,
     displayName: 'Platform (6"×4")',
     category: 'platforms',
     defaultScale: { x: 6, y: 3, z: 4 },
@@ -124,6 +129,7 @@ export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
   },
   catwalk: {
     type: 'catwalk',
+    climbable: false,
     displayName: 'Catwalk (6"×2")',
     category: 'platforms',
     defaultScale: { x: 6, y: 3, z: 2 },
@@ -176,6 +182,7 @@ export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
   },
   'shipping-container': {
     type: 'shipping-container',
+    climbable: true,
     displayName: 'Shipping Container (5")',
     category: 'scatter',
     defaultScale: { x: 5, y: 2.25, z: 2.25 },
@@ -239,6 +246,20 @@ export interface MapValidationNotice {
  * Validates custom map layout for tactical playability and standard tabletop rules.
  * Generates advisory warnings without hard-blocking sandbox creativity.
  */
+/** Types outside the catalog that still count as climbable by default (older saved maps). */
+const LEGACY_CLIMBABLE_TYPES: readonly string[] = ['ruin'];
+
+/**
+ * Whether models may climb onto this piece's floor without a ladder or stairs (rise up to 3"):
+ * the piece's own `climbable` override, else its catalog default, else no.
+ */
+export function isClimbable(piece: Pick<TerrainPiece, 'terrainType' | 'climbable'>): boolean {
+  if (piece.climbable !== undefined) return piece.climbable;
+  const meta = TERRAIN_PALETTE_CATALOG[piece.terrainType];
+  if (meta?.climbable !== undefined) return meta.climbable;
+  return LEGACY_CLIMBABLE_TYPES.includes(piece.terrainType);
+}
+
 export function validateMapDefinition(map: CustomMapDefinition): MapValidationNotice[] {
   const notices: MapValidationNotice[] = [];
 

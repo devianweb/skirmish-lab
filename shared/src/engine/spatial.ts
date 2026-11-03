@@ -12,7 +12,8 @@ import {
   worldToLocal,
 } from './terrainStructure';
 
-import { classifySegment, FREE_DROP_MAX } from './traversal';
+import { classifySegment, CLIMB_MAX, FREE_DROP_MAX } from './traversal';
+import { isClimbable } from '../data/mapSchema';
 
 export * from './terrainStructure';
 
@@ -1813,8 +1814,8 @@ export function getDeckPoints(piece: TerrainPiece, surface: WalkableSurface): Ve
   });
 }
 
-/** Segment kinds the pathfinder may plan: ordinary, test-free movement. (Climbing arrives with climbable terrain.) */
-const PLANNABLE_KINDS: readonly string[] = ['walk', 'stairs', 'ladder', 'drop', 'gap'];
+/** Segment kinds the pathfinder may plan: ordinary, test-free movement (including climbs of climbable terrain). */
+const PLANNABLE_KINDS: readonly string[] = ['walk', 'stairs', 'ladder', 'climb', 'drop', 'gap'];
 
 /** True if `a` -> `b` is ordinary movement (no jump, fall, climb or impossible crossing). */
 export function isOrdinarySegment(state: GameState, a: Vector3, b: Vector3, unit?: Unit): boolean {
@@ -1852,7 +1853,12 @@ function settleEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
     const b = out[out.length - 1];
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, (b.y ?? 0) - (a.y ?? 0), b.z - a.z) / 0.05));
     let found: Vector3 | null = null;
-    for (let k = steps - 1; k >= 1; k--) {
+    // A straight climb or drop (no ladder, no stairs) has no standable point part-way: all or nothing
+    const sheer =
+      Math.abs((b.y ?? 0) - (a.y ?? 0)) > 0.5 &&
+      Math.hypot(b.x - a.x, b.z - a.z) < 0.1 &&
+      !isSegmentOnRampOrStairs(state, a, b);
+    for (let k = steps - 1; !sheer && k >= 1; k--) {
       const t = k / steps;
       const pt = {
         x: r2(a.x + (b.x - a.x) * t),
@@ -2103,6 +2109,8 @@ export function findNavPath(
   // to the other is a legal edge, so these points can never serve as a stepping stone for climbing.
   const dropTwin = new Map<Vector3, Vector3>();
   const dropAirPts = new Set<Vector3>();
+  // A climb is a drop in reverse: from the ground spot straight up to the over-air spot (climbable floors up to 3" only)
+  const climbUp = new Map<Vector3, Vector3>();
 
   // 3b. Walkable floors (decks, catwalks, ledges) & wall-base ascent fallback
   for (const piece of state.terrain) {
@@ -2156,6 +2164,7 @@ export function findNavPath(
         dropTwin.set(airPt, groundPt);
         dropTwin.set(groundPt, airPt);
         dropAirPts.add(airPt);
+        if (isClimbable(piece) && platY <= CLIMB_MAX) climbUp.set(groundPt, airPt);
       }
     }
 
@@ -2344,8 +2353,9 @@ export function findNavPath(
         const dyAbs = Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0));
         const isTwinDescent =
           dropAirPts.has(current.pos) && dropTwin.get(current.pos) === neighbor.pos;
-        if (dyAbs > 0.35 && !isTwinDescent) continue;
-        if (dropTwin.get(current.pos) === neighbor.pos && !isTwinDescent) continue;
+        const isTwinClimb = climbUp.get(current.pos) === neighbor.pos;
+        if (dyAbs > 0.35 && !isTwinDescent && !isTwinClimb) continue;
+        if (dropTwin.get(current.pos) === neighbor.pos && !isTwinDescent && !isTwinClimb) continue;
       }
 
       // Surface constraint check: non-airborne cannot fly diagonally across open air
@@ -2357,7 +2367,7 @@ export function findNavPath(
       if (blk.blocked) continue;
 
       // Only ordinary movement is in the graph: walking, stairs, ladders, drops of 3" or less and gaps of 1" or
-      // less. Jumps, falls and (until climbing lands) sheer climbs are never planned.
+      // less. Jumps and falls are never planned; climbs only onto climbable floors.
       const edgeCost = safeEdgeCost(current.pos, neighbor.pos);
       if (edgeCost === null) continue;
 
@@ -2489,17 +2499,13 @@ export function findNavPath(
     const segLen = segCost(p1, p2, smoothed[i - 2]);
 
     // If stopBeforeDifficult is requested (e.g. for Rush actions where entering difficult terrain
-    // would negate double speed and cap movement to 6"), stop at the base of sheer climbs or
+    // would negate double speed and cap movement to 6"), stop
     // before difficult terrain pieces if the full traversal would exceed 6.0".
     if (
       options.stopBeforeDifficult &&
       !hasTrait(unit.specialRules, 'pathfinder') &&
       !hasTrait(unit.specialRules, 'airborne')
     ) {
-      const isSheerClimb =
-        (p2.y ?? 0) - (p1.y ?? 0) > 0.5 &&
-        !isSegmentOnRampOrStairs(state, p1, p2);
-
       const p2Piece = findTerrainAtPosition(state, p2);
       const isP2Difficult =
         p2Piece &&
@@ -2517,10 +2523,6 @@ export function findNavPath(
           p1Piece.terrainType === 'forest');
 
       const isEnteringDifficult = isP2Difficult && !isP1Difficult;
-
-      if (isSheerClimb && totalSmoothedLen > 6.0) {
-        break;
-      }
 
       if (isEnteringDifficult && totalSmoothedLen > 6.0) {
         if (p2Piece) {

@@ -67,21 +67,21 @@ The default testing map layout is defined in [`shared/src/data/scenario.ts`](../
 
 ## 2b. Elevation Pieces (13.6C, procedural)
 
-All built from the shared structure definitions in `shared/src/data/terrainStructures.ts` (mesh = collision); floors sit at the 3.0" tier. Kick-plates (0.15") and tread ridges are visual-only dressing.
+All built from the shared structure definitions in `shared/src/data/terrainStructures.ts` (mesh = collision); floors sit at the 3.0" tier. Kick-plates (0.15") and tread ridges are visual-only dressing. **Climbable** is the catalog default (`climbable` in `TERRAIN_PALETTE_CATALOG`, overridable per piece with `TerrainPiece.climbable`): models may climb onto the floor of a climbable piece (rise 3" or less) without a ladder; decks are not climbable, so they need their ladder or stairs.
 
-| `terrainType` | Display name | Default scale (W × H × D) | Structure / behaviour |
-| :--- | :--- | :---: | :--- |
-| `platform-small` | Platform (4"×4") | `4 × 3 × 4` | Walkable deck (top 3.0", 0.25" thick) on four 0.5" corner pillars; models walk beneath. |
-| `platform-large` | Platform (6"×4") | `6 × 3 × 4` | Same, larger deck. |
-| `catwalk` | Catwalk (6"×2") | `6 × 3 × 2` | Bare walkable deck (no legs) spanning between platforms. |
-| `support-pillar` | Support Pillar | `0.5 × 2.75 × 0.5` | Same 0.5" pillar as the platform legs; ground to deck underside. |
-| `barricade` | Barricade (3") | `3 × 0.5 × 0.25` | Low 0.5" cover; does not block sight; stacks on decks. |
-| `crate` | Supply Crate | `1 × 0.75 × 1` | Low 0.75" cover; does not block sight (full 1"×1" collision footprint). |
-| `industrial-pipe` | Industrial Pipe (4") | `4 × 0.75 × 0.75` | Low 0.75" conduit cover (box collision; round mesh later). |
-| `shipping-container` | Shipping Container (5") | `5 × 2.25 × 2.25` | Solid sight blocker with a walkable 2.25" roof. |
-| `stairs` | Stairs (2"×4") | `2 × 3 × 4` | Continuous ramp (wedge physics) up to 3.0"; mesh has risers and stringers. |
-| `ladder` | Wall Ladder | `0.5 × 3 × 0.25` | Rails and rungs; snaps to the nearest deck/ledge face in the editor. |
-| `ruin-l` | L-Corner Ruin | `4 × 4 × 4` | Now includes the walkable L-ledge at 3.0" inside the north and west walls. |
+| `terrainType` | Display name | Default scale (W × H × D) | Climbable | Structure / behaviour |
+| :--- | :--- | :---: | :---: | :--- |
+| `platform-small` | Platform (4"×4") | `4 × 3 × 4` | no | Walkable deck (top 3.0", 0.25" thick) on four 0.5" corner pillars; models walk beneath. |
+| `platform-large` | Platform (6"×4") | `6 × 3 × 4` | no | Same, larger deck. |
+| `catwalk` | Catwalk (6"×2") | `6 × 3 × 2` | no | Bare walkable deck (no legs) spanning between platforms. |
+| `support-pillar` | Support Pillar | `0.5 × 2.75 × 0.5` | - | Same 0.5" pillar as the platform legs; ground to deck underside. |
+| `barricade` | Barricade (3") | `3 × 0.5 × 0.25` | - | Low 0.5" cover; does not block sight; stacks on decks. |
+| `crate` | Supply Crate | `1 × 0.75 × 1` | - | Low 0.75" cover; does not block sight (full 1"×1" collision footprint). |
+| `industrial-pipe` | Industrial Pipe (4") | `4 × 0.75 × 0.75` | - | Low 0.75" conduit cover (box collision; round mesh later). |
+| `shipping-container` | Shipping Container (5") | `5 × 2.25 × 2.25` | yes | Solid sight blocker with a walkable 2.25" roof. |
+| `stairs` | Stairs (2"×4") | `2 × 3 × 4` | - | Continuous ramp (wedge physics) up to 3.0"; mesh has risers and stringers. |
+| `ladder` | Wall Ladder | `0.5 × 3 × 0.25` | - | Rails and rungs; snaps to the nearest deck/ledge face in the editor. |
+| `ruin-l` | L-Corner Ruin | `4 × 4 × 4` | yes | Now includes the walkable L-ledge at 3.0" inside the north and west walls. |
 
 ---
 
