@@ -82,4 +82,28 @@ describe('SceneManager', () => {
       expect.objectContaining({ isPerspectiveCamera: true })
     );
   });
+
+  it('mounts a pointer-transparent label layer sized to the window', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    new SceneManager(container);
+    const layers = Array.from(container.children).filter((c) => c.tagName !== 'CANVAS') as HTMLElement[];
+    expect(layers).toHaveLength(1);
+    expect(layers[0].style.pointerEvents).toBe('none');
+    expect(layers[0].style.width).toBe('1024px');
+  });
+
+  it('renders the label layer with every frame and resizes it with the window', () => {
+    const manager = makeSceneManager();
+    const layer = (manager as unknown as { labelRenderer: { render: unknown; domElement: HTMLElement } }).labelRenderer;
+    const spy = vi.spyOn(layer as { render: (...a: unknown[]) => void }, 'render');
+    manager.render();
+    expect(spy).toHaveBeenCalledWith(manager.getScene(), manager.getCamera());
+
+    window.innerWidth = 800;
+    window.innerHeight = 600;
+    window.dispatchEvent(new Event('resize'));
+    expect(layer.domElement.style.width).toBe('800px');
+    expect(layer.domElement.style.height).toBe('600px');
+  });
 });

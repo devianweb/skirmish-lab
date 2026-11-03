@@ -16,6 +16,7 @@ import {
   getWalkableSurfaces,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
+import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { disposeObject3D } from './utils';
 import { outcomeMarkerKey } from './assetManifest';
 
@@ -311,6 +312,25 @@ export class MarkerRenderer {
     this.attackRange = marker;
   }
 
+  /** Floating HTML label at a path leg's midpoint, styled like the HUD chips; never takes pointer events. */
+  private createSegmentLabel(seg: MovePathSegment, color: number): CSS2DObject {
+    const el = document.createElement('div');
+    el.className = `sl-move-label sl-move-label-${seg.kind}`;
+    el.textContent = seg.label ?? '';
+    const css = `#${color.toString(16).padStart(6, '0')}`;
+    el.style.cssText =
+      'pointer-events:none;user-select:none;white-space:nowrap;padding:2px 8px;border-radius:10px;' +
+      `font:600 12px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid ${css};`;
+    const label = new CSS2DObject(el);
+    label.name = `marker-move-label-${seg.kind}`;
+    label.position.set(
+      (seg.from.x + seg.to.x) / 2,
+      ((seg.from.y ?? 0) + (seg.to.y ?? 0)) / 2 + 0.6,
+      (seg.from.z + seg.to.z) / 2
+    );
+    return label;
+  }
+
   /** Preview line + endpoint disc for a prospective move path. */
   setMovePath(path: MovePathMarker | null): void {
     this.removeMarker('movePath');
@@ -346,6 +366,7 @@ export class MarkerRenderer {
         if (style.dashed) line.computeLineDistances();
         line.name = `marker-move-segment-${seg.kind}`;
         group.add(line);
+        if (seg.label) group.add(this.createSegmentLabel(seg, style.color));
       }
     } else {
       const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
@@ -961,6 +982,11 @@ export class MarkerRenderer {
   ): void {
     const current = this[kind];
     if (current) {
+      if (kind === 'movePath') {
+        current.traverse((child) => {
+          if (child instanceof CSS2DObject) child.element.remove();
+        });
+      }
       this.markerGroup.remove(current);
       disposeObject3D(current);
       this[kind] = null;
