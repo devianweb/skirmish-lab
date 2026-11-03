@@ -5,6 +5,7 @@ import { isClimbable } from '../data/mapSchema';
 import {
   DROP_STANDOFF,
   computeSquadCentroid,
+  findEndOverlap,
   findMoveBlocker,
   findTerrainAtPosition,
   collectWalkableSurfaces,
@@ -650,6 +651,7 @@ export function findJumpOption(
   const cls = classifySegment(state, from, target, unit);
   if (!(JUMP_KINDS as readonly string[]).includes(cls.kind)) return null;
   if (findMoveBlocker(state, unit, [from, target]).blocked) return null;
+  if (findEndOverlap(state, unit.id, { x: target.x, y: targetY, z: target.z })) return null;
   const takeoff = { x: from.x, y: fromY, z: from.z };
   const landing = { x: target.x, y: targetY, z: target.z };
   return {
