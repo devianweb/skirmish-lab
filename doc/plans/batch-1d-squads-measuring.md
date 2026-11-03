@@ -2,7 +2,7 @@
 Status: approved (2026-11-02)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
-Base-edge measuring, then measuring between models instead of unit centres (shooting, charges, the 1" rule), confirm-early squad moves, and per-model charges. Order: PR 14 with/before PR 9a → 9b → 9c; PR 10 any time; PR 11 last.
+Base-edge measuring, then measuring between models instead of unit centres (shooting, charges, the 1" rule), confirm-early squad moves, and per-model charges. Order: PR 14 with/before PR 9a → 9b → 9c; PR 10 + PR 15 (squad jumps) together any time; PR 16 (charge jumps) before PR 11; PR 11 last.
 
 ## PR 14: Base-edge measuring (branch: `refactor/base-edge-measuring`)
 **Why:** Decision 12. Distances today are a mix: coherency already uses base edges (1" = 2.0" centre in `validateSquadCoherency`), but the 6" squad spread (6.0 centre), shooting range (`boardDistance` centre), objective control (`OBJECTIVE_CONTROL_RADIUS` 3.0 centre, `activation.ts` ~l.91/104), engagement/contact (`ENGAGEMENT_RANGE` 1.5 centre, `actions.ts` ~l.98), charge reach and the "> 9"" rules are centre to centre.
@@ -97,3 +97,25 @@ Our 3D eye-level ray (`traceLineOfSight`, 1.1" eye to head/torso/feet samples) i
 - **Docs:** RULES_SPECIFICATION §5, SYSTEMS.md charge section, DATA_MODEL charge payload, ROADMAP.
 - **Manual checks:** §8 add: charging with a squad lets you place each model, models that can't reach still move closer, only models within 2" strike, defenders pile in 3".
 - **Depends on:** PR 9a/9b (`unitGeometry`), PR 10 (confirm early).
+
+---
+
+## PR 15: Squads can declare jumps (branch: `feat/squad-declared-jumps`)
+**Why:** follow-up from batch 1E. A move carries one `traversal` (`DeclaredTraversal`), but squad moves send one path per model (`modelPaths`), so the host rejects any squad model path that needs a jump (`actions.ts` ~l.431: "squads cannot declare yet").
+
+- **Rules:** each model jumps individually. A failed model falls, and in a multi-model squad a fall kills that model until only the last one remains (RULES_SPECIFICATION §10.3, already implemented for falls).
+- **Engine:** add `modelTraversals?: (DeclaredTraversal | null)[]` aligned with `modelPaths` on move-unit / rush. Validate each model's path with `validateDeclaredTraversal(state, unit, mPath, modelTraversals[i])`. `getDiceSpecs` requests jump dice per jumping model (tag them so each model's rolls are consumed in order). `applyTraversalHazardsAndFalls` already runs per model path, so feed it that model's traversal and rolls.
+- **HUD:** the squad staging flow (`stagedSquadModelPaths`) stores a per-model traversal when `findJumpOption` returns one for the model being placed. The jump chip applies to that model only.
+- **Tests first:** a 3-model squad where one model jumps a 5" gap and two walk: dice = 2 jump dice for that model only. Pass → all placed. Fail → that model is removed (squad > 1) and the activation ends. The last-model case falls normally. Undeclared squad jumps are still rejected.
+- **Do alongside PR 10** (confirm early), since both change how squad moves are assembled.
+- **Manual checks:** §6: a squad model at an edge is offered the jump, and only that model rolls.
+
+## PR 16: Jumps during a charge (branch: `feat/charge-jumps`)
+**Why:** follow-up from batch 1E. The engine already accepts `traversal` on charge, and the charge dice spec adds jump, fall and hazard dice, but the HUD charge preview never offers a jump.
+
+- **Scenarios:** charging across a 1–6" gap between two platforms, or charging down at an enemy 3–6" below a deck edge.
+- **Flow:** Charge → hover the enemy → if reaching contact needs a jump, the preview shows the jump leg dashed red with the chip "Jump gap 4.9" · 2 dice (3+)". Confirm rolls the jump first. **Pass:** the model lands and continues into contact, melee resolves, and the jump distance is free. **Fail:** the model falls (falling damage) and its activation ends, so there's no melee.
+- **Open question (owner):** charges can't be split, so the 1E rule "jumps only from where the model stands" means the charger must start at the edge. **(a)** Keep that strictly, or **(b)** for charges only, allow safe walk → one declared jump → continue to contact in a single charge. Recommendation: (b), because a tabletop charge is one continuous move of up to 12".
+- **Engine:** switch the charge dice spec from the legacy `detectPathGapJump(path)` to the declared traversal (consistent with moves). Add a test that a failed charge jump resolves no melee.
+- **Before PR 11** (per-model charges), so PR 11 inherits it.
+- **Manual checks:** §8: a charge across a gap offers the jump. Pass → melee. Fail → fall, no melee.
