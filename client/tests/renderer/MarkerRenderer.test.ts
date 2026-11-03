@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as THREE from 'three';
-import { MarkerRenderer } from '../../src/renderer/MarkerRenderer';
+import { MarkerRenderer, segmentStyle } from '../../src/renderer/MarkerRenderer';
 import { getStairWaypoints } from '@skirmish-lab/shared';
 import { ModelLoader } from '../../src/renderer/ModelLoader';
 
@@ -136,6 +136,42 @@ describe('MarkerRenderer', () => {
 
     renderer.setObjectivesDebug(null);
     expect(renderer.getRenderedMarkerNames()).not.toContain('marker-objectives-debug');
+  });
+
+  it('styles each move-path leg by traversal kind: climb orange, drop amber, jump dashed red', () => {
+    const renderer = makeRenderer();
+    const A = { x: 0, y: 0, z: 0 };
+    const B = { x: 1, y: 0, z: 0 };
+    const C = { x: 1, y: 2, z: 0 };
+    const D = { x: 2, y: 0, z: 0 };
+    const E = { x: 6, y: 0, z: 0 };
+    renderer.setMovePath({
+      from: A,
+      to: E,
+      waypoints: [A, B, C, D, E],
+      segments: [
+        { from: A, to: B, kind: 'walk' },
+        { from: B, to: C, kind: 'climb' },
+        { from: C, to: D, kind: 'drop' },
+        { from: D, to: E, kind: 'jump-gap' },
+      ],
+    });
+    const group = scene.getObjectByName('marker-move-path')!;
+    const line = (kind: string) => group.getObjectByName(`marker-move-segment-${kind}`) as THREE.Line;
+    const color = (kind: string) => (line(kind).material as THREE.LineBasicMaterial).color.getHex();
+    expect(color('climb')).toBe(0xff9800);
+    expect(color('drop')).toBe(0xffc107);
+    expect(color('jump-gap')).toBe(0xf44336);
+    expect(line('jump-gap').material).toBeInstanceOf(THREE.LineDashedMaterial);
+    expect(line('climb').material).not.toBeInstanceOf(THREE.LineDashedMaterial);
+    expect(line('walk').material).not.toBeInstanceOf(THREE.LineDashedMaterial);
+  });
+
+  it('segmentStyle keeps the normal colour for walking, stairs and ladders', () => {
+    for (const kind of ['walk', 'stairs', 'ladder'] as const) {
+      expect(segmentStyle(kind, 0x123456)).toEqual({ color: 0x123456, dashed: false });
+    }
+    expect(segmentStyle('fall', 0).dashed).toBe(true);
   });
 
   it('clears everything on clearAll', () => {

@@ -11,6 +11,7 @@ import {
   OBJECTIVE_CONTROL_RADIUS,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   isStairPiece,
+  SegmentKind,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
 import { disposeObject3D } from './utils';
@@ -33,12 +34,43 @@ export interface AttackRangeMarker {
   concentricRanges?: number[];
 }
 
+/** One engine-classified leg of a previewed path (see `classifySegment`); styled by kind. */
+export interface MovePathSegment {
+  from: Vector3;
+  to: Vector3;
+  kind: SegmentKind;
+  label?: string | null;
+}
+
 export interface MovePathMarker {
   from: Vector3;
   to: Vector3;
   waypoints?: Vector3[];
   color?: number;
   isMeleeContact?: boolean;
+  /** When present, each leg is drawn in the style of its traversal kind instead of one line. */
+  segments?: MovePathSegment[];
+}
+
+const CLIMB_COLOR = 0xff9800;
+const DROP_COLOR = 0xffc107;
+const JUMP_COLOR = 0xf44336;
+
+/** Line style for a path leg: walking and stairs/ladders keep the normal colour, climbs are orange, safe drops amber, jumps dashed red. */
+export function segmentStyle(kind: SegmentKind, normalColor: number): { color: number; dashed: boolean } {
+  switch (kind) {
+    case 'climb':
+      return { color: CLIMB_COLOR, dashed: false };
+    case 'drop':
+    case 'gap':
+      return { color: DROP_COLOR, dashed: false };
+    case 'jump-drop':
+    case 'jump-gap':
+    case 'fall':
+      return { color: JUMP_COLOR, dashed: true };
+    default:
+      return { color: normalColor, dashed: false };
+  }
 }
 
 export interface DeploymentZoneBounds {
@@ -296,9 +328,28 @@ export class MarkerRenderer {
     const toY = (path.to.y ?? 0) + 0.06;
     allPts.push(new THREE.Vector3(path.to.x, toY, path.to.z));
 
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
-    const lineMat = new THREE.LineBasicMaterial({ color: pathColor });
-    group.add(new THREE.Line(lineGeo, lineMat));
+    if (path.segments && path.segments.length > 0) {
+      for (const seg of path.segments) {
+        const style = segmentStyle(seg.kind, pathColor);
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(seg.from.x, (seg.from.y ?? 0) + 0.06, seg.from.z),
+          new THREE.Vector3(seg.to.x, (seg.to.y ?? 0) + 0.06, seg.to.z),
+        ]);
+        const line = new THREE.Line(
+          geo,
+          style.dashed
+            ? new THREE.LineDashedMaterial({ color: style.color, dashSize: 0.25, gapSize: 0.15 })
+            : new THREE.LineBasicMaterial({ color: style.color })
+        );
+        if (style.dashed) line.computeLineDistances();
+        line.name = `marker-move-segment-${seg.kind}`;
+        group.add(line);
+      }
+    } else {
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
+      const lineMat = new THREE.LineBasicMaterial({ color: pathColor });
+      group.add(new THREE.Line(lineGeo, lineMat));
+    }
 
     // Intermediate waypoint node dots
     if (path.waypoints && path.waypoints.length > 0) {

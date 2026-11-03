@@ -7,6 +7,7 @@ export * from './engine/activation';
 export * from './engine/combat';
 export * from './engine/spatial';
 export * from './engine/traversal';
+export { worldToLocal, localToWorldXZ } from './engine/terrainStructure';
 export * from './engine/actions';
 export * from './data/weapons';
 export * from './data/armies';

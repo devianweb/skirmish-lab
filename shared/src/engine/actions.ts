@@ -920,7 +920,6 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     const payload = action.payload as {
       unitId?: string;
       path?: Vector3[];
-      gapJump?: { gapDistance: number };
     };
     const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
     const path = payload.path;
@@ -1068,7 +1067,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   });
 
   if (action.type === 'charge') {
-    const chargePayload = action.payload as { path?: Vector3[]; gapJump?: { gapDistance: number } };
+    const chargePayload = action.payload as { path?: Vector3[] };
     if (chargePayload.path && chargePayload.path.length > 0) {
       const traversalSpecs: DiceSpec[] = [];
       const chargeGap = detectPathGapJump(state, chargePayload.path, attacker);

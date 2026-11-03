@@ -1920,12 +1920,12 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
       expect(container.textContent).toContain('Place Model 3 of 4');
 
-      // Model 3 placed at (4.0, 0, -2) [Pair 2 leader, 4.0" from M1 / 3.0" from M2 — within 6" spread, starts new pair!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -2 } });
+      // Model 3 placed at (4.0, 0, -4.5) [Pair 2 leader, 4.7" from M1, within 6" spread, starts new pair!]
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
       expect(container.textContent).toContain('Place Model 4 of 4');
 
-      // Model 4 placed at (5.0, 0, -2) [Pair 2 buddy, 1.0" from M3, 5.0" from M1 — full squad coherency satisfied!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -2 } });
+      // Model 4 placed at (5.0, 0, -4.5) [Pair 2 buddy, 1.0" from M3, 5.5" from M1 — full squad coherency satisfied!]
+      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
 
       // Should enter Move Confirmation successfully!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -1938,8 +1938,8 @@ describe('GameHUD', () => {
       expect(action.payload.modelPositions).toHaveLength(4);
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -2 });
       expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -2 });
-      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -2 });
-      expect(action.payload.modelPositions[3]).toEqual({ x: 5.0, y: 0, z: -2 });
+      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -4.5 });
+      expect(action.payload.modelPositions[3]).toEqual({ x: 5.0, y: 0, z: -4.5 });
     });
 
     it('allows player to select squad models to move in any arbitrary order via chips or board clicks', () => {
@@ -1977,15 +1977,15 @@ describe('GameHUD', () => {
       // Place Model 4 at (1.0, 0, -2) [buddy to M3 with 1.0" base contact]
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
 
-      // 3. Player clicks Model 1 chip and places it at (4.0, 0, -2)
+      // 3. Player clicks Model 1 chip and places it at (4.0, 0, -4.5)
       const m1Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]');
       expect(m1Chip).toBeTruthy();
       m1Chip!.click();
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
 
-      // 4. Finally place Model 2 at (5.0, 0, -2) [buddy to M1 with 1.0" base contact]
+      // 4. Finally place Model 2 at (5.0, 0, -4.5) [buddy to M1 with 1.0" base contact]
       expect(container.textContent).toContain('Place Model 2 of 4');
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
 
       // All 4 models placed in arbitrary order (M3 -> M4 -> M1 -> M2)!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -1995,8 +1995,8 @@ describe('GameHUD', () => {
       const action = controller.submitAction.mock.calls[0][0];
       expect(action.type).toBe('move-unit');
       // Payload positions must be indexed according to living model order [m1, m2, m3, m4]
-      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -2 }); // m1
-      expect(action.payload.modelPositions[1]).toEqual({ x: 5.0, y: 0, z: -2 }); // m2
+      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -4.5 }); // m1
+      expect(action.payload.modelPositions[1]).toEqual({ x: 5.0, y: 0, z: -4.5 }); // m2
       expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -2 });   // m3
       expect(action.payload.modelPositions[3]).toEqual({ x: 1.0, y: 0, z: -2 }); // m4
     });
