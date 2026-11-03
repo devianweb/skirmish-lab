@@ -536,6 +536,12 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Lobby map selector dropdown allowing Host to pick presets or custom maps.
 - [x] P2P synchronization of custom terrain and objectives across WebRTC data channel.
 
+### Sub-phase 13D: Configurable Board Size (`shared/` & `client/`) (plan: `doc/plans/batch-1g-board-size.md`)
+- [ ] Board size stored per map with validation (24–72", zones ≥ 24" apart), default 48" × 48" for new maps.
+- [ ] Objective auto-placement and deployment checks scale with the board.
+- [ ] Map builder board-size presets (48×48, 36×36, 24×36) and custom size; lobby shows each map's size.
+- [ ] Camera start positions scale with the board size.
+
 ### Acceptance Criteria
 - [x] Map schema supports serializable terrain layouts and objective positions.
 - [x] Curated terrain assets load cleanly in Three.js with correct scales and materials.
