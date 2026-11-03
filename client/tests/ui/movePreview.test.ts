@@ -145,7 +145,7 @@ describe('jumpChip', () => {
     });
     const u4 = makeUnit(P(1.8, 4, 0));
     const down = findJumpOption(makeState(u4, [deck(4)]), u4, u4.position, P(3, 0, 0))!;
-    expect(jumpChip(down)).toEqual({ text: 'Jump down 4.0" · 2 dice (3+)', warning: false });
+    expect(jumpChip(down)).toEqual({ text: 'Jump down 4.2" · 2 dice (3+)', warning: false });
     const u7 = makeUnit(P(1.8, 7, 0));
     const fall = findJumpOption(makeState(u7, [deck(7)]), u7, u7.position, P(3, 0, 0))!;
     const chip = jumpChip(fall);
@@ -176,8 +176,8 @@ describe('describePathSegments (P6 labels from classifySegment)', () => {
   it('a declared jump is labelled with distance and dice', () => {
     const segs = describePathSegments(state, unit, [P(0, 4, 0), P(1, 0, 0)]);
     expect(segs[0].kind).toBe('jump-drop');
-    expect(segs[0].label).toBe('jump 4.0" · 2 dice');
-    expect(segmentSummary(segs)).toBe('jump 4.0" · 2 dice');
+    expect(segs[0].label).toBe('jump 4.1" · 2 dice');
+    expect(segmentSummary(segs)).toBe('jump 4.1" · 2 dice');
   });
 
   it('a climb is labelled with its rise', () => {

@@ -98,8 +98,17 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
     expect(cls.kind).toBe('jump-gap');
     expect(cls.cost).toBe(0);
     expect(cls.dice).toBe(2);
-    expect(cls.distance).toBeGreaterThan(3);
-    expect(cls.distance).toBeLessThan(4.2);
+    // measured like a tape, take-off to landing: 4.9" across and 2.25" down
+    expect(cls.distance).toBeCloseTo(Math.hypot(4.9, 2.25), 2);
+  });
+
+  it('at the edges the container hop (3.8" gap, 2.25" drop) is a 4.42" tape: 2 dice', () => {
+    const edge = P(0, 4.5, 1.125);
+    const far = P(0, 2.25, 4.925);
+    const cls = classifySegment(state, edge, far, unit);
+    expect(cls).toMatchObject({ kind: 'jump-gap', dice: 2 });
+    expect(cls.distance).toBeCloseTo(4.42, 2);
+    expect(detectPathGapJump(state, [edge, far], unit)).toMatchObject({ isGapJump: true, dice: 2 });
   });
 
   it('findJumpOption offers it from the edge spot and the path detector agrees', () => {
@@ -149,6 +158,65 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
     expect(cls.kind).toBe('drop');
     expect(detectPathGapJump(s, [takeoff, to], unit).isGapJump).toBe(false);
     expect(validateAction(s, moveAction([takeoff, to])).valid).toBe(true);
+  });
+});
+
+describe('jump distance is the straight-line hop, with a 6" limit', () => {
+  const deck = (id: string, x: number, topY: number): TerrainPiece =>
+    ({
+      id,
+      terrainType: 'platform',
+      position: { x, y: topY, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 0.3, z: 4 },
+      elevation: topY,
+      isWalkable: true,
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+    }) as TerrainPiece;
+  const upper = deck('up', 0, 6); // x -2..2, top 6
+
+  it('a 2.9" gap with a 2.9" drop is a 4.1" hop: 2 dice (a drop that also crosses air is one gap jump)', () => {
+    const lower = deck('lo', 6.9, 3.1); // x 4.9..8.9
+    const u = makeUnit(P(2, 6, 0));
+    const s = makeState(u, [upper, lower]);
+    const cls = classifySegment(s, P(2, 6, 0), P(4.9, 3.1, 0), u);
+    expect(cls.kind).toBe('jump-gap');
+    expect(cls.distance).toBeCloseTo(4.1, 1);
+    expect(cls.dice).toBe(2);
+    expect(detectPathGapJump(s, [P(2, 6, 0), P(4.9, 3.1, 0)], u).dice).toBe(2);
+  });
+
+  it('a gap hop that drops over 3" rolls one set of gap dice, not a second drop test', () => {
+    const tall = deck('tall', 0, 8);
+    const lower = deck('lo', 5, 3.5); // x 3..7: a 1.0"+ gap and a 4.5" drop
+    const u = makeUnit(P(1.6, 8, 0));
+    const s = makeState(u, [tall, lower]);
+    const hop = [P(1.6, 8, 0), P(3.9, 3.5, 0)];
+    expect(classifySegment(s, hop[0], hop[1], u).kind).toBe('jump-gap');
+    const act = moveAction(hop, { kind: 'jump-gap', takeoff: hop[0], landing: hop[1] });
+    const purposes = getDiceSpecs(s, act)!.map((d) => d.purpose);
+    expect(purposes.filter((p) => p === 'gap_jump')).toHaveLength(1);
+    expect(purposes).not.toContain('drop_jump');
+  });
+
+  it('a 5" gap with a 5" drop is a 7.07" hop: blocked, never offered, and rejected by the host', () => {
+    const lower = deck('lo', 9, 1); // x 7..11, top 1
+    const u = makeUnit(P(1.6, 6, 0));
+    const s = makeState(u, [upper, lower]);
+    expect(classifySegment(s, P(2, 6, 0), P(7, 1, 0), u).kind).toBe('blocked');
+    expect(findJumpOption(s, u, P(1.6, 6, 0), P(7.5, 1, 0))).toBeNull();
+    const act = moveAction([P(1.6, 6, 0), P(7.5, 1, 0)], { kind: 'jump-gap', takeoff: P(1.6, 6, 0), landing: P(7.5, 1, 0) });
+    expect(validateAction(s, act).valid).toBe(false);
+  });
+
+  it('a level hop is measured the same way: a 5.8" tape is 2 dice, 6.2" is blocked', () => {
+    const b = deck('b', 9, 6); // x 7..11 level with the upper deck: a 5" gap
+    const u = makeUnit(P(1.6, 6, 0));
+    const s = makeState(u, [upper, b]);
+    expect(classifySegment(s, P(1.6, 6, 0), P(7.4, 6, 0), u)).toMatchObject({ kind: 'jump-gap', dice: 2 });
+    expect(classifySegment(s, P(1.6, 6, 0), P(7.8, 6, 0), u).kind).toBe('blocked');
   });
 });
 

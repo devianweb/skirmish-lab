@@ -21,7 +21,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] Raised stairs: on a map with stairs standing on a deck (e.g. Testy McTestface #2), a model can path up them onto the higher deck, and stop part-way up the slope.
 
 ## 4. Drops, jumps and movement cost
-- [ ] Jump across a gap onto a lower roof (e.g. a 4.5" container stack to a 2.25" container, ~4" apart): the jump chip is offered (2 dice) and Confirm is accepted; a failed roll drops the model into the gap.
+- [ ] Jump across a gap onto a lower roof (e.g. a 4.5" container stack to a 2.25" container, ~4" apart): the jump chip is offered (2 dice, distance read as the straight line from your spot to the landing) and Confirm is accepted; a hop whose straight line is over 6" (e.g. a 5" gap plus a 5" drop) is not offered; a failed roll drops the model into the gap.
 - All items verified.
 
 ## 5. Low cover & scatter
