@@ -312,7 +312,10 @@ export interface DeploymentZoneBounds {
 
 /**
  * Calculates rectangular battlefield boundaries for a player's deployment zone.
- * Standard depth is 12". Vanguard units may deploy up to 12" ahead.
+ * Zones run in from the player's table edge, up to 12" deep, but never so deep that the two zones are less
+ * than 24" apart (the rules allow smaller tables as long as armies deploy at least 24" apart). On a 48"-deep
+ * table that is the usual 12"; on a 30"-deep table it is 3". Vanguard units may deploy up to 12" further
+ * ahead of their zone, but never past the centre line.
  */
 export function getDeploymentZoneBounds(
   state: GameState,
@@ -322,16 +325,19 @@ export function getDeploymentZoneBounds(
   const halfW = (state.board.width * state.board.gridSize) / 2;
   const halfH = (state.board.height * state.board.gridSize) / 2;
   const isHost = playerId === state.hostId;
+  const depth = Math.max(1, Math.min(12, halfH - 12));
 
   if (isHost) {
     // Host deployed at South edge (-halfH) facing +z
     const minZ = -halfH;
-    const maxZ = isVanguard ? Math.min(0, -halfH + 24) : -halfH + 12;
+    const zoneMax = -halfH + depth;
+    const maxZ = isVanguard ? Math.min(0, zoneMax + 12) : zoneMax;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   } else {
     // Guest deployed at North edge (+halfH) facing -z
     const maxZ = halfH;
-    const minZ = isVanguard ? Math.max(0, halfH - 24) : halfH - 12;
+    const zoneMin = halfH - depth;
+    const minZ = isVanguard ? Math.max(0, zoneMin - 12) : zoneMin;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   }
 }

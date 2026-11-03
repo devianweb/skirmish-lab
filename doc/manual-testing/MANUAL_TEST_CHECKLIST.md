@@ -55,3 +55,6 @@ Movement model (batch 1E): the pathfinder only plans ordinary movement (walking,
 
 ## 9. Multiplayer & custom maps
 - All items verified 2026-11-02.
+- [ ] **Board size:** a custom map plays on the same board size as in the map builder (44" × 30" by default): terrain near the long edges is inside the board and reachable.
+- [ ] **Deployment zones (interactive deployment on):** each zone runs from your table edge to 12" from the centre line, so the two zones are 24" apart (3" deep on a 30"-deep board).
+- [ ] **TEST army:** in the lobby, pick "TEST: Single Runner (speed 24")" for one or both sides: each side gets one fighter that can Advance 24" / Rush 48".

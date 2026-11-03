@@ -1371,8 +1371,9 @@ describe('GameHUD', () => {
 
       expect(emittedMarkers).toBeTruthy();
       expect(emittedMarkers!.deploymentZones).toBeTruthy();
-      expect(emittedMarkers!.deploymentZones!.hostZone.maxZ).toBe(-6);
-      expect(emittedMarkers!.deploymentZones!.guestZone.minZ).toBe(6);
+      // Zones stay 24" apart: on the 44"x30" scenario board they run from the edge to z = ±12.
+      expect(emittedMarkers!.deploymentZones!.hostZone.maxZ).toBe(-12);
+      expect(emittedMarkers!.deploymentZones!.guestZone.minZ).toBe(12);
     });
   });
 
