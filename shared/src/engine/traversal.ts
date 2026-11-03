@@ -12,6 +12,7 @@ import {
   findWalkableSurfaceAt,
   findWalkableSurfaceIn,
   getWalkableSurfaces,
+  isBaseOverhanging,
   isFallColumnBlocked,
   isLadderStepSegment,
   isSegmentOnLadder,
@@ -46,10 +47,17 @@ export const FREE_DROP_MAX = 3.05;
 /** Drops above FREE_DROP_MAX up to this height can be jumped (test); anything higher is a fall. */
 export const JUMP_DROP_MAX = 6.05;
 
+/** A model that falls (e.g. a failed jump) takes falling damage from this height (inches) up. */
+export const FALL_DAMAGE_MIN = 2.0;
+/** A fallen model is placed within this distance (inches) of where it fell. */
+export const FALL_LANDING_RADIUS = 2.0;
+
 /** Longest climb (inches of rise) a model can make without a ladder or stairs. */
 export const CLIMB_MAX = 3.05;
 /** How close (inches, horizontally) a model must stand to a floor edge to jump or fall from it. */
 export const EDGE_SNAP_TOLERANCE = 0.5;
+/** How far inside an edge a model standing fully on the floor can be and still count as "at the edge" (base radius + 0.1"). */
+const FLOOR_EDGE_REACH = 0.55;
 
 /** How a stretch of a path is traversed. Jumps and falls need a dice test and must be declared by the player. */
 export type SegmentKind =
@@ -139,7 +147,8 @@ export function classifySegment(
   a: Vector3,
   b: Vector3,
   unit?: Unit,
-  prev?: Vector3
+  prev?: Vector3,
+  next?: Vector3
 ): SegmentClass {
   const dy = (b.y ?? 0) - (a.y ?? 0);
   const horizontal = distanceHorizontal(a, b);
@@ -190,7 +199,14 @@ export function classifySegment(
   if (isSegmentOnRampOrStairs(state, a, b) && !isSegmentOnLadder(state, a, b)) return make('stairs', length);
   const gap = measureElevatedGap(state, [a, b]);
   if (gap <= 0) return make('walk', length);
-  if (gap <= FREE_GAP_MAX) return make('gap', length, { distance: gap });
+  if (gap <= FREE_GAP_MAX) {
+    // The short level step off a climb's top onto the floor, or off a floor's edge before a drop, is part of
+    // that climb or drop (same cost as walking), not a gap
+    const afterClimb = !!prev && (a.y ?? 0) - (prev.y ?? 0) > 0.5 && distanceHorizontal(prev, a) < 0.1;
+    const beforeDrop = !!next && (a.y ?? 0) - (next.y ?? 0) > 0.5 && distanceHorizontal(b, next) < 0.1;
+    if (afterClimb || beforeDrop) return make('walk', length);
+    return make('gap', length, { distance: gap });
+  }
   if (gap <= JUMP_GAP_MAX) {
     return make('jump-gap', 0, { distance: gap, dice: calculateJumpDice(gap), target });
   }
@@ -205,7 +221,7 @@ export function classifySegment(
 export function pathMovementCost(state: GameState, path: Vector3[], unit?: Unit): number {
   let total = 0;
   for (let i = 1; i < path.length; i++) {
-    total += classifySegment(state, path[i - 1], path[i], unit, path[i - 2]).cost;
+    total += classifySegment(state, path[i - 1], path[i], unit, path[i - 2], path[i + 1]).cost;
   }
   return total;
 }
@@ -404,16 +420,21 @@ export function getEffectiveMaxMovement(
 /**
  * Drops <= 3.0" are safe. Drops > 3.0" inflict Falling Damage: 1 hit with AP(1) per full 3.0" fallen.
  */
-export function calculateFallingDamage(verticalDrop: number): {
+export function calculateFallingDamage(
+  verticalDrop: number,
+  forcedFall: boolean = false
+): {
   isDangerous: boolean;
   damageHits: number;
   armorPiercing: number;
 } {
-  if (verticalDrop <= 3.05) {
+  // A voluntary drop of up to 3" is safe movement; a model that actually falls (failed jump) is hurt from 2" up.
+  const threshold = forcedFall ? FALL_DAMAGE_MIN - 0.05 : FREE_DROP_MAX;
+  if (forcedFall ? verticalDrop < threshold : verticalDrop <= threshold) {
     return { isDangerous: false, damageHits: 0, armorPiercing: 0 };
   }
   const full3Inches = Math.floor((verticalDrop + 0.05) / 3.0);
-  const ap = Math.max(1, full3Inches);
+  const ap = full3Inches; // AP(1) per FULL 3" fallen: a 2-2.99" fall is an AP(0) hit
   return {
     isDangerous: true,
     damageHits: 1,
@@ -427,7 +448,8 @@ export function calculateFallingDamage(verticalDrop: number): {
 export function resolveFallingDamage(
   unit: Unit,
   verticalDrop: number,
-  defenseRoll?: number
+  defenseRoll?: number,
+  forcedFall: boolean = false
 ): {
   isDangerous: boolean;
   damageHits: number;
@@ -435,7 +457,7 @@ export function resolveFallingDamage(
   saved: boolean;
   wounds: number;
 } {
-  const calc = calculateFallingDamage(verticalDrop);
+  const calc = calculateFallingDamage(verticalDrop, forcedFall);
   if (!calc.isDangerous) {
     return {
       isDangerous: false,
@@ -617,7 +639,7 @@ export function isAtFloorEdgeToward(state: GameState, point: Vector3, toward: Ve
         { dist: surface.maxZ - l.z, nx: 0, nz: 1 },
       ];
       for (const e of edges) {
-        if (e.dist <= EDGE_SNAP_TOLERANCE + 1e-6 && (dx * e.nx + dz * e.nz) / len > 0.2) return true;
+        if (e.dist <= FLOOR_EDGE_REACH + 1e-6 && (dx * e.nx + dz * e.nz) / len > 0.2) return true;
       }
     }
   }
@@ -647,6 +669,8 @@ export function findJumpOption(
   if (targetY > 0.3) {
     const floor = findWalkableSurfaceAt(state, { x: target.x, y: targetY, z: target.z }, 0);
     if (!floor || Math.abs(floor.topY - targetY) > 0.3) return null;
+    // The landing must hold the whole base: a hop that would end half over the far edge is not offered
+    if (isBaseOverhanging(state, { x: target.x, y: targetY, z: target.z })) return null;
   }
   const cls = classifySegment(state, from, target, unit);
   if (!(JUMP_KINDS as readonly string[]).includes(cls.kind)) return null;
@@ -825,4 +849,46 @@ export function allocateSquadCasualties(
   }
 
   return { modelsDestroyed, remainingWounds: unallocated };
+}
+
+
+/**
+ * Where a model that fell from `startY` at (`from.x`, `from.z`) comes to rest: the highest floor below the start
+ * floor (a lower deck, or the ground) at a spot with the whole base supported and clear of terrain and other
+ * models, as near the fall point as possible and within `FALL_LANDING_RADIUS`. If nothing is clear, the fall
+ * point itself on its floor. `height` is the real fall (start floor minus landing floor).
+ */
+export function findFallLanding(
+  state: GameState,
+  unit: Unit,
+  from: { x: number; z: number },
+  startY: number
+): { position: Vector3; height: number } {
+  const surfaces = collectWalkableSurfaces(state);
+  const floorAt = (x: number, z: number): number => {
+    let best = 0;
+    for (const s of surfaces) {
+      if (s.topY > startY - 0.5 || s.topY <= best) continue;
+      const l = worldToLocal(s.piece, { x, y: 0, z });
+      if (l.x >= s.minX && l.x <= s.maxX && l.z >= s.minZ && l.z <= s.maxZ) best = s.topY;
+    }
+    return best;
+  };
+  const candidates: Array<{ x: number; z: number }> = [{ x: from.x, z: from.z }];
+  for (let r = 0.25; r <= FALL_LANDING_RADIUS + 1e-6; r += 0.25) {
+    const n = Math.max(8, Math.round(r * 16));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      candidates.push({ x: from.x + Math.cos(a) * r, z: from.z + Math.sin(a) * r });
+    }
+  }
+  for (const c of candidates) {
+    const y = floorAt(c.x, c.z);
+    const pt: Vector3 = { x: Math.round(c.x * 100) / 100, y, z: Math.round(c.z * 100) / 100 };
+    if (findEndOverlap(state, unit.id, pt) === null && !isBaseOverhanging(state, pt, surfaces)) {
+      return { position: pt, height: startY - y };
+    }
+  }
+  const y = floorAt(from.x, from.z);
+  return { position: { x: from.x, y, z: from.z }, height: startY - y };
 }

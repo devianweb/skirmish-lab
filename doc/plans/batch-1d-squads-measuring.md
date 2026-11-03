@@ -2,7 +2,7 @@
 Status: approved (2026-11-02)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
-Base-edge measuring, then measuring between models instead of unit centres (shooting, charges, the 1" rule), confirm-early squad moves, and per-model charges. Order: PR 14 with/before PR 9a → 9b → 9c; PR 10 any time; PR 11 last.
+Base-edge measuring, then measuring between models instead of unit centres (shooting, charges, the 1" rule), confirm-early squad moves, and per-model charges. Order: PR 14 with/before PR 9a → 9b → 9c; PR 10 + PR 15 (squad jumps) together any time; PR 16 (split charges) before PR 11; PR 11 last.
 
 ## PR 14: Base-edge measuring (branch: `refactor/base-edge-measuring`)
 **Why:** Decision 12. Distances today are a mix: coherency already uses base edges (1" = 2.0" centre in `validateSquadCoherency`), but the 6" squad spread (6.0 centre), shooting range (`boardDistance` centre), objective control (`OBJECTIVE_CONTROL_RADIUS` 3.0 centre, `activation.ts` ~l.91/104), engagement/contact (`ENGAGEMENT_RANGE` 1.5 centre, `actions.ts` ~l.98), charge reach and the "> 9"" rules are centre to centre.
@@ -97,3 +97,33 @@ Our 3D eye-level ray (`traceLineOfSight`, 1.1" eye to head/torso/feet samples) i
 - **Docs:** RULES_SPECIFICATION §5, SYSTEMS.md charge section, DATA_MODEL charge payload, ROADMAP.
 - **Manual checks:** §8 add: charging with a squad lets you place each model, models that can't reach still move closer, only models within 2" strike, defenders pile in 3".
 - **Depends on:** PR 9a/9b (`unitGeometry`), PR 10 (confirm early).
+
+---
+
+## PR 15: Squads can declare jumps (branch: `feat/squad-declared-jumps`)
+**Why:** follow-up from batch 1E. A move carries one `traversal` (`DeclaredTraversal`), but squad moves send one path per model (`modelPaths`), so the host rejects any squad model path that needs a jump (`actions.ts` ~l.431: "squads cannot declare yet").
+
+- **Rules:** each model jumps individually. A failed model falls, and in a multi-model squad a fall kills that model until only the last one remains (RULES_SPECIFICATION §10.3, already implemented for falls).
+- **Engine:** add `modelTraversals?: (DeclaredTraversal | null)[]` aligned with `modelPaths` on move-unit / rush. Validate each model's path with `validateDeclaredTraversal(state, unit, mPath, modelTraversals[i])`. `getDiceSpecs` requests jump dice per jumping model (tag them so each model's rolls are consumed in order). `applyTraversalHazardsAndFalls` already runs per model path, so feed it that model's traversal and rolls.
+- **HUD:** the squad staging flow (`stagedSquadModelPaths`) stores a per-model traversal when `findJumpOption` returns one for the model being placed. The jump chip applies to that model only.
+- **Tests first:** a 3-model squad where one model jumps a 5" gap and two walk: dice = 2 jump dice for that model only. Pass → all placed. Fail → that model is removed (squad > 1) and the activation ends. The last-model case falls normally. Undeclared squad jumps are still rejected.
+- **Do alongside PR 10** (confirm early), since both change how squad moves are assembled.
+- **Manual checks:** §6: a squad model at an edge is offered the jump, and only that model rolls.
+
+## PR 16: Split charges (legs) with jumps (branch: `feat/split-charge`)
+**Why:** follow-up from batch 1E. A charge can't include a jump today: the HUD never offers one, and under Decision 15 jumps are only offered from where the model stands, but a charge is a single action. Instead of having the pathfinder plan take-off edges (the source of the old pathfinding problems), the charge itself is made in legs (Decisions 21–22).
+
+- **Rules basis:** a unit takes exactly one action per activation, and Charge is one continuous move of up to 12" (16" with Swift, etc.) that doesn't have to be straight. Spending that one budget over several clicks is the same move. A *separate* move action before a charge is not allowed (it would be two actions and extra distance).
+- **Flow:**
+  1. **Declare** Charge and pick the target. The existing validity check applies: the target is within charge reach at the start.
+  2. **Legs:** make safe moving legs that spend the charge budget (`remainingMovement`), e.g. walking to a platform edge. No shooting (already true for charges).
+  3. **Jump:** at an edge, hovering across a gap or down 3–6" offers the declared jump exactly as for a move (`findJumpOption`, E3 chip). A passed jump costs no movement. A failed jump: the model falls (falling damage) and the activation ends with **no melee**.
+  4. **Final leg into contact** with the remaining budget. Melee resolves as today (strike, strike-back, push-back/consolidation).
+  5. **If contact becomes impossible** (budget spent, blocked), the charge ends without melee and the activation ends (tabletop: the unit completes its move and its activation ends).
+- **Constraints:** during preliminary legs, models obey the 1" keep-away rule against every **other** enemy unit (base edge to base edge; only the declared target may be approached into base contact). Once declared, a charge can't be undone or turned into another action (Decision 22).
+- **Engine (shared):** add the charge state to the activation/turn state (`chargeTargetId`, charge budget in `remainingMovement`, legs so far), mirroring split moves. Actions: `begin-charge` (validate the target, lock it), `charge-leg` (a safe path or a declared `traversal`, host-validated per leg, dice per leg via the existing traversal dice path), and the final `charge` into contact (existing resolution) or `end-activation` (charge abandoned → no melee). Switch the charge dice spec from the legacy `detectPathGapJump(path)` to declared traversals. Single-model units first; squads come with PR 11 (per-model charges reuse the legs flow).
+- **HUD:** Charge → pick the target → the move preview and leg confirm work like split moves, with the charge budget ring. The jump chip appears at edges. The final click on the target makes contact. Show "Charge declared: N" left" and an End button (no melee).
+- **Tests first:** declare + walk leg + jump (pass) + contact → melee resolves and the jump distance is free. Failed jump → fall, activation ends, no melee. Legs can't come within 1" of another enemy unit. Total legs > charge budget is rejected. Abandoning → no melee, activation ends. A declared charge can't switch to Advance/shoot. A single-leg charge behaves exactly like today (regression).
+- **Docs:** RULES_SPECIFICATION §3.3 (split charges) and §5, SYSTEMS charge section, DATA_MODEL (turn state + new action types), NETWORKING message list if new action types, ROADMAP.
+- **Manual checks:** §8: declare a charge, walk to a platform edge, jump the gap (pass → contact and melee; fail → fall, no melee). Running out of budget ends the charge without melee. Other enemies can't be approached within 1" mid-charge.
+- **Before PR 11** (per-model charges build on the legs flow).

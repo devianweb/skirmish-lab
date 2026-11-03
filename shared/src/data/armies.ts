@@ -247,6 +247,32 @@ export interface StarterArmy {
 }
 
 export const STARTER_ARMIES: Record<string, StarterArmy> = {
+  /**
+   * TEST force for playtesting movement and terrain: one fast single-model fighter. Not a balanced army.
+   * Speed 24" (Advance 24", Rush/Charge 48") so a model can reach any terrain on the board in one activation.
+   */
+  'test-army': {
+    id: 'test-army',
+    name: 'TEST: Single Runner (speed 24")',
+    factionId: 'test',
+    theme: 'Playtesting only: one fast fighter per side for movement and terrain checks',
+    totalPoints: 0,
+    fighters: [
+      {
+        id: 'test-runner',
+        name: 'Test Runner',
+        faction: 'test',
+        points: 0,
+        quality: 3,
+        defense: 4,
+        wounds: 1,
+        speed: 24,
+        modelType: 'trooper',
+        weapons: ['rifle', 'blade'],
+        specialRules: [],
+      },
+    ],
+  },
   'frontier-wardens-starter': {
     id: 'frontier-wardens-starter',
     name: 'Frontier Wardens Vanguard Force',

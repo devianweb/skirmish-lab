@@ -536,6 +536,12 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] Lobby map selector dropdown allowing Host to pick presets or custom maps.
 - [x] P2P synchronization of custom terrain and objectives across WebRTC data channel.
 
+### Sub-phase 13D: Configurable Board Size (`shared/` & `client/`) (plan: `doc/plans/batch-1g-board-size.md`)
+- [ ] Board size stored per map with validation (24–72", zones ≥ 24" apart), default 48" × 48" for new maps.
+- [ ] Objective auto-placement and deployment checks scale with the board.
+- [ ] Map builder board-size presets (48×48, 36×36, 24×36) and custom size; lobby shows each map's size.
+- [ ] Camera start positions scale with the board size.
+
 ### Acceptance Criteria
 - [x] Map schema supports serializable terrain layouts and objective positions.
 - [x] Curated terrain assets load cleanly in Three.js with correct scales and materials.
@@ -696,6 +702,11 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] E4 (batch 1E): F9 draws an orange outline around the walkable floors of climbable pieces, and the map editor shows it on the selected piece plus a **Climbable** checkbox (shown for pieces with a walkable floor, pre-set from `isClimbable`, writes `piece.climbable`, persists through Save/Export/Import).
 - [x] PR 2: no move ends overlapping terrain or another model. `findEndOverlap` (base circle `UNIT_COLLISION_RADIUS` vs obstacle solids over the body span `[y+0.15, y+EYE_HEIGHT]`; other units' models within 0.9" at a similar height) is checked by the host for move, rush (single and squad models), charge and declared-jump landings; `settleEnd` / `settleMoveEnd` pull the nav end back along the path (0.05" steps, never forward), so the preview already shows the settled end.
 - [x] PR 13: the "0" wound outcome marker now uses the same Kenney digit model as 1-5 (`number-0.glb`, tinted neutral grey) instead of a procedural torus.
+- [x] PR 20: no move ends with its base overhanging an edge. `isBaseOverhanging` (union of walkable floors, 16 samples round the base) is checked by the host for move/rush/charge (single and squad) and declared-jump landings; `settleEnd` steps on past a climb's lip when the budget allows, else stays at the stand-off spot; deck-side cursor snap is inset by base radius + 0.05"; the step after a climb or before a drop is no longer labelled "gap".
+- [x] Games use the custom map's board size (was always 36"×36"); deployment zones stay 24" apart on small boards; TEST army (one speed-24" fighter per side) for playtesting.
+- [x] PR 17 (batch 1F): climbing and dropping between a deck and a piece stacked on it. The drop/climb "lower twin" in `findNavPath` now stands on the highest walkable floor below the stand-off spot (else the ground) instead of always `y: 0`, and is skipped if it would overhang; the 3" climb limit uses the real rise (a container on a 6" deck is a 2.25" climb). Fixture `testy-mctestface-2.json`.
+- [x] PR 18 (batch 1F): a failed gap jump lands the model on the highest floor below the fall point (a lower deck, else the ground) at a clear, fully supported spot within 2" (`findFallLanding`), applies falling damage for any fall of 2" or more (AP(1) per full 3"; the dice are requested for jumps from 2" up), returns the real wound count (0 when saved), and in a squad only the jumping model falls (it is lost unless it is the last survivor).
+- [x] PR 19 (batch 1F): floating 3D labels on the move preview. Each labelled leg (climb, drop, jump, fall) shows a `CSS2DObject` HTML label at its midpoint, rendered by a `CSS2DRenderer` overlay in `SceneManager` (pointer-transparent, resized with the window) and removed with the preview.
 
 ### Acceptance Criteria
 - [ ] Zero Kenney terrain `.glb` files loaded or downloaded in the client.

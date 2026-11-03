@@ -28,9 +28,11 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 18. **Edge snapping:** the cursor within 0.5" of a floor edge snaps to it; take-off/climb points are always the exact stand-off spots. See 1E P5.
 19. **The move preview shows how each part is traversed** (climb, drop, jump styles + labels); climbable pieces are outlined in F9 and the editor. See 1E P6.
 20. **Manual shift-click waypoints are deferred** (split moves cover manual routing). See 1E P7.
+21. **Split charges:** a Charge keeps its single budget (12" base) but may be made in legs: declare the target, make safe legs (obeying the 1" keep-away rule, base edge to base edge, against every other enemy unit), declare a jump from an edge like a move (a pass is free; a fail falls, ends the activation, no melee), then a final leg into contact. If contact becomes impossible, the charge ends without melee. A separate move action before a charge is not allowed (one action per activation). Owner: "is a better alternative that we allow movement actions before a charge … then we don't have to do any pathfinding" → agreed as legs within the one Charge action. See 1D PR 16.
+22. **A declared charge can't be undone** or changed into another action. Owner: "Agreed, no undoing."
 
 ## Order
-**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). **Next:** PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 11 (per-model charges, after 9a/9b and 10). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
+**Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). 1F ✓. **Next:** PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
 
 PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop in reverse), so it must come after PR 5 and PR 3a. PR 7 relies on PR 2 so a model can't end on top of a stepped-over piece.
 
@@ -56,7 +58,9 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 | [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
 | [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
 | [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
-| [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, per-model charges |
+| [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 15, 16, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, squad jumps, charge jumps, per-model charges |
+| [batch-1g-board-size.md](batch-1g-board-size.md) | 21, 22 | Configurable board size (default 48×48), roadmap 13D |
+| [batch-1f-traversal-followups.md](batch-1f-traversal-followups.md) ✓ done | 20, 17, 18, 19 | No overhanging ends + climb label, stacked-level climb/drop, failed-jump landing fixes, floating 3D path labels |
 | [batch-1e-movement-model.md](batch-1e-movement-model.md) ✓ done | E1–E4 | Safe-only pathfinding, declared jumps, climbable terrain, traversal preview. Replaces 1B PR 3a and 1C PR 6; supersedes Decision 6. |
 
 Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner's map export; copy into `shared/tests/fixtures/` when a test needs it).
@@ -72,10 +76,13 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 8. ~~Base-edge measuring~~: answered. Yes (Decision 12, PR 14).
 9. ~~Zero marker colour~~: answered. Grey (Decision 13).
 
-## Follow-ups found during 1B/1E (not yet planned)
-- **Squads can't declare jumps:** the move payload carries one `traversal` per action and the host rejects squad jumps. Per-model traversal is needed (fits batch 1D's per-model squad work).
-- **No jump option on charges.**
-- **Climbing from a deck or roof onto a stacked piece isn't planned:** climb stand-off spots are only generated at ground height.
-- **Segment labels are HUD-only:** the 3D preview line is styled but has no floating text labels.
-- **Squad moves without explicit `modelPositions`** (rigid translation) are only overlap-checked at the centroid.
-- **Editor:** the Cover / Blocks LoS / Obstacle inspector toggles don't redraw the F9 debug marker until the next sync (pre-existing).
+## Follow-ups found during 1B/1E
+- Squads can't declare jumps → **1D PR 15**.
+- No jump option on charges → **1D PR 16** (split charges in legs, Decisions 21–22).
+- Climbing/dropping between a deck and stacked pieces → **1F PR 17**.
+- Failed gap jumps (no damage from 3" decks, lands at y=0/inside things, squads stacked, wrong wound count) → **1F PR 18**.
+- Segment labels HUD-only → **1F PR 19**.
+- Squad moves without explicit `modelPositions` are only overlap-checked at the centroid → covered by 1D PR 9 (per-model geometry).
+- Airborne models are subject to the no-overhang end rule (PR 20) and the mid-air guard; whether Airborne should be exempt is an open rules question for the owner.
+- A plain fall over 6" in a squad applies its hit to the first living model (pre-existing); tidy with 1D squad work.
+- Editor: the Cover / Blocks LoS / Obstacle inspector toggles don't redraw the F9 debug marker until the next sync (pre-existing, cosmetic; unplanned).

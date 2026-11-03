@@ -25,7 +25,7 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 
 ### 2.1 Spatial Dimensions & Coherency
 - **Table Dimensions:** Standard $48" \times 48"$ ($4' \times 4'$) playing area, or compact custom formats with at least **24" separation** between opposing deployment lines.
-- **Deployment Zones:** Opposing table edges up to **12" depth**.
+- **Deployment Zones:** Opposing table edges up to **12" depth**, shallower on small tables so the two zones are always at least **24"** apart (e.g. 3" deep on a 30"-deep table). The game board is the map's own size (the default battlefield is 44" × 30").
 - **Model Coherency:**
   - Every model in a squad must remain within **1" horizontal** of at least one other squad member.
   - Every model in a squad must remain within **6" horizontal** of all squad members.
@@ -267,12 +267,14 @@ Whenever a target model receives a **Suppressed (Shaken)** result from an attack
 - **Jumps are declared.** Only ordinary movement is ever worked out automatically for the player: walking, stairs, ladders, drops of 3" or less and gaps of 1" or less. A jump (a gap of 1-6", or a drop of 3-6") involves dice, and a fall (a drop over 6") is a guaranteed injury, so the player must choose them, as at the table. A jump is a single hop made from where the model already stands: it must be at the edge of its floor (centre within 0.5" of the edge, heading out over it), with the landing across the gap or below. To jump, first move to the edge (a normal move; moves can be split), then declare the jump as the next move. The host rejects a path that crosses a gap wider than 1" or drops more than 3" without the declaration (`traversal` on the move, see DATA_MODEL). A gap wider than 6" is never offered. A drop over 6" is offered from an edge as an explicit choice with a clear warning that the model will fall (no jump dice; Falling damage, activation ends). Short hops over open air never add up: a run of open air counts as one gap however it is split into steps.
 - **Cost of a jump:** a passed jump does not count toward the move, so it is free whatever its length (the model keeps its remaining movement). A drop of 3" or less costs only its horizontal distance. Coming down a ladder of 3" or less is simply such a drop (ladders are climbed up); a taller ladder costs its full length both ways.
 - A model never finishes a move suspended in mid-air: if its allowance cannot finish a drop it stops at the edge.
+- A model never finishes a move with its base partly overhanging an edge: on an elevated floor the whole base must rest on floor at the model's height (flush floors count together, so standing across a seam between two decks is fine). After a climb the model steps on until its base is clear of the lip if the allowance covers it, otherwise it stays at the stand-off spot below. A declared jump must land with the whole base supported.
 
 ### 10.3 Falling Damage
 - If a model falls or is pushed off an elevated surface $\ge 2"$ tall:
   - Takes 1 automatic hit with **AP(1) per full 3" of vertical fall**.
-  - Model lands within 2" of the bottom edge and its activation terminates immediately.
-  - In multi-model squads, a fall eliminates the individual model unless only the squad survivor remains.
+  - Model lands within 2" of where it fell, on the highest floor below (a lower deck, else the ground), at a spot clear of terrain and other models with its whole base supported, and its activation terminates immediately.
+  - Falling damage applies to any fall of 2" or more, including a failed jump off a 3" deck.
+  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains.
 
 ---
 

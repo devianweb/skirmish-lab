@@ -282,19 +282,19 @@ describe('activation', () => {
   });
 
   describe('Phase 10B: Pre-Match Deployment Engine', () => {
-    it('calculates 12" standard and vanguard deployment zone boundaries', () => {
+    it('calculates standard and vanguard deployment zone boundaries (zones stay 24" apart)', () => {
       const state = makeState([]);
-      // Board 36x36 (halfW = 18, halfH = 18)
+      // Board 36x36 (halfW = 18, halfH = 18): 12" zones would be only 12" apart, so they are 6" deep
       const hostStandard = getDeploymentZoneBounds(state, HOST, false);
       expect(hostStandard.minZ).toBe(-18);
-      expect(hostStandard.maxZ).toBe(-6);
+      expect(hostStandard.maxZ).toBe(-12);
 
       const hostVanguard = getDeploymentZoneBounds(state, HOST, true);
       expect(hostVanguard.minZ).toBe(-18);
       expect(hostVanguard.maxZ).toBe(0);
 
       const guestStandard = getDeploymentZoneBounds(state, GUEST, false);
-      expect(guestStandard.minZ).toBe(6);
+      expect(guestStandard.minZ).toBe(12);
       expect(guestStandard.maxZ).toBe(18);
 
       const guestVanguard = getDeploymentZoneBounds(state, GUEST, true);
@@ -334,7 +334,7 @@ describe('activation', () => {
         {
           id: 'wall-1',
           terrainType: 'wall',
-          position: { x: 0, y: 0, z: -10 },
+          position: { x: 0, y: 0, z: -15 },
           rotation: { x: 0, y: 0, z: 0 },
           scale: { x: 2, y: 1, z: 1 },
           blocksLineOfSight: true,
@@ -345,8 +345,8 @@ describe('activation', () => {
 
       const unit = state.units[0];
 
-      // Legal position in Host 12" zone (-18 to -6)
-      expect(validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -14 }).valid).toBe(true);
+      // Legal position in the Host zone (-18 to -12 on this 36"-deep board)
+      expect(validateDeploymentPosition(state, unit, { x: 3, y: 0, z: -13 }).valid).toBe(true);
 
       // Outside zone (too far forward at z = -4)
       const outOfZone = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -4 });
@@ -354,7 +354,7 @@ describe('activation', () => {
       expect(outOfZone.reason).toContain('outside friendly 12" deployment zone');
 
       // Inside terrain obstacle
-      const insideObstacle = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -10 });
+      const insideObstacle = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -15 });
       expect(insideObstacle.valid).toBe(false);
       expect(insideObstacle.reason).toContain('obstacle');
     });
