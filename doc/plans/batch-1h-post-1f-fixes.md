@@ -1,5 +1,5 @@
 # Batch 1H: post-1F playtest fixes
-Status: approved (2026-11-03), in progress
+Status: done (2026-11-03): PR 24 #189, PR 25 #190 (Decision 24: spot-to-spot jump distance), PR 26 #188
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)** first (esp. 14–20). No new rules: these are bugs in released work. Fixture: `shared/tests/fixtures/testy-mctestface-2.json` (owner's map 2: decks at 3" and 6", `stairs-upper` standing on the 3" deck at (2,3,0) yaw π/2, head toward +x at the 6" deck).
 
 ## PR 24: Raised stairs (stairs standing on a deck) (branch: `fix/raised-stairs`)
