@@ -272,8 +272,9 @@ Whenever a target model receives a **Suppressed (Shaken)** result from an attack
 ### 10.3 Falling Damage
 - If a model falls or is pushed off an elevated surface $\ge 2"$ tall:
   - Takes 1 automatic hit with **AP(1) per full 3" of vertical fall**.
-  - Model lands within 2" of the bottom edge and its activation terminates immediately.
-  - In multi-model squads, a fall eliminates the individual model unless only the squad survivor remains.
+  - Model lands within 2" of where it fell, on the highest floor below (a lower deck, else the ground), at a spot clear of terrain and other models with its whole base supported, and its activation terminates immediately.
+  - Falling damage applies to any fall of 2" or more, including a failed jump off a 3" deck.
+  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains.
 
 ---
 

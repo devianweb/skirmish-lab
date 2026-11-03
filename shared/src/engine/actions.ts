@@ -62,6 +62,8 @@ import {
   resolveDropJump,
   calculateJumpDice,
   FREE_DROP_MAX,
+  FALL_DAMAGE_MIN,
+  findFallLanding,
   JUMP_DROP_MAX,
   detectPathGapJump,
   validateDeclaredTraversal,
@@ -971,7 +973,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         specs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
       }
       // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
-      const gapMayFall = gap.isGapJump && (path[0].y ?? 0) > FREE_DROP_MAX;
+      const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
       if (dropNeedsDice || gapMayFall) {
         specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         specs.push({ count: 1, sides: 6, purpose: 'trauma' });
@@ -1115,7 +1117,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
         traversalSpecs.push({ count: calculateJumpDice(fall.maxDrop), sides: 6, purpose: 'drop_jump' });
       }
-      const gapMayFall = chargeGap.isGapJump && (chargePayload.path[0].y ?? 0) > FREE_DROP_MAX;
+      const gapMayFall = chargeGap.isGapJump && (chargePayload.path[0].y ?? 0) >= FALL_DAMAGE_MIN;
       if (dropNeedsDice || gapMayFall) {
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
         traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
@@ -1141,12 +1143,13 @@ function recordTraversal(action: GameAction, unit: Unit, events: TraversalEvent[
 
 const rollsText = (rolls: number[]) => rolls.join(', ');
 
-function applyTraversalHazardsAndFalls(
+export function applyTraversalHazardsAndFalls(
   state: GameState,
   unit: Unit,
   path: Vector3[],
   action: GameAction,
-  dice?: DiceResult[]
+  dice?: DiceResult[],
+  model?: Model
 ): { terminated: boolean; wounds: number } {
   const payload = action.payload as any;
   const events: TraversalEvent[] = [];
@@ -1156,11 +1159,11 @@ function applyTraversalHazardsAndFalls(
   };
 
   // Fall damage roll helper shared by failed jumps and plain falls
-  const resolveFall = (height: number, cause: string) => {
+  const resolveFall = (height: number, cause: string, forcedFall = false) => {
     const defRoll =
       dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ?? payload.fallingDefenseRoll;
     const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
-    const fallRes = resolveFallingDamage(unit, height, defRoll);
+    const fallRes = resolveFallingDamage(unit, height, defRoll, forcedFall);
     if (fallRes.wounds > 0) {
       applyWounds(unit, fallRes.wounds, traumaRolls);
     }
@@ -1192,27 +1195,45 @@ function applyTraversalHazardsAndFalls(
       } → ${jump.passed ? 'cleared the gap' : 'failed'}`,
     });
     if (!jump.passed) {
-      // Model plummets into the gap to ground level
+      // The model plummets into the gap and lands on the highest floor below, clear of terrain, within 2" of the fall
       const startPt = path[0] ?? unit.position;
       const endPt = path[path.length - 1] ?? unit.position;
-      const dropHeight = startPt.y ?? 0;
-      unit.position = {
-        x: (startPt.x + endPt.x) / 2,
-        y: 0,
-        z: (startPt.z + endPt.z) / 2,
-      };
-      if (unit.models) {
-        for (const m of unit.models) {
-          m.position = { ...unit.position };
+      const landing = findFallLanding(
+        state,
+        unit,
+        { x: (startPt.x + endPt.x) / 2, z: (startPt.z + endPt.z) / 2 },
+        startPt.y ?? 0
+      );
+      const alive = unit.models?.filter((m) => !m.isDestroyed) ?? [];
+      let fallWounds = 0;
+      if (alive.length > 1) {
+        // Squad: only the jumping model falls, and the fall eliminates it (the last survivor is never eliminated)
+        const faller = (model && alive.includes(model) ? model : alive[0])!;
+        faller.position = { ...landing.position };
+        faller.isDestroyed = true;
+        faller.wounds = 0;
+        unit.wounds = Math.max(1, unit.wounds - 1);
+        const left = alive.filter((m) => m !== faller);
+        unit.position = computeSquadCentroid(left.map((m) => m.position ?? unit.position));
+        fallWounds = 1;
+        events.push({
+          type: 'fall',
+          wounds: 1,
+          text: `Fell into the gap. Fell ${landing.height.toFixed(1)}": the model is lost`,
+        });
+      } else {
+        unit.position = { ...landing.position };
+        for (const m of alive) m.position = { ...landing.position };
+        if (landing.height >= FALL_DAMAGE_MIN - 0.05 && !hasTrait(unit.specialRules, 'airborne')) {
+          fallWounds = resolveFall(landing.height, 'Fell into the gap.', true).wounds;
+        } else {
+          events.push({ type: 'fall', wounds: 0, text: `Fell into the gap. Fell ${landing.height.toFixed(1)}"` });
         }
-      }
-      if (dropHeight > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
-        resolveFall(dropHeight, 'Fell into the gap.');
       }
       unit.hasMoved = true;
       unit.remainingMovement = 0;
       finishActivation(state, dice);
-      return done({ terminated: true, wounds: 1 });
+      return done({ terminated: true, wounds: fallWounds });
     }
   }
 
@@ -1422,7 +1443,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         if (modelPaths && modelPaths.length > 0) {
           for (let i = 0; i < modelPaths.length; i++) {
-            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice);
+            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice, activeModels[i]);
             if (traversal.terminated) break;
           }
         } else if (path && path.length > 0) {
@@ -1877,7 +1898,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         if (modelPaths && modelPaths.length > 0) {
           for (let i = 0; i < modelPaths.length; i++) {
-            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice);
+            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice, activeModels[i]);
             if (traversal.terminated) break;
           }
         } else if (path && path.length > 0) {
