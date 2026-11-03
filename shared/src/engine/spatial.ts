@@ -325,6 +325,13 @@ export function isFallColumnBlocked(state: GameState, from: Vector3, to: Vector3
   return false;
 }
 
+/** Rise over run of a stair's slope (height gained per inch walked along it). */
+function stairGrade(piece: TerrainPiece): number {
+  const { hz } = terrainHalfExtents(piece);
+  const rise = (legacyElevation(piece) ?? (piece.position.y ?? 0) + (piece.scale.y ?? 2.5)) - (piece.position.y ?? 0);
+  return hz > 0 ? rise / (2 * hz) : 0;
+}
+
 /** Height of a stair's slope surface at local z (strictly inside the footprint), given its waypoints. */
 function stairHeightAtLocalZ(
   piece: TerrainPiece,
@@ -866,7 +873,9 @@ export function isBaseOverhanging(
     for (const piece of state.terrain) {
       if (!isStairPiece(piece)) continue;
       const slopeY = getStairSurfaceHeight(piece, { x, y, z }, state);
-      if (slopeY !== null && Math.abs(y - slopeY) <= 0.3) return true;
+      // A base on a slope rests on it across its width: the slope under the rim sits up to radius x grade
+      // above or below the centre's height, which is still support.
+      if (slopeY !== null && Math.abs(y - slopeY) <= 0.3 + UNIT_COLLISION_RADIUS * stairGrade(piece)) return true;
     }
     return false;
   };
@@ -1796,7 +1805,8 @@ export function isSegmentOnRampOrStairs(
     const sin = Math.sin(yaw);
     // tight clearance margin around the stair spine; a ladder's foot and head stand LADDER_STANDOFF off it
     const margin = isLadderPiece(piece) ? LADDER_STANDOFF + 0.1 : 0.35;
-    const botY = Math.min(0, piece.position.y ?? 0);
+    // Stairs may stand on a deck: their foot is the piece's base, not the ground
+    const botY = isStairPiece(piece) ? (piece.position.y ?? 0) : Math.min(0, piece.position.y ?? 0);
     const topY = Math.max(
       legacyElevation(piece) ?? 0,
       (piece.position.y ?? 0) + (piece.scale.y ?? 2.5),
