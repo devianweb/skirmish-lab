@@ -1795,6 +1795,50 @@ describe('GameHUD', () => {
       expect(container.querySelector('.sl-hud-datacard')!.textContent).toContain('Models: 1/2 (1 casualty)');
     });
 
+    it('shows each model its own distance left after a split move (ring and text)', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.speed = 6;
+      squad.position = { x: 0, y: 0, z: -4 };
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+      // Leg 1 done: model 1 walked all 6", model 2 walked 2.5"
+      squad.hasMoved = true;
+      squad.modelMovementSpent = { m1: 6, m2: 2.5 };
+      squad.remainingMovement = 3.5;
+
+      const { hud, container } = setup(HOST, state);
+      let lastMarkers: any = null;
+      hud.onMarkers((m) => {
+        lastMarkers = m;
+      });
+
+      clickByText(container, 'Move');
+      // Model 2 can walk 3.5", model 1 nothing: the unit-level figure is the best of them
+      container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m2"]')!.click();
+      expect(container.textContent).toContain('Place Model 2 of 2 (Warden Patrol Squad) within 3.5"');
+      expect(lastMarkers?.movementRangeRadius).toBe(3.5);
+      container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]')!.click();
+      expect(container.textContent).toContain('Place Model 1 of 2 (Warden Patrol Squad) within 0"');
+      expect(lastMarkers?.movementRangeRadius).toBe(0);
+    });
+
+    it('shows the distance left on a single model\'s second move leg', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST && (u.models?.length ?? 1) <= 1)!;
+      unit.speed = 6;
+      activateUnit(state, HOST, unit.id);
+      unit.hasMoved = true;
+      unit.remainingMovement = 2.5;
+      const { container } = setup(HOST, state);
+      clickByText(container, 'Move');
+      expect(container.textContent).toContain('2.5" left');
+    });
+
     it('sequential model placement enforces 2.0" coherency and submits staged positions', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;

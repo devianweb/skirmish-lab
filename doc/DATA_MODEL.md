@@ -156,6 +156,13 @@ interface Unit {
   // Movement/Action State
   hasMoved: boolean;
   remainingMovement: number;
+  /**
+   * Squads only (batch 1I PR 30): inches each living model has walked in the current move, rush or charge,
+   * keyed by model id. `remainingMovement` is the most any living model can still walk (the action's
+   * budget minus the smallest of these), so existing "out of movement" checks keep working. Absent until a
+   * squad leg is made; cleared when an activation, a declared charge begins, or the charge is made.
+   */
+  modelMovementSpent?: Record<string, number>;
 }
 
 interface Model {

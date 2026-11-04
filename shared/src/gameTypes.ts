@@ -132,6 +132,12 @@ export interface Unit {
   hasAttacked?: boolean;
   isRushing?: boolean;
   remainingMovement: number;
+  /**
+   * Squads only: how far each living model has walked in the current move, rush or charge (model id to
+   * inches). `remainingMovement` is the budget minus the smallest of these. Absent until a squad leg is
+   * made; cleared when the activation or charge starts.
+   */
+  modelMovementSpent?: Record<string, number>;
 }
 
 /**

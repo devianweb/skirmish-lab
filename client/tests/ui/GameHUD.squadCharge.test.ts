@@ -121,7 +121,7 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     expect(validateAction(declared, action).valid).toBe(true);
   });
 
-  it('when no placed model touches the target the confirmation is a leg and spends the shared budget', () => {
+  it('when no placed model touches the target the confirmation is a leg and spends each model own distance', () => {
     const ctx = setup();
     const declared = declare(ctx);
     ctx.hud.handleBoardPick({ kind: 'position', position: P(0, 0, -7) });
@@ -134,7 +134,8 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     expect(action.payload.modelPositions).toHaveLength(3);
     const res = applyAction(declared, action);
     expect(res.ok).toBe(true);
-    expect(res.state!.units.find((u) => u.id === action.payload.attackerId)!.remainingMovement).toBeCloseTo(8.84, 1);
+    // Per-model budgets: the unit figure is what the model that walked least (3") still has, not the longest walk's
+    expect(res.state!.units.find((u) => u.id === action.payload.attackerId)!.remainingMovement).toBeCloseTo(9, 1);
   });
 
   it('Confirm charge early keeps unplaced models where they stand when the squad is still coherent', () => {
