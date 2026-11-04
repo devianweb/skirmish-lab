@@ -89,6 +89,7 @@ describe('squad shooting: who can fire', () => {
     // Shooter model at x=0 is walled off from the whole target; the one at x=10 sees it.
     const shooters = squad('a', HOST, [pt(0, 0), pt(10, 0)], pt(5, 0));
     const target = squad('t', GUEST, [pt(0, 10), pt(4, 10)], pt(2, 10));
+    shooters.hasMoved = true; // spread-out squad that has moved (an incoherent squad may not shoot in place)
     const state = makeState([shooters, target], [wall(-2, 4), wall(2, 4)]); // x -4..4 at z=4
     const fm = firingModels(state, shooters, target, shooters.weapons[0]);
     expect(fm.map((f) => f.position)).toEqual([pt(10, 0)]);

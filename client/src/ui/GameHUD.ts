@@ -36,6 +36,7 @@ import {
   Unit,
   validateDeploymentPosition,
   validateSquadCoherency,
+  isRegroupingMove,
   SQUAD_COHERENCY_SPREAD,
   SQUAD_COHERENCY_SPREAD_EDGE,
   baseRadius,
@@ -1130,9 +1131,14 @@ export class GameHUD {
       }
     }
 
+    // A squad that started the action out of coherency may end it closer to coherent (regrouping)
+    const startPositions = alive.map((m) => m.position ?? active.position);
+    const startedIncoherent = !validateSquadCoherency(startPositions).coherent;
+
     if (otherPlaced.length > 0) {
       // 1. All models must remain within 6" (base edge to base edge) of all other placed models
-      for (const placed of otherPlaced) {
+      //    (a regrouping squad is judged as a whole when the last model is placed)
+      for (const placed of startedIncoherent ? [] : otherPlaced) {
         const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
         if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
           this.showToast(`Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`);
@@ -1146,11 +1152,18 @@ export class GameHUD {
         const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
         const coherency = validateSquadCoherency(candidatePositions);
         if (!coherency.coherent) {
-          this.showToast(
-            coherency.reason ??
-              'Each model must be within 1" of another squad member (3" if they are on different levels)'
-          );
-          return;
+          // Candidate positions are in placement order, not model order: compare as a set of positions
+          const regrouping = startedIncoherent && isRegroupingMove(startPositions, candidatePositions);
+          if (!regrouping) {
+            this.showToast(
+              (coherency.reason ??
+                'Each model must be within 1" of another squad member (3" if they are on different levels)') +
+                (startedIncoherent
+                  ? ' (the squad started out of coherency: it must end closer to coherent than it began)'
+                  : '')
+            );
+            return;
+          }
         }
       }
     }
@@ -1203,7 +1216,8 @@ export class GameHUD {
     );
     if (this.stagedSquadModelPositions.size < alive.length) {
       const coherency = validateSquadCoherency(orderedPositions);
-      if (!coherency.coherent) {
+      const startPositions = alive.map((m) => m.position ?? active.position);
+      if (!coherency.coherent && !isRegroupingMove(startPositions, orderedPositions)) {
         this.showToast(
           `Unplaced models stay where they are: ${
             coherency.reason ?? 'the squad would not be in coherency'
@@ -3037,8 +3051,7 @@ export class GameHUD {
         ((!hasMoved && !hasAttacked) || (isRushing && hasMovementLeft));
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-      const canShoot = !active.isDestroyed && !engaged && !hasAttacked && !isRushing && !!rangedWeapon;
-      const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
+            const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -3050,6 +3063,9 @@ export class GameHUD {
         !active.status.includes('stunned') &&
         squadPositions.length > 1 &&
         !validateSquadCoherency(squadPositions).coherent;
+      // Shooting without moving is a Hold: an out-of-coherency squad must move first
+      const canShoot =
+        !active.isDestroyed && !engaged && !hasAttacked && !isRushing && !!rangedWeapon && !outOfCoherency;
       const finishBtn = !hasActed
         ? `<button class="sl-hud-btn" data-action="hold" ${outOfCoherency ? 'disabled' : ''}>Hold</button>`
         : `<button class="sl-hud-btn primary" data-action="end-activation">End Activation</button>`;
