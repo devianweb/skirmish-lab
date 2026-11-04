@@ -1432,6 +1432,24 @@ export interface ShootingRayDebugInfo {
   coverPieceId?: string;
   intersections: TerrainIntersectionDebug[];
   flankRays?: FlankRayDebug[];
+  /** Squad shooting only (see `computeSquadShootingRayDebug`): one eye-level ray per attacker model. */
+  modelRays?: ModelRayDebug[];
+  /** Attacker models that can fire the weapon at the target. */
+  firingCount?: number;
+  /** Living attacker models. */
+  shooterCount?: number;
+  /** Living target models. */
+  targetModelCount?: number;
+  /** Target models individually in cover (cover applies when more than half are). */
+  coveredModelCount?: number;
+}
+
+/** One attacker model's eye-level ray to the target model it aims at. */
+export interface ModelRayDebug {
+  from: Vector3;
+  to: Vector3;
+  /** True when this model can fire (sees that target model within range). */
+  fires: boolean;
 }
 
 /**

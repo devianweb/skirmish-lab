@@ -605,4 +605,75 @@ describe('MarkerRenderer', () => {
       scene.clear();
     }
   });
+
+  describe('aim lines (squad shooting preview)', () => {
+    const v = (x: number, y: number, z: number) => ({ x, y, z });
+
+    it('draws one line per attacker model, ending on the target model each aims at', () => {
+      const renderer = makeRenderer();
+      renderer.setAimLines({
+        lines: [
+          { from: v(-2, 1.1, 0), to: v(-2, 1.1, 10), fires: true },
+          { from: v(2, 1.1, 0), to: v(2, 1.1, 10), fires: true },
+        ],
+      });
+      const group = scene.getObjectByName('marker-aim-lines')!;
+      const lines = group.children.filter((c) => c instanceof THREE.Line) as THREE.Line[];
+      expect(lines).toHaveLength(2);
+      const ends = lines.map((l) => {
+        const pos = l.geometry.getAttribute('position');
+        return [pos.getX(1), pos.getZ(1)];
+      });
+      expect(ends).toEqual([[-2, 10], [2, 10]]);
+    });
+
+    it('draws non-firing models faint red and firing ones solid', () => {
+      const renderer = makeRenderer();
+      renderer.setAimLines({
+        lines: [
+          { from: v(0, 1.1, 0), to: v(0, 1.1, 10), fires: true },
+          { from: v(4, 1.1, 0), to: v(0, 1.1, 10), fires: false },
+        ],
+      });
+      const group = scene.getObjectByName('marker-aim-lines')!;
+      const firing = group.getObjectByName('aim-line-0') as THREE.Line;
+      const blocked = group.getObjectByName('aim-line-blocked-1') as THREE.Line;
+      expect((firing.material as THREE.LineBasicMaterial).opacity).toBe(1);
+      expect((blocked.material as THREE.LineBasicMaterial).opacity).toBeLessThan(0.5);
+    });
+
+    it('marks the aimed-at target model with a ring on the ground under it', () => {
+      const renderer = makeRenderer();
+      renderer.setAimLines({
+        lines: [{ from: v(0, 1.1, 0), to: v(2, 1.1, 10), fires: true }],
+        aimedModel: v(2, 0, 10),
+      });
+      const ring = scene.getObjectByName('aimed-model')!;
+      expect(ring.position.x).toBe(2);
+      expect(ring.position.z).toBe(10);
+    });
+
+    it('has no ring without an aimed model, and clears on null', () => {
+      const renderer = makeRenderer();
+      renderer.setAimLines({ lines: [{ from: v(0, 1.1, 0), to: v(0, 1.1, 10), fires: true }] });
+      expect(scene.getObjectByName('aimed-model')).toBeUndefined();
+      renderer.setAimLines(null);
+      expect(renderer.getRenderedMarkerNames()).not.toContain('marker-aim-lines');
+    });
+
+    it('F9 debug adds a ray per attacker model', () => {
+      const renderer = makeRenderer();
+      renderer.setShootingDebugRay({
+        attackerId: 'a', targetId: 't', from: v(0, 1.1, 0), to: v(0, 1.1, 10), distance: 10,
+        hasLineOfSight: true, providesCover: false, intersections: [],
+        modelRays: [
+          { from: v(0, 1.1, 0), to: v(0, 1.1, 10), fires: true },
+          { from: v(4, 1.1, 0), to: v(4, 1.1, 10), fires: false },
+        ],
+      });
+      const group = scene.getObjectByName('marker-shooting-debug')!;
+      expect(group.getObjectByName('model-ray-0')).toBeDefined();
+      expect(group.getObjectByName('model-ray-1')).toBeDefined();
+    });
+  });
 });

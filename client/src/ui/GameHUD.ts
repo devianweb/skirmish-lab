@@ -3,6 +3,8 @@ import {
   CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
+  computeSquadShootingRayDebug,
+  squadAim,
   computeSquadCentroid,
   createAction,
   describeTerrainPiece,
@@ -62,6 +64,7 @@ import {
   DeploymentZoneBounds,
   DeploymentZoneMarker,
   MovePathMarker,
+  AimLinesMarker,
 } from '../renderer/MarkerRenderer';
 
 function escapeHtmlAttr(str: string): string {
@@ -99,6 +102,7 @@ export interface MarkerSnapshot {
   movementRangeColor?: number;
   attackRange?: { unitId: string; range: number; concentricRanges?: number[] } | null;
   movePath?: MovePathMarker | null;
+  aimLines?: AimLinesMarker | null;
   engagedTargetId?: string | null;
   hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
@@ -138,6 +142,8 @@ export class GameHUD {
   private selectedDeployUnitId: string | null = null;
   /** Unit hovered in the fighter list or on the board. */
   private hoveredUnitId: string | null = null;
+  /** Model of the hovered unit the cursor is over (squads); drives the "aimed at" highlight. */
+  private hoveredModelId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
   /** Objective hovered on the board within control radius. */
@@ -669,18 +675,23 @@ export class GameHUD {
     }
 
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
+    const nextHoverModel = target?.kind === 'unit' ? target.modelId ?? null : null;
+    const modelChanged = nextHoverModel !== this.hoveredModelId;
+    this.hoveredModelId = nextHoverModel;
     const nextObjective = this.inspectedObjective;
     const objectiveChanged = nextObjective?.id !== this.lastHoveredObjectiveId;
     this.lastHoveredObjectiveId = nextObjective?.id ?? null;
 
     if (
       nextHover !== this.hoveredUnitId ||
+      modelChanged ||
       terrainChanged ||
       objectiveChanged ||
       (this.terrainDebugEnabled && groundPosChanged)
     ) {
       this.hoveredUnitId = nextHover;
       this.updateDataCardSlot();
+      this.updateAimChip();
       this.emitMarkers();
     }
   }
@@ -2468,6 +2479,7 @@ export class GameHUD {
           <div class="sl-hud-bottom-dock">
             ${dataCardSlot}
             <div class="sl-hud-bottom sl-hud-shoot-dock" style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              ${this.aimChipHtml()}
               <div class="sl-hud-chips-bar" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
                 ${chipsHtml}
               </div>
@@ -2542,6 +2554,7 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+            ${this.aimChipHtml()}
             <div class="sl-hud-move-warning" style="display: none; background: rgba(255, 152, 0, 0.2); border: 1px solid #ff9800; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;"></div>
             ${squadChipsHtml}
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -2819,7 +2832,80 @@ export class GameHUD {
     }
 
     if (!shooter || !targetOrPoint) return null;
+    if ('id' in targetOrPoint && 'weapons' in targetOrPoint) {
+      const weapon = this.shootPreviewWeapon(shooter, targetOrPoint);
+      if (weapon) return computeSquadShootingRayDebug(this.state, shooter, targetOrPoint, weapon);
+    }
     return computeShootingRayDebug(this.state, shooter, targetOrPoint);
+  }
+
+  /** The ranged weapon the shooting preview uses: the selected one, else the first that can fire, else the first. */
+  private shootPreviewWeapon(attacker: Unit, target: Unit): Weapon | null {
+    const ranged = attacker.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+    if (ranged.length === 0) return null;
+    const selected = this.selectedShootWeaponId ? ranged.find((w) => w.id === this.selectedShootWeaponId) : null;
+    if (selected) return selected;
+    if (this.state) {
+      const state = this.state;
+      const canFire = ranged.find((w) => firingModels(state, attacker, target, w).length > 0);
+      if (canFire) return canFire;
+    }
+    return ranged[0];
+  }
+
+  /** Shooter, enemy unit and weapon for the live shooting preview (aim lines, "N of M" chip), or null. */
+  private shootPreview(): { attacker: Unit; target: Unit; weapon: Weapon } | null {
+    if (!this.state) return null;
+    const attacker = this.activeUnit;
+    if (!attacker || attacker.ownerId !== this.localPlayerId) return null;
+    let targetId: string | null = null;
+    if (this.flow.mode === 'targeting' && this.flow.action === 'shoot') {
+      targetId = this.hoveredUnitId;
+    } else if (this.flow.mode === 'confirming' && this.flow.action.type === 'shoot') {
+      targetId = (this.flow.action.payload as { targetId?: string }).targetId ?? null;
+    }
+    if (!targetId) return null;
+    const target = this.state.units.find(
+      (u) => u.id === targetId && u.ownerId !== this.localPlayerId && !u.isDestroyed
+    );
+    if (!target) return null;
+    const weapon = this.shootPreviewWeapon(attacker, target);
+    return weapon ? { attacker, target, weapon } : null;
+  }
+
+  /** "N of M models can fire" for the previewed weapon and target; empty when nothing is being aimed. */
+  private aimChipText(): string {
+    const preview = this.shootPreview();
+    if (!preview || !this.state) return '';
+    const aim = squadAim(this.state, preview.attacker, preview.target, preview.weapon);
+    if (aim.shooterCount <= 1) return '';
+    return `${aim.firingCount} of ${aim.shooterCount} models can fire (${preview.weapon.name})`;
+  }
+
+  private aimChipHtml(): string {
+    const text = this.aimChipText();
+    return `<div class="sl-hud-aim-chip" style="display: ${
+      text ? 'block' : 'none'
+    }; background: rgba(255, 112, 67, 0.18); border: 1px solid #ff7043; color: #ffab91; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;">${text}</div>`;
+  }
+
+  private updateAimChip(): void {
+    const el = this.root.querySelector('.sl-hud-aim-chip') as HTMLElement | null;
+    if (!el) return;
+    const text = this.aimChipText();
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  /** Aim lines per attacker model (and the aimed-at target model) for the shooting preview. */
+  private computeAimLines(): AimLinesMarker | null {
+    const preview = this.shootPreview();
+    if (!preview || !this.state) return null;
+    const aim = squadAim(this.state, preview.attacker, preview.target, preview.weapon, this.hoveredModelId ?? undefined);
+    return {
+      lines: aim.aims.map((a) => ({ from: a.from, to: a.to, fires: a.fires })),
+      ...(aim.aimedModel ? { aimedModel: aim.aimedModel } : {}),
+    };
   }
 
   private renderTerrainDebugCard(): string {
@@ -2892,7 +2978,13 @@ export class GameHUD {
           <div class="sl-hud-datacard-header">
             <span class="sl-hud-datacard-name">Shooting Ray Debug (F9)</span>
             <span class="sl-hud-datacard-meta">${shooterName} ➔ ${targetName} (${ray.distance.toFixed(1)}")</span>
-            <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}</span>
+            <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}${
+              ray.modelRays
+                ? ` · <span style="color:#ffab91;">${ray.firingCount ?? 0} of ${ray.shooterCount ?? 0} models fire · ${
+                    ray.coveredModelCount ?? 0
+                  }/${ray.targetModelCount ?? 0} target models in cover</span>`
+                : ''
+            }</span>
           </div>
           <div class="sl-hud-datacard-tables">
             <table class="sl-hud-table">
@@ -3251,6 +3343,7 @@ export class GameHUD {
       outcome,
       debugActive: this.terrainDebugEnabled,
       shootingDebugRay,
+      aimLines: this.computeAimLines(),
       deploymentZones: null,
     };
 

@@ -14,6 +14,7 @@ import { BoardRenderer } from './BoardRenderer';
 import { CameraController } from './CameraController';
 import {
   AttackRangeMarker,
+  AimLinesMarker,
   DeploymentZoneMarker,
   MarkerRenderer,
   MarkerUnit,
@@ -201,6 +202,10 @@ export class GameView {
 
   setTargetMarker(unit: MarkerUnit | MarkerUnit[] | null): void {
     this.markerRenderer.setTarget(unit);
+  }
+
+  setAimLinesMarker(spec: AimLinesMarker | null): void {
+    this.markerRenderer.setAimLines(spec);
   }
 
   setReachableTargetsMarker(units: MarkerUnit[]): void {

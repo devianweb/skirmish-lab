@@ -72,6 +72,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
   gameView.setReachableTargetsMarker(reachable);
+  gameView.setAimLinesMarker(markers.aimLines ?? null);
   gameView.setMovementRangeMarker(
     markers.movementRangePosition
       ? { id: 'move-center', position: markers.movementRangePosition }
