@@ -336,6 +336,7 @@ export class Lobby {
                 <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="test-army" ${this.hostArmyId === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
+                <option value="test-squad-army" ${this.hostArmyId === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
               </select>
             </div>
             <div style="margin-bottom: 14px;">
@@ -344,6 +345,7 @@ export class Lobby {
                 <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="test-army" ${this.guestArmyId === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
+                <option value="test-squad-army" ${this.guestArmyId === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
               </select>
             </div>
             <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ffd54f; cursor: pointer; user-select: none;">

@@ -298,7 +298,7 @@ Terrain pieces resolve to **solids** (walls, jambs, sills, lintels, columns) and
 
 ### Cover Determination
 - **In-Cover Status:** Targets with `in-cover` status always receive +1 Defense.
-- **Low Cover Proximity Rule:** Intervening low cover (crates, low barricades) only grants +1 Defense if the defending target is within **1.0"** of the terrain piece along the line of fire (and the terrain is not adjacent to the shooter, i.e. `projDist > 1.0"`). Distant low crates in the middle of no-man's-land do not grant cover to targets standing in the open downrange, matching tabletop True-Line-of-Sight conventions.
+- **Low Cover Proximity Rule:** Intervening low cover (crates, low barricades) only grants +1 Defense if the line of fire crosses the piece and the defending target's base edge is within **1.0"** of it (`lowCoverEdgeGap`, measured base edge to piece; and the terrain is not adjacent to the shooter, i.e. `projDist > 1.0"`). Distant low crates in the middle of no-man's-land do not grant cover to targets standing in the open downrange, matching tabletop True-Line-of-Sight conventions.
 - **Sight-Blocking Partial Cover:** For walls, jambs, sills and columns, the target's base edge must be within 1.0" of the solid and partially obscured (a torso-height flank ray is blocked while LoS stays open).
 
 ### Targeting Restrictions
