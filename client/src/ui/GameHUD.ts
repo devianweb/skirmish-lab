@@ -37,6 +37,14 @@ import {
   validateMeleeVerticalReach,
   validateSquadCoherency,
   SQUAD_COHERENCY_SPREAD,
+  SQUAD_COHERENCY_SPREAD_EDGE,
+  baseRadius,
+  markerGap,
+  modelGap,
+  unitGap,
+  edgeGapToCentre,
+  ENGAGEMENT_EDGE_GAP,
+  CHARGE_END_EDGE_GAP,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
@@ -589,12 +597,12 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
-        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0" horizontal, <= 1.5" vertical)
+        // Detect if move/rush destination places the fighter in melee engagement contact (base edges <= 0.5" apart, <= 1.5" vertical)
         if (this.movePreview) {
           const enemy = this.enemyUnits.find(
             (e) =>
               !e.isDestroyed &&
-              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0 &&
+              modelGap(e.position, this.movePreview!) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
               Math.abs((e.position.y ?? 0) - (this.movePreview!.y ?? 0)) <= 1.5
           );
           this.hoveredEngagedTargetId = enemy ? enemy.id : null;
@@ -907,7 +915,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        modelGap(e.position, destination) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
         Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
     );
     if (wouldEngage) {
@@ -937,11 +945,11 @@ export class GameHUD {
     }
 
     if (otherPlaced.length > 0) {
-      // 1. All models must remain within 6.0" max spread of all other placed models
+      // 1. All models must remain within 6" (base edge to base edge) of all other placed models
       for (const placed of otherPlaced) {
         const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
         if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
-          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max ${SQUAD_COHERENCY_SPREAD.toFixed(1)}" coherency limit from ${placed.name}`);
+          this.showToast(`Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`);
           return;
         }
       }
@@ -1064,7 +1072,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        modelGap(e.position, destination) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
         Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
     );
     if (wouldEngage) {
@@ -1170,7 +1178,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
+        modelGap(e.position, destination) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
         Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
     );
     if (wouldEngage) {
@@ -1244,10 +1252,7 @@ export class GameHUD {
     const target = this.state?.units.find((u) => u.id === targetUnitId);
     if (!target || target.ownerId === this.localPlayerId || target.isDestroyed) return;
 
-    const distance = Math.hypot(
-      target.position.x - active.position.x,
-      target.position.z - active.position.z
-    );
+    const distance = unitGap(active, target);
 
     if (actionKind === 'shoot') {
       const rangedWeapons = active.weapons.filter(
@@ -1354,22 +1359,22 @@ export class GameHUD {
         return;
       }
 
-      // Charge ends at true base contact (1.0" center-to-center for 0.5" radius bases).
+      // Charge ends at true base contact (centre distance = both base radii).
       const dx = active.position.x - target.position.x;
       const dz = active.position.z - target.position.z;
       const len = Math.hypot(dx, dz) || 1;
       const contactTarget = {
-        x: Math.round((target.position.x + (dx / len) * 1.0) * 100) / 100,
+        x: Math.round((target.position.x + (dx / len) * edgeGapToCentre(0)) * 100) / 100,
         y: active.position.y ?? 0,
-        z: Math.round((target.position.z + (dz / len) * 1.0) * 100) / 100,
+        z: Math.round((target.position.z + (dz / len) * edgeGapToCentre(0)) * 100) / 100,
       };
 
       const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
         ignoreUnitId: target.id,
       });
       const end = path[path.length - 1];
-      const distToEnemy = Math.hypot(end.x - target.position.x, end.z - target.position.z);
-      if (distToEnemy > 1.25) {
+      const distToEnemy = modelGap(end, target.position);
+      if (distToEnemy > CHARGE_END_EDGE_GAP + 0.001) {
         this.showToast('Cannot reach engagement range of target');
         return;
       }
@@ -1514,7 +1519,7 @@ export class GameHUD {
       const target = this.state.units.find((u) => u.id === targetId && !u.isDestroyed);
       if (!target) continue;
 
-      const distance = boardDistance(active.position, target.position);
+      const distance = unitGap(active, target);
       if (distance > weapon.profile.range + 0.01) {
         this.showToast(
           `${weapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${weapon.profile.range}")`
@@ -1569,7 +1574,7 @@ export class GameHUD {
     let summary: string;
     if (uniqueTargets.size === 1) {
       const target = allocations[0].target;
-      const distance = boardDistance(active.position, target.position);
+      const distance = unitGap(active, target);
       const weaponNames = allocations.map((a) => a.weapon.name).join(' & ');
       const diceSummaries = allocations.map((a) => `${a.weapon.name}: ${a.diceText}`).join(' | ');
       summary = `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`;
@@ -1577,7 +1582,7 @@ export class GameHUD {
       const splitSummaries = allocations
         .map(
           (a) =>
-            `${a.weapon.name} at ${a.target.name} (${boardDistance(active.position, a.target.position).toFixed(1)}") [${a.diceText}]`
+            `${a.weapon.name} at ${a.target.name} (${unitGap(active, a.target).toFixed(1)}") [${a.diceText}]`
         )
         .join(' · ');
       summary = `${active.name} split fires: ${splitSummaries}`;
@@ -2645,7 +2650,7 @@ export class GameHUD {
     if (!this.state?.objectives || !this.hoveredGroundPosition) return null;
     const pos = this.hoveredGroundPosition;
     for (const obj of this.state.objectives) {
-      const dist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
+      const dist = markerGap(pos, obj.position, 0); // hover point, no base
       const dy = Math.abs((pos.y ?? 0) - (obj.position.y ?? 0));
       if (dist <= OBJECTIVE_CONTROL_RADIUS && dy <= OBJECTIVE_CONTROL_MAX_VERTICAL) return obj;
     }
@@ -3378,7 +3383,14 @@ export class GameHUD {
                   )
                 ).sort((a, b) => a - b)
               : undefined;
-          markers.attackRange = { unitId: active.id, range: maxRange, concentricRanges };
+          // Shooting range is measured from the shooter's base edge, so the ring sits one base radius out
+          // from the model centre and shows where an enemy base edge can be.
+          const ringPad = attackAction === 'shoot' ? baseRadius(active) : 0;
+          markers.attackRange = {
+            unitId: active.id,
+            range: maxRange + ringPad,
+            concentricRanges: concentricRanges?.map((r) => r + ringPad),
+          };
         }
         const reachable = this.reachableEnemies(active, attackAction);
         const targetedIds = new Set(
@@ -3506,11 +3518,9 @@ export class GameHUD {
     const limit = this.actionMaxRange(unit, action);
     return this.state.units.filter((candidate) => {
       if (candidate.ownerId === this.localPlayerId || candidate.isDestroyed) return false;
-      const distance = Math.hypot(
-        candidate.position.x - unit.position.x,
-        candidate.position.z - unit.position.z
-      );
-      if (distance > limit + 0.01) return false;
+      const distance = unitGap(unit, candidate);
+      // Shooting reach is a base-edge distance; a charge is refined by the pathfinder below; melee uses the engagement gap.
+      if (distance > (action === 'fight' ? ENGAGEMENT_EDGE_GAP : limit) + 0.01) return false;
       if (action === 'shoot') {
         const weaponToCheck = this.selectedShootWeaponId
           ? unit.weapons.find((w) => w.id === this.selectedShootWeaponId)
@@ -3541,8 +3551,8 @@ export class GameHUD {
           ignoreUnitId: candidate.id,
         });
         const end = path[path.length - 1];
-        const distToEnd = Math.hypot(end.x - candidate.position.x, end.z - candidate.position.z);
-        return distToEnd <= 1.25 && pathLength(path) <= unit.speed * 2 + 0.01;
+        const distToEnd = modelGap(end, candidate.position);
+        return distToEnd <= CHARGE_END_EDGE_GAP + 0.001 && pathLength(path) <= unit.speed * 2 + 0.01;
       }
       return true;
     });

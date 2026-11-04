@@ -1,6 +1,7 @@
 import { GameState, TerrainPiece, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
+import { edgeGapToCentre } from './unitGeometry';
 import {
   EYE_HEIGHT,
   FLANK_RAY_HEIGHT,
@@ -2826,7 +2827,7 @@ export function computePushBackPosition(
   state: GameState,
   attacker: Unit,
   target: Unit,
-  separationDistance: number = 2.0
+  separationDistance: number = edgeGapToCentre(1)
 ): Vector3 {
   const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
   const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
@@ -2876,12 +2877,16 @@ export interface SquadCoherencyResult {
   maxDistanceToNearestMember?: number;
 }
 
-/** Same-level link: 1" base gap = 2.0" centre to centre (batch 1D PR 14 converts these to edge measuring). */
-export const SQUAD_COHERENCY_SAME_LEVEL_CENTRE = 2.0;
-/** Split-level link: 3" base gap = 4.0" centre to centre. */
-export const SQUAD_COHERENCY_CROSS_LEVEL_CENTRE = 4.0;
-/** Whole-squad spread limit (centre to centre). */
-export const SQUAD_COHERENCY_SPREAD = 6.0;
+/** Same-level link: models at most 1" apart, base edge to base edge. */
+export const SQUAD_COHERENCY_SAME_LEVEL_EDGE = 1;
+/** Split-level link: models at most 3" apart, base edge to base edge. */
+export const SQUAD_COHERENCY_CROSS_LEVEL_EDGE = 3;
+/** Whole-squad spread limit: no two models more than 6" apart, base edge to base edge. */
+export const SQUAD_COHERENCY_SPREAD_EDGE = 6;
+/** The same limits as centre-to-centre distances (what `validateSquadCoherency` compares). */
+export const SQUAD_COHERENCY_SAME_LEVEL_CENTRE = edgeGapToCentre(SQUAD_COHERENCY_SAME_LEVEL_EDGE);
+export const SQUAD_COHERENCY_CROSS_LEVEL_CENTRE = edgeGapToCentre(SQUAD_COHERENCY_CROSS_LEVEL_EDGE);
+export const SQUAD_COHERENCY_SPREAD = edgeGapToCentre(SQUAD_COHERENCY_SPREAD_EDGE);
 /** Two models count as on different levels when their heights differ by more than this. */
 export const SQUAD_LEVEL_DIFFERENCE = 0.5;
 
@@ -2892,9 +2897,9 @@ export function areOnDifferentLevels(a: Vector3, b: Vector3): boolean {
 
 /**
  * Validates tabletop squad coherency according to Section 2.1:
- * 1. Every model must be within maxMemberDistance (2.0" centre) of at least one other member,
- *    or within maxCrossLevelMemberDistance (4.0" centre) when that member is on a different level.
- * 2. All models must be within maxSquadSpread (6.0" horizontal) of every other member.
+ * 1. Every model must be within maxMemberDistance (2.0" centre = 1" edge gap) of at least one other member,
+ *    or within maxCrossLevelMemberDistance (4.0" centre = 3" edge gap) when that member is on a different level.
+ * 2. All models must be within maxSquadSpread (7.0" centre = 6" edge gap) of every other member.
  * Models may form separate pairs/sub-groups as long as each has a link and the spread holds.
  */
 export function validateSquadCoherency(
@@ -2925,7 +2930,7 @@ export function validateSquadCoherency(
       if (d > maxSpread + tolerance) {
         return {
           coherent: false,
-          reason: `Squad model spread of ${d.toFixed(2)}" exceeds max coherency limit of ${maxSpread}"`,
+          reason: `Squad model spread of ${(d - edgeGapToCentre(0)).toFixed(2)}" (edge to edge) exceeds max coherency limit of ${(maxSpread - edgeGapToCentre(0)).toFixed(0)}"`,
           maxDistanceBetweenModels: d,
         };
       }
@@ -2957,7 +2962,7 @@ export function validateSquadCoherency(
       const splitNote = nearestLimit === maxCrossDist ? ' across levels' : '';
       return {
         coherent: false,
-        reason: `Model ${i + 1} is ${nearestDist.toFixed(2)}" from nearest squad member${splitNote} (exceeds ${nearestLimit}" limit; same level: 1" apart edge to edge, different levels: 3")`,
+        reason: `Model ${i + 1} is ${(nearestDist - edgeGapToCentre(0)).toFixed(2)}" (edge to edge) from nearest squad member${splitNote} (exceeds ${(nearestLimit - edgeGapToCentre(0)).toFixed(0)}" limit; same level: 1" apart edge to edge, different levels: 3")`,
         maxDistanceToNearestMember: nearestDist,
       };
     }
@@ -3150,7 +3155,7 @@ export function consolidateSquadToward(
   options: { intoContact?: boolean } = {}
 ): void {
   const intoContact = options.intoContact ?? false;
-  const contactThreshold = 1.0;
+  const contactThreshold = edgeGapToCentre(0); // base contact
   const targetContactDist = UNIT_SEPARATION_DISTANCE; // 1.0" base contact
 
   if (intoContact) {
