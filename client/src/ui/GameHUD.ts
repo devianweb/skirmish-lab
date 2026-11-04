@@ -57,6 +57,7 @@ import {
   ENGAGEMENT_EDGE_GAP,
   Vector3,
   Weapon,
+  modelRemainingMovement,
 } from '@skirmish-lab/shared';
 import {
   PreviewSegment,
@@ -590,9 +591,7 @@ export class GameHUD {
         const currentModel = alive.length > 1 ? this.selectedSquadModel : null;
         const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
         const isRush = this.flow.action === 'rush';
-        const remainingBudget = active.isRushing
-          ? active.remainingMovement
-          : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
+        const remainingBudget = this.distanceLeft(active, isRush ? 'rush' : 'move', currentModel);
         const nominalMax = remainingBudget;
         const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
         const cursor = resolved.target;
@@ -711,7 +710,7 @@ export class GameHUD {
       if (cursor && model) {
         const path = jump
           ? jump.path
-          : findNavPath(this.state, active, cursor, active.remainingMovement, {
+          : findNavPath(this.state, active, cursor, this.distanceLeft(active, 'charge', model), {
               ignoreUnitId: declared.targetId,
               keepAway: true,
               startPosition: startPos,
@@ -911,6 +910,20 @@ export class GameHUD {
     };
   }
 
+  /**
+   * How far the unit can still walk in this action. For a squad, pass the model to get that model's own
+   * distance (what it has walked in earlier legs counts, a squad-mate's walk does not).
+   */
+  private distanceLeft(active: Unit, kind: 'move' | 'rush' | 'charge', model: Model | null = null): number {
+    const unitLeft =
+      kind === 'charge'
+        ? (this.declaredCharge ? active.remainingMovement : active.speed * 2)
+        : kind === 'rush'
+        ? (active.isRushing ? active.remainingMovement : active.speed * 2)
+        : (active.isRushing ? active.remainingMovement : Math.min(active.speed, active.remainingMovement ?? active.speed));
+    return model ? modelRemainingMovement(active, model, unitLeft) : unitLeft;
+  }
+
   private get selectedSquadModel(): Model | null {
     const alive = this.activeAliveSquadModels;
     if (alive.length === 0) return null;
@@ -1051,13 +1064,9 @@ export class GameHUD {
     const chargeTargetId = isCharge ? this.declaredCharge?.targetId : undefined;
     const chargeTarget = chargeTargetId ? this.state.units.find((u) => u.id === chargeTargetId) : undefined;
     if (isCharge && !chargeTarget) return;
-    const remainingBudget = isCharge
-      ? active.remainingMovement
-      : active.isRushing
-      ? active.remainingMovement
-      : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
-    // Charge legs share one budget: what earlier legs spent comes off the Difficult Terrain cap too
-    const chargeSpentSoFar = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - active.remainingMovement : 0;
+    const remainingBudget = this.distanceLeft(active, isCharge ? 'charge' : isRush ? 'rush' : 'move', currentModel);
+    // This model's earlier charge legs come off the Difficult Terrain cap too
+    const chargeSpentSoFar = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - remainingBudget : 0;
     let maxAllowance = remainingBudget;
     const navOptions = {
       keepAway: true,
@@ -2945,11 +2954,16 @@ export class GameHUD {
           </div>`;
       }
 
+      // After a first leg, say how much of the move or rush is left (a declared charge always does)
+      const splitLeft =
+        active && (this.flow.action === 'move' || this.flow.action === 'rush') && (active.hasMoved || active.isRushing)
+          ? ` — ${this.distanceLeft(active, this.flow.action).toFixed(1)}" left`
+          : '';
       let instruction =
         this.flow.action === 'move'
-          ? 'Click a destination on the board (auto-paths around obstacles)'
+          ? `Click a destination on the board (auto-paths around obstacles)${splitLeft}`
           : this.flow.action === 'rush'
-          ? 'Click a destination to Rush (double move, auto-paths around obstacles)'
+          ? `Click a destination to Rush (double move, auto-paths around obstacles)${splitLeft}`
           : this.flow.action === 'charge'
           ? this.declaredCharge && active
             ? `Charge declared on ${this.unitName(this.declaredCharge.targetId)}: ${active.remainingMovement.toFixed(1)}" left. Click a spot to walk a leg (at an edge, click across the gap to jump), or click the target to make contact`
@@ -2965,16 +2979,18 @@ export class GameHUD {
       let squadChipsHtml = '';
       if (isSquadMovement && active) {
         const alive = this.activeAliveSquadModels;
-        const allowance = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
         const currentModel = this.selectedSquadModel;
+        // The selected model's own distance: it may differ from its squad-mates' after a split move
+        const allowance = this.distanceLeft(active, this.flow.action === 'rush' ? 'rush' : 'move', currentModel);
+        const allowanceText = Number.isInteger(allowance) ? String(allowance) : allowance.toFixed(1);
         const currentModelIndex = alive.findIndex((m) => m.id === currentModel?.id);
         const placedCount = this.stagedSquadModelPositions.size;
 
         if (isSquadChargePlacing && this.declaredCharge) {
           const modelNo = (currentModelIndex >= 0 ? currentModelIndex : 0) + 1;
-          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${active.remainingMovement.toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip stay put (Confirm charge)`;
+          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${this.distanceLeft(active, 'charge', currentModel).toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip stay put (Confirm charge)`;
         } else if (placedCount === 0) {
-          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowance}"`;
+          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowanceText}"`;
         } else {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
         }
@@ -4023,14 +4039,17 @@ export class GameHUD {
       }
     } else if ((isMoveMode || isRushMode || this.isSquadChargeFlow) && this.activeUnit) {
       markers.movementRangeUnitId = this.activeUnit.id;
+      // While staging a squad the ring is the selected model's own distance, not the unit's best
+      const ringAlive = this.activeAliveSquadModels;
+      const ringModel = ringAlive.length > 1 ? this.selectedSquadModel : null;
       if (isRushMode) {
-        const remainingRush = this.activeUnit.isRushing
-          ? this.activeUnit.remainingMovement
-          : this.activeUnit.speed * 2 - (this.activeUnit.hasMoved ? (this.activeUnit.speed - this.activeUnit.remainingMovement) : 0);
-        markers.movementRangeRadius = Math.max(0, remainingRush);
+        markers.movementRangeRadius = Math.max(0, this.distanceLeft(this.activeUnit, 'rush', ringModel));
         markers.movementRangeColor = 0xffb74d; // Distinct gold/amber ring for Rush
+      } else if (this.isSquadChargeFlow) {
+        markers.movementRangeRadius = Math.max(0, this.distanceLeft(this.activeUnit, 'charge', ringModel));
+        markers.movementRangeColor = undefined;
       } else {
-        markers.movementRangeRadius = this.activeUnit.remainingMovement ?? this.activeUnit.speed;
+        markers.movementRangeRadius = Math.max(0, this.distanceLeft(this.activeUnit, 'move', ringModel));
         markers.movementRangeColor = undefined; // Default cyan for Advance move
       }
 

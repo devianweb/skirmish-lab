@@ -90,6 +90,7 @@ import {
   livingModelPositions,
 } from './unitGeometry';
 import { firingModels, targetCoverByMajority } from './squadTargeting';
+import { modelRemainingMovement, resetModelMovement, spendAllModels, spendModelMovement } from './modelMovement';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -269,8 +270,7 @@ function validateSquadChargeMove(
   const positions = payload.modelPositions ?? [];
   const alive = livingModels(unit);
   const declared = declaredCharge(state, unit.id);
-  const remaining = declared ? unit.remainingMovement : chargeBudget(unit);
-  const spent = declared ? chargeSpent(unit) : 0;
+  const unitRemaining = declared ? unit.remainingMovement : chargeBudget(unit);
   if (positions.length !== alive.length) {
     return {
       valid: false,
@@ -318,6 +318,9 @@ function validateSquadChargeMove(
     const difficult = isPathDifficult(state, mPath, unit);
     const cap = getEffectiveMaxMovement(unit, 'charge', difficult);
     const dist = pathMovementCost(state, mPath, unit);
+    // Each model spends its own distance: what it has walked in earlier legs counts, not a squad-mate's
+    const remaining = modelRemainingMovement(unit, alive[i], unitRemaining);
+    const spent = declared ? chargeBudget(unit) - remaining : 0;
     if (dist > remaining + 0.05 || spent + dist > cap + 0.05) {
       return {
         valid: false,
@@ -713,7 +716,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           unit.result.isRushing ? 'rush' : 'move',
           mDifficult
         );
-        const mMax = Math.min(mCap, unit.result.remainingMovement);
+        const mMax = Math.min(mCap, modelRemainingMovement(unit.result, aliveModels[i], unit.result.remainingMovement));
         const mDist = pathMovementCost(state, mPath, unit.result);
         if (mDist > mMax + 0.05) {
           return {
@@ -1181,7 +1184,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         }
         const mDifficult = isPathDifficult(state, mPath, unit);
         const mCap = getEffectiveMaxMovement(unit, 'rush', mDifficult);
-        const mMax = Math.min(mCap, currentRushBudget);
+        const mMax = Math.min(mCap, modelRemainingMovement(unit, aliveModels[i], currentRushBudget));
         const mDist = pathMovementCost(state, mPath, unit);
         if (mDist > mMax + 0.05) {
           return {
@@ -1965,12 +1968,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
         });
-        const distanceMoved = Math.max(...modelDistances, 0);
         unit.hasMoved = true;
-        unit.remainingMovement = Math.max(
-          0,
-          Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
-        );
+        unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, modelDistances);
 
         if (modelPaths && modelPaths.length > 0) {
           applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
@@ -2021,6 +2020,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         0,
         Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
       );
+      spendAllModels(unit, distanceMoved);
       const traversal = applyTraversalHazardsAndFalls(newState, unit, path ?? [], action, dice);
       if (traversal.terminated) {
         logEntry = acceptedEntry(action);
@@ -2413,15 +2413,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
         });
-        const distMoved = Math.max(...modelDistances, 0);
 
         unit.isRushing = true;
         unit.hasMoved = true;
         unit.hasAttacked = true;
-        unit.remainingMovement = Math.max(
-          0,
-          Math.round((currentBudget - distMoved) * 100) / 100
-        );
+        unit.remainingMovement = spendModelMovement(unit, currentBudget, modelDistances);
         refreshEngagements(newState);
 
         if (modelPaths && modelPaths.length > 0) {
@@ -2472,6 +2468,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         0,
         Math.round((currentBudget - distMoved) * 100) / 100
       );
+      spendAllModels(unit, distMoved);
       refreshEngagements(newState);
       const traversal = applyTraversalHazardsAndFalls(newState, unit, path ?? [], action, dice);
       if (traversal.terminated) {
@@ -2487,6 +2484,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const attacker = getUnit(newState, attackerId)!;
       // The one charge move is budgeted in remainingMovement; legs spend it
       attacker.remainingMovement = chargeBudget(attacker);
+      resetModelMovement(attacker);
       newState.turnState.charge = { unitId: attackerId, targetId, legs: 0 };
       logEntry = acceptedEntry(action);
       break;
@@ -2497,13 +2495,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const unit = getUnit(newState, attackerId)!;
       const legModels = action.payload as SquadChargePayload;
       if (isSquadChargePayload(unit, legModels)) {
-        // Each model walks its own path; the shared budget is spent by the longest one
+        // Each model walks its own path and spends its own distance
         const legPaths = squadChargePaths(unit, legModels);
-        const legCost = Math.max(...legPaths.map((p) => pathMovementCost(state, p, unit)), 0);
+        const legCosts = legPaths.map((p) => pathMovementCost(state, p, unit));
         const legAlive = livingModels(unit);
         placeSquadModels(unit, legModels.modelPositions!);
         unit.hasMoved = true;
-        unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - legCost) * 100) / 100);
+        unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, legCosts);
         if (newState.turnState.charge) newState.turnState.charge.legs += 1;
         // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
         applyModelPathTraversals(newState, unit, legPaths, legAlive, action, dice);
@@ -2524,6 +2522,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
       unit.hasMoved = true;
       unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - cost) * 100) / 100);
+      spendAllModels(unit, cost);
       const charge = newState.turnState.charge;
       if (charge) charge.legs += 1;
       // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
@@ -2551,6 +2550,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       attacker.hasMoved = true;
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
+      resetModelMovement(attacker);
       const cdx = target.position.x - attacker.position.x;
       const cdz = target.position.z - attacker.position.z;
       if (Math.hypot(cdx, cdz) > 1e-4) {
@@ -3052,6 +3052,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.hasAttacked = false;
   unit.isRushing = false;
   unit.remainingMovement = unit.speed;
+  resetModelMovement(unit);
   unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
