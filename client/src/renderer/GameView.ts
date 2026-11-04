@@ -255,6 +255,10 @@ export class GameView {
     this.markerRenderer.setSquadCoherency(positions, radius);
   }
 
+  setCasualtyPicksMarker(positions: Vector3[] | null): void {
+    this.markerRenderer.setCasualtyPicks(positions);
+  }
+
   showOutcomeToken(position: Vector3, wounds: number): void {
     this.markerRenderer.showOutcome(position, wounds);
   }

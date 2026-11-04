@@ -503,6 +503,30 @@ describe('MarkerRenderer', () => {
     expect(geo.parameters.innerRadius).toBeCloseTo(1.94, 2);
   });
 
+  it('highlights each picked casualty model and removes the highlight when cleared', () => {
+    const renderer = makeRenderer();
+    renderer.setCasualtyPicks([
+      { x: 1, y: 0, z: 2 },
+      { x: 4, y: 3, z: 5 },
+    ]);
+    const group = scene.getObjectByName('marker-casualty-picks')!;
+    expect(group).toBeDefined();
+    const flat = group.children.filter((c) => c.position.y > 0);
+    expect(flat.map((c) => [c.position.x, c.position.z])).toEqual(
+      expect.arrayContaining([
+        [1, 2],
+        [4, 5],
+      ])
+    );
+    expect(Math.max(...group.children.map((c) => c.position.y))).toBeGreaterThan(3);
+
+    renderer.setCasualtyPicks([]);
+    expect(scene.getObjectByName('marker-casualty-picks')).toBeUndefined();
+    renderer.setCasualtyPicks([{ x: 0, y: 0, z: 0 }]);
+    renderer.setCasualtyPicks(null);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-casualty-picks');
+  });
+
   describe('climbable outline in terrain debug', () => {
     const CLIMB_COLOR = 0xff9800;
     const piece = (terrainType: string, extra: Partial<TerrainPiece> = {}): TerrainPiece => ({

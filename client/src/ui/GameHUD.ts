@@ -61,6 +61,8 @@ import {
   closestApproach,
   PILE_IN_DISTANCE,
   PILE_IN_AUTO_CHOICE,
+  PICK_CASUALTIES_AUTO_CHOICE,
+  autoPickCasualties,
   PendingReaction,
 } from '@skirmish-lab/shared';
 import {
@@ -124,6 +126,8 @@ export interface MarkerSnapshot {
   shootingDebugRay?: ShootingRayDebugInfo | null;
   deploymentZones?: DeploymentZoneMarker | null;
   squadCoherency?: { positions: Vector3[]; radius: number } | null;
+  /** Floor positions of the models picked as casualties (highlighted). */
+  casualtyPicks?: Vector3[] | null;
 }
 
 export type PickTarget =
@@ -138,6 +142,14 @@ interface PileInContext {
   alive: Model[];
   modelIds: string[];
   maxDistance: number;
+}
+
+/** What the casualty-pick prompt works from (see GameHUD.casualtyContext). */
+interface CasualtyContext {
+  pending: PendingReaction;
+  unit: Unit;
+  alive: Model[];
+  count: number;
 }
 
 type TargetingMode =
@@ -213,6 +225,8 @@ export class GameHUD {
   private pileInPaths: Map<string, Vector3[]> = new Map();
   private pileInSelectedId: string | null = null;
   private pileInReactionId: string | null = null;
+  private casualtyPicked: string[] = [];
+  private casualtyReactionId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -466,6 +480,14 @@ export class GameHUD {
             this.emitMarkers();
           }
         }
+      }
+      return;
+    }
+
+    const casualties = this.casualtyContext();
+    if (casualties) {
+      if (target.kind === 'unit' && target.unitId === casualties.unit.id && target.modelId) {
+        this.toggleCasualtyModel(target.modelId);
       }
       return;
     }
@@ -1091,6 +1113,117 @@ export class GameHUD {
     }
 
     this.render();
+  }
+
+  // --- casualty picks -------------------------------------------------------
+
+  /** The pending casualty pick when the local player owns the damaged unit, else null. */
+  private casualtyContext(): CasualtyContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'pick-casualties' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const unit = this.state.units.find((u) => u.id === pending.data?.entry?.unitId);
+    if (!unit) return null;
+    if (this.casualtyReactionId !== pending.id) {
+      this.casualtyReactionId = pending.id;
+      this.casualtyPicked = [];
+    }
+    return {
+      pending,
+      unit,
+      alive: (unit.models ?? []).filter((m) => !m.isDestroyed),
+      count: pending.data?.entry?.count ?? 0,
+    };
+  }
+
+  private toggleCasualtyModel(modelId: string): void {
+    const ctx = this.casualtyContext();
+    if (!ctx || !ctx.alive.some((m) => m.id === modelId)) return;
+    if (this.casualtyPicked.includes(modelId)) {
+      this.casualtyPicked = this.casualtyPicked.filter((id) => id !== modelId);
+    } else if (this.casualtyPicked.length >= ctx.count) {
+      this.showToast(`Already ${ctx.count} chosen: unpick one first`);
+      return;
+    } else {
+      this.casualtyPicked = [...this.casualtyPicked, modelId];
+    }
+    this.render();
+    this.emitMarkers();
+  }
+
+  private autoPickCasualtyModels(): void {
+    const ctx = this.casualtyContext();
+    if (!ctx) return;
+    this.casualtyPicked = autoPickCasualties(ctx.unit, ctx.count);
+    this.render();
+    this.emitMarkers();
+  }
+
+  private confirmCasualties(): void {
+    const ctx = this.casualtyContext();
+    if (!ctx || !this.state) return;
+    const action = createAction(this.localPlayerId, 'pick-casualties', {
+      type: 'pick-casualties',
+      unitId: ctx.unit.id,
+      modelIds: [...this.casualtyPicked],
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'Those casualties are not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  /** True when taking `removed` out of a coherent unit would leave it broken (a note only, never blocks). */
+  private casualtySplits(ctx: CasualtyContext, removed: string[]): boolean {
+    const spot = (m: Model) => m.position ?? ctx.unit.position;
+    if (ctx.alive.length < 2 || !validateSquadCoherency(ctx.alive.map(spot)).coherent) return false;
+    const rest = ctx.alive.filter((m) => !removed.includes(m.id)).map(spot);
+    return rest.length > 1 && !validateSquadCoherency(rest).coherent;
+  }
+
+  private casualtyPromptHtml(ctx: CasualtyContext, remainingSec: number, dataCardSlot: string): string {
+    const chips = ctx.alive
+      .map((m, idx) => {
+        const picked = this.casualtyPicked.includes(m.id);
+        const removal = picked ? this.casualtyPicked : [...this.casualtyPicked, m.id];
+        const splits = this.casualtySplits(ctx, removal);
+        return `<button class="sl-hud-btn sl-hud-chip ${picked ? 'active' : ''}" data-action="toggle-casualty-model" data-model-id="${m.id}" style="${
+          picked ? 'background: #ff9800; color: #000; font-weight: bold;' : ''
+        }">${picked ? '✕ ' : ''}${m.name ?? `Model ${idx + 1}`} (${m.wounds}W)${
+          splits ? ' <span style="font-size: 10px; opacity: 0.8;">· splits the squad</span>' : ''
+        }</button>`;
+      })
+      .join('');
+    const autoOption = (ctx.pending.options ?? []).find((o) => o.id === PICK_CASUALTIES_AUTO_CHOICE);
+    const ready = this.casualtyPicked.length === ctx.count;
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">Remove ${ctx.count} model${ctx.count === 1 ? '' : 's'} from ${ctx.unit.name}</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          <div class="sl-hud-reaction-desc">Choose the casualties (${this.casualtyPicked.length}/${ctx.count}): click a model on the board or a button below. Any model may be picked, even one the enemy cannot see.</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">
+            ${chips}
+          </div>
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
+            <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
+            ${
+              autoOption
+                ? `<button class="sl-hud-btn" data-reaction-choice="${autoOption.id}" data-reaction-id="${ctx.pending.id}">Let the host pick</button>`
+                : ''
+            }
+          </div>
+        </div>
+      </div>`;
   }
 
   // --- defender pile-in -----------------------------------------------------
@@ -3252,6 +3385,18 @@ export class GameHUD {
     const pendingReaction = this.state.turnState.pendingReaction;
     if (pendingReaction) {
       const remainingSec = this.getReactionRemainingSec(pendingReaction);
+      const casualtyPrompt = this.casualtyContext();
+      if (casualtyPrompt) return this.casualtyPromptHtml(casualtyPrompt, remainingSec, dataCardSlot);
+      if (pendingReaction.type === 'pick-casualties' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
+        const ownerName = this.state.players.find((p) => p.id === pendingReaction.promptingPlayerId)?.name ?? 'opponent';
+        return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for ${ownerName} to remove casualties (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+      }
       const pileInPrompt = this.pileInContext();
       if (pileInPrompt) return this.pileInPromptHtml(pileInPrompt, remainingSec, dataCardSlot);
       if (pendingReaction.type === 'pile-in' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
@@ -4119,6 +4264,15 @@ export class GameHUD {
             }
             break;
           }
+          case 'toggle-casualty-model':
+            if (el.dataset.modelId) this.toggleCasualtyModel(el.dataset.modelId);
+            break;
+          case 'auto-pick-casualties':
+            this.autoPickCasualtyModels();
+            break;
+          case 'confirm-casualties':
+            this.confirmCasualties();
+            break;
           case 'select-pile-in-model':
             if (el.dataset.modelId) this.selectPileInModel(el.dataset.modelId);
             break;
@@ -4432,6 +4586,14 @@ export class GameHUD {
       pendingConsolidation &&
       pendingConsolidation.type === 'melee-consolidation' &&
       pendingConsolidation.promptingPlayerId === this.localPlayerId;
+
+    const casualtyMarkers = this.casualtyContext();
+    if (casualtyMarkers) {
+      markers.selectedUnitId = casualtyMarkers.unit.id;
+      markers.casualtyPicks = casualtyMarkers.alive
+        .filter((m) => this.casualtyPicked.includes(m.id))
+        .map((m) => m.position ?? casualtyMarkers.unit.position);
+    }
 
     const pileInMarkers = this.pileInContext();
     if (pileInMarkers) {
