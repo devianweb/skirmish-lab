@@ -2858,22 +2858,38 @@ export interface SquadCoherencyResult {
   maxDistanceToNearestMember?: number;
 }
 
+/** Same-level link: 1" base gap = 2.0" centre to centre (batch 1D PR 14 converts these to edge measuring). */
+export const SQUAD_COHERENCY_SAME_LEVEL_CENTRE = 2.0;
+/** Split-level link: 3" base gap = 4.0" centre to centre. */
+export const SQUAD_COHERENCY_CROSS_LEVEL_CENTRE = 4.0;
+/** Whole-squad spread limit (centre to centre). */
+export const SQUAD_COHERENCY_SPREAD = 6.0;
+/** Two models count as on different levels when their heights differ by more than this. */
+export const SQUAD_LEVEL_DIFFERENCE = 0.5;
+
+/** True when two squad positions are on different levels (|dy| > 0.5"). */
+export function areOnDifferentLevels(a: Vector3, b: Vector3): boolean {
+  return Math.abs((a.y ?? 0) - (b.y ?? 0)) > SQUAD_LEVEL_DIFFERENCE;
+}
+
 /**
  * Validates tabletop squad coherency according to Section 2.1:
- * 1. Every model must remain within 1.0" horizontal of at least one other squad member.
- * 1. Every model must remain within maxMemberDistance (<= 1.0" base gap, 2.0" center-to-center) of at least one other member.
- * 2. All models in the squad must remain within 6.0" horizontal of all other squad members (max pairwise spread <= 6.0").
- * Models may form separate pairs/sub-groups as long as each model has a buddy within 1.0" and squad spread <= 6.0".
+ * 1. Every model must be within maxMemberDistance (2.0" centre) of at least one other member,
+ *    or within maxCrossLevelMemberDistance (4.0" centre) when that member is on a different level.
+ * 2. All models must be within maxSquadSpread (6.0" horizontal) of every other member.
+ * Models may form separate pairs/sub-groups as long as each has a link and the spread holds.
  */
 export function validateSquadCoherency(
   positions: Vector3[],
   options: {
     maxMemberDistance?: number;
+    maxCrossLevelMemberDistance?: number;
     maxSquadSpread?: number;
   } = {}
 ): SquadCoherencyResult {
-  const maxMemberDist = options.maxMemberDistance ?? 2.0;
-  const maxSpread = options.maxSquadSpread ?? 6.0;
+  const maxMemberDist = options.maxMemberDistance ?? SQUAD_COHERENCY_SAME_LEVEL_CENTRE;
+  const maxCrossDist = options.maxCrossLevelMemberDistance ?? SQUAD_COHERENCY_CROSS_LEVEL_CENTRE;
+  const maxSpread = options.maxSquadSpread ?? SQUAD_COHERENCY_SPREAD;
   const tolerance = 0.02; // Small floating-point margin for tabletop movement
 
   if (positions.length <= 1) {
@@ -2902,19 +2918,28 @@ export function validateSquadCoherency(
   let maxNearestDist = 0;
 
   for (let i = 0; i < positions.length; i++) {
+    // Smallest distance beyond the link allowance that applies to each pair (<= 0 means linked).
     let nearestDist = Infinity;
+    let nearestLimit = maxMemberDist;
+    let linked = false;
     for (let j = 0; j < positions.length; j++) {
       if (i === j) continue;
       const dx = positions[i].x - positions[j].x;
       const dz = positions[i].z - positions[j].z;
       const d = Math.hypot(dx, dz);
-      if (d < nearestDist) nearestDist = d;
+      const limit = areOnDifferentLevels(positions[i], positions[j]) ? maxCrossDist : maxMemberDist;
+      if (d <= limit + tolerance) linked = true;
+      if (d - limit < nearestDist - nearestLimit) {
+        nearestDist = d;
+        nearestLimit = limit;
+      }
     }
     if (nearestDist > maxNearestDist) maxNearestDist = nearestDist;
-    if (nearestDist > maxMemberDist + tolerance) {
+    if (!linked) {
+      const splitNote = nearestLimit === maxCrossDist ? ' across levels' : '';
       return {
         coherent: false,
-        reason: `Model ${i + 1} is ${nearestDist.toFixed(2)}" from nearest squad member (exceeds ${maxMemberDist}" limit)`,
+        reason: `Model ${i + 1} is ${nearestDist.toFixed(2)}" from nearest squad member${splitNote} (exceeds ${nearestLimit}" limit; same level: 1" apart edge to edge, different levels: 3")`,
         maxDistanceToNearestMember: nearestDist,
       };
     }
