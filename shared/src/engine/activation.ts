@@ -7,6 +7,7 @@ import {
   Unit,
 } from '../gameTypes';
 import { Vector3 } from '../types';
+import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
@@ -325,7 +326,7 @@ export function getDeploymentZoneBounds(
   const halfW = (state.board.width * state.board.gridSize) / 2;
   const halfH = (state.board.height * state.board.gridSize) / 2;
   const isHost = playerId === state.hostId;
-  const depth = Math.max(1, Math.min(12, halfH - 12));
+  const depth = getDeploymentZoneDepth(state.board.height * state.board.gridSize);
 
   if (isHost) {
     // Host deployed at South edge (-halfH) facing +z

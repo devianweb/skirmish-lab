@@ -674,6 +674,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 20.2, y: 0, z: 0 } }, // Outside!
       ];
       const state = makeState([unit], []);
+      state.board.width = 40; // the test's edge is x = 20; the default board is now wider (48)
       const result = validateFormationMove(state, unit, { x: 19.8, y: 0, z: 0 });
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('leaves the battlefield');

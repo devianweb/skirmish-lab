@@ -3,6 +3,8 @@ import {
   MapValidationNotice,
   Objective,
   createBlankMap,
+  createBalancedObjectives,
+  DEFAULT_BOARD_SIZE,
   GameState,
   TerrainCategory,
   findWalkableSurfaceAt,
@@ -35,7 +37,7 @@ export type GridSnapSetting = 1.0 | 0.5 | 0;
 /**
  * 3D Map Builder & Battlefield Editor overlay.
  * Allows tabletop players to visually place, snap, rotate, elevate, and customize
- * modular terrain pieces and objectives on a 44" x 30" skirmish battlefield.
+ * modular terrain pieces and objectives on a 48" x 48" (by default) skirmish battlefield.
  */
 /** Horizontal click distance (inches) within which a click selects an objective. */
 const OBJECTIVE_PICK_RADIUS = 1.0;
@@ -309,37 +311,9 @@ export class MapEditor {
   }
 
   autoDistributeObjectives(): void {
-    // 4 standard balanced objectives in quadrant open spaces outside z = ±12
-    this.currentMap.objectives = [
-      {
-        id: `objective-alpha-${Date.now()}`,
-        name: 'Objective Alpha (North-West)',
-        position: { x: -9, y: 0, z: 5 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-      {
-        id: `objective-bravo-${Date.now()}`,
-        name: 'Objective Bravo (South-East)',
-        position: { x: 9, y: 0, z: -5 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-      {
-        id: `objective-charlie-${Date.now()}`,
-        name: 'Objective Charlie (Center Catwalk)',
-        position: { x: 0, y: 0, z: 0 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-      {
-        id: `objective-delta-${Date.now()}`,
-        name: 'Objective Delta (South-West)',
-        position: { x: -4, y: 0, z: -8.5 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-    ];
+    // Balanced objectives sized to the board, outside both deployment zones
+    const board = this.currentMap.board ?? { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE };
+    this.currentMap.objectives = createBalancedObjectives(board);
     this.validateCurrentMap();
     this.render();
     this.syncGameView();
@@ -609,8 +583,8 @@ export class MapEditor {
       players: [],
       status: 'in-progress',
       board: {
-        width: this.currentMap.board?.width ?? 44,
-        height: this.currentMap.board?.height ?? 30,
+        width: this.currentMap.board?.width ?? DEFAULT_BOARD_SIZE,
+        height: this.currentMap.board?.height ?? DEFAULT_BOARD_SIZE,
         gridSize: 1,
         scale: 1,
         terrain: [],

@@ -6,7 +6,7 @@ import {
   createUnitFromFighter,
   createUnitsFromStarterArmy,
 } from './armies';
-import { CustomMapDefinition } from './mapSchema';
+import { CustomMapDefinition, DEFAULT_BOARD_SIZE, getDeploymentZoneDepth } from './mapSchema';
 
 /**
  * Default v1 scenario data: each player deploys a five-fighter force on
@@ -14,8 +14,7 @@ import { CustomMapDefinition } from './mapSchema';
  * middle. Terrain types match the renderer's asset manifest (walls, crates,
  * columns). Pure data — the engine has no scenario-specific logic.
  *
- * Board: 36 x 36 board units (standard skirmish size), centered at the origin
- * (x: -18..18, z: -18..18), with forces deployed 24" apart (z = ±12).
+ * Board: 48 x 48 by default (see DEFAULT_BOARD_SIZE), centered at the origin, with forces deployed 24" apart (z = ±12).
  */
 
 const DEPLOYMENT_SPREAD = [-8, -4, 0, 4, 8];
@@ -268,13 +267,43 @@ export interface ScenarioOptions {
   customMap?: CustomMapDefinition;
 }
 
-/** Empty 44"x30" battlefield with the standard objectives — the default when no custom map is chosen. */
+/**
+ * Balanced objectives for a board of the given size: four markers, one per quadrant, at +-25% of the width and
+ * 3" inside each deployment zone's inner edge. Every marker is outside both zones and more than 9" from every other;
+ * candidates that would break that (tiny boards) are dropped, so the result may have fewer markers.
+ */
+export function createBalancedObjectives(board: { width: number; height: number }): Objective[] {
+  const innerEdge = board.height / 2 - getDeploymentZoneDepth(board.height); // |z| of the zone's inner edge
+  const half = (v: number) => Math.round(v * 2) / 2;
+  const zo = half(Math.max(0, innerEdge - 3));
+  const xo = half(board.width / 4);
+  const candidates = [
+    { name: 'Objective Alpha', x: -xo, z: zo },
+    { name: 'Objective Bravo', x: xo, z: -zo },
+    { name: 'Objective Charlie', x: -xo, z: -zo },
+    { name: 'Objective Delta', x: xo, z: zo },
+  ];
+  const chosen: typeof candidates = [];
+  for (const c of candidates) {
+    if (Math.abs(c.z) >= innerEdge || Math.abs(c.x) > board.width / 2) continue;
+    if (chosen.every((o) => Math.hypot(o.x - c.x, o.z - c.z) > 9)) chosen.push(c);
+  }
+  return chosen.map((c) => ({
+    id: `objective-${c.name.split(' ')[1].toLowerCase()}`,
+    name: c.name,
+    position: { x: c.x, y: 0, z: c.z },
+    controllingPlayerId: null,
+    isContested: false,
+  }));
+}
+
+/** Empty 48"x48" battlefield with the standard objectives — the default when no custom map is chosen. */
 export function createBlankMap(): CustomMapDefinition {
   return {
     id: 'blank',
     name: 'Empty Battlefield',
     version: 1,
-    board: { width: 44, height: 30 },
+    board: { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE },
     terrain: [],
     objectives: createDefaultScenarioObjectives(),
   };

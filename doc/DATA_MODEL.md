@@ -105,13 +105,14 @@ type TurnPhase =
 ## Board
 ```typescript
 interface Board {
-  width: number;             // Board dimensions
-  height: number;
+  width: number;             // Board dimensions in inches. New games/maps default to 48 x 48
+  height: number;            // (a map's own `board` is copied in; saved maps keep their stored size)
   gridSize: number;          // Grid unit size if using grid
   scale: number;             // World scale
   terrain: string[];         // Terrain piece IDs
 }
 ```
+**Board limits** (`validateMapDefinition`, constants in `mapSchema.ts`): `CustomMapDefinition.board` width and height are whole inches in [24, 72] (error otherwise). Depth (height) under 36" warns (deployment zones under 6" deep); under 26" is an error (the zones can't stay 24" apart). Terrain pieces or objectives outside the board are warnings. Objectives are checked against the real zone depth for that board (`getDeploymentZoneDepth`). `createBalancedObjectives(board)` places four markers scaled to the board.
 
 ## Unit
 ```typescript
@@ -425,7 +426,7 @@ The v1 game ships a data pack in `shared/src/data/` — pure data, no engine log
   five fighters each (`FighterDefinition` incl. a `modelType` for the renderer),
   and `createUnitFromFighter` which copies stats/weapons into spawned `Unit`s.
 - **`scenario.ts`** — default deployment: both players' five fighters on
-  opposite edges of the 36×36 skirmish board (deployed 24" apart, facing each
+  opposite edges of the 48×48 default skirmish board (deployed 24" apart, facing each
   other) plus a central terrain layout (walls, crates, columns) with cover/LOS
   flags.
 

@@ -236,8 +236,28 @@ export interface CustomMapDefinition {
   };
 }
 
+/** Default board edge (inches) for new maps and fresh game states. */
+export const DEFAULT_BOARD_SIZE = 48;
+/** Smallest / largest allowed board edge (whole inches). */
+export const MIN_BOARD_SIZE = 24;
+export const MAX_BOARD_SIZE = 72;
+/** Deployment zones are at most this deep, and the two zones must stay at least this far apart. */
+export const MAX_DEPLOYMENT_ZONE_DEPTH = 12;
+export const MIN_ZONE_SEPARATION = 24;
+/** Board depth under which zones shrink below the standard 6" (warning), and below which no zone fits (error). */
+export const MIN_COMFORTABLE_BOARD_DEPTH = 36;
+export const MIN_VALID_BOARD_DEPTH = MIN_ZONE_SEPARATION + 2;
+
+/**
+ * Depth (inches) of each player's deployment zone on a board of the given depth (z extent): up to 12", but never
+ * so deep that the zones end up less than 24" apart. At least 1".
+ */
+export function getDeploymentZoneDepth(boardDepth: number): number {
+  return Math.max(1, Math.min(MAX_DEPLOYMENT_ZONE_DEPTH, boardDepth / 2 - MIN_ZONE_SEPARATION / 2));
+}
+
 export interface MapValidationNotice {
-  severity: 'warning' | 'info';
+  severity: 'error' | 'warning' | 'info';
   message: string;
   pieceId?: string;
 }
@@ -278,12 +298,58 @@ export function validateMapDefinition(map: CustomMapDefinition): MapValidationNo
     });
   }
 
-  // Check objective spacing and placement relative to deployment zones (z = ±12)
-  const hostSouthZ = map.deploymentZones?.hostSouthMinZ ?? -12;
-  const guestNorthZ = map.deploymentZones?.guestNorthMaxZ ?? 12;
+  // Board size
+  const boardW = map.board?.width ?? DEFAULT_BOARD_SIZE;
+  const boardH = map.board?.height ?? DEFAULT_BOARD_SIZE;
+  const isValidEdge = (v: number) => Number.isInteger(v) && v >= MIN_BOARD_SIZE && v <= MAX_BOARD_SIZE;
+  if (!isValidEdge(boardW)) {
+    notices.push({
+      severity: 'error',
+      message: `Board width ${boardW}" must be a whole number of inches between ${MIN_BOARD_SIZE}" and ${MAX_BOARD_SIZE}".`,
+    });
+  }
+  if (!isValidEdge(boardH)) {
+    notices.push({
+      severity: 'error',
+      message: `Board height ${boardH}" must be a whole number of inches between ${MIN_BOARD_SIZE}" and ${MAX_BOARD_SIZE}".`,
+    });
+  }
+  if (boardH < MIN_VALID_BOARD_DEPTH) {
+    notices.push({
+      severity: 'error',
+      message: `Board depth ${boardH}" is too shallow: the two armies cannot deploy ${MIN_ZONE_SEPARATION}" apart (minimum ${MIN_VALID_BOARD_DEPTH}").`,
+    });
+  } else if (boardH < MIN_COMFORTABLE_BOARD_DEPTH) {
+    notices.push({
+      severity: 'warning',
+      message: `Board depth ${boardH}" gives deployment zones only ${getDeploymentZoneDepth(boardH).toFixed(1)}" deep (under 6"). ${MIN_COMFORTABLE_BOARD_DEPTH}" or more is recommended.`,
+    });
+  }
+
+  // Deployment zones for this board (same maths as getDeploymentZoneBounds), unless the map overrides them
+  const zoneDepth = getDeploymentZoneDepth(boardH);
+  const hostSouthZ = map.deploymentZones?.hostSouthMinZ ?? -boardH / 2 + zoneDepth;
+  const guestNorthZ = map.deploymentZones?.guestNorthMaxZ ?? boardH / 2 - zoneDepth;
+
+  for (const t of map.terrain ?? []) {
+    if (Math.abs(t.position.x) > boardW / 2 || Math.abs(t.position.z) > boardH / 2) {
+      notices.push({
+        severity: 'warning',
+        message: `Terrain piece "${t.id}" is outside the ${boardW}" x ${boardH}" board.`,
+        pieceId: t.id,
+      });
+    }
+  }
 
   for (let i = 0; i < objectives.length; i++) {
     const objA = objectives[i];
+    if (Math.abs(objA.position.x) > boardW / 2 || Math.abs(objA.position.z) > boardH / 2) {
+      notices.push({
+        severity: 'warning',
+        message: `Objective "${objA.name}" is outside the ${boardW}" x ${boardH}" board.`,
+        pieceId: objA.id,
+      });
+    }
     if (objA.position.z <= hostSouthZ) {
       notices.push({
         severity: 'warning',
