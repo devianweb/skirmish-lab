@@ -76,7 +76,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 ## Planning & Implementation Workflow (Opus plans, Sonnet implements)
 - **Plan (Opus, main session):** research the docs, code and rule references, settle rules questions with the owner, and write the plan to `doc/plans/<phase>-<slug>.md` using the template in [doc/plans/README.md](doc/plans/README.md). Anything agreed in chat must end up in the plan file. Implementation doesn't start until the owner approves.
 - **Implement (Sonnet):** one `implementer` agent ([.claude/agents/implementer.md](.claude/agents/implementer.md)) per PR section, ideally in an isolated worktree. It writes tests first, runs all workspaces, updates docs and the manual checklist, opens a PR to `master`, and never merges or touches `release`. On a rules ambiguity it stops and reports instead of guessing.
-- **Review & merge (Opus):** check each PR against the plan and the rules, send fixes back to the same agent, squash-merge to `master`, then start the next section. Releases still require the owner's explicit command.
+- **Review & merge (Opus):** check each PR against the plan and the rules, send fixes back to the same agent, squash-merge to `master`, then remove that agent's worktree and delete its local branch (`git worktree remove <path>`, `git branch -D <branch>`; check it has no uncommitted or unmerged work first), then start the next section. Releases still require the owner's explicit command.
 - **Rule references** (core rules, army book and tournament guidelines PDFs, term mapping) live in the gitignored `assets-src/`. Worktrees don't have them, so use the absolute paths listed in `doc/plans/README.md`.
 
 ## Git Workflow
