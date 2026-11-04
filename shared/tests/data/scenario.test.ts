@@ -499,3 +499,17 @@ describe('createBalancedObjectives', () => {
     expect(tiny.length).toBeLessThan(4);
   });
 });
+
+describe('TEST squad army', () => {
+  it('spawns one 4-model squad per side', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { hostArmyId: 'test-squad-army', guestArmyId: 'test-squad-army' });
+    const host = state.units.filter((u) => u.ownerId === HOST);
+    const guest = state.units.filter((u) => u.ownerId === GUEST);
+    expect(host).toHaveLength(1);
+    expect(guest).toHaveLength(1);
+    expect(host[0].models.filter((m) => !m.isDestroyed)).toHaveLength(4);
+    expect(guest[0].models.filter((m) => !m.isDestroyed)).toHaveLength(4);
+    expect(STARTER_ARMIES['test-squad-army'].name).toMatch(/TEST/);
+  });
+});
