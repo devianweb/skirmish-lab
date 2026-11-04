@@ -71,6 +71,7 @@ import {
   validateDeclaredTraversal,
   DeclaredTraversal,
   allocateSquadCasualties,
+  distance3D,
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
 import type { ChargeState } from '../gameTypes';
@@ -1615,7 +1616,11 @@ function diceForModel(dice: DiceResult[] | undefined, index: number): DiceResult
   return [...own, ...dice.filter((d) => !/^m\d+_/.test((d.purpose ?? '')))];
 }
 
-/** Resolves each squad model's own path in order. */
+/**
+ * Resolves each squad model's own path in order. Walking models always finish their paths. Declared jumps
+ * resolve in model order; once one ends the activation (a failed jump or a fall), every later jumper stays at
+ * its take-off spot, its jump is not attempted and its pre-rolled dice are ignored.
+ */
 function applyModelPathTraversals(
   state: GameState,
   unit: Unit,
@@ -1624,9 +1629,19 @@ function applyModelPathTraversals(
   action: GameAction,
   dice?: DiceResult[]
 ): void {
+  const declared = (action.payload as { modelTraversals?: (DeclaredTraversal | null)[] }).modelTraversals;
+  let activationEnded = false;
+  let stoppedAny = false;
   for (let i = 0; i < modelPaths.length; i++) {
+    const declaration = declared?.[i] ?? null;
+    if (declaration && activationEnded && models[i]) {
+      stopJumperAtTakeoff(state, unit, models[i], modelPaths[i], declaration, i, action, dice);
+      stoppedAny = true;
+      continue;
+    }
     const before = traversalLog.get(action)?.events.length ?? 0;
-    applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
+    const result = applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
+    if (declaration && result.terminated) activationEnded = true;
     const entry = traversalLog.get(action);
     if (entry && dice) {
       entry.results = dice; // every roll stays on the log entry, tagged by model
@@ -1637,6 +1652,40 @@ function applyModelPathTraversals(
       }
     }
   }
+  if (stoppedAny) {
+    const living = (unit.models ?? []).filter((m) => !m.isDestroyed);
+    if (living.length > 0) unit.position = computeSquadCentroid(living.map((m) => m.position ?? unit.position));
+  }
+}
+
+/** A later jumper after a failed jump: placed at its take-off spot, its jump not attempted, its tally cut back. */
+function stopJumperAtTakeoff(
+  state: GameState,
+  unit: Unit,
+  model: Model,
+  path: Vector3[],
+  declaration: DeclaredTraversal,
+  index: number,
+  action: GameAction,
+  dice?: DiceResult[]
+): void {
+  model.position = { ...declaration.takeoff };
+  const takeoffIdx = path.findIndex((p) => distance3D(p, declaration.takeoff) <= 0.1);
+  if (takeoffIdx >= 1 && unit.modelMovementSpent && unit.modelMovementSpent[model.id] !== undefined) {
+    const walked = pathMovementCost(state, path.slice(0, takeoffIdx + 1), unit);
+    const full = pathMovementCost(state, path, unit);
+    const spent = { ...unit.modelMovementSpent };
+    spent[model.id] = Math.max(0, Math.round((spent[model.id] - full + walked) * 100) / 100);
+    unit.modelMovementSpent = spent;
+  }
+  recordTraversal(
+    action,
+    unit,
+    [{ type: 'jump-skipped', wounds: 0, text: `Model ${index + 1}: jump not attempted (activation ended)` }],
+    dice
+  );
+  const entry = traversalLog.get(action);
+  if (entry && dice) entry.results = dice;
 }
 
 /** Traversal hazards resolved per action, so the log entry can show the dice story (jumps, falls, hazards). */
