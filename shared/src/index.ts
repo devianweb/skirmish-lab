@@ -6,6 +6,7 @@ export * from './rules/traits';
 export * from './engine/activation';
 export * from './engine/combat';
 export * from './engine/spatial';
+export * from './engine/closestApproach';
 export * from './engine/unitGeometry';
 export * from './engine/squadTargeting';
 export * from './engine/traversal';

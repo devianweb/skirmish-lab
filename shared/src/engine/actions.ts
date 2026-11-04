@@ -1,4 +1,5 @@
 import { cloneGameState } from '../gameState';
+import { closestApproach } from './closestApproach';
 import {
   ActionLogEntry,
   DiceResolution,
@@ -225,6 +226,9 @@ function squadEndCoherency(unit: Unit, end: Vector3[]): { valid: true } | { vali
   };
 }
 
+/** A non-contact charger may end this much (base-edge inches) farther from the target than its best spot. */
+const CLOSEST_APPROACH_TOLERANCE = 0.5;
+
 /** Per-model parts of a squad charge / charge leg payload (a single model keeps the plain `path`). */
 interface SquadChargePayload {
   modelPositions?: Vector3[];
@@ -257,9 +261,9 @@ function squadChargePaths(unit: Unit, payload: SquadChargePayload): Vector3[][] 
  * Host check of a squad's charge move: every model walks its own path from where it stands (a shared budget:
  * each model's path must fit what is left of the charge), the squad ends coherent, and no model passes through
  * another unit or comes within 1" of any unit but the target. A final move needs at least one model in base
- * contact with a target model; models that cannot reach contact must simply end no farther from the target
- * than they started ("as close as possible", tested loosely on purpose: the host cannot know what the
- * terrain would have let them reach).
+ * contact with a target model; every other model must end about as close as ordinary movement could have got
+ * it ("as close as possible", `closestApproach` with the model's own remaining distance and the other models'
+ * submitted spots, allowing `CLOSEST_APPROACH_TOLERANCE`). Legs have no closeness rule.
  */
 function validateSquadChargeMove(
   state: GameState,
@@ -302,6 +306,7 @@ function validateSquadChargeMove(
   let moved = 0;
   let inContact = false;
   let reachedTooHigh = false;
+  const pending: Array<{ index: number; endGap: number; remaining: number; spent: number }> = [];
   for (let i = 0; i < alive.length; i++) {
     const n = i + 1;
     const mStart = alive[i].position ?? unit.position;
@@ -357,11 +362,9 @@ function validateSquadChargeMove(
 
     if (mode === 'final') {
       let modelInContact = false;
-      let startGap = Infinity;
       let endGap = Infinity;
       for (const t of targetModels) {
         const gap = modelGap(mEnd, t);
-        startGap = Math.min(startGap, modelGap(mStart, t));
         endGap = Math.min(endGap, gap);
         if (gap <= CHARGE_END_EDGE_GAP + 0.001) {
           if (Math.abs((mEnd.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH) modelInContact = true;
@@ -369,12 +372,7 @@ function validateSquadChargeMove(
         }
       }
       if (modelInContact) inContact = true;
-      else if (endGap > startGap + 0.05) {
-        return {
-          valid: false,
-          reason: `Squad model ${n} must end in contact or closer to the target, not farther from it`,
-        };
-      }
+      else pending.push({ index: i, endGap, remaining, spent });
     }
   }
   if (mode === 'leg' && moved < 0.05) return { valid: false, reason: 'Charge leg moves nothing' };
@@ -385,6 +383,19 @@ function validateSquadChargeMove(
         ? 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)'
         : 'Charge must end in engagement range',
     };
+  }
+  // "As close as possible": a model not in contact must end about as close as ordinary movement lets it get,
+  // given where the rest of the squad ends and what it has left of its own distance
+  for (const p of pending) {
+    const i = p.index;
+    const mStart = alive[i].position ?? unit.position;
+    const others = positions.filter((_, j) => j !== i);
+    const best = closestApproach(state, unit, i, mStart, p.remaining, target, others, {
+      difficultBudget: Math.max(0, getEffectiveMaxMovement(unit, 'charge', true) - p.spent),
+    });
+    if (best && p.endGap > best.gap + CLOSEST_APPROACH_TOLERANCE) {
+      return { valid: false, reason: `Model ${i + 1} could get closer to the target` };
+    }
   }
   return { valid: true };
 }

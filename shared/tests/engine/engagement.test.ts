@@ -265,18 +265,19 @@ describe('charges measure to the closest target model', () => {
 });
 
 describe('who strikes in melee', () => {
-  // Charger column: models 1" apart along z, anchor at the middle
-  const chargerColumn = () => squad('h1', HOST, [[0, -1.5], [0, -0.5], [0, 0.5], [0, 1.5]], { weapons: [weapon('blade')] });
+  // Charger column: models 1" apart along z, charge distance 6" (each model closes up as far as it can walk)
+  const chargerColumn = () =>
+    squad('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5]], { weapons: [weapon('blade')], speed: 3 });
 
   it('only models within 2" of a target model roll attacks on a charge (pooled)', () => {
-    // End the charge with the anchor at z = 2.5: models stand at z = 1, 2, 3, 4; the target is at z = 5.
-    const state = makeState([chargerColumn(), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } })]);
+    // Models end at z = 9, 8, 7, 6; the target is at z = 10.
+    const state = makeState([chargerColumn(), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10 } })]);
     const charge = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
       targetId: 'g1',
-      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2.5 }],
-      modelPositions: [1, 2, 3, 4].map((z) => ({ x: 0, y: 0, z })),
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 7.5 }],
+      modelPositions: [9, 8, 7, 6].map((z) => ({ x: 0, y: 0, z })),
       weaponId: 'blade',
     });
     expect(validateAction(state, charge).valid).toBe(true);
