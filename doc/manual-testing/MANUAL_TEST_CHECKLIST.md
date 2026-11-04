@@ -26,6 +26,8 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] Barricades, crates and pipes (1" tall or less) are stepped over: a move straight across one has no detour and costs only the straight-line distance, also for a barricade stacked on a deck. A move that would stop on or inside one is pulled back to just before it (or rejected). Walls, columns and the container still block. Cover from a low piece (+1 within 1" behind it) and sight over it are unchanged.
 
 ## 6. Squads
+- [ ] Confirm early: start a Move (and a Rush) with a 4-model squad, place just one model, and a **Confirm move** button appears next to Reset Placement. Clicking it summarises the move with the other models left where they were. If leaving them behind would break coherency you get a toast instead. After the move is applied, a Rush still can't shoot.
+- [ ] Out of coherency at activation: a squad that has been split by casualties (models more than 1" apart) shows "Squad is out of coherency..." with Hold disabled; Move/Rush back together works, then Shoot is available; trying End Activation before moving is refused.
 - [ ] Split-level coherency: move a squad so some models stay on a deck and others drop below. Placement is accepted up to about 3" apart edge to edge, but refused (toast mentions the 3" allowance) beyond that; two models on the same level still need to be within 1" of a squadmate.
 
 ## 7. Movement, rush and shooting
@@ -38,6 +40,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] Models never pass through other models: a lone enemy model standing mid-route (squad anchor far away) blocks the path and the pathfinder detours.
 
 ## 8. Melee & objectives
+- [ ] Squad objective control is per model: a squad with one model's base edge within 3" of a marker captures it at end of round even if the squad's middle is far away; a squad whose models ring a marker from outside 3" does not.
 - [ ] Objective capture matches base-edge measuring: a model whose base edge just touches the 3" objective ring (centre about 3.4" from the marker) captures it at end of round; a model clearly outside (centre 3.6" or more) does not. The ring itself is still drawn at 3" around the marker.
 - [ ] Charging a squad: you can charge when ANY of its models is within reach, even if the squad's middle is further than 12" (the path ends in contact with the closest model). The charge is refused if a different unit is within 1" of the finishing spot, and a charge cannot pass through one of the target's models.
 - [ ] Who strikes: charge or fight with a squad and read the dice summary. Only models whose bases are within 2" of an enemy model add attacks (a 4-model squad with 2 models in the fray rolls 2 models' worth), same for the defenders' strike-back. A lone fighter always rolls its full attacks.

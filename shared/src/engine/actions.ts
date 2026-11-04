@@ -174,6 +174,26 @@ export function getActiveUnit(state: GameState): Unit | undefined {
  * movement allowance, range, and engagement. Dice completeness is NOT
  * checked here (the host requests dice only after this passes).
  */
+/**
+ * A squad that starts its activation out of coherency must spend it getting back
+ * together: it may not Hold or end the activation without having moved. Stunned
+ * units are exempt (their Hold only clears the stun and they cannot move).
+ * Returns a rejection, or null when the unit is free to hold/end.
+ */
+function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | null {
+  if (unit.status.includes('stunned')) return null;
+  const positions = (unit.models ?? [])
+    .filter((m) => !m.isDestroyed)
+    .map((m) => m.position ?? unit.position);
+  if (positions.length <= 1) return null;
+  if (validateSquadCoherency(positions).coherent) return null;
+  return {
+    valid: false,
+    reason:
+      'Squad is out of coherency: this activation must move it back together (it cannot hold or end without moving)',
+  };
+}
+
 export function validateAction(state: GameState, action: GameAction): ValidationResult {
   if (state.status === 'game-over') {
     return { valid: false, reason: 'Game is over' };
@@ -233,12 +253,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (unit.hasMoved || unit.hasAttacked) {
           return { valid: false, reason: 'Unit has already acted and cannot hold' };
         }
-        return { valid: true };
+        return incoherentStartBlock(unit) ?? { valid: true };
       }
       if (unit.isActivated || state.turnState.unitsActivatedThisRound.includes(unitId)) {
         return { valid: false, reason: 'Unit already activated this round' };
       }
-      return { valid: true };
+      return incoherentStartBlock(unit) ?? { valid: true };
     }
 
     case 'deploy-unit': {
@@ -916,6 +936,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     case 'end-activation': {
       if (!state.turnState.activeUnitId) {
         return { valid: false, reason: 'No unit is activating' };
+      }
+      const activeUnit = getUnit(state, state.turnState.activeUnitId);
+      if (activeUnit && !activeUnit.hasMoved && !activeUnit.hasAttacked) {
+        const blocked = incoherentStartBlock(activeUnit);
+        if (blocked) return blocked;
       }
       return { valid: true };
     }

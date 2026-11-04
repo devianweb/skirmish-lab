@@ -997,8 +997,37 @@ export class GameHUD {
     }
 
     // All living models have been placed!
-    const orderedPositions = alive.map((m) => this.stagedSquadModelPositions.get(m.id)!);
-    const orderedPaths = alive.map((m) => this.stagedSquadModelPaths.get(m.id)!);
+    this.finishSquadMove(actionKind);
+  }
+
+  /**
+   * Build the squad move/rush confirmation from the staged models. Models that were not
+   * staged keep their position with a one-point path (they move 0"). Called automatically
+   * once every model is placed, or from the early "Confirm move" button.
+   */
+  private finishSquadMove(actionKind: 'move' | 'rush'): void {
+    const active = this.activeUnit;
+    if (!active || !this.state) return;
+    const alive = this.activeAliveSquadModels;
+    if (alive.length <= 1 || this.stagedSquadModelPositions.size === 0) return;
+
+    const orderedPositions = alive.map(
+      (m) => this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position
+    );
+    const orderedPaths = alive.map(
+      (m, i) => this.stagedSquadModelPaths.get(m.id) ?? [orderedPositions[i]]
+    );
+    if (this.stagedSquadModelPositions.size < alive.length) {
+      const coherency = validateSquadCoherency(orderedPositions);
+      if (!coherency.coherent) {
+        this.showToast(
+          `Unplaced models stay where they are: ${
+            coherency.reason ?? 'the squad would not be in coherency'
+          }. Place more models or reset.`
+        );
+        return;
+      }
+    }
     const finalCentroid = computeSquadCentroid(orderedPositions);
     const isAnyModelDifficult = orderedPaths.some((p) =>
       isPathDifficult(this.state!, p, active)
@@ -2561,7 +2590,11 @@ export class GameHUD {
               <span class="sl-hud-hint">${instruction}</span>
               ${
                 isSquadMovement && this.stagedSquadModelPositions.size > 0
-                  ? '<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>'
+                  ? `${
+                      this.stagedSquadModelPositions.size < this.activeAliveSquadModels.length
+                        ? '<button class="sl-hud-btn primary" data-action="confirm-squad-move">Confirm move</button>'
+                        : ''
+                    }<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>`
                   : ''
               }
               <button class="sl-hud-btn" data-action="cancel">Cancel</button>
@@ -2590,8 +2623,16 @@ export class GameHUD {
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
+      const squadPositions = (active.models ?? [])
+        .filter((m) => !m.isDestroyed)
+        .map((m) => m.position ?? active.position);
+      const outOfCoherency =
+        !hasActed &&
+        !active.status.includes('stunned') &&
+        squadPositions.length > 1 &&
+        !validateSquadCoherency(squadPositions).coherent;
       const finishBtn = !hasActed
-        ? `<button class="sl-hud-btn" data-action="hold">Hold</button>`
+        ? `<button class="sl-hud-btn" data-action="hold" ${outOfCoherency ? 'disabled' : ''}>Hold</button>`
         : `<button class="sl-hud-btn primary" data-action="end-activation">End Activation</button>`;
 
       return `
@@ -2599,6 +2640,11 @@ export class GameHUD {
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-actions">
             <span class="sl-hud-active-name">${active.name}</span>
+            ${
+              outOfCoherency
+                ? `<span class="sl-hud-hint" style="color:#ffb74d">Squad is out of coherency: this activation's move must bring it back together</span>`
+                : ''
+            }
             <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move</button>
             <button class="sl-hud-btn" data-action="rush" ${canRush ? '' : 'disabled'}>Rush</button>
             <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
@@ -3205,6 +3251,11 @@ export class GameHUD {
             }
             break;
           }
+          case 'confirm-squad-move':
+            if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
+              this.finishSquadMove(this.flow.action);
+            }
+            break;
           case 'reset-squad-move':
             this.stagedSquadModelPositions.clear();
             this.stagedSquadModelPaths.clear();

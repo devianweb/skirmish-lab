@@ -171,6 +171,33 @@ describe('activation', () => {
       expect(state.objectives[0].controllingPlayerId).toBe(HOST);
     });
 
+    it('a squad anchor inside the ring does not count when every living model is outside it', () => {
+      // Ring of four models ~3.6" from the marker; the centroid sits on the marker.
+      const mk = (id: string, x: number, z: number) => ({
+        id, wounds: 1, maxWounds: 1, isDestroyed: false, position: { x, y: 0, z },
+      });
+      const state = makeState([makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } })]);
+      state.units[0].models = [mk('m1', 3.6, 0), mk('m2', -3.6, 0), mk('m3', 0, 3.6), mk('m4', 0, -3.6)];
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBeNull();
+    });
+
+    it('a squad does not count through a destroyed model that stood inside the ring', () => {
+      const state = makeState([makeUnit('h1', HOST, { position: { x: 5, y: 0, z: 0 } })]);
+      state.units[0].models = [
+        { id: 'm1', wounds: 0, maxWounds: 1, isDestroyed: true, position: { x: 1, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 8, y: 0, z: 0 } },
+      ];
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBeNull();
+    });
+
     it('captures an objective if a friendly non-shaken unit is within 3" and 0 enemy units are in 3"', () => {
       const state = makeState([
         makeUnit('h1', HOST, { position: { x: 2, y: 0, z: 0 } }),
