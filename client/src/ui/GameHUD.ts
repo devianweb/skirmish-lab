@@ -62,6 +62,8 @@ import {
   describePathSegments,
   jumpChip,
   resolveMoveTarget,
+  tooWideText,
+  type MoveTarget,
   segmentSummary,
 } from './movePreview';
 import { rushStopReason, rushStopText } from './rushStop';
@@ -170,6 +172,8 @@ export class GameHUD {
   private readonly rushStopTexts = (['height', 'budget', 'difficult'] as const).map(rushStopText);
   /** The declared jump/fall the engine offers for the previewed target (null: safe path preview). */
   private moveJump: JumpOption | null = null;
+  /** Set while hovering across a gap over the 6" jump limit (hint only; nothing is offered). */
+  private moveTooWide: { distance: number } | null = null;
   /** Engine classification of each leg of the previewed path (for styling and labels). */
   private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
@@ -532,6 +536,7 @@ export class GameHUD {
   /** Board hover events from GameView (for live movement path preview, target hover & terrain debug). */
   handleBoardHover(target: PickTarget | null): void {
     if (!this.state || this.state.status === 'game-over') return;
+    this.moveTooWide = null;
 
     const nextTerrainId =
       target?.kind === 'position'
@@ -588,7 +593,7 @@ export class GameHUD {
           ? active.remainingMovement
           : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
         const nominalMax = remainingBudget;
-        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, alive.length <= 1);
+        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
         const cursor = resolved.target;
         let path = resolved.jump
           ? resolved.jump.path
@@ -641,6 +646,7 @@ export class GameHUD {
 
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
+        this.moveTooWide = this.tooWideHint(resolved, path);
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -692,10 +698,12 @@ export class GameHUD {
       const enemy = this.state.units.find((u) => u.id === declared.targetId);
       let cursor: Vector3 | null = null;
       let jump = null as JumpOption | null;
+      let tooWide: { distance: number } | null = null;
       if (target?.kind === 'position') {
         const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
         cursor = resolved.target;
         jump = resolved.jump;
+        tooWide = resolved.tooWide;
       } else if (target?.kind === 'unit' && target.unitId === declared.targetId && enemy) {
         cursor = this.contactSpotFor(startPos, enemy);
       }
@@ -710,6 +718,7 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.moveJump = jump;
+        this.moveTooWide = tooWide && cursor ? this.tooWideHint({ target: cursor, jump, tooWide }, path) : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePreviewDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.hoveredEngagedTargetId = target?.kind === 'unit' ? declared.targetId : null;
@@ -762,6 +771,7 @@ export class GameHUD {
         const isDifficult = !resolved.jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
+        this.moveTooWide = this.tooWideHint(resolved, path);
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -3530,10 +3540,28 @@ export class GameHUD {
     return legs ? ` · ${legs}` : '';
   }
 
+  /** The too-wide hint, unless ordinary movement still reaches the cursor (another way round). */
+  private tooWideHint(resolved: MoveTarget, path: Vector3[]): { distance: number } | null {
+    if (!resolved.tooWide || resolved.jump) return null;
+    const end = path.length > 0 ? path[path.length - 1] : null;
+    if (end && boardDistance(end, resolved.target) <= 0.5 && Math.abs((end.y ?? 0) - (resolved.target.y ?? 0)) <= 0.5) {
+      return null;
+    }
+    return resolved.tooWide;
+  }
+
   /** Hover chip for the previewed move: the declared jump / fall, or the labelled legs (climb, drop). */
   private showTraversalChip(): void {
     const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!el) return;
+    if (this.moveTooWide && !this.moveJump) {
+      el.textContent = tooWideText(this.moveTooWide.distance);
+      el.style.display = 'block';
+      el.style.background = 'rgba(244, 67, 54, 0.25)';
+      el.style.borderColor = '#f44336';
+      el.style.color = '#ff8a80';
+      return;
+    }
     if (this.moveJump) {
       const chip = jumpChip(this.moveJump);
       el.textContent = chip.text;

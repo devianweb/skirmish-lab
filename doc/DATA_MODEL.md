@@ -337,7 +337,7 @@ type ActionPayload =
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
-  // Squad charges (more than one living model) send modelPositions (one per living model, model order),
+  // Squad charges (more than one living model) MUST send modelPositions (one per living model, model order); the host rejects them without it,
   // modelPaths (per model, from its current spot) and modelTraversals (a declared jump per model, or null);
   // `path` is then only a summary. Single-model units keep the plain `path` and `traversal`.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }

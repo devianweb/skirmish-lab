@@ -272,16 +272,71 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     });
   });
 
-  it('squads get no jump chip (the host does not accept a declared jump for a multi-model move)', () => {
-    const { hud, container, state, unit } = setup(P(-0.2, 3, 0));
-    unit.models = [
+  function squadAtLedge(action: 'Move' | 'Rush' = 'Move') {
+    const base = setup(P(-0.2, 3, 0), action);
+    base.unit.models = [
       { id: 'm1', position: P(-0.2, 3, 0), isDestroyed: false, wounds: 0, maxWounds: 1 } as any,
       { id: 'm2', position: P(-0.9, 3, 0), isDestroyed: false, wounds: 0, maxWounds: 1 } as any,
     ];
-    hud.syncFromState(state);
-    clickByText(container, 'Move');
+    base.hud.syncFromState(base.state);
+    clickByText(base.container, action);
+    return base;
+  }
+
+  it('a squad model at the edge previews the same jump as a single model (path, segments, chip)', () => {
+    const { hud, container, markers } = squadAtLedge();
     hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
-    expect(chip(container).textContent).not.toContain('Jump');
+    expect(chip(container).style.display).toBe('block');
+    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · 2 dice \(3\+\)$/);
+    const path = (hud as any).movePathPreview as Vector3[];
+    expect(path).toHaveLength(2);
+    expect(path[0]).toMatchObject({ x: -0.2, y: 3 });
+    expect(path[1]).toMatchObject({ x: 5.6, y: 3, z: -1 });
+    const segs = markers[markers.length - 1].movePath!.segments!;
+    expect(segs).toHaveLength(1);
+    expect(segs[0].kind).toBe('jump-gap');
+  });
+
+  it('a squad model hovering a normal spot is previewed as before (no jump chip)', () => {
+    const { hud, container } = squadAtLedge();
+    hud.handleBoardHover({ kind: 'position', position: P(-1.7, 3, 0) });
+    expect(chip(container).textContent ?? '').not.toContain('Jump');
+    expect((hud as any).moveJump).toBeNull();
+  });
+
+  describe('too-wide gap hint', () => {
+    const far = P(6.7, 3, -1); // ~7" from the ledge edge, on platform A
+
+    it('a single model hovering across a gap over 6" reads the hint and is offered no jump', () => {
+      const { hud, container } = setup(P(-0.2, 3, 0));
+      hud.handleBoardHover({ kind: 'position', position: far });
+      expect(chip(container).style.display).toBe('block');
+      expect(chip(container).textContent).toMatch(/^Too far to jump \(7\.0", max 6"\)$/);
+      expect((hud as any).moveJump).toBeNull();
+    });
+
+    it('a squad model gets the same hint', () => {
+      const squad = squadAtLedge();
+      squad.hud.handleBoardHover({ kind: 'position', position: far });
+      expect(chip(squad.container).textContent).toMatch(/^Too far to jump \(7\.0", max 6"\)$/);
+      expect((squad.hud as any).moveJump).toBeNull();
+    });
+
+    it('a jumpable gap shows the normal jump chip instead', () => {
+      const { hud, container } = setup(P(-0.2, 3, 0));
+      hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
+      expect(chip(container).textContent).toMatch(/^Jump gap/);
+      expect(chip(container).textContent).not.toContain('Too far');
+    });
+
+    it('no hint when the cursor is not across a gap, and it clears when the cursor moves off', () => {
+      const { hud, container } = setup(P(-0.2, 3, 0));
+      hud.handleBoardHover({ kind: 'position', position: far });
+      expect(chip(container).textContent).toContain('Too far');
+      hud.handleBoardHover({ kind: 'position', position: P(-1.7, 3, 0) });
+      expect(chip(container).textContent ?? '').not.toContain('Too far');
+      expect((hud as any).moveTooWide).toBeNull();
+    });
   });
 });
 

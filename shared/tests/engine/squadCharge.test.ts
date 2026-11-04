@@ -395,6 +395,49 @@ describe('squad charge in legs', () => {
   });
 });
 
+describe('squad charges must place every model (no block charges)', () => {
+  const blockCharge = (type: 'charge' | 'charge-leg') =>
+    createAction(HOST, type, {
+      type,
+      attackerId: 'h1',
+      ...(type === 'charge' ? { targetId: 'g1', weaponId: 'blade' } : {}),
+      path: [P(0, 0), P(0, 7)],
+    } as any);
+
+  it('rejects a charge from a 2+ model unit without modelPositions', () => {
+    const res = validateAction(lineAbreast(), blockCharge('charge'));
+    expect(res.valid).toBe(false);
+    expect(res.reason).toMatch(/every model/);
+  });
+
+  it('rejects a charge-leg from a 2+ model unit without modelPositions', () => {
+    const declared = applyAction(
+      lineAbreast(),
+      createAction(HOST, 'begin-charge', { type: 'begin-charge', attackerId: 'h1', targetId: 'g1' })
+    ).state!;
+    const res = validateAction(declared, blockCharge('charge-leg'));
+    expect(res.valid).toBe(false);
+    expect(res.reason).toMatch(/every model/);
+  });
+
+  it('still accepts the same charge when every model is placed', () => {
+    const state = lineAbreast();
+    const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
+    expect(validateAction(state, chargeAction(ends, straight(state, ends))).valid).toBe(true);
+  });
+
+  it('a unit down to one living model may still send a plain path', () => {
+    const state = lineAbreast();
+    state.units[0].models.slice(1).forEach((m) => (m.isDestroyed = true));
+    state.units[0].speed = 6;
+    state.units[0].remainingMovement = 6;
+    const action = createAction(HOST, 'charge', {
+      type: 'charge', attackerId: 'h1', targetId: 'g1', path: [P(0, 0), P(0, 7.5)], weaponId: 'blade',
+    });
+    expect(validateAction(state, action).reason ?? '').not.toMatch(/every model/);
+  });
+});
+
 describe('single-model charges are unchanged', () => {
   it('a lone model charges with a plain path', () => {
     const state = mkState([mkUnit('h1', HOST, [[0, 0]], { speed: 6 }), mkUnit('g1', GUEST, [[0, 8]])]);

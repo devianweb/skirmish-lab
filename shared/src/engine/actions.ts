@@ -215,6 +215,9 @@ function isSquadChargePayload(unit: Unit, payload: SquadChargePayload): boolean 
   return !!payload.modelPositions && livingModels(unit).length > 1;
 }
 
+const SQUAD_CHARGE_NEEDS_POSITIONS =
+  'A squad charge must place every model (modelPositions) — block charges are not accepted';
+
 /** Each living model's path: the one sent, or a straight line from where it stands to its end spot. */
 function squadChargePaths(unit: Unit, payload: SquadChargePayload): Vector3[][] {
   return livingModels(unit).map((m, i) => {
@@ -856,6 +859,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isSquadChargePayload(unit, legModels)) {
         return validateSquadChargeMove(state, unit, target, legModels, 'leg');
       }
+      if (livingModels(unit).length > 1) return { valid: false, reason: SQUAD_CHARGE_NEEDS_POSITIONS };
       if (!path || path.length < 2) return { valid: false, reason: 'Charge leg path is empty' };
       if (boardDistance(path[0], unit.position) > 0.01) {
         return { valid: false, reason: 'Charge leg must start at the unit position' };
@@ -936,6 +940,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         }
         return { valid: true };
       }
+      if (livingModels(attacker.result).length > 1) return { valid: false, reason: SQUAD_CHARGE_NEEDS_POSITIONS };
       if (!path || path.length === 0) {
         return { valid: false, reason: 'Charge path is empty' };
       }
