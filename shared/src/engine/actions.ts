@@ -48,6 +48,8 @@ import {
   findEndOverlap,
   describeEndOverlap,
   validateSquadCoherency,
+  isRegroupingMove,
+  coherencyShortfall,
 } from './spatial';
 import {
   calculateFallingDamage,
@@ -199,6 +201,28 @@ function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | nu
   };
 }
 
+/** Positions of a unit's living models right now (before the action being validated). */
+function livingModelPositionsNow(unit: Unit): Vector3[] {
+  return (unit.models ?? []).filter((m) => !m.isDestroyed).map((m) => m.position ?? unit.position);
+}
+
+/**
+ * Coherency of a squad's end positions. A squad that started coherent must end coherent; one that started
+ * (the action or leg) out of coherency may also end measurably closer to coherent ("closer counts").
+ */
+function squadEndCoherency(unit: Unit, end: Vector3[]): { valid: true } | { valid: false; reason: string } {
+  const coherency = validateSquadCoherency(end);
+  if (coherency.coherent) return { valid: true };
+  const before = livingModelPositionsNow(unit);
+  if (before.length === end.length && isRegroupingMove(before, end)) return { valid: true };
+  const base = coherency.reason ?? 'Squad models lose coherency';
+  const wasOut = before.length === end.length && coherencyShortfall(before) > 0;
+  return {
+    valid: false,
+    reason: wasOut ? `${base} (the squad started out of coherency: it must end closer to coherent than it began)` : base,
+  };
+}
+
 /** Per-model parts of a squad charge / charge leg payload (a single model keeps the plain `path`). */
 interface SquadChargePayload {
   modelPositions?: Vector3[];
@@ -259,10 +283,8 @@ function validateSquadChargeMove(
   ) {
     return { valid: false, reason: 'More model paths or declared jumps than squad models' };
   }
-  const coherency = validateSquadCoherency(positions);
-  if (!coherency.coherent) {
-    return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-  }
+  const coherency = squadEndCoherency(unit, positions);
+  if (!coherency.valid) return coherency;
   for (let i = 0; i < positions.length; i++) {
     for (let j = i + 1; j < positions.length; j++) {
       if (boardDistance(positions[i], positions[j]) < 0.9) {
@@ -646,10 +668,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
-      const coherency = validateSquadCoherency(modelPositions!);
-      if (!coherency.coherent) {
-        return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-      }
+      const coherency = squadEndCoherency(unit.result, modelPositions!);
+      if (!coherency.valid) return coherency;
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -762,6 +782,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       if (attacker.result.isRushing) {
         return { valid: false, reason: 'Rushing units cannot shoot' };
+      }
+      // Shooting without having moved is a Hold: a squad that started out of coherency must move first
+      if (!attacker.result.hasMoved) {
+        const blocked = incoherentStartBlock(attacker.result);
+        if (blocked) return blocked;
       }
       if (isEngaged(attacker.result)) {
         return { valid: false, reason: 'Engaged units must fight instead of shooting' };
@@ -1115,10 +1140,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
-      const coherency = validateSquadCoherency(modelPositions!);
-      if (!coherency.coherent) {
-        return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-      }
+      const coherency = squadEndCoherency(unit, modelPositions!);
+      if (!coherency.valid) return coherency;
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(

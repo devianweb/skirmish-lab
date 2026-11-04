@@ -1944,6 +1944,42 @@ describe('GameHUD', () => {
         expect(hold.disabled).toBe(true);
         expect(container.textContent).toContain('Squad is out of coherency');
       });
+
+      it('disables Shoot too while the squad is out of coherency and has not moved', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 6, y: 0, z: -4 };
+        const { container } = setup(HOST, state);
+        const shoot = container.querySelector<HTMLButtonElement>('[data-action="shoot"]')!;
+        expect(shoot.disabled).toBe(true);
+      });
+
+      it('lets a regrouping squad place its stray closer even though it is still apart', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 12, y: 0, z: -4 };
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        // models 1-3 stay near, the stray comes 6" closer but is still apart
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -4.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 6, y: 0, z: -4 } });
+        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+        clickByText(container, 'Confirm');
+        expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      });
+
+      it('still refuses a placement that leaves a regrouping squad no closer', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 12, y: 0, z: -4 };
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -4.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 12, y: 0, z: -3 } });
+        expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/closer to coherent|coherency/i);
+        expect(controller.submitAction).not.toHaveBeenCalled();
+      });
     });
 
     it('multiplies attack dice by living models count in shoot confirmation summary', () => {

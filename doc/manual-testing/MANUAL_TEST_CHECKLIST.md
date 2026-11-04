@@ -31,6 +31,8 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] Too-wide gap hint (batch 1I PR 27): with a single model and with a squad model at a deck edge, hover across a gap of more than 6" to a deck: the chip reads "Too far to jump (N\", max 6\")" and no jump path is shown; clicking does not declare a jump. A 5" gap still shows the normal jump chip.
 - [ ] Aim lines follow the clicked model (batch 1I PR 27): select Shoot with a squad and hover/click a far model of the enemy squad that your models can see: their aim lines go to that model (a model that cannot see or reach it keeps aiming at its nearest visible model); the "N of M models can fire" count and cover are the same as without the click.
 
+- [ ] Regrouping a split squad (batch 1I PR 29): split a squad (remove the middle model of five, or make a model fall away) so it starts its next activation out of coherency. Hold and Shoot are disabled with the "out of coherency" hint. Advance the stray as far as it can go: the move is accepted even though it is still apart (it ended closer), and a placement that leaves it no closer is refused with a toast. After that Advance the squad can shoot. A squad that started coherent still cannot end a move apart.
+
 ## 7. Movement, rush and shooting
 - All items verified.
 

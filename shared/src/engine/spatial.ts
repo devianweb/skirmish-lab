@@ -3244,6 +3244,65 @@ export function validateSquadCoherency(
   };
 }
 
+/** Same tolerance as `validateSquadCoherency` (small floating-point margin for tabletop movement). */
+const SQUAD_COHERENCY_TOLERANCE = 0.02;
+
+/**
+ * How far a squad is from being coherent, in inches (0 exactly when `validateSquadCoherency` accepts it).
+ * It is the total length missing from the chain (minimum spanning tree over every pair of living models,
+ * each edge weighing what it lacks of its level-aware link limit, so the gap between separate groups counts)
+ * plus how much the widest pair exceeds the spread limit. Used to judge whether a regrouping move helps.
+ */
+export function coherencyShortfall(positions: Vector3[]): number {
+  const n = positions.length;
+  if (n <= 1) return 0;
+  const tol = SQUAD_COHERENCY_TOLERANCE;
+  const weight = (i: number, j: number): number => {
+    const d = Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z);
+    const limit = areOnDifferentLevels(positions[i], positions[j])
+      ? SQUAD_COHERENCY_CROSS_LEVEL_CENTRE
+      : SQUAD_COHERENCY_SAME_LEVEL_CENTRE;
+    return d <= limit + tol ? 0 : d - limit;
+  };
+  // Prim's algorithm on the complete graph
+  const inTree = new Array<boolean>(n).fill(false);
+  const best = new Array<number>(n).fill(Infinity);
+  best[0] = 0;
+  let chain = 0;
+  for (let step = 0; step < n; step++) {
+    let pick = -1;
+    for (let i = 0; i < n; i++) {
+      if (!inTree[i] && (pick === -1 || best[i] < best[pick])) pick = i;
+    }
+    inTree[pick] = true;
+    chain += best[pick];
+    for (let j = 0; j < n; j++) {
+      if (!inTree[j]) best[j] = Math.min(best[j], weight(pick, j));
+    }
+  }
+  let widest = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      widest = Math.max(widest, Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z));
+    }
+  }
+  const spread = widest > SQUAD_COHERENCY_SPREAD + tol ? widest - SQUAD_COHERENCY_SPREAD : 0;
+  return chain + spread;
+}
+
+/** A regrouping move is progress when the shortfall drops by more than this much (inches). */
+export const COHERENCY_REGROUP_MIN_GAIN = 0.05;
+
+/**
+ * True when a squad that was incoherent before an action (or leg) ends it measurably closer to coherent
+ * ("or as close as possible"). A squad that started coherent never qualifies: it must end coherent.
+ */
+export function isRegroupingMove(before: Vector3[], after: Vector3[]): boolean {
+  const startShortfall = coherencyShortfall(before);
+  if (startShortfall <= 0) return false;
+  return coherencyShortfall(after) < startShortfall - COHERENCY_REGROUP_MIN_GAIN;
+}
+
 /**
  * Computes the geometric centroid (average position) of squad model positions.
  */
