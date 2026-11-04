@@ -13,6 +13,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 1. Map builder & editor
 - All items verified.
 - [ ] A new blank map is 48" x 48" (grid and ground). "Auto objectives" places four markers, each more than 9" apart and clear of both deployment zones. Opening an older 44" x 30" saved map still shows it at that size. The validation badge shows no new warnings on either.
+- [ ] The toolbar "Board" control offers 48×48 (standard), 36×36, 24×36 (narrow) and Custom. Picking a preset resizes the grid and ground live. Custom shows width/height boxes (whole inches); values outside 24–72 snap to the limit. Shrink the board with terrain or objectives near the edge: the badge shows notices naming the pieces now outside. Save, reload and re-open the map (and Export/Import): the size is kept, and the lobby dropdown lists it, e.g. `(9 pieces, 44"×30")`.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified.
@@ -38,3 +39,4 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 9. Multiplayer & custom maps
 - All items verified.
 - [ ] The lobby's "Empty Battlefield" option reads 48"x48". A game on it has 12"-deep deployment zones (the camera framing for the larger board arrives in a later PR). A game on an old 44"x30" map still has 3"-deep zones.
+- [ ] On a 48×48 map the whole board is in view at the start for both host (south corner, looking north) and guest (north corner, looking south). Repeat on 24×36 and 72×72: the board stays framed and you can zoom out far enough to see all of it.

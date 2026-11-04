@@ -473,4 +473,25 @@ describe('GameView', () => {
       expect(scene.getObjectByName('marker-shooting-debug')).toBeUndefined();
     });
   });
+
+  it('re-frames the camera when the synced board size changes, keeping the role', () => {
+    const calls: Array<[string, unknown]> = [];
+    const cameraController = {
+      update: () => {},
+      setupForRole: (role: 'host' | 'guest', board?: { width: number; height: number }) => {
+        calls.push([role, board]);
+      },
+    };
+    const gameView = new GameView({ sceneManager: makeSceneManager(), cameraController });
+    gameView.setupCameraForRole('guest');
+    const base = makeState();
+    gameView.syncFromState({ ...base, board: { ...base.board, width: 48, height: 48 } });
+    gameView.syncFromState({ ...base, board: { ...base.board, width: 48, height: 48 } });
+    expect(calls).toEqual([
+      ['guest', undefined],
+      ['guest', { width: 48, height: 48 }],
+    ]);
+    gameView.syncFromState({ ...base, board: { ...base.board, width: 24, height: 36 } });
+    expect(calls.at(-1)).toEqual(['guest', { width: 24, height: 36 }]);
+  });
 });

@@ -145,8 +145,8 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 ### Key Components
 - **SceneManager:** Initializes Three.js scene, camera, lighting, renderer
 - **CameraController:** Desktop camera controls for viewing the battlefield, with player-perspective positioning:
-  - Host views from South isometric corner `(20, 20, -20)` looking north (+z) over friendly forces
-  - Guest views from North isometric corner `(-20, 20, 20)` looking south (-z) over friendly forces
+  - Host views from South isometric corner `(d, d, -d)` looking north (+z) over friendly forces (d = half the board's longer edge)
+  - Guest views from North isometric corner `(-d, d, d)` looking south (-z) over friendly forces
 - **BoardRenderer:** Renders terrain, trenches, obstacles from game state (registered terrain types render as curated GLB models)
 - **UnitRenderer:** Creates/updates/removes meshes based on units in game state; provides raycast picking for the unit layer
 - **ModelLoader:** Loads and caches GLTF models; hosts a unit/terrain/marker asset registry — registered types get a procedural placeholder that swaps to the GLB clone once loaded (per-instance geometry/materials keep tinting and disposal safe)
