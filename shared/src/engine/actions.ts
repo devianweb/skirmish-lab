@@ -37,7 +37,6 @@ import {
 import {
   computeSquadCentroid,
   pushBackChargerModels,
-  consolidateSquadToward,
   createSquadPositions,
   findMoveBlocker,
   hasCoverAgainstAttack,
@@ -92,6 +91,16 @@ import {
   livingModelPositions,
 } from './unitGeometry';
 import { firingModels, targetCoverByMajority } from './squadTargeting';
+import {
+  PILE_IN_AUTO_CHOICE,
+  PILE_IN_DISTANCE,
+  PILE_IN_DURATION_MS,
+  PileInPayload,
+  autoPileIn,
+  pileInModelIds,
+  validatePileIn,
+  withModelPositions,
+} from './pileIn';
 import { modelRemainingMovement, resetModelMovement, spendAllModels, spendModelMovement } from './modelMovement';
 
 /**
@@ -467,7 +476,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
     return { valid: false, reason: 'Game is over' };
   }
   if (state.turnState.pendingReaction) {
-    if (action.type !== 'respond-reaction' && action.type !== 'consolidate-move') {
+    if (action.type !== 'respond-reaction' && action.type !== 'consolidate-move' && action.type !== 'pile-in-move') {
       return { valid: false, reason: 'A reaction is pending — waiting for opponent' };
     }
     if (action.actorId !== state.turnState.pendingReaction.promptingPlayerId) {
@@ -1304,6 +1313,23 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return { valid: true };
     }
 
+    case 'pile-in-move': {
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'pile-in') {
+        return { valid: false, reason: 'No pending pile-in' };
+      }
+      if (pending.promptingPlayerId !== action.actorId) {
+        return { valid: false, reason: 'Not your pile-in' };
+      }
+      const defender = getUnit(state, pending.targetUnitId);
+      const charger = getUnit(state, pending.sourceUnitId);
+      if (!defender || defender.isDestroyed || !charger || charger.isDestroyed) {
+        return { valid: false, reason: 'Pile-in units are destroyed or missing' };
+      }
+      const result = validatePileIn(state, pending, defender, charger, action.payload as PileInPayload);
+      return result.valid ? { valid: true } : { valid: false, reason: result.reason };
+    }
+
     case 'consolidate-move': {
       const { unitId, path } = action.payload as {
         unitId: string;
@@ -1428,9 +1454,12 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     return specs.length > 0 ? specs : null;
   }
 
+  if (action.type === 'pile-in-move') return pileInStrikeSpecs(state, action);
+
   if (action.type === 'respond-reaction') {
     const { choiceId } = action.payload as { reactionId: string; choiceId: string };
     const pending = state.turnState.pendingReaction;
+    if (pending?.type === 'pile-in') return choiceId === PILE_IN_AUTO_CHOICE ? pileInStrikeSpecs(state, action) : null;
     if (!pending || choiceId !== 'strike-back') {
       return null;
     }
@@ -1543,7 +1572,17 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         const simTarget = getUnit(sim, target.id)!;
         if (isSquadChargePayload(attacker, squadMoves)) placeSquadModels(simAttacker, squadMoves.modelPositions!);
         else moveChargerModels(simAttacker, chargeEnd!);
-        consolidateSquadToward(sim, simTarget, simAttacker.position, 3.0, { intoContact: true, contactWith: simAttacker });
+        // Defenders not touching a charger place their own models first: the strike dice are rolled with that
+        // pile-in (so a charge that has to wait only rolls its jump / hazard dice here)
+        if (pileInModelIds(simTarget, simAttacker).length > 0) {
+          const chargePayload = action.payload as { path?: Vector3[] } & SquadChargePayload;
+          const moveSpecs = isSquadChargePayload(attacker, chargePayload)
+            ? squadChargeTraversalSpecs(state, attacker, chargePayload)
+            : chargePayload.path && chargePayload.path.length > 0
+              ? pathTraversalSpecs(state, attacker, chargePayload.path)
+              : [];
+          return moveSpecs.length > 0 ? moveSpecs : null;
+        }
         strikingCount = strikers(simAttacker, simTarget);
       }
     } else {
@@ -1910,6 +1949,91 @@ export function createConsolidationReaction(
       maxDistance: 3.0,
     },
   };
+}
+
+/**
+ * After a charge, the defender is asked to place the models that are not touching a charger. The charger's
+ * strike waits for it. The default (timeout) choice lets the host place them with `closestApproach`.
+ */
+function createPileInReaction(
+  actionId: string,
+  charger: Unit,
+  target: Unit,
+  weaponId: string,
+  modelIds: string[],
+  chargeDistance: number
+): PendingReaction {
+  return {
+    id: `${actionId}-pile-in`,
+    type: 'pile-in',
+    promptingPlayerId: target.ownerId,
+    sourceUnitId: charger.id,
+    targetUnitId: target.id,
+    title: 'Pile In',
+    description: `${charger.name} charged ${target.name}! Move the models that are not touching up to ${PILE_IN_DISTANCE}" toward the attackers.`,
+    options: [
+      {
+        id: PILE_IN_AUTO_CHOICE,
+        label: 'Auto place',
+        isDefault: true,
+        style: 'primary',
+      },
+    ],
+    expiresAt: Date.now() + PILE_IN_DURATION_MS,
+    durationMs: PILE_IN_DURATION_MS,
+    data: {
+      chargeActionId: actionId,
+      attackerId: charger.id,
+      targetId: target.id,
+      weaponId,
+      modelIds,
+      maxDistance: PILE_IN_DISTANCE,
+      chargeDistance,
+    },
+  };
+}
+
+/** The pile-in positions a `pile-in-move` carries, or the host's own when the defender chose 'auto place'. */
+function pileInPlacement(
+  state: GameState,
+  action: GameAction
+): { pending: PendingReaction; attacker: Unit; target: Unit; modelPositions: Vector3[]; modelPaths?: Vector3[][] } | null {
+  const pending = state.turnState.pendingReaction;
+  if (!pending || pending.type !== 'pile-in') return null;
+  const attacker = getUnit(state, pending.sourceUnitId);
+  const target = getUnit(state, pending.targetUnitId);
+  if (!attacker || !target) return null;
+  if (action.type === 'pile-in-move') {
+    const payload = action.payload as PileInPayload;
+    if (!payload.modelPositions) return null;
+    return { pending, attacker, target, modelPositions: payload.modelPositions, modelPaths: payload.modelPaths };
+  }
+  if (action.type === 'respond-reaction') {
+    const auto = autoPileIn(state, pending, target, attacker);
+    return { pending, attacker, target, ...auto };
+  }
+  return null;
+}
+
+/** The charger's strike dice, counted from where the defenders stand after the pile-in. */
+function pileInStrikeSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
+  const placed = pileInPlacement(state, action);
+  if (!placed) return null;
+  const { pending, attacker, target, modelPositions } = placed;
+  const weapon = getWeapon(attacker, pending.data?.weaponId);
+  if (!weapon || typeof weapon.profile.attacks !== 'number' || weapon.profile.attacks < 1) return null;
+  const movedTarget = withModelPositions(target, modelPositions);
+  const totalAttacks = weapon.profile.attacks * strikers(attacker, movedTarget);
+  return getAttackDiceSpecs(totalAttacks, {
+    attackerRules: attacker.specialRules,
+    weaponRules: weapon.profile.specialRules,
+    defenderRules: target.specialRules,
+    defenderModelCount: Math.max(1, livingModels(target).length),
+    isMelee: true,
+    isCharging: true,
+    distance: pending.data?.chargeDistance ?? 1,
+    includeTrauma: true,
+  });
 }
 
 /**
@@ -2662,146 +2786,28 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
-      // Defending squad models consolidate up to 3" into contact with chargers
-      consolidateSquadToward(newState, target, attacker.position, 3.0, { intoContact: true, contactWith: attacker });
-
       const weapon = weaponId
         ? getWeapon(attacker, weaponId)
         : attacker.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
 
-      if (weapon && dice) {
-        const rolls = extractAttackRolls(dice);
-        const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
-        const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
-        const outcome = resolveAttack(
-          {
-            quality: attacker.quality,
-            specialRules: attacker.specialRules,
-            weaponRules: weapon.profile.specialRules,
-            isMelee: true,
-            isCharging: true,
-            hasMoved: true,
-            isFatigued: attacker.status.includes('fatigued') || attacker.status.includes('shaken'),
-            distance: Math.hypot(cdx, cdz),
-          },
-          {
-            defense: target.defense,
-            inCover: false,
-            specialRules: target.specialRules,
-            hasMoved: target.hasMoved,
-            modelCount: aliveModels,
-          },
-          totalAttacks,
-          rolls
-        );
-
-        const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
-        const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-        const trauma = applyWounds(
+      // Defenders not touching a charger place their own models first (up to 3"); the strike waits for that
+      const pileInIds = weapon ? pileInModelIds(target, attacker) : [];
+      if (weapon && pileInIds.length > 0) {
+        newState.turnState.pendingReaction = createPileInReaction(
+          action.id,
+          attacker,
           target,
-          outcome.wounds,
-          rolls.trauma,
-          dreadBonus,
-          lethalValue
+          weapon.id,
+          pileInIds,
+          Math.hypot(cdx, cdz)
         );
+        refreshEngagements(newState);
+        logEntry = acceptedEntry(action);
+        break;
+      }
 
-        if (!attacker.status.includes('fatigued')) {
-          attacker.status.push('fatigued');
-        }
-
-        const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-        let pushedBack = false;
-        let pushBackPos: Vector3 | undefined;
-
-        if (target.isDestroyed) {
-          // If defender is destroyed, victor may consolidate up to 3"
-          newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
-          refreshEngagements(newState);
-        } else if (!defenderMelee) {
-          pushBackPos = pushBackChargerModels(newState, attacker, target);
-          pushedBack = true;
-          attacker.status = attacker.status.filter((s) => s !== 'engaged');
-          target.status = target.status.filter((s) => s !== 'engaged');
-          refreshEngagements(newState);
-        } else {
-          // Defer retaliation strike to defender's choice via pendingReaction
-          newState.turnState.pendingReaction = {
-            id: `${action.id}-retaliation`,
-            type: 'melee-retaliation',
-            promptingPlayerId: target.ownerId,
-            sourceUnitId: attacker.id,
-            targetUnitId: target.id,
-            title: 'Melee Retaliation',
-            description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
-            warning: target.status.includes('fatigued') || target.status.includes('shaken')
-              ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
-              : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
-            options: [
-              {
-                id: 'strike-back',
-                label: `Strike Back (${defenderMelee.name})`,
-                isDefault: true,
-                style: 'primary',
-              },
-              {
-                id: 'decline',
-                label: 'Decline (Avoid Fatigue)',
-                style: 'secondary',
-              },
-            ],
-            expiresAt: Date.now() + 15000,
-            durationMs: 15000,
-            data: {
-              chargeActionId: action.id,
-              attackerId: attacker.id,
-              targetId: target.id,
-              weaponId: defenderMelee.id,
-            },
-          };
-        }
-
-        diceResolution = {
-          rollId: action.id,
-          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
-          results: dice,
-          context: {
-            attackerId,
-            targetId,
-            weaponId: weapon.id,
-            retaliationWeaponId: defenderMelee?.id,
-            actionId: action.id,
-          },
-          outcome: {
-            attackCount: outcome.attackCount,
-            hitCount: outcome.hitCount,
-            ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
-            blockedCount: outcome.blockedCount,
-          blockedRolls: outcome.blockedRolls,
-            ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
-            wounds: outcome.wounds,
-            targetDestroyed: target.isDestroyed,
-            targetShaken: target.status.includes('shaken'),
-            baseQuality: attacker.quality,
-            effectiveQuality: outcome.effectiveQuality,
-            hitModifiers: outcome.hitModifiers,
-            baseDefense: target.defense,
-            effectiveDefense: outcome.effectiveDefense,
-            defenseModifiers: outcome.defenseModifiers,
-            coverApplied: false,
-            ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
-            ...(trauma
-              ? {
-                  traumaRoll: trauma.roll,
-                  traumaTokens: trauma.tokens,
-                  traumaDreadBonus: trauma.dreadBonus,
-                  traumaTotal: trauma.total,
-                  traumaOutcome: trauma.outcome,
-                }
-              : {}),
-            pushedBack,
-            ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
-          },
-        };
+      if (weapon && dice && pileInIds.length === 0) {
+        diceResolution = resolveChargeStrike(state, newState, action, attacker, target, weapon, dice, Math.hypot(cdx, cdz));
         logEntry = acceptedEntry(action, diceResolution);
       } else {
         logEntry = acceptedEntry(action);
@@ -2819,6 +2825,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         newState.turnState.pendingReaction = null;
         refreshEngagements(newState);
         logEntry = acceptedEntry(action);
+        break;
+      }
+      if (pending.type === 'pile-in') {
+        const piled = applyPileIn(state, newState, action, dice);
+        if (!piled.ok) return piled;
+        logEntry = piled.logEntry;
         break;
       }
       const defender = getUnit(newState, pending.targetUnitId)!;
@@ -2980,6 +2992,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'pile-in-move': {
+      const piled = applyPileIn(state, newState, action, dice);
+      if (!piled.ok) return piled;
+      logEntry = piled.logEntry;
+      break;
+    }
+
     case 'consolidate-move': {
       const { unitId, path } = action.payload as {
         unitId: string;
@@ -3039,6 +3058,198 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 // --- internals ------------------------------------------------------------
 
 type RequireResult = { result: Unit } | { valid: false; reason: string };
+
+/**
+ * Puts the defender's models on their pile-in spots (their own, or the host's when the prompt timed out),
+ * clears the prompt, then resolves the charger's strike with the dice rolled for those positions.
+ */
+function applyPileIn(
+  state: GameState,
+  newState: GameState,
+  action: GameAction,
+  dice?: DiceResult[]
+): { ok: true; logEntry: ActionLogEntry } | { ok: false; reason: string } {
+  const placed = pileInPlacement(state, action);
+  if (!placed) return { ok: false, reason: 'No pending pile-in' };
+  const attacker = getUnit(newState, placed.attacker.id)!;
+  const target = getUnit(newState, placed.target.id)!;
+  const pending = placed.pending;
+  const alive = livingModels(target);
+  alive.forEach((m, i) => {
+    m.position = { ...placed.modelPositions[i] };
+    const dx = attacker.position.x - m.position.x;
+    const dz = attacker.position.z - m.position.z;
+    if (Math.hypot(dx, dz) > 1e-4) m.rotation = { x: 0, y: Math.atan2(dx, dz), z: 0 };
+  });
+  target.position = computeSquadCentroid(placed.modelPositions);
+  newState.turnState.pendingReaction = null;
+
+  const weapon = getWeapon(attacker, pending.data?.weaponId);
+  if (!weapon || !dice) {
+    refreshEngagements(newState);
+    return { ok: true, logEntry: acceptedEntry(action) };
+  }
+  let resolution: DiceResolution;
+  try {
+    resolution = resolveChargeStrike(state, newState, action, attacker, target, weapon, dice, pending.data?.chargeDistance ?? 1);
+  } catch (error) {
+    return { ok: false, reason: (error as Error).message };
+  }
+  return { ok: true, logEntry: acceptedEntry(action, resolution) };
+}
+
+/**
+ * The charger's strike once the defenders are in their final places: the pooled attack, wounds, then the
+ * defender's strike-back prompt, the step back, or the winner's consolidation. Shared by a charge with nothing
+ * to pile in and by the confirmed (or timed-out) pile-in.
+ */
+function resolveChargeStrike(
+  state: GameState,
+  newState: GameState,
+  action: GameAction,
+  attacker: Unit,
+  target: Unit,
+  weapon: Weapon,
+  dice: DiceResult[],
+  chargeDistance: number
+): DiceResolution {
+  const attackerId = attacker.id;
+  const targetId = target.id;
+  let diceResolution: DiceResolution;
+    const rolls = extractAttackRolls(dice);
+    const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
+    const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
+    const outcome = resolveAttack(
+      {
+        quality: attacker.quality,
+        specialRules: attacker.specialRules,
+        weaponRules: weapon.profile.specialRules,
+        isMelee: true,
+        isCharging: true,
+        hasMoved: true,
+        isFatigued: attacker.status.includes('fatigued') || attacker.status.includes('shaken'),
+        distance: chargeDistance,
+      },
+      {
+        defense: target.defense,
+        inCover: false,
+        specialRules: target.specialRules,
+        hasMoved: target.hasMoved,
+        modelCount: aliveModels,
+      },
+      totalAttacks,
+      rolls
+    );
+
+    const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
+    const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+    const trauma = applyWounds(
+      target,
+      outcome.wounds,
+      rolls.trauma,
+      dreadBonus,
+      lethalValue
+    );
+
+    if (!attacker.status.includes('fatigued')) {
+      attacker.status.push('fatigued');
+    }
+
+    const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+    let pushedBack = false;
+    let pushBackPos: Vector3 | undefined;
+
+    if (target.isDestroyed) {
+      // If defender is destroyed, victor may consolidate up to 3"
+      newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
+      refreshEngagements(newState);
+    } else if (!defenderMelee) {
+      pushBackPos = pushBackChargerModels(newState, attacker, target);
+      pushedBack = true;
+      attacker.status = attacker.status.filter((s) => s !== 'engaged');
+      target.status = target.status.filter((s) => s !== 'engaged');
+      refreshEngagements(newState);
+    } else {
+      // Defer retaliation strike to defender's choice via pendingReaction
+      newState.turnState.pendingReaction = {
+        id: `${action.id}-retaliation`,
+        type: 'melee-retaliation',
+        promptingPlayerId: target.ownerId,
+        sourceUnitId: attacker.id,
+        targetUnitId: target.id,
+        title: 'Melee Retaliation',
+        description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
+        warning: target.status.includes('fatigued') || target.status.includes('shaken')
+          ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
+          : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
+        options: [
+          {
+            id: 'strike-back',
+            label: `Strike Back (${defenderMelee.name})`,
+            isDefault: true,
+            style: 'primary',
+          },
+          {
+            id: 'decline',
+            label: 'Decline (Avoid Fatigue)',
+            style: 'secondary',
+          },
+        ],
+        expiresAt: Date.now() + 15000,
+        durationMs: 15000,
+        data: {
+          chargeActionId: action.id,
+          attackerId: attacker.id,
+          targetId: target.id,
+          weaponId: defenderMelee.id,
+        },
+      };
+    }
+
+    diceResolution = {
+      rollId: action.id,
+      specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
+      results: dice,
+      context: {
+        attackerId,
+        targetId,
+        weaponId: weapon.id,
+        retaliationWeaponId: defenderMelee?.id,
+        actionId: action.id,
+      },
+      outcome: {
+        attackCount: outcome.attackCount,
+        hitCount: outcome.hitCount,
+        ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
+        blockedCount: outcome.blockedCount,
+      blockedRolls: outcome.blockedRolls,
+        ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
+        wounds: outcome.wounds,
+        targetDestroyed: target.isDestroyed,
+        targetShaken: target.status.includes('shaken'),
+        baseQuality: attacker.quality,
+        effectiveQuality: outcome.effectiveQuality,
+        hitModifiers: outcome.hitModifiers,
+        baseDefense: target.defense,
+        effectiveDefense: outcome.effectiveDefense,
+        defenseModifiers: outcome.defenseModifiers,
+        coverApplied: false,
+        ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
+        ...(trauma
+          ? {
+              traumaRoll: trauma.roll,
+              traumaTokens: trauma.tokens,
+              traumaDreadBonus: trauma.dreadBonus,
+              traumaTotal: trauma.total,
+              traumaOutcome: trauma.outcome,
+            }
+          : {}),
+        pushedBack,
+        ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
+      },
+    };
+  return diceResolution;
+}
 
 function requireActiveUnit(state: GameState, actorId: string, unitId: string): RequireResult {
   const unit = getUnit(state, unitId);

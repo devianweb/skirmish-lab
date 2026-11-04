@@ -76,6 +76,13 @@ const meleeDice = (n = 40): DiceResult[] => [
 
 const startsOf = (state: GameState, id = 'h1') => livingModelPositions(state.units.find((u) => u.id === id)!);
 
+/** The defender lets the host place their models (what a timed-out pile-in prompt does). */
+const autoPileIn = (state: GameState) =>
+  createAction(GUEST, 'respond-reaction', {
+    reactionId: state.turnState.pendingReaction!.id,
+    choiceId: 'auto-pile-in',
+  });
+
 function chargeAction(
   positions: Vector3[],
   paths?: Vector3[][],
@@ -236,10 +243,14 @@ describe('squad charge: who strikes, pile-in', () => {
     expect(out.logEntry?.dice?.outcome.attackCount).toBe(6);
   });
 
-  it('defenders not in contact pile in up to 3" toward the charger', () => {
+  it('defenders not in contact pile in up to 3" toward the charger (host places them when the prompt times out)', () => {
     const state = lineAbreast();
     const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
-    const out = applyAction(state, chargeAction(ends, straight(state, ends)), meleeDice());
+    const charged = applyAction(state, chargeAction(ends, straight(state, ends)), undefined);
+    expect(charged.ok).toBe(true);
+    const next = charged.state!;
+    expect(next.turnState.pendingReaction?.type).toBe('pile-in');
+    const out = applyAction(next, autoPileIn(next), meleeDice());
     expect(out.ok).toBe(true);
     const g1 = out.state!.units.find((u) => u.id === 'g1')!;
     const rear = g1.models[2].position!;
@@ -258,7 +269,9 @@ describe('squad charge: step back after melee', () => {
   it('moves each charging model back to at least 1" from every enemy model, staying coherent', () => {
     const state = lineAbreast();
     const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
-    const charged = applyAction(state, chargeAction(ends, straight(state, ends)), meleeDice());
+    const piling = applyAction(state, chargeAction(ends, straight(state, ends)), undefined);
+    expect(piling.ok).toBe(true);
+    const charged = applyAction(piling.state!, autoPileIn(piling.state!), meleeDice());
     expect(charged.ok).toBe(true);
     const next = charged.state!;
     const done = applyAction(next, decline(next));

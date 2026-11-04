@@ -2713,7 +2713,8 @@ export class GameHUD {
       }
 
       const titleText =
-        entry.action.type === 'respond-reaction'
+        entry.action.type === 'respond-reaction' &&
+        (entry.action.payload as { choiceId?: string }).choiceId !== 'auto-pile-in'
           ? `Defender Retaliation: ${attacker?.name ?? 'Defender'} → ${target?.name ?? 'Charger'}`
           : `${attacker?.name ?? 'Attacker'} → ${target?.name ?? 'target'}`;
 
@@ -2773,8 +2774,11 @@ export class GameHUD {
         return `charged ${this.unitName((action.payload as any).targetId)}`;
       case 'fight':
         return `fought ${this.unitName((action.payload as any).targetId)}`;
+      case 'pile-in-move':
+        return 'piled in';
       case 'respond-reaction': {
         const p = action.payload as { choiceId: string };
+        if (p.choiceId === 'auto-pile-in') return 'piled in (auto)';
         return p.choiceId === 'strike-back' ? 'struck back in retaliation' : 'declined retaliation';
       }
       case 'end-activation':

@@ -18,7 +18,7 @@ export interface ReactionOption {
 
 export interface PendingReaction {
   id: string;
-  type: 'melee-retaliation' | string;
+  type: 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | string;
   promptingPlayerId: string; // The player who must choose (defender)
   sourceUnitId: string;      // The attacker/charger
   targetUnitId: string;      // The defender making the decision
@@ -268,6 +268,7 @@ export type ActionType =
   | 'hold'
   | 'respond-reaction'
   | 'consolidate-move'
+  | 'pile-in-move'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round';       // Finish the round (cleanup/morale)
 
@@ -291,6 +292,7 @@ export type ActionPayload =
   | { type: 'hold', unitId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3 }
+  | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'end-activation' }
   | { type: 'end-round' };
 
