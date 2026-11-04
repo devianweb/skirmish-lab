@@ -474,6 +474,8 @@ export class GameHUD {
     if (pileIn) {
       if (target.kind === 'unit' && target.unitId === pileIn.defender.id && target.modelId) {
         this.selectPileInModel(target.modelId);
+      } else if (target.kind === 'unit' && target.unitId === pileIn.charger.id) {
+        this.placePileInContact(target.modelId);
       } else if (target.kind === 'position') {
         this.placePileInModel(target.position);
       }
@@ -1147,7 +1149,29 @@ export class GameHUD {
     this.emitMarkers();
   }
 
-  private placePileInModel(rawDestination: Vector3): void {
+  /** Click on a charging model (or the unit): walk the selected model into base contact with it, or say why not. */
+  private placePileInContact(chargerModelId?: string): void {
+    const ctx = this.pileInContext();
+    if (!ctx) return;
+    const model = this.pileInSelectedModel(ctx);
+    if (!model) return;
+    const from = model.position ?? ctx.defender.position;
+    const foeModel = chargerModelId ? (ctx.charger.models ?? []).find((m) => m.id === chargerModelId && !m.isDestroyed) : null;
+    let spot: Vector3;
+    if (foeModel) {
+      const fp = foeModel.position ?? ctx.charger.position;
+      const dx = from.x - fp.x;
+      const dz = from.z - fp.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const contact = edgeGapToCentre(0);
+      spot = { x: fp.x + (dx / len) * contact, y: fp.y ?? 0, z: fp.z + (dz / len) * contact };
+    } else {
+      spot = this.contactSpotFor(from, ctx.charger);
+    }
+    this.placePileInModel(spot, true);
+  }
+
+  private placePileInModel(rawDestination: Vector3, needExact = false): void {
     const ctx = this.pileInContext();
     if (!ctx || !this.state) return;
     const model = this.pileInSelectedModel(ctx);
@@ -1159,10 +1183,18 @@ export class GameHUD {
       ignoreUnitId: ctx.charger.id,
     });
     if (path.length < 2) {
-      this.showToast('Pick a destination away from the model');
+      this.showToast(
+        needExact
+          ? `Cannot reach base contact there: it is beyond ${ctx.maxDistance}" or the way is blocked`
+          : 'Pick a destination away from the model'
+      );
       return;
     }
     const destination = path[path.length - 1];
+    if (needExact && boardDistance(destination, rawDestination) > 0.1) {
+      this.showToast(`Cannot reach base contact there: it is beyond ${ctx.maxDistance}" or the way is blocked`);
+      return;
+    }
     const idx = ctx.alive.findIndex((m) => m.id === model.id);
     const positions = this.pileInPositions(ctx);
     for (let i = 0; i < positions.length; i++) {

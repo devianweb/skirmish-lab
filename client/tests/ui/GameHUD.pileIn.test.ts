@@ -52,11 +52,11 @@ function mkUnit(id: string, ownerId: string, spots: Array<[number, number]>): Un
 }
 
 /** A 4-model host line charges a 3-model guest squad: after the charge, g1's third model must pile in. */
-function afterCharge(): GameState {
+function afterCharge(thirdSpot: [number, number] = [0.5, 10]): GameState {
   const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   state.units = [
     mkUnit('h1', HOST, [[0, 0], [1, 0], [2, 0], [3, 0]]),
-    mkUnit('g1', GUEST, [[0, 9], [1, 9], [0.5, 10]]),
+    mkUnit('g1', GUEST, [[0, 9], [1, 9], thirdSpot]),
   ];
   state.terrain = [];
   state.status = 'in-progress';
@@ -80,8 +80,8 @@ function afterCharge(): GameState {
   return out.state!;
 }
 
-function setup(local: string) {
-  const state = afterCharge();
+function setup(local: string, thirdSpot?: [number, number]) {
+  const state = afterCharge(thirdSpot);
   const controller = { submitAction: vi.fn() };
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -182,5 +182,31 @@ describe('GameHUD defender pile-in prompt (batch 1I PR 34)', () => {
     click(container, 'Confirm');
     const pos = controller.submitAction.mock.calls[0][0].payload.modelPositions[2];
     expect(pos.x === 2 && pos.z === 9).toBe(false);
+  });
+
+  it('clicking a charging model walks the selected model into base contact with it', () => {
+    const { container, controller, hud, state } = setup(GUEST, [2.5, 10.2]);
+    hud.handleBoardPick({ kind: 'unit', unitId: 'h1', modelId: 'h1-m3' });
+    click(container, 'Confirm');
+    const action = controller.submitAction.mock.calls[0][0];
+    const p = action.payload.modelPositions[2];
+    expect(Math.hypot(p.x - 3, p.z - 8)).toBeLessThan(1.1);
+    expect(validateAction(state, action).valid).toBe(true);
+  });
+
+  it('clicking the charging unit without a model also goes to contact', () => {
+    const { container, controller, hud, state } = setup(GUEST, [2.5, 10.2]);
+    hud.handleBoardPick({ kind: 'unit', unitId: 'h1' });
+    click(container, 'Confirm');
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(validateAction(state, action).valid).toBe(true);
+    expect(action.payload.modelPositions[2].z).toBeLessThan(10.2);
+  });
+
+  it('a contact spot beyond 3 inches toasts and leaves the model where it was', () => {
+    const { container, hud } = setup(GUEST, [8, 14]);
+    hud.handleBoardPick({ kind: 'unit', unitId: 'h1', modelId: 'h1-m0' });
+    expect(container.textContent).toContain('Cannot reach base contact');
+    expect(container.textContent).not.toContain('✓ Model 3');
   });
 });
