@@ -116,7 +116,10 @@ sequenceDiagram
 ```
 
 1. **Targeting & Split Fire:**
-   - Attacker must have line of sight and target within weapon range.
+   - Shooting is per model. A target unit is valid for a weapon when at least one attacking model has line of sight (traced from that model's eye) to **some** living model of the target **and** that same target model is within the weapon's range, measured base edge to base edge. Lobbed weapons need range only.
+   - **Who fires:** only the attacking models that meet that test fire; the weapon's attack count is its attacks times the number of firing models (the other models neither see nor reach the target). Split-fire allocations apply the same test per weapon group.
+   - **Blocking:** an attacker's own squad-mates never block its sight; models of any other unit (friend or foe) do. The target unit's own models do not block sight to each other.
+   - **Distance rules:** the `> 9"` rule checks and the distance shown to the player use the closest pair of models. `unit.position` is only an anchor for a squad and is never used to measure between units.
    - A squad may divide its fire among up to **two distinct targets**, provided each target is fired upon by distinct weapon profiles.
 2. **Hit Allocation:**
    - Attacker rolls 1d6 per weapon attack count. Each roll $\ge Q$ scores 1 hit.
@@ -128,6 +131,7 @@ sequenceDiagram
      - *Apertures (Windows & Doorways):*
        - *Doorways (`wall-doorway`):* Open air between two jambs under a lintel. Line of Sight and movement pass freely and the doorway itself gives no cover; a model partly hidden behind a jamb claims ordinary sight-blocker cover.
        - *Windows / Firing Ports (`wall-window`):* Windows block model movement. Line of Sight can only be drawn through a window if at least one fighter (shooter or target) has its base edge within **1.0"** of the window aperture ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains $+1$ Defense (Cover). If both models are $>1.0"$ from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
+   - **Squad targets:** each living target model is judged individually against the nearest firing model. The unit has cover only if a strict majority of its living models are in cover (3 of 4 yes; 2 of 4 or 1 of 4 no). A single-model target is judged on its own, as before.
    - **Armor Piercing (AP):** Subtracts $X$ from defender's roll.
 4. **Wound Infliction:**
    - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Wound Effects Table)**.

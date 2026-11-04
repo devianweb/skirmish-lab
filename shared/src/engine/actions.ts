@@ -75,10 +75,12 @@ import { getTraitValue, hasTrait } from '../rules/traits';
 import {
   modelGap,
   unitGap,
+  unitDistance,
   edgeGapToCentre,
   ENGAGEMENT_EDGE_GAP,
   CHARGE_END_EDGE_GAP,
 } from './unitGeometry';
+import { firingModels, targetCoverByMajority } from './squadTargeting';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -524,15 +526,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const target = requireTarget(state, action.actorId, alloc.targetId);
         if ('reason' in target) return target;
 
-        const distance = unitGap(attacker.result, target.result);
-        if (distance > weapon.profile.range + 0.01) {
-          return { valid: false, reason: 'Target out of range' };
-        }
-        if (
-          !hasTrait(weapon.profile.specialRules, 'lobbed') &&
-          !hasLineOfSight(state, attacker.result, target.result)
-        ) {
-          return { valid: false, reason: 'No line of sight to target' };
+        if (firingModels(state, attacker.result, target.result, weapon).length === 0) {
+          // Tell the player which condition failed (closest models decide range).
+          const reach = unitDistance(attacker.result, target.result);
+          return {
+            valid: false,
+            reason: reach > weapon.profile.range + 0.01 ? 'Target out of range' : 'No line of sight to target',
+          };
         }
       }
 
@@ -1038,10 +1038,11 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       const attacks = weapon.profile.attacks;
       if (typeof attacks !== 'number' || attacks < 1) return;
 
-      const distance = unitGap(attacker, target);
+      const distance = unitDistance(attacker, target);
       const aliveDefenderModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const totalAttacks = attacks * aliveAttackerModels;
+      // Only models that can see and reach the target contribute attacks.
+      const firingCount = Math.max(1, firingModels(state, attacker, target, weapon).length);
+      const totalAttacks = attacks * firingCount;
       const specs = getAttackDiceSpecs(totalAttacks, {
         attackerRules: attacker.specialRules,
         weaponRules: weapon.profile.specialRules,
@@ -1558,14 +1559,14 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const alloc = allocations[i];
         const weapon = getWeapon(attacker, alloc.weaponId)!;
         const target = getUnit(newState, alloc.targetId)!;
-        const distance = unitGap(attacker, target);
+        const distance = unitDistance(attacker, target);
         const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        const firing = firingModels(newState, attacker, target, weapon);
         const inCover =
           target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target));
+          (!isLobbed && targetCoverByMajority(newState, firing, attacker, target));
         const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
-        const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-        const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
+        const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
 
         let outcome: CombatOutcome;
         let traumaRolls: number[] | undefined;

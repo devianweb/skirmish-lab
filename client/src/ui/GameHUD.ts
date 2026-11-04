@@ -18,8 +18,6 @@ import {
   getDeploymentZoneBounds,
   getEffectiveMaxMovement,
   getUnitTough,
-  hasCoverAgainstAttack,
-  hasLineOfSight,
   hasTrait,
   isPathDangerous,
   isPathDifficult,
@@ -42,6 +40,9 @@ import {
   markerGap,
   modelGap,
   unitGap,
+  unitDistance,
+  firingModels,
+  targetCoverByMajority,
   edgeGapToCentre,
   ENGAGEMENT_EDGE_GAP,
   CHARGE_END_EDGE_GAP,
@@ -1252,9 +1253,11 @@ export class GameHUD {
     const target = this.state?.units.find((u) => u.id === targetUnitId);
     if (!target || target.ownerId === this.localPlayerId || target.isDestroyed) return;
 
-    const distance = unitGap(active, target);
+    const distance = unitDistance(active, target);
 
     if (actionKind === 'shoot') {
+      const canFire = (w: Weapon): boolean =>
+        !!this.state && firingModels(this.state, active, target, w).length > 0;
       const rangedWeapons = active.weapons.filter(
         (w) => w.isEquipped && w.profile.type === 'ranged'
       );
@@ -1266,13 +1269,12 @@ export class GameHUD {
       // Single ranged weapon: instant streamlined flow
       if (rangedWeapons.length === 1) {
         const weapon = rangedWeapons[0];
-        if (distance > weapon.profile.range + 0.01) {
-          this.showToast(`Out of range (${distance.toFixed(1)}" > ${weapon.profile.range}")`);
-          return;
-        }
-        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-        if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
-          this.showToast(`No line of sight to ${target.name}`);
+        if (!canFire(weapon)) {
+          this.showToast(
+            distance > weapon.profile.range + 0.01
+              ? `Out of range (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+              : `No line of sight to ${target.name}`
+          );
           return;
         }
         this.shootAllocations.set(weapon.id, target.id);
@@ -1286,9 +1288,7 @@ export class GameHUD {
         let assignedAny = false;
         let firstUnreachableWeaponId: string | null = null;
         for (const weapon of rangedWeapons) {
-          const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-          const hasLos = isLobbed || (this.state && hasLineOfSight(this.state, active, target));
-          if (distance <= weapon.profile.range + 0.01 && hasLos) {
+          if (canFire(weapon)) {
             this.shootAllocations.set(weapon.id, target.id);
             assignedAny = true;
           } else {
@@ -1315,15 +1315,12 @@ export class GameHUD {
         rangedWeapons.find((w) => this.shootAllocations.get(w.id) === null) ??
         rangedWeapons[0];
 
-      if (distance > currentWeapon.profile.range + 0.01) {
+      if (!canFire(currentWeapon)) {
         this.showToast(
-          `${currentWeapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${currentWeapon.profile.range}")`
+          distance > currentWeapon.profile.range + 0.01
+            ? `${currentWeapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${currentWeapon.profile.range}")`
+            : `No line of sight to ${target.name}`
         );
-        return;
-      }
-      const isLobbed = hasTrait(currentWeapon.profile.specialRules, 'lobbed');
-      if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
-        this.showToast(`No line of sight to ${target.name}`);
         return;
       }
 
@@ -1519,25 +1516,23 @@ export class GameHUD {
       const target = this.state.units.find((u) => u.id === targetId && !u.isDestroyed);
       if (!target) continue;
 
-      const distance = unitGap(active, target);
-      if (distance > weapon.profile.range + 0.01) {
+      const distance = unitDistance(active, target);
+      const firing = firingModels(this.state, active, target, weapon);
+      if (firing.length === 0) {
         this.showToast(
-          `${weapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+          distance > weapon.profile.range + 0.01
+            ? `${weapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+            : `No line of sight from ${weapon.name} to ${target.name}`
         );
         return;
       }
       const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-      if (!isLobbed && !hasLineOfSight(this.state, active, target)) {
-        this.showToast(`No line of sight from ${weapon.name} to ${target.name}`);
-        return;
-      }
 
       const inCover =
         !hasTrait(weapon.profile.specialRules, 'blast') &&
         (target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
-      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const attacks = (weapon.profile.attacks as number) * livingCount;
+          (!isLobbed && targetCoverByMajority(this.state, firing, active, target)));
+      const attacks = (weapon.profile.attacks as number) * firing.length;
       const mods = computeCombatModifiers(
         {
           quality: active.quality,
@@ -1574,7 +1569,7 @@ export class GameHUD {
     let summary: string;
     if (uniqueTargets.size === 1) {
       const target = allocations[0].target;
-      const distance = unitGap(active, target);
+      const distance = unitDistance(active, target);
       const weaponNames = allocations.map((a) => a.weapon.name).join(' & ');
       const diceSummaries = allocations.map((a) => `${a.weapon.name}: ${a.diceText}`).join(' | ');
       summary = `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`;
@@ -1582,7 +1577,7 @@ export class GameHUD {
       const splitSummaries = allocations
         .map(
           (a) =>
-            `${a.weapon.name} at ${a.target.name} (${unitGap(active, a.target).toFixed(1)}") [${a.diceText}]`
+            `${a.weapon.name} at ${a.target.name} (${unitDistance(active, a.target).toFixed(1)}") [${a.diceText}]`
         )
         .join(' · ');
       summary = `${active.name} split fires: ${splitSummaries}`;
@@ -3518,25 +3513,19 @@ export class GameHUD {
     const limit = this.actionMaxRange(unit, action);
     return this.state.units.filter((candidate) => {
       if (candidate.ownerId === this.localPlayerId || candidate.isDestroyed) return false;
-      const distance = unitGap(unit, candidate);
-      // Shooting reach is a base-edge distance; a charge is refined by the pathfinder below; melee uses the engagement gap.
-      if (distance > (action === 'fight' ? ENGAGEMENT_EDGE_GAP : limit) + 0.01) return false;
       if (action === 'shoot') {
         const weaponToCheck = this.selectedShootWeaponId
           ? unit.weapons.find((w) => w.id === this.selectedShootWeaponId)
           : null;
         if (weaponToCheck && weaponToCheck.profile.type === 'ranged') {
-          if (distance > weaponToCheck.profile.range + 0.01) return false;
-          if (hasTrait(weaponToCheck.profile.specialRules, 'lobbed')) return true;
-          return hasLineOfSight(this.state!, unit, candidate);
+          return firingModels(this.state!, unit, candidate, weaponToCheck).length > 0;
         }
         const rangedWeapons = unit.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
-        return rangedWeapons.some((w) => {
-          if (distance > w.profile.range + 0.01) return false;
-          if (hasTrait(w.profile.specialRules, 'lobbed')) return true;
-          return hasLineOfSight(this.state!, unit, candidate);
-        });
+        return rangedWeapons.some((w) => firingModels(this.state!, unit, candidate, w).length > 0);
       }
+      const distance = unitGap(unit, candidate);
+      // A charge is refined by the pathfinder below; melee uses the engagement gap.
+      if (distance > (action === 'fight' ? ENGAGEMENT_EDGE_GAP : limit) + 0.01) return false;
       if (action === 'charge') {
         // Verify pathfinder reaches within engagement range under double speed
         const dx = unit.position.x - candidate.position.x;

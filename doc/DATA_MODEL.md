@@ -129,7 +129,7 @@ interface Unit {
   speed: number;            // Movement allowance in inches
   
   // Position & Orientation
-  position: Vector3;         // {x, y, z}
+  position: Vector3;         // {x, y, z} display/anchor point only (squad centroid); rules measure per model via models[].position
   rotation: Vector3;         // {x, y, z} in radians
   
   // Status
