@@ -58,6 +58,7 @@ import {
   Vector3,
   Weapon,
   modelRemainingMovement,
+  closestApproach,
 } from '@skirmish-lab/shared';
 import {
   PreviewSegment,
@@ -1217,13 +1218,23 @@ export class GameHUD {
     const alive = this.activeAliveSquadModels;
     if (alive.length <= 1 || this.stagedSquadModelPositions.size === 0) return;
 
-    const orderedPositions = alive.map(
+    let orderedPositions = alive.map(
       (m) => this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position
     );
-    const orderedPaths = alive.map(
+    let orderedPaths = alive.map(
       (m, i) => this.stagedSquadModelPaths.get(m.id) ?? [orderedPositions[i]]
     );
-    if (this.stagedSquadModelPositions.size < alive.length) {
+    // A final charge moves the models the player did not place as close as they can get
+    let autoPlaced: number[] = [];
+    if (actionKind === 'charge' && this.stagedSquadModelPositions.size < alive.length) {
+      const filled = this.autoPlaceChargers(alive, orderedPositions, orderedPaths);
+      if (filled) {
+        orderedPositions = filled.positions;
+        orderedPaths = filled.paths;
+        autoPlaced = filled.autoPlaced;
+      }
+    }
+    if (this.stagedSquadModelPositions.size < alive.length && autoPlaced.length === 0) {
       const coherency = validateSquadCoherency(orderedPositions);
       const startPositions = alive.map((m) => m.position ?? active.position);
       if (!coherency.coherent && !isRegroupingMove(startPositions, orderedPositions)) {
@@ -1237,7 +1248,7 @@ export class GameHUD {
     }
     const finalCentroid = computeSquadCentroid(orderedPositions);
     if (actionKind === 'charge') {
-      this.finishSquadCharge(alive, orderedPositions, orderedPaths, finalCentroid);
+      this.finishSquadCharge(alive, orderedPositions, orderedPaths, finalCentroid, autoPlaced);
       return;
     }
     const isAnyModelDifficult = orderedPaths.some((p) =>
@@ -1294,6 +1305,61 @@ export class GameHUD {
   }
 
   /**
+   * On a final squad charge, fill in the models the player did not place: each (in model order) goes to its
+   * `closestApproach` spot given the others' positions so far. Only when a placed model already touches the
+   * target (otherwise the confirmation is a leg and unplaced models stay put). Returns null when nothing applies.
+   */
+  private autoPlaceChargers(
+    alive: Model[],
+    positions: Vector3[],
+    paths: Vector3[][]
+  ): { positions: Vector3[]; paths: Vector3[][]; autoPlaced: number[] } | null {
+    const active = this.activeUnit;
+    const declared = this.declaredCharge;
+    const state = this.state;
+    if (!active || !declared || !state) return null;
+    const target = state.units.find((u) => u.id === declared.targetId);
+    if (!target) return null;
+    const targetModels = livingModelPositions(target);
+    const touches = (pos: Vector3): boolean =>
+      targetModels.some(
+        (t) =>
+          modelGap(pos, t) <= CHARGE_END_EDGE_GAP + 0.001 &&
+          Math.abs((pos.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH
+      );
+    if (!alive.some((m, i) => this.stagedSquadModelPositions.has(m.id) && touches(positions[i]))) return null;
+
+    const outPositions = [...positions];
+    const outPaths = [...paths];
+    const autoPlaced: number[] = [];
+    // Models still waiting to be filled in have no final spot yet: they do not count as "the others"
+    const settled = alive.map((m) => this.stagedSquadModelPositions.has(m.id));
+    alive.forEach((m, i) => {
+      if (settled[i]) return;
+      const start = m.position ?? active.position;
+      const remaining = this.distanceLeft(active, 'charge', m);
+      const spent = getEffectiveMaxMovement(active, 'charge', false) - remaining;
+      const best = closestApproach(
+        state,
+        active,
+        i,
+        start,
+        remaining,
+        target,
+        outPositions.filter((_, j) => j !== i && settled[j]),
+        { difficultBudget: Math.max(0, getEffectiveMaxMovement(active, 'charge', true) - spent) }
+      );
+      if (best && best.cost > 0.05) {
+        outPositions[i] = best.position;
+        outPaths[i] = best.path;
+        autoPlaced.push(i);
+      }
+      settled[i] = true;
+    });
+    return { positions: outPositions, paths: outPaths, autoPlaced };
+  }
+
+  /**
    * Build the confirmation for a squad charge from the staged models: a final charge into contact when at least
    * one model ends touching the target, otherwise a leg (the rest of the budget stays). The host check runs first
    * so the player sees why a placement is refused.
@@ -1302,7 +1368,8 @@ export class GameHUD {
     alive: Model[],
     orderedPositions: Vector3[],
     orderedPaths: Vector3[][],
-    centroid: Vector3
+    centroid: Vector3,
+    autoPlaced: number[] = []
   ): void {
     const active = this.activeUnit;
     const declared = this.declaredCharge;
@@ -1362,6 +1429,9 @@ export class GameHUD {
         ...alive.map((m, i) => this.distanceLeft(active, 'charge', m) - pathMovementCost(state, orderedPaths[i]))
       );
       summary = `Charge leg for ${active.name} (${alive.length} models) · furthest walk ${cost.toFixed(1)}" · each model keeps its own distance (up to ${left.toFixed(1)}" left after this leg; no melee yet)`;
+    }
+    if (autoPlaced.length > 0) {
+      summary += ` · moved up as close as they can: ${autoPlaced.map((i) => `Model ${i + 1}`).join(', ')}`;
     }
     alive.forEach((m, i) => {
       const j = this.stagedSquadModelTraversals.get(m.id);
@@ -2992,7 +3062,7 @@ export class GameHUD {
 
         if (isSquadChargePlacing && this.declaredCharge) {
           const modelNo = (currentModelIndex >= 0 ? currentModelIndex : 0) + 1;
-          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${this.distanceLeft(active, 'charge', currentModel).toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip stay put (Confirm charge)`;
+          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${this.distanceLeft(active, 'charge', currentModel).toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip move up as close as they can once one of yours touches the target (Confirm charge)`;
         } else if (placedCount === 0) {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowanceText}"`;
         } else {

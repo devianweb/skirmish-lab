@@ -185,7 +185,7 @@ describe('regrouping while charging', () => {
   it('a final charge may end apart if the whole squad ended closer to coherent', () => {
     const state = build();
     const starts = startsOf(state);
-    const ends = [P(0, 8), P(1, 8), P(0, 7), P(4, 5.5)];
+    const ends = [P(0, 8), P(1, 8), P(-1, 8), P(1.7, 5.3)];
     expect(validateSquadCoherency(ends).coherent).toBe(false);
     expect(isRegroupingMove(starts, ends)).toBe(true);
     expect(validateAction(state, chargeAction(ends, starts, 'charge'))).toEqual({ valid: true });
