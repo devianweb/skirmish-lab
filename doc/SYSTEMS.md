@@ -308,6 +308,10 @@ Pressing `F9` in-game activates the real-time spatial debugger:
 - **Flank Rays:** Shows left and right torso-height rays (±0.3" from target center, 0.6" up) to verify partial obscuration by walls, jambs and sills.
 - **Cover Map Wireframes:** Renders one wireframe per terrain solid and aperture (Cyan = solid LoS blockers, Amber = low cover, Green = firing-port apertures, Gold highlight = piece actively granting cover to target). An orange outline on the top face of a walkable floor marks a climbable piece (`isClimbable`: models can climb onto it without a ladder, rise up to 3"); the map editor shows the same outline on the selected piece.
 - **HUD Analysis Card:** Displays real-time calculations: distance, Line of Sight status, cover reason, piece IDs, and coordinate breakdown of all intersected pieces.
+- **Squads (per model):** for unit-vs-unit shooting `computeSquadShootingRayDebug` traces the detailed card (terrain crossings, flank rays) between the closest pair of models and adds `modelRays`: one eye-level ray per attacker model to its nearest visible in-range target model (cyan = that model fires, faint red = it cannot). The card tags read "N of M models fire" and "k/n target models in cover"; Line of Sight is clear while any model can fire and cover follows the more-than-half rule, not just the closest pair.
+
+### Shooting preview (aim lines)
+While choosing a shooting target (and while confirming a shot), `squadAim` (`squadTargeting.ts`) gives the HUD one aim per living attacker model: its nearest visible, in-range target model (or the nearest model when none is visible, drawn faint red). `MarkerRenderer.setAimLines` draws those lines at eye height and a yellow ring under the target model the cursor is on when at least one firing model can see it. A chip above the hint reads "N of M models can fire" for squad shooters. The weapon used is the selected weapon chip, else the first ranged weapon that can fire. Single-model shooters get one line and no chip. The engine does all the range and sight tests; the HUD only draws.
 
 ## Game State Transitions
 
