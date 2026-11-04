@@ -12,6 +12,7 @@ import {
   distanceToBoxXZ,
   segmentBoxIntersection,
   worldToLocal,
+  UNIT_BASE_RADIUS,
 } from './terrainStructure';
 
 import { classifySegment, CLIMB_MAX, FREE_DROP_MAX, pathMovementCost } from './traversal';
@@ -1254,6 +1255,18 @@ export interface CoverSource {
   reason: string;
 }
 
+/** How close (base edge to piece) a defender must be to intervening low cover to claim it. */
+export const LOW_COVER_REACH = 1.0;
+
+/** Gap from a model's base edge to a piece's footprint on the table (0 when touching or overlapping). */
+export function lowCoverEdgeGap(piece: TerrainPiece, centre: Vector3): number {
+  const { hx, hz } = terrainHalfExtents(piece);
+  const l = worldToLocal(piece, { x: centre.x, y: 0, z: centre.z });
+  const ox = Math.max(0, Math.abs(l.x) - hx);
+  const oz = Math.max(0, Math.abs(l.z) - hz);
+  return Math.max(0, Math.hypot(ox, oz) - UNIT_BASE_RADIUS);
+}
+
 /**
  * Find why `target` receives a Cover bonus (+1 Defense) against a ranged attack from `attacker`,
  * or null if it does not.
@@ -1322,12 +1335,11 @@ export function findCoverSource(
     if (projDist > dist + pieceRadius) continue;
 
     if (!piece.blocksLineOfSight) {
-      // Low cover (crates, barricades): line of fire must pass across the piece,
-      // and defender must be within 1.0" of the low cover along the line of fire.
+      // Low cover (crates, barricades): line of fire must pass across the piece, and the
+      // defender's base edge must be within 1.0" of the piece (base edge to piece, decision 12).
       const hit = intersectRayTerrain(attacker.position, dirX, dirZ, dist, piece, 0.15);
       if (hit && hit.tEntry >= 0.8 && hit.tExit <= dist + 0.1 && hit.tEntry < dist - 0.05) {
-        const distFromExitToTarget = dist - hit.tExit;
-        if (distFromExitToTarget <= 1.0) {
+        if (lowCoverEdgeGap(piece, target.position) <= LOW_COVER_REACH) {
           return { pieceId: piece.id, reason: `Intervening low cover (${piece.terrainType}, defender within 1.0")` };
         }
       }

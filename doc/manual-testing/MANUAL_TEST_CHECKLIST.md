@@ -24,6 +24,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 5. Low cover & scatter
 - [ ] Barricades, crates and pipes (1" tall or less) are stepped over: a move straight across one has no detour and costs only the straight-line distance, also for a barricade stacked on a deck. A move that would stop on or inside one is pulled back to just before it (or rejected). Walls, columns and the container still block. Cover from a low piece (+1 within 1" behind it) and sight over it are unchanged.
+- [ ] Low cover at an angle: put a model with its base touching a pipe, barricade or crate, then shoot it from an angle so the F9 line crosses the piece. It gets cover (F9 shows the piece granting it). A model whose base edge is more than 1" from the crossed piece gets none, and a shooter firing over a piece it is touching still gives an open target no cover.
 
 ## 6. Squads
 - [ ] **TEST squad army:** in the lobby, "TEST: Single Squad (4 models, speed 12")" is selectable for host and guest; each side gets one 4-model squad (Advance 12", Rush 24").
