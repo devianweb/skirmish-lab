@@ -1,4 +1,4 @@
-import { CustomMapDefinition, createBlankMap } from '@skirmish-lab/shared';
+import { CustomMapDefinition, createBlankMap, DEFAULT_BOARD_SIZE } from '@skirmish-lab/shared';
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
@@ -307,7 +307,7 @@ export class Lobby {
       const customOptionsHtml = customMaps.length > 0
         ? `
           <optgroup label="Custom Maps">
-            ${customMaps.map((m) => `<option value="custom:${m.id}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${m.name} (${m.terrain?.length ?? 0} pieces)</option>`).join('')}
+            ${customMaps.map((m) => `<option value="custom:${m.id}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
           </optgroup>
         `
         : '';

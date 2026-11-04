@@ -7,6 +7,7 @@ import {
   TERRAIN_PALETTE_CATALOG,
 } from '@skirmish-lab/shared';
 import { MapEditor } from '../../src/editor/MapEditor';
+import { MapStore } from '../../src/storage/MapStore';
 
 describe('MapEditor 3D Battlefield Builder', () => {
   let container: HTMLElement;
@@ -516,5 +517,111 @@ describe('MapEditor objective selection (13.6 playtest fix)', () => {
 
     (container.querySelector(`[data-objective-remove="${objs[0].id}"]`) as HTMLElement).click();
     expect(editor.getMap().objectives!.map((o) => o.id)).toEqual(objs.slice(1).map((o) => o.id));
+  });
+
+  describe('board size control', () => {
+    function memoryStorage(): Storage {
+      const m = new Map<string, string>();
+      return {
+        getItem: (k) => m.get(k) ?? null,
+        setItem: (k, v) => void m.set(k, v),
+        removeItem: (k) => void m.delete(k),
+        clear: () => m.clear(),
+        key: (i) => Array.from(m.keys())[i] ?? null,
+        get length() {
+          return m.size;
+        },
+      };
+    }
+
+    function pickPreset(id: string): void {
+      const sel = container.querySelector('#boardPresetSelect') as HTMLSelectElement;
+      sel.value = id;
+      sel.dispatchEvent(new Event('change'));
+    }
+
+    function setInput(id: string, value: string): void {
+      const el = container.querySelector(id) as HTMLInputElement;
+      el.value = value;
+      el.dispatchEvent(new Event('change'));
+    }
+
+    it('starts on the 48x48 standard preset', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      expect(editor.getBoardSize()).toEqual({ width: 48, height: 48 });
+      expect((container.querySelector('#boardPresetSelect') as HTMLSelectElement).value).toBe('48x48');
+    });
+
+    it('selecting a preset resizes the map board and the live game view', () => {
+      const syncFromState = vi.fn();
+      const gameView = { syncFromState, onPick: vi.fn(), setTerrainDebugMarker: vi.fn() } as any;
+      const editor = new MapEditor(container, { gameView });
+      editor.show();
+      pickPreset('24x36');
+      expect(editor.getMap().board).toMatchObject({ width: 24, height: 36 });
+      const last = syncFromState.mock.calls.at(-1)![0];
+      expect(last.board.width).toBe(24);
+      expect(last.board.height).toBe(36);
+      expect((container.querySelector('#boardPresetSelect') as HTMLSelectElement).value).toBe('24x36');
+    });
+
+    it('Custom shows width/height inputs, applies them, and clamps to 24-72', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      expect(container.querySelector('#boardWidthInput')).toBeNull();
+      pickPreset('custom');
+      expect(container.querySelector('#boardWidthInput')).toBeTruthy();
+      setInput('#boardWidthInput', '40');
+      expect(editor.getBoardSize()).toEqual({ width: 40, height: 48 });
+      setInput('#boardHeightInput', '500');
+      expect(editor.getBoardSize().height).toBe(72);
+      setInput('#boardWidthInput', '3');
+      expect(editor.getBoardSize().width).toBe(24);
+    });
+
+    it('custom entry equal to a preset keeps the custom inputs visible', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      pickPreset('custom');
+      setInput('#boardWidthInput', '36');
+      setInput('#boardHeightInput', '36');
+      expect(container.querySelector('#boardWidthInput')).toBeTruthy();
+      expect(editor.getBoardSize()).toEqual({ width: 36, height: 36 });
+    });
+
+    it('terrain outside a smaller board raises a visible notice; growing the board clears it', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const map = editor.getMap();
+      map.terrain = [{ ...createDefaultScenarioTerrain()[0], id: 'far', position: { x: 22, y: 0, z: 0 } }];
+      editor.setMap(map);
+      const outside = () =>
+        editor.getValidationNotices().some((n) => n.message.includes('"far"') && n.message.includes('outside'));
+      expect(outside()).toBe(false);
+      pickPreset('36x36');
+      expect(outside()).toBe(true);
+      expect(container.querySelector('#validationBadgeBtn')!.textContent).toMatch(/Notice|Error/);
+      pickPreset('48x48');
+      expect(outside()).toBe(false);
+    });
+
+    it('persists the size through export/import and save/load', () => {
+      const mapStore = new MapStore(memoryStorage());
+      const editor = new MapEditor(container, { mapStore });
+      editor.show();
+      pickPreset('custom');
+      setInput('#boardWidthInput', '60');
+      setInput('#boardHeightInput', '30');
+
+      const other = new MapEditor(document.createElement('div'), { mapStore: new MapStore(memoryStorage()) });
+      other.importJson(editor.exportJson());
+      expect(other.getBoardSize()).toEqual({ width: 60, height: 30 });
+
+      editor.saveToStore();
+      const reopened = new MapEditor(document.createElement('div'), { mapStore });
+      expect(reopened.loadMap(editor.getMap().id)).toBe(true);
+      expect(reopened.getBoardSize()).toEqual({ width: 60, height: 30 });
+    });
   });
 });

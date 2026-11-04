@@ -1,5 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DEFAULT_BOARD_SIZE } from '@skirmish-lab/shared';
+
+/** Start offset from the board centre, per axis, as a fraction of the board's longer edge. */
+export const CAMERA_START_OFFSET_RATIO = 0.5;
+
+/** Per-axis start offset (x, y and z) that frames a board of the given size. */
+export function cameraStartOffset(board?: { width: number; height: number }): number {
+  const longest = Math.max(board?.width ?? DEFAULT_BOARD_SIZE, board?.height ?? DEFAULT_BOARD_SIZE);
+  return longest * CAMERA_START_OFFSET_RATIO;
+}
 
 export class CameraController {
   private controls: OrbitControls;
@@ -27,14 +37,17 @@ export class CameraController {
 
   /**
    * Set up isometric corner view from behind the player's deployment edge.
-   * Host deploys at z = -12 facing +z (camera placed at south corner: +x, +y, -z).
-   * Guest deploys at z = +12 facing -z (camera placed at north corner: -x, +y, +z).
+   * Host deploys at the -z edge facing +z (camera at the south corner: +x, +y, -z).
+   * Guest deploys at the +z edge facing -z (camera at the north corner: -x, +y, +z).
+   * The corner distance and the zoom limit scale with the board's longer edge so the whole board is framed.
    */
-  setupForRole(role: 'host' | 'guest'): void {
+  setupForRole(role: 'host' | 'guest', board?: { width: number; height: number }): void {
+    const d = cameraStartOffset(board);
+    this.controls.maxDistance = Math.max(50, d * 3);
     if (role === 'host') {
-      this.camera.position.set(20, 20, -20);
+      this.camera.position.set(d, d, -d);
     } else {
-      this.camera.position.set(-20, 20, 20);
+      this.camera.position.set(-d, d, d);
     }
     this.controls.target.set(0, 0, 0);
     this.controls.update();

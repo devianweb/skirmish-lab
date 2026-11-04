@@ -45,7 +45,7 @@ export interface GameViewOptions {
   /** Injected scene manager (tests). Mutually exclusive with container. */
   sceneManager?: SceneManagerLike;
   /** Injected camera controller (optional with an injected scene manager). */
-  cameraController?: { update(): void; setupForRole?(role: 'host' | 'guest'): void };
+  cameraController?: { update(): void; setupForRole?(role: 'host' | 'guest', board?: { width: number; height: number }): void };
   /** Injected board renderer (defaults to the real one on the scene). */
   boardRenderer?: BoardRenderer;
   /** Injected unit renderer (defaults to the real one on the scene). */
@@ -86,6 +86,8 @@ export class GameView {
   private inputElement: HTMLElement | null;
   private pickHandlers: Array<(target: PickTarget) => void> = [];
   private hoverHandlers: Array<(target: PickTarget | null) => void> = [];
+  private cameraRole: 'host' | 'guest' = 'host';
+  private framedBoard: { width: number; height: number } | null = null;
   private pointerDownAt: { x: number; y: number } | null = null;
   /** Max pointer travel (px) between down and up to count as a pick click. */
   private static readonly PICK_DRAG_TOLERANCE = 5;
@@ -127,6 +129,7 @@ export class GameView {
    * confirmed state changes (e.g. from GameManager.onStateUpdate).
    */
   syncFromState(state: GameState): void {
+    this.reframeCameraIfBoardChanged(state);
     const signature = this.computeBoardSignature(state);
     if (signature !== this.boardSignature) {
       this.boardRenderer.renderBoard(state);
@@ -149,10 +152,23 @@ export class GameView {
    * Position the camera for the given player role so they view the battlefield
    * from behind their deployment zone.
    */
-  setupCameraForRole(role: 'host' | 'guest'): void {
+  setupCameraForRole(role: 'host' | 'guest', board?: { width: number; height: number }): void {
+    this.cameraRole = role;
+    this.framedBoard = board ? { width: board.width, height: board.height } : null;
     if (this.cameraController && 'setupForRole' in this.cameraController) {
-      (this.cameraController as any).setupForRole(role);
+      if (board) (this.cameraController as any).setupForRole(role, board);
+      else (this.cameraController as any).setupForRole(role);
     }
+  }
+
+  /**
+   * Re-run the role camera set-up when the synced board has a different size from the one the camera was
+   * last framed for (new game, or the map editor resizing its board). Defaults to the host view.
+   */
+  private reframeCameraIfBoardChanged(state: GameState): void {
+    const { width, height } = state.board;
+    if (this.framedBoard && this.framedBoard.width === width && this.framedBoard.height === height) return;
+    this.setupCameraForRole(this.cameraRole, { width, height });
   }
 
   /**
