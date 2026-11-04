@@ -80,6 +80,16 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 8. ~~Base-edge measuring~~: answered. Yes (Decision 12, PR 14).
 9. ~~Zero marker colour~~: answered. Grey (Decision 13).
 
+**Open after 1C/1D (owner to answer; none block play, each would be a small follow-up PR):**
+10. Should the shooting aim line prefer the model the player clicked, rather than the nearest one?
+11. Cover by majority: is "more than half the target models" right (so 2 of 4 is not enough)?
+12. Should shooting without moving be blocked while a squad is out of coherency?
+13. A squad that can't regroup: move "as close as possible", or Hold if it can't move at all?
+14. Should a failed jump by one squad model stop the remaining models' moves?
+15. Keep the looser "as close as possible" test for squad charges?
+16. Is spending a split charge's budget per leg (the longest model path in that leg) acceptable?
+17. Should the host reject a rigid squad charge sent without `modelPositions`?
+
 ## Follow-ups found during 1B/1E
 - Squads can't declare jumps → **1D PR 15**.
 - No jump option on charges → **1D PR 16** (split charges in legs, Decisions 21–22).
