@@ -82,7 +82,7 @@ interface ChargeState {
 
 interface PendingReaction {
   id: string;
-  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in'
+  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties'
   promptingPlayerId: string;   // The player who must choose (defender)
   sourceUnitId: string;        // The attacker/charger
   targetUnitId: string;        // The defender making the decision
@@ -94,6 +94,10 @@ interface PendingReaction {
   durationMs?: number;         // Relative duration (15000ms) for clock-skew independent timer
   data?: Record<string, any>;
 }
+
+// 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
+// CasualtyEntry = { unitId, count, remainingWounds, applications: { wounds, traumaRolls?, dreadBonus, lethalValue }[] }
+// CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
 
 interface ReactionOption {
   id: string;                  // e.g. 'strike-back' | 'decline'
@@ -300,6 +304,7 @@ type ActionType =
   | 'respond-reaction' // Reaction choice submitted by player
   | 'consolidate-move' // Winner's 3" consolidation after wiping out a unit
   | 'pile-in-move'     // Defender places the models that were not touching a charger (reaction type 'pile-in')
+  | 'pick-casualties'  // Owner names the models to remove from a damaged squad (reaction type 'pick-casualties')
   | 'use-ability'
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
@@ -329,6 +334,7 @@ interface DeclaredTraversal {
 }
 
 type ActionPayload =
+  | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living models of the damaged unit
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,

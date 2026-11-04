@@ -2774,6 +2774,22 @@ export class GameHUD {
       const hasRupture = hasTrait(allAttackerRules, 'rupture');
       const hasShred = hasTrait(allAttackerRules, 'shred');
 
+      // A casualty pick (the owner's, or the host's on timeout) that also ended the melee with the step back
+      if (
+        entry.action.type === 'pick-casualties' ||
+        (entry.action.type === 'respond-reaction' &&
+          (entry.action.payload as { choiceId?: string }).choiceId === 'auto-pick-casualties')
+      ) {
+        const stepBack = outcome.pushedBack
+          ? `<div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — both units Fatigued</div>`
+          : '';
+        return `
+          <div class="sl-hud-dice">
+            <div class="sl-hud-dice-title">Casualties removed: ${target?.name ?? 'unit'}</div>
+            ${stepBack}
+          </div>`;
+      }
+
       if (entry.action.type === 'respond-reaction') {
         const payload = entry.action.payload as { choiceId: string };
         if (payload.choiceId === 'decline') {
@@ -3066,9 +3082,12 @@ export class GameHUD {
         return `fought ${this.unitName((action.payload as any).targetId)}`;
       case 'pile-in-move':
         return 'piled in';
+      case 'pick-casualties':
+        return `removed casualties from ${this.unitName((action.payload as any).unitId)}`;
       case 'respond-reaction': {
         const p = action.payload as { choiceId: string };
         if (p.choiceId === 'auto-pile-in') return 'piled in (auto)';
+        if (p.choiceId === 'auto-pick-casualties') return 'casualties picked (auto)';
         return p.choiceId === 'strike-back' ? 'struck back in retaliation' : 'declined retaliation';
       }
       case 'end-activation':
