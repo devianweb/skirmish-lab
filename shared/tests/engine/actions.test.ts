@@ -484,7 +484,7 @@ describe('applyAction: move-unit', () => {
     });
     const outcome = act(state, action);
     expect(outcome.ok).toBe(false);
-    expect(outcome.reason).toContain('exceeds 2" limit');
+    expect(outcome.reason).toContain('exceeds 1" limit');
   });
 
   it('permits a multi-model squad to flank obstacles without centroid terrain collision false-positives', () => {
@@ -799,7 +799,7 @@ describe('applyAction: shoot', () => {
 
   it('rejects shooting beyond weapon range', () => {
     const state = shootState();
-    state.units[1].position = { x: 0, y: 0, z: 25 }; // rifle range 24
+    state.units[1].position = { x: 0, y: 0, z: 25.1 }; // rifle range 24 (measured base edge to base edge: 24.1")
     const action = createAction(HOST, 'shoot', {
       type: 'shoot',
       attackerId: 'h1',
@@ -807,6 +807,21 @@ describe('applyAction: shoot', () => {
       weaponId: 'rifle',
     });
     expect(act(state, action, dice(1, [6], [1])).reason).toBe('Target out of range');
+  });
+
+  it('measures range from base edge to base edge: 24" rifle reaches centre 24.9", not 25.1"', () => {
+    const near = shootState();
+    near.units[1].position = { x: 0, y: 0, z: 24.9 };
+    const far = shootState();
+    far.units[1].position = { x: 0, y: 0, z: 25.1 };
+    const action = createAction(HOST, 'shoot', {
+      type: 'shoot',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'rifle',
+    });
+    expect(validateAction(near, action).reason).not.toBe('Target out of range');
+    expect(validateAction(far, action).reason).toBe('Target out of range');
   });
 
   it('rejects shooting while engaged', () => {
@@ -2104,6 +2119,22 @@ describe('applyAction invariants', () => {
       const res = validateAction(state, invalidMove);
       expect(res.valid).toBe(false);
       expect(res.reason).toBe('Move cannot end in melee contact (use Charge instead)');
+
+      // Engagement is an edge gap of 0.5" (centre 1.5"): ending 0.6" away is fine, exactly 0.5" is not
+      const edgeOk = createAction(HOST, 'move-unit', {
+        type: 'move-unit',
+        unitId: 'h1',
+        path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.4 }],
+        finalPosition: { x: 0, y: 0, z: 3.4 },
+      });
+      expect(validateAction(state, edgeOk).valid).toBe(true);
+      const edgeBad = createAction(HOST, 'move-unit', {
+        type: 'move-unit',
+        unitId: 'h1',
+        path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.5 }],
+        finalPosition: { x: 0, y: 0, z: 3.5 },
+      });
+      expect(validateAction(state, edgeBad).reason).toBe('Move cannot end in melee contact (use Charge instead)');
 
       // Moving to z = 3.0 leaves distance 2.0" > 1.5" -> allowed!
       const validMove = createAction(HOST, 'move-unit', {

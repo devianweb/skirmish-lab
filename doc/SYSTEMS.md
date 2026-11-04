@@ -53,8 +53,11 @@ Units automatically navigate around terrain obstacles and other fighters rather 
 - Finds the shortest navigable path via visibility graph A* search.
 - Applies string-pulling shortcutting and cumulative distance clamping to the unit's remaining movement or double speed allowance.
 
+### Measuring (base edges)
+- All rule distances between things go through `shared/src/engine/unitGeometry.ts`: `modelGap(a, b)` (centre distance minus both base radii, floored at 0), `markerGap(model, marker)` (minus one radius), `unitGap(unitA, unitB)` (unit anchors), `edgeGapToCentre(gap)`. Rules are written with the tabletop number: weapon range, the 9" range-gated rules, the 12" commander aura, the 1" deployment gap, objective control 3", coherency 1" / 3" / 6" (`SQUAD_COHERENCY_*_EDGE`; the `_CENTRE` constants are derived), engagement `ENGAGEMENT_EDGE_GAP` (0.5"), charge end `CHARGE_END_EDGE_GAP` (0.25"). Path lengths stay centre-based. `MODEL_OVERLAP_DISTANCE` (0.9" centre) is a physical overlap check, not a rules range. The HUD range ring for shooting is drawn at weapon range plus one base radius from the model centre; the objective ring is unchanged.
+
 ### Melee Engagement Contact Visualization
-- When moving or charging into melee engagement (≤ 1.0"), the path line reflects contact in bright orange/crimson and renders a pulsing contact disc.
+- When moving or charging into melee engagement (base edges ≤ 0.5"), the path line reflects contact in bright orange/crimson and renders a pulsing contact disc.
 - A distinctive glowing double-ring melee marker (`0xff5252` and `0xffab40`) highlights the opposing enemy fighter under threat.
 
 ## Combat Resolution (Quality / Defense)

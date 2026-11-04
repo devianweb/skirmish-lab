@@ -26,17 +26,18 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 ### 2.1 Spatial Dimensions & Coherency
 - **Table Dimensions:** Standard $48" \times 48"$ ($4' \times 4'$) playing area, or compact custom formats with at least **24" separation** between opposing deployment lines.
 - **Deployment Zones:** Opposing table edges up to **12" depth**, shallower on small tables so the two zones are always at least **24"** apart (e.g. 3" deep on a 30"-deep table). The game board is the map's own size (the default battlefield is 48" × 48"; boards run from 24" to 72" per side, and maps saved at 44" × 30" keep that size).
+- **Measuring rule (base edges):** every distance between two models is measured between the closest points of their bases (centre distance minus both base radii; bases are 1" wide, radius 0.5"), and distances to a marker run from the marker point to the model's base edge. This covers weapon range, range-gated rules (`> 9"`), coherency, the 1" exclusion/deployment gap, objective control and engagement. Movement allowances are path lengths and stay centre-based, because a model moves its centre. Heights are separate limits. In code: `shared/src/engine/unitGeometry.ts` (`modelGap`, `markerGap`, `unitGap`). Squads still measure from the unit's anchor point until per-model measuring lands (batch 1D PR 9).
 - **Model Coherency:**
   - Every model in a squad must remain within **1" horizontal** (base edge to base edge) of at least one other squad member. When the two models are on different levels (heights differ by more than 0.5"), the allowance is **3"** instead. Simplification: this applies whenever the models are on different levels; the game does not check whether they would all fit on one level.
-  - Every model in a squad must remain within **6" horizontal** of all squad members.
-- **Proximity Exclusion Zone:** Models may not enter within **1"** of an opposing model unless executing an Assault/Charge maneuver.
+  - Every model in a squad must remain within **6" horizontal** (base edge to base edge, 7.0" centre to centre) of all squad members.
+- **Proximity Exclusion Zone:** Models may not enter within **1"** (base edge to base edge) of an opposing model unless executing an Assault/Charge maneuver. Deployment uses the same gap (an enemy must be more than 1" away). A move or rush may not end with its base edge within **0.5"** of an enemy (that is engagement; use a charge).
 
 ### 2.2 Objective Placement & Control
 - **Quantity:** $N = \lfloor\text{d}3\rfloor + 2$ objectives (3 to 5 markers).
 - **Placement Rules:** Placed alternately by players outside deployment zones and $> 9"$ apart from each other.
 - **Seizure & Contest Rules:**
   - Evaluated at the **end of each round**.
-  - A marker is **controlled** by a player if they have at least one friendly model within **3" horizontal** and zero enemy models within 3".
+  - A marker is **controlled** by a player if they have at least one friendly model within **3" horizontal** of the marker, measured to the model's base edge (centre up to 3.5"), and zero enemy models within the same distance.
   - Markers remain under a player's control even after leaving the radius.
   - If opposing units are simultaneously within 3", the objective becomes **contested** and reverts to neutral.
   - Suppressed / Shaken units cannot seize or contest objectives.
@@ -106,7 +107,7 @@ sequenceDiagram
     participant Defender
 
     Attacker->>Server: Declare Target & Weapon Profiles
-    Note over Server: Check Range & LOS
+    Note over Server: Check Range (base edge to base edge) & LOS
     Server->>Server: Roll Hit Dice (1d6 >= Quality)
     Server-->>Defender: Hits Scored (Passes to defender)
     Defender->>Server: Roll Defense Dice (1d6 >= Defense - AP + Cover)
@@ -136,7 +137,7 @@ sequenceDiagram
 ## 5. Close Quarters Combat (Melee)
 
 1. **Charge Contact & Consolidation:**
-   - Charging models must move into base contact with enemy models (or as close as geometry allows).
+   - Charging models must move into base contact with enemy models (or as close as geometry allows). A charge counts as reaching its target when the charger's base edge ends within 0.25" of the target's; melee is possible while base edges are within 0.5" (the old 1.25" / 1.5" centre values, unchanged for single models).
    - Defending models in the target unit consolidate up to **3"** toward the chargers into base contact.
 2. **Striking Reach:**
    - All models within **2" horizontal** and **4" vertical** of an enemy model strike with all equipped melee weapons.

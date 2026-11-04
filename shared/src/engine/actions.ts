@@ -72,6 +72,13 @@ import {
   validateMeleeVerticalReach,
 } from './traversal';
 import { getTraitValue, hasTrait } from '../rules/traits';
+import {
+  modelGap,
+  unitGap,
+  edgeGapToCentre,
+  ENGAGEMENT_EDGE_GAP,
+  CHARGE_END_EDGE_GAP,
+} from './unitGeometry';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -102,9 +109,7 @@ export function pathLength(path: Vector3[]): number {
 /** Engagement distance: how close a charging unit ends to its target. */
 /** Rejection text for an end position whose base hangs over an edge. */
 const OVERHANG_REASON = 'Models cannot end movement partly overhanging an edge — the whole base must rest on the floor';
-const ENGAGEMENT_DISTANCE = 1;
-/** Melee is legal within this many board units of the target. */
-const ENGAGEMENT_RANGE = 1.5;
+const ENGAGEMENT_DISTANCE = edgeGapToCentre(0);
 
 export interface ValidationResult {
   valid: boolean;
@@ -320,7 +325,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           (u) =>
             !u.isDestroyed &&
             u.ownerId !== action.actorId &&
-            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+            modelGap(end, u.position) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
             Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
         );
         if (wouldEngage) {
@@ -468,7 +473,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           u.ownerId !== action.actorId &&
           modelPositions!.some(
             (pos) =>
-              boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
+              modelGap(pos, u.position) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
               Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
           )
       );
@@ -519,7 +524,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const target = requireTarget(state, action.actorId, alloc.targetId);
         if ('reason' in target) return target;
 
-        const distance = boardDistance(attacker.result.position, target.result.position);
+        const distance = unitGap(attacker.result, target.result);
         if (distance > weapon.profile.range + 0.01) {
           return { valid: false, reason: 'Target out of range' };
         }
@@ -597,8 +602,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isBaseOverhanging(state, end)) return { valid: false, reason: OVERHANG_REASON };
       const chargeOverlap = findEndOverlap(state, attacker.result.id, end);
       if (chargeOverlap) return { valid: false, reason: describeEndOverlap(chargeOverlap) };
-      const distToEnd = boardDistance(end, target.result.position);
-      if (distToEnd > 1.25) {
+      const distToEnd = modelGap(end, target.result.position);
+      if (distToEnd > CHARGE_END_EDGE_GAP + 0.001) {
         return { valid: false, reason: 'Charge must end in engagement range' };
       }
       if (!validateMeleeVerticalReach(end, target.result.position)) {
@@ -705,7 +710,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           (u) =>
             !u.isDestroyed &&
             u.ownerId !== action.actorId &&
-            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
+            modelGap(end, u.position) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
             Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
         );
         if (wouldEngage) {
@@ -819,7 +824,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           u.ownerId !== action.actorId &&
           modelPositions!.some(
             (pos) =>
-              boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
+              modelGap(pos, u.position) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
               Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
           )
       );
@@ -848,8 +853,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!isEngaged(attacker.result)) {
         return { valid: false, reason: 'Unit is not engaged' };
       }
-      const distance = boardDistance(attacker.result.position, target.result.position);
-      if (distance > ENGAGEMENT_RANGE + 0.01) {
+      const distance = unitGap(attacker.result, target.result);
+      if (distance > ENGAGEMENT_EDGE_GAP + 0.01) {
         return { valid: false, reason: 'Target not in engagement range' };
       }
       if (!validateMeleeVerticalReach(attacker.result.position, target.result.position)) {
@@ -1033,7 +1038,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       const attacks = weapon.profile.attacks;
       if (typeof attacks !== 'number' || attacks < 1) return;
 
-      const distance = boardDistance(attacker.position, target.position);
+      const distance = unitGap(attacker, target);
       const aliveDefenderModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
       const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
       const totalAttacks = attacks * aliveAttackerModels;
@@ -1083,7 +1088,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   }
 
   const isMelee = action.type === 'fight' || action.type === 'charge';
-  const distance = target ? boardDistance(attacker.position, target.position) : 12;
+  const distance = target ? unitGap(attacker, target) : 12;
   const aliveModels = target
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
     : 1;
@@ -1553,7 +1558,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const alloc = allocations[i];
         const weapon = getWeapon(attacker, alloc.weaponId)!;
         const target = getUnit(newState, alloc.targetId)!;
-        const distance = boardDistance(attacker.position, target.position);
+        const distance = unitGap(attacker, target);
         const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
         const inCover =
           target.status.includes('in-cover') ||
@@ -1701,7 +1706,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const target = getUnit(newState, targetId)!;
       const weapon = getWeapon(attacker, weaponId ?? '')!;
       const isMelee = true;
-      const distance = boardDistance(attacker.position, target.position);
+      const distance = unitGap(attacker, target);
       const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
       const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
       const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
@@ -2616,7 +2621,7 @@ function refreshEngagements(state: GameState): void {
       (other) =>
         !other.isDestroyed &&
         other.ownerId !== unit.ownerId &&
-        boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01 &&
+        unitGap(unit, other) <= ENGAGEMENT_EDGE_GAP + 0.01 &&
         Math.abs((unit.position.y ?? 0) - (other.position.y ?? 0)) <= 1.5 &&
         (other.weapons.some((w) => w.isEquipped && w.profile.type === 'melee') ||
          unit.weapons.some((w) => w.isEquipped && w.profile.type === 'melee'))

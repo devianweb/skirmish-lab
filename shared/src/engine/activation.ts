@@ -11,6 +11,7 @@ import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
+import { baseRadius, markerGap, modelGap, unitGap, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -89,7 +90,7 @@ export function isUnitInObjectiveRange(unit: Unit, obj: Objective): boolean {
   }
   const objY = obj.position.y ?? 0;
   // If unit position is within range, it counts
-  const uDist = Math.hypot(unit.position.x - obj.position.x, unit.position.z - obj.position.z);
+  const uDist = markerGap(unit.position, obj.position, baseRadius(unit));
   const uDelta = Math.abs((unit.position.y ?? 0) - objY);
   if (
     uDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
@@ -102,7 +103,7 @@ export function isUnitInObjectiveRange(unit: Unit, obj: Objective): boolean {
     const livingModels = unit.models.filter((m) => !m.isDestroyed);
     return livingModels.some((m) => {
       const pos = m.position ?? unit.position;
-      const hDist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
+      const hDist = markerGap(pos, obj.position, baseRadius(unit));
       const vDelta = Math.abs((pos.y ?? 0) - objY);
       return (
         hDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
@@ -258,7 +259,7 @@ export function applyRoundEndMorale(
         !c.status.includes('stunned') &&
         !c.status.includes('routed') &&
         hasTrait(c.specialRules, 'commander') &&
-        Math.hypot(c.position.x - unit.position.x, c.position.z - unit.position.z) <= 12.01
+        unitGap(c, unit) <= 12.01
     );
     const commanderQuality =
       commanders.length > 0
@@ -440,8 +441,8 @@ export function validateDeploymentPosition(
     if (other.ownerId === unit.ownerId || other.isDestroyed || other.isDeployed === false) {
       continue;
     }
-    const dist = Math.hypot(position.x - other.position.x, position.z - other.position.z);
-    if (dist <= 1.0) {
+    const dist = modelGap(position, other.position, baseRadius(unit), baseRadius(other));
+    if (dist <= ENEMY_KEEP_AWAY_GAP) {
       return { valid: false, reason: 'Cannot deploy within 1" of enemy models' };
     }
   }

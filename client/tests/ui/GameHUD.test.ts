@@ -666,7 +666,8 @@ describe('GameHUD', () => {
 
     clickByText(container, 'Shoot');
     const targetingSnap = snapshots[snapshots.length - 1];
-    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24, concentricRanges: [24] });
+    // Rings sit one base radius (0.5") out so they show where an enemy base edge can be (24" from the shooter's base edge).
+    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24.5, concentricRanges: [24.5] });
     // Enemies within 24" and Line of Sight appear in reachableTargetIds.
     expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
   });
@@ -1817,7 +1818,7 @@ describe('GameHUD', () => {
       // 3. Try placing Model 2 at (0, 0, 3) (> 2.0" from Model 1 at z = -1)
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 3 } });
       // Should reject with toast
-      expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/exceeds 2" limit|coherency/i);
+      expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/exceeds 1" limit|coherency/i);
       expect(controller.submitAction).not.toHaveBeenCalled();
 
       // 4. Place Model 2 legally within 2.0" coherency at (1, 0, -1) [1.0" distance from Model 1]
