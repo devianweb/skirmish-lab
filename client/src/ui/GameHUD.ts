@@ -59,6 +59,9 @@ import {
   Weapon,
   modelRemainingMovement,
   closestApproach,
+  PILE_IN_DISTANCE,
+  PILE_IN_AUTO_CHOICE,
+  PendingReaction,
 } from '@skirmish-lab/shared';
 import {
   PreviewSegment,
@@ -126,6 +129,16 @@ export interface MarkerSnapshot {
 export type PickTarget =
   | { kind: 'unit'; unitId: string; modelId?: string }
   | { kind: 'position'; position: Vector3; terrainId?: string };
+
+/** What the pile-in prompt works from (see GameHUD.pileInContext). */
+interface PileInContext {
+  pending: PendingReaction;
+  defender: Unit;
+  charger: Unit;
+  alive: Model[];
+  modelIds: string[];
+  maxDistance: number;
+}
 
 type TargetingMode =
   | { mode: 'idle' }
@@ -195,6 +208,11 @@ export class GameHUD {
   private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
   /** ID of the squad model currently selected for placement */
   private selectedSquadModelId: string | null = null;
+  /** Defender pile-in staging: spots and walks chosen so far (model id -> value), for one pending reaction. */
+  private pileInStaged: Map<string, Vector3> = new Map();
+  private pileInPaths: Map<string, Vector3[]> = new Map();
+  private pileInSelectedId: string | null = null;
+  private pileInReactionId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -452,6 +470,16 @@ export class GameHUD {
       return;
     }
 
+    const pileIn = this.pileInContext();
+    if (pileIn) {
+      if (target.kind === 'unit' && target.unitId === pileIn.defender.id && target.modelId) {
+        this.selectPileInModel(target.modelId);
+      } else if (target.kind === 'position') {
+        this.placePileInModel(target.position);
+      }
+      return;
+    }
+
     if (this.isSquadChargeFlow && this.activeUnit && this.declaredCharge) {
       const declared = this.declaredCharge;
       if (target.kind === 'unit' && target.unitId === this.activeUnit.id && target.modelId) {
@@ -557,6 +585,25 @@ export class GameHUD {
         (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
+
+    const pileInHover = this.pileInContext();
+    if (pileInHover) {
+      const model = this.pileInSelectedModel(pileInHover);
+      if (model && target?.kind === 'position') {
+        const path = findNavPath(this.state, pileInHover.defender, target.position, pileInHover.maxDistance, {
+          keepAway: true,
+          startPosition: model.position ?? pileInHover.defender.position,
+          ignoreUnitId: pileInHover.charger.id,
+        });
+        this.movePathPreview = path.length >= 2 ? path : null;
+        this.movePreview = path.length >= 2 ? path[path.length - 1] : null;
+      } else {
+        this.movePathPreview = null;
+        this.movePreview = null;
+      }
+      this.emitMarkers();
+      return;
+    }
 
     const pendingReaction = this.state.turnState.pendingReaction;
     if (
@@ -1042,6 +1089,217 @@ export class GameHUD {
     }
 
     this.render();
+  }
+
+  // --- defender pile-in -----------------------------------------------------
+
+  /** The pending pile-in when the local player is the defender who has to place the models, else null. */
+  private pileInContext(): PileInContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'pile-in' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const defender = this.state.units.find((u) => u.id === pending.targetUnitId);
+    const charger = this.state.units.find((u) => u.id === pending.sourceUnitId);
+    if (!defender || !charger) return null;
+    if (this.pileInReactionId !== pending.id) {
+      this.pileInReactionId = pending.id;
+      this.pileInStaged.clear();
+      this.pileInPaths.clear();
+      this.pileInSelectedId = null;
+    }
+    return {
+      pending,
+      defender,
+      charger,
+      alive: (defender.models ?? []).filter((m) => !m.isDestroyed),
+      modelIds: pending.data?.modelIds ?? [],
+      maxDistance: pending.data?.maxDistance ?? PILE_IN_DISTANCE,
+    };
+  }
+
+  private pileInSelectedModel(ctx: PileInContext): Model | null {
+    const listed = ctx.alive.filter((m) => ctx.modelIds.includes(m.id));
+    return (
+      listed.find((m) => m.id === this.pileInSelectedId) ??
+      listed.find((m) => !this.pileInStaged.has(m.id)) ??
+      listed[0] ??
+      null
+    );
+  }
+
+  /** Where each living model stands now: its staged spot, else where it is. */
+  private pileInPositions(ctx: PileInContext): Vector3[] {
+    return ctx.alive.map((m) => this.pileInStaged.get(m.id) ?? m.position ?? ctx.defender.position);
+  }
+
+  private selectPileInModel(modelId: string): void {
+    const ctx = this.pileInContext();
+    if (!ctx) return;
+    if (!ctx.modelIds.includes(modelId)) {
+      if (ctx.alive.some((m) => m.id === modelId)) this.showToast('That model is already in contact and stays put');
+      return;
+    }
+    this.pileInSelectedId = modelId;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private placePileInModel(rawDestination: Vector3): void {
+    const ctx = this.pileInContext();
+    if (!ctx || !this.state) return;
+    const model = this.pileInSelectedModel(ctx);
+    if (!model) return;
+    const start = model.position ?? ctx.defender.position;
+    const path = findNavPath(this.state, ctx.defender, rawDestination, ctx.maxDistance, {
+      keepAway: true,
+      startPosition: start,
+      ignoreUnitId: ctx.charger.id,
+    });
+    if (path.length < 2) {
+      this.showToast('Pick a destination away from the model');
+      return;
+    }
+    const destination = path[path.length - 1];
+    const idx = ctx.alive.findIndex((m) => m.id === model.id);
+    const positions = this.pileInPositions(ctx);
+    for (let i = 0; i < positions.length; i++) {
+      if (i !== idx && boardDistance(positions[i], destination) < 0.9) {
+        this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
+        return;
+      }
+    }
+    if (livingModelPositions(ctx.charger).some((c) => boardDistance(c, destination) < 0.9)) {
+      this.showToast('Cannot place a model on top of an enemy model (bases would overlap)');
+      return;
+    }
+    this.pileInStaged.set(model.id, destination);
+    this.pileInPaths.set(model.id, path);
+    positions[idx] = destination;
+    const coherency = validateSquadCoherency(positions);
+    if (positions.length > 1 && !coherency.coherent) {
+      this.showToast(
+        (coherency.reason ?? 'Each model must be within 1" of another squad member') + ' (fix this before confirming)'
+      );
+    }
+    const next = ctx.alive.find((m) => ctx.modelIds.includes(m.id) && !this.pileInStaged.has(m.id));
+    if (next) this.pileInSelectedId = next.id;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Fill every listed model that has not been placed with its `closestApproach` spot (nearest the chargers first). */
+  private autoPlacePileIn(): void {
+    const ctx = this.pileInContext();
+    if (!ctx || !this.state) return;
+    const foes = livingModelPositions(ctx.charger);
+    const positions = this.pileInPositions(ctx);
+    const order = ctx.alive
+      .map((m, i) => ({ m, i, d: Math.min(...foes.map((f) => boardDistance(positions[i], f))) }))
+      .filter(({ m }) => ctx.modelIds.includes(m.id) && !this.pileInStaged.has(m.id))
+      .sort((a, b) => a.d - b.d || a.i - b.i);
+    let moved = 0;
+    for (const { m, i } of order) {
+      const best = closestApproach(
+        this.state,
+        ctx.defender,
+        i,
+        m.position ?? ctx.defender.position,
+        ctx.maxDistance,
+        ctx.charger,
+        positions.filter((_, j) => j !== i)
+      );
+      if (best && best.path.length >= 2) {
+        positions[i] = best.position;
+        this.pileInStaged.set(m.id, best.position);
+        this.pileInPaths.set(m.id, best.path);
+        moved++;
+      }
+    }
+    if (moved === 0) this.showToast('No model can get any closer');
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private resetPileIn(): void {
+    this.pileInStaged.clear();
+    this.pileInPaths.clear();
+    this.pileInSelectedId = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Run the host's check on the staged placement; show its refusal as a toast, or send `pile-in-move`. */
+  private confirmPileIn(): void {
+    const ctx = this.pileInContext();
+    if (!ctx || !this.state) return;
+    const positions = this.pileInPositions(ctx);
+    const action = createAction(this.localPlayerId, 'pile-in-move', {
+      type: 'pile-in-move',
+      modelPositions: positions,
+      modelPaths: ctx.alive.map((m, i) => this.pileInPaths.get(m.id) ?? [positions[i]]),
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'That pile-in is not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  private pileInPromptHtml(ctx: PileInContext, remainingSec: number, dataCardSlot: string): string {
+    const current = this.pileInSelectedModel(ctx);
+    const chips = ctx.alive
+      .map((m, idx) => ({ m, idx }))
+      .filter(({ m }) => ctx.modelIds.includes(m.id))
+      .map(({ m, idx }) => {
+        const placed = this.pileInStaged.has(m.id);
+        const selected = m.id === current?.id;
+        return `<button class="sl-hud-btn sl-hud-chip ${selected ? 'active' : ''}" data-action="select-pile-in-model" data-model-id="${m.id}" style="${
+          selected
+            ? 'background: #00bcd4; color: #000; font-weight: bold;'
+            : placed
+            ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
+            : ''
+        }">${placed ? '✓ ' : ''}Model ${idx + 1}</button>`;
+      })
+      .join('');
+    const autoOption = (ctx.pending.options ?? []).find((o) => o.id === PILE_IN_AUTO_CHOICE);
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">Pile in</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          <div class="sl-hud-reaction-desc">${ctx.charger.name} charged ${ctx.defender.name}. Move each model that is not touching up to ${ctx.maxDistance}" toward the attackers: pick a model, then click a spot. The attacks are rolled after you confirm.</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Select Model:</span>
+            ${chips}
+          </div>
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn" data-action="auto-pile-in">Auto place</button>
+            <button class="sl-hud-btn primary" data-action="confirm-pile-in">Confirm</button>
+            <button class="sl-hud-btn" data-action="reset-pile-in">Reset</button>
+            ${
+              autoOption
+                ? `<button class="sl-hud-btn" data-reaction-choice="${autoOption.id}" data-reaction-id="${ctx.pending.id}">Let the host place them</button>`
+                : ''
+            }
+          </div>
+        </div>
+      </div>`;
   }
 
   private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush' | 'charge'): void {
@@ -2943,6 +3201,18 @@ export class GameHUD {
     const pendingReaction = this.state.turnState.pendingReaction;
     if (pendingReaction) {
       const remainingSec = this.getReactionRemainingSec(pendingReaction);
+      const pileInPrompt = this.pileInContext();
+      if (pileInPrompt) return this.pileInPromptHtml(pileInPrompt, remainingSec, dataCardSlot);
+      if (pendingReaction.type === 'pile-in' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
+        const defenderName = this.state.players.find((p) => p.id === pendingReaction.promptingPlayerId)?.name ?? 'opponent';
+        return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for ${defenderName} to pile in (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+      }
       if (pendingReaction.promptingPlayerId === this.localPlayerId) {
         const warningHtml = pendingReaction.warning
           ? `<div class="sl-hud-reaction-warning">${pendingReaction.warning}</div>`
@@ -3798,6 +4068,18 @@ export class GameHUD {
             }
             break;
           }
+          case 'select-pile-in-model':
+            if (el.dataset.modelId) this.selectPileInModel(el.dataset.modelId);
+            break;
+          case 'auto-pile-in':
+            this.autoPlacePileIn();
+            break;
+          case 'confirm-pile-in':
+            this.confirmPileIn();
+            break;
+          case 'reset-pile-in':
+            this.resetPileIn();
+            break;
           case 'confirm-squad-move':
             if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
               this.finishSquadMove(this.flow.action);
@@ -4100,7 +4382,19 @@ export class GameHUD {
       pendingConsolidation.type === 'melee-consolidation' &&
       pendingConsolidation.promptingPlayerId === this.localPlayerId;
 
-    if (isConsolidationMode && pendingConsolidation) {
+    const pileInMarkers = this.pileInContext();
+    if (pileInMarkers) {
+      const model = this.pileInSelectedModel(pileInMarkers);
+      markers.selectedUnitId = pileInMarkers.defender.id;
+      markers.movementRangeUnitId = pileInMarkers.defender.id;
+      markers.movementRangeRadius = pileInMarkers.maxDistance;
+      if (model) markers.movementRangePosition = model.position ?? pileInMarkers.defender.position;
+      markers.squadCoherency = { positions: this.pileInPositions(pileInMarkers), radius: 2.0 };
+      const path = this.movePathPreview ?? this.pileInPaths.get(model?.id ?? '') ?? null;
+      if (path && path.length >= 2) {
+        markers.movePath = { from: path[0], to: path[path.length - 1], waypoints: path };
+      }
+    } else if (isConsolidationMode && pendingConsolidation) {
       const victorId = pendingConsolidation.data?.unitId;
       const victor = this.state?.units.find((u) => u.id === victorId);
       if (victor) {
