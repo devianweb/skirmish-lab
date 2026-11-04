@@ -1081,6 +1081,43 @@ describe('GameHUD', () => {
     );
   });
 
+  it('shows a pile-in strike with the charge title and logs pile-ins correctly', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+    const strike = {
+      rollId: 'p1',
+      specs: [],
+      results: [
+        { purpose: 'to-hit', rolls: [6, 4] } as any,
+        { purpose: 'defense', rolls: [5, 2] } as any,
+      ],
+      context: { attackerId: charger.id, targetId: defender.id },
+      outcome: { attackCount: 2, hitCount: 1, blockedCount: 1, wounds: 0 },
+    };
+    state.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', { type: 'respond-reaction', reactionId: 'p1', choiceId: 'auto-pile-in' }),
+      status: 'accepted',
+      dice: strike,
+    } as any);
+    const { hud, container } = setup(HOST, state);
+    const title = container.querySelector('.sl-hud-dice-title')?.textContent ?? '';
+    expect(title).toContain(`${charger.name} → ${defender.name}`);
+    expect(title).not.toContain('Retaliation');
+    expect(container.textContent).toContain('piled in (auto)');
+    expect(container.textContent).not.toContain('declined retaliation');
+
+    const moved = scenarioState();
+    moved.actionLog.push({
+      action: createAction(GUEST, 'pile-in-move', { type: 'pile-in-move', modelPositions: [] }),
+      status: 'accepted',
+      dice: { ...strike, rollId: 'p2' },
+    } as any);
+    hud.syncFromState(moved);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(`${charger.name} → ${defender.name}`);
+    expect(container.textContent).toMatch(/piled in(?! \(auto\))/);
+  });
+
   describe('Phase 7: Objectives & 4-Round Mission UI', () => {
     it('displays round number out of 4 and live objective score badges in header', () => {
       const state = scenarioState();
