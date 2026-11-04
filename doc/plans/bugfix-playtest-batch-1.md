@@ -44,6 +44,9 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 34. **Coherency is one unbroken chain:** the links (1" same level, 3" across levels) must join every living model into one group, plus the 6" spread. Owner: "Add the chain rule." See 1I PR 28.
 35. **The defender places their own pile-in models** (prompt; host-checked "as close as possible"; the charger's strike is rolled after; timeout falls back to automatic placement). Owner: "It's unfair to just move the minis when it could put them in dumb / unsafe positions." See 1I PRs 33–34.
 36. **Squad-mates never block each other's line of sight** (already true; only other units' models block). No change.
+37. **The owner of a damaged squad picks its casualties** (any living models; timeout picks chain-preserving ones). Owner: "prompt the defender to remove the models he wants rather than automating." See 1I PRs 35–36.
+38. **Too-wide gaps get a hint** in the move preview (HUD only). See 1I PR 27.
+39. **The distance left is always shown** during split moves/rushes, per model for squads (HUD only). See 1I PR 30.
 
 ## Order
 **Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). 1F ✓. **Next:** PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
@@ -69,7 +72,7 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 ## Sub-plans (hand one PR section at a time to the `implementer`)
 | Sub-plan | PRs | Theme |
 | :--- | :--- | :--- |
-| [batch-1i-squad-followups.md](batch-1i-squad-followups.md) (approved) | 27–34 | Aim at clicked model + no block charges, chain coherency, regrouping, per-model budgets, failed squad jumps, as close as possible for chargers, defender pile-in prompt (Decisions 26–36) |
+| [batch-1i-squad-followups.md](batch-1i-squad-followups.md) (approved) | 27–36 | Quick wins (aim, no block charges, jump preview fixes), chain coherency, regrouping, per-model budgets + distance left, failed squad jumps, as close as possible for chargers, defender pile-in prompt, owner picks casualties (Decisions 26–39) |
 | [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
 | [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
 | [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) ✓ done | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
@@ -113,3 +116,12 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 - A plain fall over 6" in a squad applies its hit to the first living model (pre-existing); tidy with 1D squad work.
 - `MapStore.importMapJson` falls back to 44×30 when an imported file has no board (keeps old maps unchanged; differs from `DEFAULT_BOARD_SIZE`).
 - Editor: the Cover / Blocks LoS / Obstacle inspector toggles don't redraw the F9 debug marker until the next sync (pre-existing, cosmetic; unplanned).
+
+## Follow-ups found in the 2026-11-04 manual pass
+- **No feedback over a too-wide gap** (checklist 6.2) → **1I PR 27** (Decision 38).
+- **Squad jump hover preview missing** (owner: "the jump works but no red path or floating chip show up"): the squad hover preview passes `allowJump: false` → **1I PR 27**.
+- **Remaining movement isn't shown during a split move/rush** → **1I PR 30** (Decision 39).
+- **Casualty choice** (owner: "prompt the defender to remove the models he wants") → **1I PRs 35–36** (Decision 37).
+- **Answered (no change): out-of-sight models can still be casualties.** Hits and wounds go to the unit: 4 hits mean 4 Defense rolls, and each failed roll removes one model (until the last), wherever it stands. Line of sight only decides which models fire, whether the target is valid, and cover by majority.
+- **Answered (no change): 6 strike-back dice in a 4 v 4.** The TEST squad's Blade has 2 attacks, so 6 dice means 3 defending models were within 2" of a charger (`strikers`), as intended.
+- **Charge that ended with no melee** (log 2026-11-04): leg 1 + leg 2 used 23.97" of the 24" budget because each leg charges the longest model path and model 1 moved furthest both times, while models 2–4 had 3–5" of their own left → per-model budgets, **1I PR 30**. The next activation's declared charge that "cannot move any closer" is not explained yet: it needs a state snapshot with the target's model positions.

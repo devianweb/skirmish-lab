@@ -1,10 +1,10 @@
 # Batch 1I: squad follow-ups after 1C/1D
 Status: approved (2026-11-04), not started
-Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)** first (esp. 10–12, 15, 21–22). This batch answers that plan's open questions 10–17 (owner, 2026-11-04) as Decisions 26–33, plus Decisions 34–36 agreed in the same review.
+Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)** first (esp. 10–12, 15, 21–22). This batch answers that plan's open questions 10–17 (owner, 2026-11-04) as Decisions 26–33, plus Decisions 34–36 agreed in the same review and Decisions 37–39 from the 2026-11-04 manual pass.
 Roadmap: tick items under the existing `### 13.6 playtest fixes (bugfix batch 1, …)` heading in doc/ROADMAP.md. Don't create a new heading.
 
 ## Goal
-Close the gaps the 1D squad work left open: squads must form one unbroken chain; a squad that is out of coherency can always do something legal and must regroup before it shoots; failed squad jumps play out like moving the jumpers last on the table; each model has its own movement budget across legs; squad models that don't reach contact in a charge really get as close as they can; the defender places their own models when piling in; the aim line follows the model you clicked; and the host stops accepting old-style block charges from squads.
+Close the gaps the 1D squad work left open: squads must form one unbroken chain; a squad that is out of coherency can always do something legal and must regroup before it shoots; failed squad jumps play out like moving the jumpers last on the table; each model has its own movement budget across legs; squad models that don't reach contact in a charge really get as close as they can; the defender places their own models when piling in and picks their own casualties; the aim line follows the model you clicked; the move preview explains gaps that are too wide and shows squad jumps and the distance left; and the host stops accepting old-style block charges from squads.
 
 ## Decisions (agreed)
 26. **Aim line prefers the clicked model** (Q10). In the shooting preview, each firing model aims at the model the player pointed at if that firing model sees it and has it in range; otherwise at its nearest visible in-range model, as today. Preview only: who fires, attacks and cover are unchanged.
@@ -18,13 +18,17 @@ Close the gaps the 1D squad work left open: squads must form one unbroken chain;
 34. **Coherency is one unbroken chain** (the guide's wording). Two squad models are *linked* when they are within the link distance (1" edge to edge on the same level, 3" across levels, Decision 10). A squad is coherent when its links join every living model into one connected group **and** every pair is within the 6" spread. Today each model only has to be linked to *some* other model, so two separate pairs 4" apart pass; under this rule they don't. Casualties may still break the chain; the squad then regroups (Decision 29). Owner: "Add the chain rule."
 35. **The defender places their own models when piling in.** After a final charge, if the target unit has living models not in base contact with a charging model, the defending player is prompted to move them (each up to 3", ordinary movement only, into base contact with a charging model or as close as possible, keeping coherency; models already in contact don't move). The host checks the placement with the same "as close as possible" rule as the chargers (Decision 31). The charger's strike is rolled only after the pile-in is confirmed. If the prompt times out, the host places the models with the same helper. Owner: "It's unfair to just move the minis when it could put them in dumb / unsafe positions."
 36. **Line of sight inside a squad is already right; no change.** A model never blocks the sight of models in its own unit, and the target unit's own models don't block sight to each other (so they don't give themselves cover); only *other* units' models block (`unitBlockingSegment`, `shared/src/engine/spatial.ts` ~l.1164, skips both the shooter's and the target's unit; test `squadShooting.test.ts` "own squad-mates never block line of sight; another unit does").
+37. **The owner of a damaged squad picks its casualties.** When wounds remove models from a multi-model unit (shooting, the charge strike, strike-back, fights), that unit's owner is prompted to pick which models are removed. Any living models may be picked: the rules put no coherency limit on casualties, and a broken chain is fixed by regrouping (Decisions 29, 34). On timeout the host picks, preferring models whose removal keeps the chain connected. Hits and wounds still go to the unit, so models out of the shooters' sight can be picked. Hazard casualties keep their existing picker. Owner: "prompt the defender to remove the models he wants rather than automating."
+38. **Too-wide gaps get a hint.** Hovering across a gap the model can't jump (spot to spot over 6", Decision 24) shows one line, e.g. "Too far to jump (7.2", max 6")". HUD only, no rule change. Owner: "Yes."
+39. **The distance left is always shown.** During a split move or rush (single models and squads) the bar shows the distance left, like a declared charge does; while placing a squad it is the selected model's own distance (Decision 32). HUD only. Owner: "Yes."
 
 ## Out of scope
 - Melee without base contact (owner: at least one model must be in contact).
 - The winner's 3" consolidation after a unit is wiped out (already a prompt, `consolidate-move`): unchanged.
 - `MapStore.importMapJson`'s 44×30 fallback and the editor inspector's F9 marker redraw (batch 1 follow-ups; not part of this batch).
 - Any change to cover, LoS, jump dice, falling or strike reach.
-- Choosing casualties to keep the chain intact (the defender still picks casualties freely; a broken chain is fixed by regrouping).
+- Restricting which casualties may be picked (Decision 37: any living model).
+- Blast(X) hit splitting between units (unchanged).
 
 ## Background
 - Out-of-coherency block: `incoherentStartBlock` (`shared/src/engine/actions.ts` ~l.188), used by `hold` (~l.495/500) and `end-activation` (~l.1304). `shoot` (~l.752) doesn't use it. HUD hint ~`GameHUD.ts` l.3042–3054.
@@ -35,18 +39,23 @@ Close the gaps the 1D squad work left open: squads must form one unbroken chain;
 - Pile-in today: automatic, inside the charge resolution (`consolidateSquadToward(newState, target, …, 3.0, { intoContact: true, contactWith: attacker })`, `actions.ts` ~l.2578; helper `spatial.ts` ~l.3386): straight-line steps only, no pathing. `getDiceSpecs` simulates it (~l.1494–1507) so the charger's strike count (`strikers`, ~l.2996) is known when the charge's dice are requested.
 - Reactions: `TurnState.pendingReaction` (`PendingReaction`, `gameTypes.ts` ~l.19: `type`, `promptingPlayerId`, `options`, `expiresAt`/`durationMs`, `data`). While one is pending, only `respond-reaction` and `consolidate-move` are accepted (`actions.ts` ~l.429). Examples: `melee-retaliation` (~l.2640, strike back) and the winner's `consolidate-move` placement prompt (~l.1264 / ~l.2895), which is the closest model for a placement prompt.
 - Block-charge compat: `isSquadCharge` (~l.215) is `!!payload.modelPositions && livingModels(unit).length > 1`, so a multi-model charge without `modelPositions` falls through to the single-path validation.
+- Casualties: shooting and melee use `applyWounds` (`actions.ts` ~l.3060), which removes `alive[0]` (the first living model in the list) for each wound until one model is left; the wound-effect roll for the last model is pre-rolled with the attack dice. Hazards use `allocateSquadCasualties` (`traversal.ts` ~l.818) with the mover's `casualtyModelIds` (HUD picker ~`GameHUD.ts` l.3746).
+- Squad move hover preview: `GameHUD` (~l.591) calls `resolveMoveTarget(..., alive.length <= 1)`, i.e. `allowJump` is false for squads while hovering, so no jump path, floating label or chip is previewed; the click path (~l.1034) passes `true`, which is why the jump still works (owner, checklist 6.2: "the jump works but no red path or floating chip show up").
+- Too-wide gaps: `findJumpOption` returns nothing over the 6" limit, and the HUD shows nothing.
 - Aim: `squadAim` (`shared/src/engine/squadTargeting.ts` ~l.116); the per-shooter loop (~l.136) picks the nearest visible model; `aimedModelId` is already passed in and only drives the ring.
 - Test conventions (AGENTS.md): fixtures that move `unit.position` must move `unit.models[*].position` (`syncModels` in `client/tests/ui/GameHUD.test.ts`); squad payloads are in living-model order; per-model dice use `m<index>_` tags.
 
-## PR 27: Aim at the clicked model; reject squad block charges (branch: `batch-1i-aim-and-block-charge`)
-- **Layer:** shared engine (+ HUD test)
-- **Files:** `shared/src/engine/squadTargeting.ts`, `shared/src/engine/actions.ts`, tests, docs.
+## PR 27: Aim at the clicked model; reject squad block charges; jump preview fixes (branch: `batch-1i-quick-wins`)
+- **Layer:** shared engine + client HUD (small items)
+- **Files:** `shared/src/engine/squadTargeting.ts`, `shared/src/engine/actions.ts`, `shared/src/engine/traversal.ts` (a "too wide" result from the jump search), `client/src/ui/GameHUD.ts`, `client/src/ui/movePreview.ts`, tests, docs.
 - **Tests first:**
   - `squadAim` with `aimedModelId`: a shooter that sees the clicked model aims at it even when another target model is nearer; a shooter that can't see it (or has it out of range) falls back to its nearest visible model; `firingCount` and `coverByMajority` are identical with and without `aimedModelId`.
   - `validateAction`: a `charge` and a `charge-leg` from a 2+-living-model unit without `modelPositions` are rejected with a clear reason; with `modelPositions` they behave as today; a unit down to one living model may still send the plain `path`.
-- **Implementation:** in the shooter loop, prefer the picked model when `sees(shooter, pickedPos)`. In `charge`/`charge-leg` validation, reject when the unit has > 1 living model and no `modelPositions`. Update any old tests that relied on the block charge to send `modelPositions`.
+  - Squad jump preview (HUD): while placing a squad model at an edge, hovering across a 2–5" gap sets the same preview state as a single model (jump path, segments for the floating label, chip); hovering a normal spot is unchanged.
+  - Too-wide hint: hovering across a gap whose spot-to-spot distance is over 6" (single model and squad model) shows "Too far to jump (N", max 6")"; a jumpable gap shows the normal chip; no hint when the cursor isn't across a gap.
+- **Implementation:** in the shooter loop, prefer the picked model when `sees(shooter, pickedPos)`. In `charge`/`charge-leg` validation, reject when the unit has > 1 living model and no `modelPositions`. Update any old tests that relied on the block charge to send `modelPositions`. Pass `allowJump: true` in the squad hover preview (~`GameHUD.ts` l.591), as the click path already does. Let the jump search report "a gap was found but it is too far" (with the distance) so the HUD can show the hint; it must never offer that jump.
 - **Docs:** RULES_SPECIFICATION §5 (squad charge payload required), DATA_MODEL charge payload, SYSTEMS (aim line), ROADMAP.
-- **Manual checks:** shooting a squad: clicking a far model that your models can see moves their aim lines to it.
+- **Manual checks:** shooting a squad: clicking a far model that your models can see moves their aim lines to it. Squad jump preview: retest the checklist 6 known-bug item. Too-wide gap: hover across a 7" gap and read the hint; nothing is offered.
 - **Done when:** tests pass in all workspaces; no HUD path sends a squad charge without `modelPositions`.
 
 ## PR 28: Coherency is one unbroken chain (branch: `batch-1i-chain-coherency`)
@@ -81,9 +90,9 @@ After PR 28.
 - **Files:** `shared/src/gameTypes.ts`, `shared/src/engine/actions.ts`, `shared/src/engine/activation.ts`, `client/src/ui/GameHUD.ts`, tests, docs.
 - **Schema:** add an optional, serializable per-model spent distance for the current action, e.g. `Unit.modelMovementSpent?: Record<modelId, number>`, reset wherever `remainingMovement` is reset (activation start, ~`actions.ts` l.3026). `unit.remainingMovement` becomes the most any living model can still move (budget − the smallest spent), so existing "out of movement" checks keep working.
 - **Tests first:** split move, 4-model squad, Advance 6": leg 1 model A moves 6", leg 2 model B moves 6" → accepted (today rejected); leg 2 model A moves 0.5" more → rejected. Same for a split squad charge (12"). A passed jump stays free per model. Difficult terrain: the existing 6" cap still applies (per model, as today). Single-model units unchanged. State round-trips through JSON.
-- **Implementation:** replace "longest model path per leg" with per-model running totals in move/rush squad legs (~l.1933–1945, ~l.1992) and in `validateSquadChargeMove` (`remaining`/`spent` per model). HUD: the remaining-budget ring and "N" left" text show the selected model's own remaining distance while staging.
+- **Implementation:** replace "longest model path per leg" with per-model running totals in move/rush squad legs (~l.1933–1945, ~l.1992) and in `validateSquadChargeMove` (`remaining`/`spent` per model). HUD (Decision 39): during any split move or rush, single model or squad, the bar shows the distance left (today only declared charges do); while staging a squad, the ring and the text show the selected model's own remaining distance.
 - **Docs:** DATA_MODEL (new field), RULES_SPECIFICATION (split moves/charges: per-model budget; also fix §5's "the longest model path is what the leg spends" line), SYSTEMS, ROADMAP.
-- **Manual checks:** split-move a squad in two legs moving different models each time; each model can use its full distance.
+- **Manual checks:** split-move a squad in two legs moving different models each time; each model can use its full distance, and the bar shows each model's distance left. A single model's second Rush leg also shows its distance left.
 - **Done when:** no model can exceed its distance across legs, and no model loses distance because a squad-mate moved.
 
 ## PR 31: Failed squad jump stops the later jumpers (branch: `batch-1i-squad-jump-fail`)
@@ -131,8 +140,33 @@ After PR 33.
 - **Manual checks:** charge a squad with a squad so only some defenders touch: the defender gets the Pile in prompt, Auto place puts the others in contact or as close as they can, you can move them elsewhere within 3" instead, and the attacks are rolled after you confirm; letting the timer run out piles in automatically.
 - **Done when:** a defender can place their pile-in models themselves, and nothing else about melee changes.
 
+## PR 35: The owner picks casualties, engine (branch: `batch-1i-casualties-engine`)
+After PR 33 (same reaction pattern as the pile-in).
+- **Layer:** shared engine (schema + rules); client `GameManager` only where the action flow needs it
+- **Files:** `shared/src/gameTypes.ts` (reaction type, new action), `shared/src/engine/actions.ts` (`applyWounds` and its callers), tests, docs.
+- **Flow:**
+  1. When an attack's wounds would remove models from a unit with 2+ living models and the unit survives the attack (if the wounds plus the pre-rolled wound-effect roll destroy the whole unit, no prompt), the host stops before removing them and sets a `pending reaction` of a new type `pick-casualties` for that unit's owner (`data`: unit id, number of models to remove = min(wounds, living − 1), the remaining wounds for the last model, and how to continue).
+  2. New action `pick-casualties` from that player with exactly that many distinct living model ids of that unit. Host checks the count, ownership and that the ids are living models of the unit.
+  3. Accepting it removes those models, applies the remaining wounds and the pre-rolled wound-effect roll to the survivor exactly as `applyWounds` does today, then continues the interrupted flow (end of shooting, the strike-back prompt, push-back, consolidation). In melee the strike-back count is taken after the casualties are picked.
+  4. Timeout (reuse the host reaction timer, 30 s): the host picks, preferring models whose removal keeps the chain connected (Decision 34), then the current list order.
+  5. Each damaged squad in one action gets its own prompt, in resolution order. Split fire at two units: one prompt per unit.
+- **Tests first:** shooting 2 wounds into a 4-model squad → prompt, no models removed yet; a valid pick removes exactly those models; wrong count, a dead model, another unit's model or the wrong player is rejected; out-of-sight models may be picked; a pick that breaks the chain is accepted (and the squad must regroup next activation); wounds that destroy the whole unit → no prompt; single-model unit → no prompt; melee: the defender picks after the charge strike and the strike-back counts only surviving models within 2"; then the charger's owner picks after the strike-back; timeout picks chain-preserving models; the last model's wound-effect result is the same as today; state with a pending pick round-trips through JSON.
+- **Docs:** RULES_SPECIFICATION §6 (casualties picked by the owner), SYSTEMS (reaction flow), NETWORKING/DATA_MODEL (new reaction type and action), ROADMAP.
+- **Manual checks:** none until PR 36 (engine only); note it in the PR.
+- **Done when:** no shooting or melee casualty in a multi-model unit is removed without its owner's pick or the timeout.
+
+## PR 36: The owner picks casualties, HUD (branch: `batch-1i-casualties-hud`)
+After PR 35.
+- **Layer:** client HUD (+ scene highlight)
+- **Files:** `client/src/ui/GameHUD.ts` (and the reaction UI), the unit/model renderer for a selection highlight, tests, docs.
+- **Behaviour:** the damaged squad's owner sees "Remove N models from <unit>" with the countdown; clicking a model toggles it (highlighted; models in the chain whose removal would split the squad get a small "splits the squad" note, but may still be picked); **Confirm** is enabled once exactly N are chosen; **Auto pick** chooses as the timeout would. The other player sees "Waiting for <player> to remove casualties". Reuse the hazard casualty picker's look (~`GameHUD.ts` l.3746) where possible.
+- **Tests first (HUD):** the prompt appears only for the damaged unit's owner; Confirm is disabled until N are chosen; Auto pick sends ids the host accepts; the other player sees the waiting message.
+- **Docs:** SYSTEMS (HUD), ROADMAP.
+- **Manual checks:** shoot a squad so it loses 2 models: its owner picks which 2 (including ones out of sight), the others stay; letting the timer run out picks automatically. In melee, the defender's pick changes how many models strike back.
+- **Done when:** a player always chooses their own casualties in shooting and melee, or the timeout chooses for them.
+
 ## Order
-PR 27 (quick wins) → PR 28 (chain) → PR 29 (regroup; needs 28) → PR 30 (per-model budgets) → PR 31 (jump fail; can run alongside PR 30 but rebase onto it for the spent-distance test) → PR 32 (chargers as close as possible; needs 29 and 30) → PR 33 (pile-in engine; needs 32) → PR 34 (pile-in HUD).
+PR 27 (quick wins) → PR 28 (chain) → PR 29 (regroup; needs 28) → PR 30 (per-model budgets) → PR 31 (jump fail; can run alongside PR 30 but rebase onto it for the spent-distance test) → PR 32 (chargers as close as possible; needs 29 and 30) → PR 33 (pile-in engine; needs 32) → PR 34 (pile-in HUD) → PR 35 (casualties engine; needs 33) → PR 36 (casualties HUD).
 
 ## Open questions
-None (Q10–Q17 and Decisions 34–36 agreed 2026-11-04).
+None (Q10–Q17 and Decisions 34–39 agreed 2026-11-04).
