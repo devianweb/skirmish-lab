@@ -27,7 +27,7 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 - **Table Dimensions:** Standard $48" \times 48"$ ($4' \times 4'$) playing area, or compact custom formats with at least **24" separation** between opposing deployment lines.
 - **Deployment Zones:** Opposing table edges up to **12" depth**, shallower on small tables so the two zones are always at least **24"** apart (e.g. 3" deep on a 30"-deep table). The game board is the map's own size (the default battlefield is 48" × 48"; boards run from 24" to 72" per side, and maps saved at 44" × 30" keep that size).
 - **Model Coherency:**
-  - Every model in a squad must remain within **1" horizontal** of at least one other squad member.
+  - Every model in a squad must remain within **1" horizontal** (base edge to base edge) of at least one other squad member. When the two models are on different levels (heights differ by more than 0.5"), the allowance is **3"** instead. Simplification: this applies whenever the models are on different levels; the game does not check whether they would all fit on one level.
   - Every model in a squad must remain within **6" horizontal** of all squad members.
 - **Proximity Exclusion Zone:** Models may not enter within **1"** of an opposing model unless executing an Assault/Charge maneuver.
 

@@ -232,6 +232,46 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     expect(summary).not.toMatch(/dice, all|roll \d dice/);
   });
 
+  describe('split-level squad coherency staging', () => {
+    function squadOnDeck() {
+      const ctx = setup(P(1.0, 3, 0));
+      const { hud, container, state } = ctx;
+      state.terrain = [deckPiece('d', 0, 3)];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.speed = 6;
+      unit.remainingMovement = 6;
+      unit.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: P(1.0, 3, 0), rotation: P(0, 0, 0) },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: P(1.5, 3, 0.8), rotation: P(0, 0, 0) },
+      ] as any;
+      hud.syncFromState(state);
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: P(0.5, 3, 0) });
+      return ctx;
+    }
+
+    it('allows a ground model 3.4" from a deck model and the host agrees', () => {
+      const { hud, container, controller, state } = squadOnDeck();
+      expect(container.textContent).toContain('Place Model 2 of 2');
+      hud.handleBoardPick({ kind: 'position', position: P(3.9, 0, 0) });
+      expect(container.textContent).toContain('Confirm');
+      clickByText(container, 'Confirm');
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.payload.modelPositions).toHaveLength(2);
+      expect(action.payload.modelPositions[1].y).toBeCloseTo(0, 1);
+      const res = validateAction(state, { ...action, actorId: HOST });
+      expect(res.reason ?? '').not.toMatch(/coherency|from nearest squad member/);
+    });
+
+    it('the toast explains the allowance when 3" across levels is exceeded', () => {
+      const { hud, container, controller } = squadOnDeck();
+      hud.handleBoardPick({ kind: 'position', position: P(5.2, 0, 0) });
+      const toast = container.querySelector('.sl-hud-toast')?.textContent ?? '';
+      expect(toast).toContain('different levels: 3"');
+      expect(controller.submitAction).not.toHaveBeenCalled();
+    });
+  });
+
   it('squads get no jump chip (the host does not accept a declared jump for a multi-model move)', () => {
     const { hud, container, state, unit } = setup(P(-0.2, 3, 0));
     unit.models = [

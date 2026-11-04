@@ -36,6 +36,7 @@ import {
   validateDeploymentPosition,
   validateMeleeVerticalReach,
   validateSquadCoherency,
+  SQUAD_COHERENCY_SPREAD,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
@@ -939,8 +940,8 @@ export class GameHUD {
       // 1. All models must remain within 6.0" max spread of all other placed models
       for (const placed of otherPlaced) {
         const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
-        if (d > 6.0 + 0.02) {
-          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max 6.0" coherency limit from ${placed.name}`);
+        if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
+          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max ${SQUAD_COHERENCY_SPREAD.toFixed(1)}" coherency limit from ${placed.name}`);
           return;
         }
       }
@@ -949,12 +950,12 @@ export class GameHUD {
       const isPlacingLastModel = otherPlaced.length === alive.length - 1;
       if (isPlacingLastModel) {
         const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
-        const coherency = validateSquadCoherency(candidatePositions, {
-          maxMemberDistance: 2.0,
-          maxSquadSpread: 6.0,
-        });
+        const coherency = validateSquadCoherency(candidatePositions);
         if (!coherency.coherent) {
-          this.showToast(coherency.reason ?? 'Each model must be within 1.0" of at least one other squad member');
+          this.showToast(
+            coherency.reason ??
+              'Each model must be within 1" of another squad member (3" if they are on different levels)'
+          );
           return;
         }
       }

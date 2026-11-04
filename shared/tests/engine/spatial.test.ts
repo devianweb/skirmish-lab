@@ -580,6 +580,41 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
     });
   });
 
+  describe('validateSquadCoherency: split levels (Decision 10)', () => {
+    const deck = (x: number): Vector3 => ({ x, y: 3.0, z: 0 });
+    const ground = (x: number): Vector3 => ({ x, y: 0, z: 0 });
+
+    it('deck + ground 3.5" apart horizontally is coherent', () => {
+      expect(validateSquadCoherency([deck(0), ground(3.5)]).coherent).toBe(true);
+    });
+    it('the same 3.5" on one level is not coherent', () => {
+      const res = validateSquadCoherency([ground(0), ground(3.5)]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds 2" limit');
+    });
+    it('exactly 4.0" across levels is coherent, 4.5" is not', () => {
+      expect(validateSquadCoherency([deck(0), ground(4.0)]).coherent).toBe(true);
+      const res = validateSquadCoherency([deck(0), ground(4.5)]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds 4" limit');
+    });
+    it('height difference of 0.5" or less counts as the same level', () => {
+      expect(validateSquadCoherency([ground(0), { x: 3.5, y: 0.5, z: 0 }]).coherent).toBe(false);
+      expect(validateSquadCoherency([ground(0), { x: 3.5, y: 0.6, z: 0 }]).coherent).toBe(true);
+    });
+    it('6" whole-squad spread still applies across levels', () => {
+      const res = validateSquadCoherency([deck(0), ground(3.5), { x: 6.5, y: 3.0, z: 0 }]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds max coherency limit of 6"');
+    });
+    it('chains with mixed levels link each model to at least one other', () => {
+      // deck(0) - ground(3.5) - ground(5.0) : middle model links both ways
+      expect(validateSquadCoherency([deck(0), ground(3.5), ground(5.0)]).coherent).toBe(true);
+      // the far ground model is 5.5 from the deck and 2.5 from its same-level buddy: isolated
+      expect(validateSquadCoherency([deck(0), ground(3.5), ground(6.0)]).coherent).toBe(false);
+    });
+  });
+
   describe('computeSquadCentroid', () => {
     it('computes exact average coordinates for squad models', () => {
       const positions: Vector3[] = [

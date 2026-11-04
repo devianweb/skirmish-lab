@@ -26,7 +26,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 6. Squads
-- All items verified.
+- [ ] Split-level coherency: move a squad so some models stay on a deck and others drop below. Placement is accepted up to about 3" apart edge to edge, but refused (toast mentions the 3" allowance) beyond that; two models on the same level still need to be within 1" of a squadmate.
 
 ## 7. Movement, rush and shooting
 - All items verified.
