@@ -311,8 +311,10 @@ interface DeclaredTraversal {
 
 type ActionPayload =
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal }
-  | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal }
+  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model
+  | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
   | {
       type: 'shoot';
       attackerId: string;
