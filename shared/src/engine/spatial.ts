@@ -3136,7 +3136,7 @@ export function areOnDifferentLevels(a: Vector3, b: Vector3): boolean {
  * 1. Every model must be within maxMemberDistance (2.0" centre = 1" edge gap) of at least one other member,
  *    or within maxCrossLevelMemberDistance (4.0" centre = 3" edge gap) when that member is on a different level.
  * 2. All models must be within maxSquadSpread (7.0" centre = 6" edge gap) of every other member.
- * Models may form separate pairs/sub-groups as long as each has a link and the spread holds.
+ * 3. The links (same limits) must join all models into one connected group: separate pairs/clumps are split.
  */
 export function validateSquadCoherency(
   positions: Vector3[],
@@ -3202,6 +3202,39 @@ export function validateSquadCoherency(
         maxDistanceToNearestMember: nearestDist,
       };
     }
+  }
+
+  // 3. The links must join every model into one unbroken chain (connected components).
+  const group = new Array<number>(positions.length).fill(-1);
+  let groups = 0;
+  for (let start = 0; start < positions.length; start++) {
+    if (group[start] !== -1) continue;
+    group[start] = groups;
+    const queue = [start];
+    while (queue.length > 0) {
+      const i = queue.pop() as number;
+      for (let j = 0; j < positions.length; j++) {
+        if (group[j] !== -1) continue;
+        const d = Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z);
+        const limit = areOnDifferentLevels(positions[i], positions[j]) ? maxCrossDist : maxMemberDist;
+        if (d <= limit + tolerance) {
+          group[j] = groups;
+          queue.push(j);
+        }
+      }
+    }
+    groups++;
+  }
+  if (groups > 1) {
+    const members = Array.from({ length: groups }, (_, g) =>
+      positions.flatMap((_p, i) => (group[i] === g ? [String(i + 1)] : [])).join(', ')
+    );
+    return {
+      coherent: false,
+      reason: `Squad is split into ${groups} groups (models ${members.join(' | ')}): every model must link to the rest in one unbroken chain (1" apart edge to edge, 3" across levels)`,
+      maxDistanceBetweenModels: maxPairDist,
+      maxDistanceToNearestMember: maxNearestDist,
+    };
   }
 
   return {

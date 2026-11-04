@@ -597,7 +597,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       expect(res.reason).toContain('exceeds 1" limit');
     });
 
-    it('validates formation split into 2 buddy pairs within 6" total spread', () => {
+    it('rejects two separate buddy pairs even inside the 6" spread (one unbroken chain)', () => {
       const positions: Vector3[] = [
         { x: 0, y: 0, z: 0 },
         { x: 0.5, y: 0, z: 0 },
@@ -605,9 +605,33 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         { x: 3.5, y: 0, z: 0 },
       ];
       const res = validateSquadCoherency(positions);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('split into 2 groups');
+    });
+
+    it('four models in a line, each 2" centre apart (1" edge gap), are coherent', () => {
+      const res = validateSquadCoherency([0, 2, 4, 6].map((x) => ({ x, y: 0, z: 0 })));
       expect(res.coherent).toBe(true);
-      expect(res.maxDistanceBetweenModels).toBeCloseTo(3.5, 2);
-      expect(res.maxDistanceToNearestMember).toBeCloseTo(0.5, 2);
+    });
+
+    it('two pairs with a 2" edge gap between them are split into 2 groups', () => {
+      const res = validateSquadCoherency([0, 2, 5, 7].map((x) => ({ x, y: 0, z: 0 })));
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('split into 2 groups');
+    });
+
+    it('five-model chain with the middle model removed is split', () => {
+      const full = validateSquadCoherency([0, 2, 4, 6, 8].map((x) => ({ x: x * 0.85, y: 0, z: 0 })));
+      expect(full.coherent).toBe(true);
+      const gap = validateSquadCoherency([0, 2, 6, 8].map((x) => ({ x: x * 0.85, y: 0, z: 0 })));
+      expect(gap.coherent).toBe(false);
+      expect(gap.reason).toContain('split into 2 groups');
+    });
+
+    it('a lone model apart from a clump still names that model (nearest-member reason)', () => {
+      const res = validateSquadCoherency([0, 1.5, 3, 6].map((x) => ({ x, y: 0, z: 0 })));
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('Model 4');
     });
 
     it('squad spread is 6" edge to edge: centre 6.9" is coherent, 7.1" is not', () => {
@@ -652,6 +676,14 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       const res = validateSquadCoherency([ground(0), ground(3.5)]);
       expect(res.coherent).toBe(false);
       expect(res.reason).toContain('exceeds 1" limit');
+    });
+    it('a chain whose middle link crosses levels at 4.0" centre is coherent; a same-level 4.0" link is split', () => {
+      const chain = [ground(0), ground(1.5), deck(5.5), deck(7)];
+      expect(validateSquadCoherency(chain).coherent).toBe(true);
+      const flat = [ground(0), ground(1.5), ground(5.5), ground(7)];
+      const res = validateSquadCoherency(flat);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('split into 2 groups');
     });
     it('exactly 4.0" across levels is coherent, 4.5" is not', () => {
       expect(validateSquadCoherency([deck(0), ground(4.0)]).coherent).toBe(true);
