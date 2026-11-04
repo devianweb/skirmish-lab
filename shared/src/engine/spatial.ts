@@ -1,7 +1,7 @@
 import { GameState, TerrainPiece, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { edgeGapToCentre } from './unitGeometry';
+import { edgeGapToCentre, ENEMY_KEEP_AWAY_GAP, livingModelPositions } from './unitGeometry';
 import {
   EYE_HEIGHT,
   FLANK_RAY_HEIGHT,
@@ -369,6 +369,53 @@ function stairHeightAtLocalZ(
   return botY + t * (topY - botY);
 }
 
+/** Centre-to-centre distance for the 1" keep-away rule (1" between base edges). */
+export const KEEP_AWAY_CENTRE_DISTANCE = edgeGapToCentre(ENEMY_KEEP_AWAY_GAP);
+const KEEP_AWAY_TOLERANCE = 0.02;
+/** A path may touch the charge target but never pass this close to the centre of one of its models. */
+const PASS_THROUGH_DISTANCE = 0.88;
+export const KEEP_AWAY_REASON =
+  'Models cannot come within 1" of another unit (only a charge may close in on its target)';
+
+/** Centre distance a moving model must keep from another unit's model: 1" edge gap, or no closer than it started. */
+function keepAwayLimit(startCentreDistance: number): number {
+  return Math.min(KEEP_AWAY_CENTRE_DISTANCE, Math.max(UNIT_SEPARATION_DISTANCE, startCentreDistance));
+}
+
+function distancePointToSegmentXZ(p: Vector3, a: Vector3, b: Vector3): number {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len2 = dx * dx + dz * dz;
+  const t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
+  return Math.hypot(p.x - (a.x + dx * t), p.z - (a.z + dz * t));
+}
+
+/**
+ * The 1" keep-away rule for a point a model would stand at: the first model of another unit (friendly or enemy,
+ * except `ignoreUnitId`, the declared charge target) closer than 1" edge to edge, or null. `start` is where the
+ * move began; a model that already stood closer may not end closer than it began.
+ */
+export function findKeepAwayViolation(
+  state: GameState,
+  unitId: string,
+  point: Vector3,
+  start: Vector3,
+  ignoreUnitId?: string
+): { unitId: string } | null {
+  const y = point.y ?? 0;
+  for (const other of state.units) {
+    if (other.isDestroyed || other.id === unitId || other.id === ignoreUnitId) continue;
+    for (const pos of livingModelPositions(other)) {
+      if (Math.abs((pos.y ?? 0) - y) >= 1.8) continue;
+      const limit = keepAwayLimit(Math.hypot(start.x - pos.x, start.z - pos.z));
+      if (Math.hypot(point.x - pos.x, point.z - pos.z) < limit - KEEP_AWAY_TOLERANCE) {
+        return { unitId: other.id };
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Check whether a movement path for `movingUnit` is blocked by obstacle
  * terrain (`isObstacle`) or by any other living fighter on the board.
@@ -377,7 +424,7 @@ export function findMoveBlocker(
   state: GameState,
   movingUnit: Unit,
   path: Vector3[],
-  options: { ignoreUnitId?: string } = {}
+  options: { ignoreUnitId?: string; keepAway?: boolean } = {}
 ): { blocked: true; reason: string } | { blocked: false } {
   for (let i = 1; i < path.length; i++) {
     const from = path[i - 1];
@@ -544,9 +591,8 @@ export function findMoveBlocker(
     }
 
     for (const other of state.units) {
-      if (other.isDestroyed || other.id === movingUnit.id || other.id === options.ignoreUnitId) {
-        continue;
-      }
+      if (other.isDestroyed || other.id === movingUnit.id) continue;
+      const isIgnored = other.id === options.ignoreUnitId;
       const otherModels = other.models && other.models.length > 0
         ? other.models.filter((m) => !m.isDestroyed)
         : [{ position: other.position }];
@@ -556,6 +602,14 @@ export function findMoveBlocker(
         const otherY = mPos.y ?? other.position.y ?? 0;
         // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
         if (Math.abs(minSegY - otherY) >= 1.8 && Math.abs(maxSegY - otherY) >= 1.8) {
+          continue;
+        }
+
+        if (isIgnored) {
+          // The charge target may be touched (that is the point), but never walked through.
+          if (distancePointToSegmentXZ(mPos, from, to) < PASS_THROUGH_DISTANCE) {
+            return { blocked: true, reason: 'Move path is blocked by another fighter' };
+          }
           continue;
         }
 
@@ -573,6 +627,19 @@ export function findMoveBlocker(
           (hit && hit.tExit > 0.02 && hit.tEntry > 0.001)
         ) {
           return { blocked: true, reason: 'Move path is blocked by another fighter' };
+        }
+
+        if (options.keepAway) {
+          // The 1" rule: stay this far (base edge) from every model of another unit. A model that starts closer
+          // may not get any closer than it began.
+          const limit = keepAwayLimit(Math.hypot(path[0].x - mPos.x, path[0].z - mPos.z));
+          const keepHit = intersectRayCircle(from, dirX, dirZ, segLen, mPos, limit - KEEP_AWAY_TOLERANCE);
+          if (
+            endDist < limit - KEEP_AWAY_TOLERANCE ||
+            (keepHit && keepHit.tExit > 0.02 && keepHit.tEntry > 0.001)
+          ) {
+            return { blocked: true, reason: KEEP_AWAY_REASON };
+          }
         }
       }
     }
@@ -2017,12 +2084,19 @@ function isShortLadderDescentStep(state: GameState, a: Vector3, b: Vector3): boo
  * Pull a planned path's end back so the model never stops suspended in mid-air or part-way up a ladder.
  * Walks back along the last segment (then earlier ones) to the nearest standable point, never forward.
  */
-function settleEnd(state: GameState, unit: Unit, path: Vector3[], budget?: number): Vector3[] {
+function settleEnd(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  budget?: number,
+  keep: { keepAway?: boolean; ignoreUnitId?: string } = {}
+): Vector3[] {
   if (path.length < 2) return path;
   const airborne = hasTrait(unit.specialRules, 'airborne');
   const surfaces = collectWalkableSurfaces(state);
   const bad = (pt: Vector3): boolean =>
     findEndOverlap(state, unit.id, pt) !== null ||
+    (keep.keepAway === true && findKeepAwayViolation(state, unit.id, pt, path[0], keep.ignoreUnitId) !== null) ||
     (!airborne &&
       (isSuspendedInMidAir(state, pt) ||
         isBaseOverhanging(state, pt, surfaces) ||
@@ -2194,6 +2268,8 @@ export function findNavPath(
     ignoreUnitId?: string;
     startPosition?: Vector3;
     stopBeforeDifficult?: boolean;
+    /** Obey the 1" keep-away rule against every unit but `ignoreUnitId` (moves, rushes and charges; not consolidation). */
+    keepAway?: boolean;
   } = {}
 ): Vector3[] {
   const from: Vector3 = options.startPosition
@@ -2254,17 +2330,23 @@ export function findNavPath(
       }
 
       if (dist <= maxDistance + 1e-4) {
-        return settleEnd(state, unit, [from, target]);
+        return settleEnd(state, unit, [from, target], undefined, options);
       }
       const ratio = maxDistance / dist;
-      return settleEnd(state, unit, [
-        from,
-        {
-          x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
-          y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
-          z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
-        },
-      ]);
+      return settleEnd(
+        state,
+        unit,
+        [
+          from,
+          {
+            x: Math.round((from.x + (target.x - from.x) * ratio) * 100) / 100,
+            y: Math.round((startY + (endY - startY) * ratio) * 100) / 100,
+            z: Math.round((from.z + (target.z - from.z) * ratio) * 100) / 100,
+          },
+        ],
+        undefined,
+        options
+      );
     }
   }
 
@@ -2439,19 +2521,27 @@ export function findNavPath(
     if (other.isDestroyed || other.id === unit.id || other.id === options.ignoreUnitId) {
       continue;
     }
-    const otherY = other.position.y ?? 0;
-    const fR = UNIT_SEPARATION_DISTANCE + 0.12;
-    const offsets = [
-      { x: fR, z: 0 },
-      { x: -fR, z: 0 },
-      { x: 0, z: fR },
-      { x: 0, z: -fR },
-    ];
-    for (const off of offsets) {
-      const wx = other.position.x + off.x;
-      const wz = other.position.z + off.z;
-      if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
-        candidateWaypoints.push({ x: wx, y: otherY, z: wz });
+    // Corners of an octagon round the keep-away circle, so legs between them stay outside it
+    const fR = (KEEP_AWAY_CENTRE_DISTANCE + 0.05) / Math.cos(Math.PI / 8);
+    const offsets = options.keepAway
+      ? Array.from({ length: 8 }, (_, k) => {
+          const a = Math.PI / 8 + (k * Math.PI) / 4;
+          return { x: Math.cos(a) * fR, z: Math.sin(a) * fR };
+        })
+      : [
+          { x: UNIT_SEPARATION_DISTANCE + 0.12, z: 0 },
+          { x: -(UNIT_SEPARATION_DISTANCE + 0.12), z: 0 },
+          { x: 0, z: UNIT_SEPARATION_DISTANCE + 0.12 },
+          { x: 0, z: -(UNIT_SEPARATION_DISTANCE + 0.12) },
+        ];
+    for (const mPos of livingModelPositions(other)) {
+      const otherY = mPos.y ?? 0;
+      for (const off of offsets) {
+        const wx = mPos.x + off.x;
+        const wz = mPos.z + off.z;
+        if (Math.abs(wx) <= halfW && Math.abs(wz) <= halfH) {
+          candidateWaypoints.push({ x: wx, y: otherY, z: wz });
+        }
       }
     }
   }
@@ -2629,7 +2719,7 @@ export function findNavPath(
         break;
       }
     }
-    return settleEnd(state, unit, [from, end]);
+    return settleEnd(state, unit, [from, end], undefined, options);
   }
 
   // 5. String pulling / shortcutting (preserving surface constraints)
@@ -2812,7 +2902,7 @@ export function findNavPath(
     }
   }
 
-  return settleEnd(state, unit, result, maxDistance);
+  return settleEnd(state, unit, result, maxDistance, options);
 }
 
 /**
@@ -3146,40 +3236,90 @@ export function validateFormationMove(
 /**
  * Consolidates surviving models in a unit up to `maxDistance` toward `targetPosition`,
  * stopping at base contact (`UNIT_SEPARATION_DISTANCE = 1.0"`).
+ *
+ * With `intoContact` (the defenders' pile-in after a charge) only the models of `unit` that are not already in base
+ * contact with `contactWith` move: each steps up to `maxDistance` straight toward its nearest `contactWith` model and
+ * stops at base contact, short of any other model, and only if the squad stays in coherency (when it was coherent).
+ * Without `contactWith` the single point `targetPosition` stands in for the charger.
  */
 export function consolidateSquadToward(
   state: GameState,
   unit: Unit,
   targetPosition: Vector3,
   maxDistance: number = 3.0,
-  options: { intoContact?: boolean } = {}
+  options: { intoContact?: boolean; contactWith?: Unit } = {}
 ): void {
   const intoContact = options.intoContact ?? false;
   const contactThreshold = edgeGapToCentre(0); // base contact
-  const targetContactDist = UNIT_SEPARATION_DISTANCE; // 1.0" base contact
 
   if (intoContact) {
     if (!unit.models || unit.models.length <= 1) {
       return;
     }
+    const foes = options.contactWith ? livingModelPositions(options.contactWith) : [targetPosition];
+    const living = unit.models.filter((m) => !m.isDestroyed);
+    const stepOf = (m: (typeof living)[number]): number => {
+      const p = m.position ?? unit.position;
+      return Math.min(...foes.map((f) => Math.hypot(f.x - p.x, f.z - p.z)));
+    };
+    // Models nearest the enemy settle first so the ones behind fill in around them
+    const order = [...living].sort((a, b) => stepOf(a) - stepOf(b));
+    const wasCoherent = validateSquadCoherency(living.map((m) => m.position ?? unit.position)).coherent;
+
+    const otherModelPositions = (self: (typeof living)[number]): Vector3[] => {
+      const out: Vector3[] = [];
+      for (const u of state.units) {
+        if (u.isDestroyed) continue;
+        if (u.id === unit.id) {
+          for (const m of living) if (m !== self) out.push(m.position ?? unit.position);
+        } else {
+          out.push(...livingModelPositions(u));
+        }
+      }
+      return out;
+    };
 
     let movedAny = false;
-    for (const model of unit.models) {
-      if (model.isDestroyed) continue;
+    for (const model of order) {
       const mPos = model.position ?? unit.position;
-      const dx = targetPosition.x - mPos.x;
-      const dz = targetPosition.z - mPos.z;
-      const dist = Math.hypot(dx, dz);
-      // Only models outside contact (> 1.0") consolidate into contact
-      if (dist > contactThreshold) {
-        movedAny = true;
-        const allowed = Math.min(maxDistance, dist - targetContactDist);
-        model.position = {
-          x: Math.round((mPos.x + (dx / dist) * allowed) * 100) / 100,
-          y: mPos.y ?? 0,
-          z: Math.round((mPos.z + (dz / dist) * allowed) * 100) / 100,
-        };
+      let nearest = foes[0];
+      let nearestDist = Infinity;
+      for (const f of foes) {
+        const d = Math.hypot(f.x - mPos.x, f.z - mPos.z);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearest = f;
+        }
       }
+      // Only models outside contact consolidate into contact
+      if (nearestDist <= contactThreshold + 0.01) continue;
+      const dirX = (nearest.x - mPos.x) / nearestDist;
+      const dirZ = (nearest.z - mPos.z) / nearestDist;
+      const others = otherModelPositions(model);
+      let allowed = Math.min(maxDistance, nearestDist - UNIT_SEPARATION_DISTANCE);
+      let candidate: Vector3 | null = null;
+      for (; allowed > 0.04; allowed -= 0.05) {
+        const c: Vector3 = {
+          x: Math.round((mPos.x + dirX * allowed) * 100) / 100,
+          y: mPos.y ?? 0,
+          z: Math.round((mPos.z + dirZ * allowed) * 100) / 100,
+        };
+        const crowded = others.some(
+          (o) => Math.abs((o.y ?? 0) - (c.y ?? 0)) < 1.0 && Math.hypot(o.x - c.x, o.z - c.z) < MODEL_OVERLAP_DISTANCE + 0.05
+        );
+        if (!crowded) {
+          candidate = c;
+          break;
+        }
+      }
+      if (!candidate) continue;
+      if (findMoveBlocker(state, unit, [mPos, candidate], { ignoreUnitId: options.contactWith?.id }).blocked) continue;
+      if (wasCoherent) {
+        const trial = living.map((m) => (m === model ? candidate! : (m.position ?? unit.position)));
+        if (!validateSquadCoherency(trial).coherent) continue;
+      }
+      model.position = candidate;
+      movedAny = true;
     }
     if (movedAny) {
       unit.position = computeSquadCentroid(getSquadModelPositions(unit));

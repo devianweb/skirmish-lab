@@ -32,20 +32,20 @@ import {
   ShootingRayDebugInfo,
   Unit,
   validateDeploymentPosition,
-  validateMeleeVerticalReach,
   validateSquadCoherency,
   SQUAD_COHERENCY_SPREAD,
   SQUAD_COHERENCY_SPREAD_EDGE,
   baseRadius,
   markerGap,
   modelGap,
-  unitGap,
   unitDistance,
+  pointEngagesUnit,
+  chargeContact,
+  chargeDestination,
+  MELEE_MAX_VERTICAL_REACH,
   firingModels,
   targetCoverByMajority,
-  edgeGapToCentre,
   ENGAGEMENT_EDGE_GAP,
-  CHARGE_END_EDGE_GAP,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
@@ -548,6 +548,7 @@ export class GameHUD {
         let path = resolved.jump
           ? resolved.jump.path
           : findNavPath(this.state, active, cursor, nominalMax, {
+              keepAway: true,
               startPosition: startPos,
               stopBeforeDifficult: isRush || !!active.isRushing,
             });
@@ -587,6 +588,7 @@ export class GameHUD {
         const cappedAllowance = Math.min(effectiveCap, remainingBudget);
         if (isDifficult && nominalMax > cappedAllowance) {
           path = findNavPath(this.state, active, cursor, cappedAllowance, {
+            keepAway: true,
             startPosition: startPos,
             stopBeforeDifficult: isRush || !!active.isRushing,
           });
@@ -603,8 +605,7 @@ export class GameHUD {
           const enemy = this.enemyUnits.find(
             (e) =>
               !e.isDestroyed &&
-              modelGap(e.position, this.movePreview!) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
-              Math.abs((e.position.y ?? 0) - (this.movePreview!.y ?? 0)) <= 1.5
+              pointEngagesUnit(this.movePreview!, e)
           );
           this.hoveredEngagedTargetId = enemy ? enemy.id : null;
         } else {
@@ -645,16 +646,10 @@ export class GameHUD {
         : null;
 
       if (active && enemy) {
-        const dx = active.position.x - enemy.position.x;
-        const dz = active.position.z - enemy.position.z;
-        const len = Math.hypot(dx, dz) || 1;
-        const contactTarget = {
-          x: Math.round((enemy.position.x + (dx / len) * 1.0) * 100) / 100,
-          y: active.position.y ?? 0,
-          z: Math.round((enemy.position.z + (dz / len) * 1.0) * 100) / 100,
-        };
+        const contactTarget = chargeDestination(active, enemy);
         const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
           ignoreUnitId: enemy.id,
+          keepAway: true,
         });
         const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
         this.movePreviewDifficult = isDifficult;
@@ -885,6 +880,7 @@ export class GameHUD {
       : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
     let maxAllowance = remainingBudget;
     let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+      keepAway: true,
       startPosition: startPos,
       stopBeforeDifficult: isRush || !!active.isRushing,
     });
@@ -894,6 +890,7 @@ export class GameHUD {
     if (isDifficult && maxAllowance > cappedAllowance) {
       maxAllowance = cappedAllowance;
       path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+        keepAway: true,
         startPosition: startPos,
         stopBeforeDifficult: isRush || !!active.isRushing,
       });
@@ -916,8 +913,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        modelGap(e.position, destination) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
-        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+        pointEngagesUnit(destination, e)
     );
     if (wouldEngage) {
       this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Move'} cannot end in melee contact — use Charge instead`);
@@ -1051,13 +1047,13 @@ export class GameHUD {
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
     const jump = resolved.jump;
     rawDestination = resolved.target;
-    let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance);
+    let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance, { keepAway: true });
     const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
     const effectiveCap = getEffectiveMaxMovement(active, active.isRushing ? 'rush' : 'move', isDifficult);
     const maxMove = Math.min(effectiveCap, currentBudget);
     if (isDifficult && maxAllowance > maxMove) {
       maxAllowance = maxMove;
-      path = findNavPath(this.state, active, rawDestination, maxAllowance);
+      path = findNavPath(this.state, active, rawDestination, maxAllowance, { keepAway: true });
     }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
@@ -1073,8 +1069,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        modelGap(e.position, destination) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
-        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+        pointEngagesUnit(destination, e)
     );
     if (wouldEngage) {
       this.showToast('Move cannot end in melee contact — use Charge instead');
@@ -1129,6 +1124,7 @@ export class GameHUD {
     let path = jump
       ? jump.path
       : findNavPath(this.state, active, rawDestination, maxAllowance, {
+          keepAway: true,
           stopBeforeDifficult: true,
         });
 
@@ -1162,6 +1158,7 @@ export class GameHUD {
     if (isDifficult && maxAllowance > maxRush) {
       maxAllowance = maxRush;
       path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+        keepAway: true,
         stopBeforeDifficult: true,
       });
     }
@@ -1179,8 +1176,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        modelGap(e.position, destination) <= ENGAGEMENT_EDGE_GAP + 0.001 &&
-        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+        pointEngagesUnit(destination, e)
     );
     if (wouldEngage) {
       this.showToast('Rush cannot end in melee contact — use Charge instead');
@@ -1357,25 +1353,19 @@ export class GameHUD {
       }
 
       // Charge ends at true base contact (centre distance = both base radii).
-      const dx = active.position.x - target.position.x;
-      const dz = active.position.z - target.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const contactTarget = {
-        x: Math.round((target.position.x + (dx / len) * edgeGapToCentre(0)) * 100) / 100,
-        y: active.position.y ?? 0,
-        z: Math.round((target.position.z + (dz / len) * edgeGapToCentre(0)) * 100) / 100,
-      };
+      const contactTarget = chargeDestination(active, target);
 
       const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
         ignoreUnitId: target.id,
+        keepAway: true,
       });
       const end = path[path.length - 1];
-      const distToEnemy = modelGap(end, target.position);
-      if (distToEnemy > CHARGE_END_EDGE_GAP + 0.001) {
+      const contact = chargeContact(active, target, end, MELEE_MAX_VERTICAL_REACH);
+      if (contact === 'too-far') {
         this.showToast('Cannot reach engagement range of target');
         return;
       }
-      if (!validateMeleeVerticalReach(end, target.position)) {
+      if (contact === 'too-high') {
         this.showToast('Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)');
         return;
       }
@@ -1415,7 +1405,7 @@ export class GameHUD {
           isCharging: true,
           hasMoved: true,
           isFatigued,
-          distance: distToEnemy,
+          distance: 0,
         },
         {
           defense: target.defense,
@@ -3523,25 +3513,21 @@ export class GameHUD {
         const rangedWeapons = unit.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
         return rangedWeapons.some((w) => firingModels(this.state!, unit, candidate, w).length > 0);
       }
-      const distance = unitGap(unit, candidate);
+      const distance = unitDistance(unit, candidate);
       // A charge is refined by the pathfinder below; melee uses the engagement gap.
       if (distance > (action === 'fight' ? ENGAGEMENT_EDGE_GAP : limit) + 0.01) return false;
       if (action === 'charge') {
         // Verify pathfinder reaches within engagement range under double speed
-        const dx = unit.position.x - candidate.position.x;
-        const dz = unit.position.z - candidate.position.z;
-        const len = Math.hypot(dx, dz) || 1;
-        const contactTarget = {
-          x: candidate.position.x + (dx / len) * 0.9,
-          y: 0,
-          z: candidate.position.z + (dz / len) * 0.9,
-        };
+        const contactTarget = chargeDestination(unit, candidate);
         const path = findNavPath(this.state!, unit, contactTarget, unit.speed * 2, {
           ignoreUnitId: candidate.id,
+          keepAway: true,
         });
         const end = path[path.length - 1];
-        const distToEnd = modelGap(end, candidate.position);
-        return distToEnd <= CHARGE_END_EDGE_GAP + 0.001 && pathLength(path) <= unit.speed * 2 + 0.01;
+        return (
+          chargeContact(unit, candidate, end, MELEE_MAX_VERTICAL_REACH) === 'ok' &&
+          pathLength(path) <= unit.speed * 2 + 0.01
+        );
       }
       return true;
     });

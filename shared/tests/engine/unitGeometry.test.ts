@@ -5,6 +5,10 @@ import {
   markerGap,
   modelGap,
   unitGap,
+  unitsInContact,
+  strikingModelCount,
+  chargeContact,
+  modelsTranslatedTo,
 } from '../../src/engine/unitGeometry';
 
 const at = (x: number, z: number, y = 0) => ({ x, y, z });
@@ -39,5 +43,52 @@ describe('unitGeometry: base-edge measuring', () => {
     expect(edgeGapToCentre(0)).toBe(1);
     expect(edgeGapToCentre(1)).toBe(2);
     expect(edgeGapToCentre(6)).toBe(7);
+  });
+});
+
+const squadAt = (...spots: Array<[number, number, number?]>) => ({
+  position: at(spots[0][0], spots[0][1], spots[0][2] ?? 0),
+  models: spots.map(([x, z, y], i) => ({
+    id: `m${i}`,
+    wounds: 1,
+    maxWounds: 1,
+    isDestroyed: false,
+    position: at(x, z, y ?? 0),
+  })),
+});
+
+describe('unitGeometry: engagement and melee reach', () => {
+  it('units are in contact when any model pair is within 0.5" and level', () => {
+    const a = squadAt([0, 0], [0, 10]);
+    expect(unitsInContact(a, squadAt([5, 5], [0, 11.5]))).toBe(true); // 0.5" edge gap
+    expect(unitsInContact(a, squadAt([5, 5], [0, 11.6]))).toBe(false);
+    expect(unitsInContact(a, squadAt([5, 5], [0, 11.2, 3]))).toBe(false); // other floor
+  });
+
+  it('strikers are the models within 2" (edge) and 4" height of an enemy model', () => {
+    const foe = squadAt([0, 0]);
+    const striker = squadAt([0, 1], [0, 3], [0, 3.1], [0, 8], [1, 1, 5]);
+    // gaps 0, 2.0 (counts), 2.1 (no), 7 (no), height 5 (no)
+    expect(strikingModelCount(striker, foe)).toBe(2);
+  });
+
+  it('dead models do not strike', () => {
+    const striker = squadAt([0, 1], [0, 1.5]);
+    striker.models[1].isDestroyed = true;
+    expect(strikingModelCount(striker, squadAt([0, 0]))).toBe(1);
+  });
+
+  it('a unit without a model list counts as one model at its anchor', () => {
+    expect(strikingModelCount({ position: at(0, 1), models: [] }, { position: at(0, 0), models: [] })).toBe(1);
+  });
+
+  it('chargeContact translates the whole block and measures its closest model', () => {
+    const charger = squadAt([0, 0], [0, -1]);
+    const target = squadAt([0, 5]);
+    expect(modelsTranslatedTo(charger, at(0, 4))[1].z).toBeCloseTo(3);
+    expect(chargeContact(charger, target, at(0, 4), 4.05)).toBe('ok');
+    expect(chargeContact(charger, target, at(0, 3), 4.05)).toBe('too-far');
+    const high = squadAt([0, 5, 6]);
+    expect(chargeContact(charger, high, at(0, 4), 4.05)).toBe('too-high');
   });
 });

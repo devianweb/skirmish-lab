@@ -408,6 +408,22 @@ describe('activation', () => {
       expect(tooClose.valid).toBe(false);
       expect(tooClose.reason).toContain('within 1"');
 
+      // A squad is measured from its closest model, not its anchor: models at z = -13 and z = -9 (anchor -11)
+      const squadState = makeState([
+        makeUnit('h1', HOST, { isDeployed: false }),
+        makeUnit('g1', GUEST, {
+          isDeployed: true,
+          position: { x: 0, y: 0, z: -11 },
+          models: [
+            { id: 'a', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -13 } },
+            { id: 'b', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -9 } },
+          ] as any,
+        }),
+      ]);
+      const squadHost = squadState.units[0];
+      expect(validateDeploymentPosition(squadState, squadHost, { x: 0, y: 0, z: -14.9 }).reason).toContain('within 1"');
+      expect(validateDeploymentPosition(squadState, squadHost, { x: 0, y: 0, z: -15.1 }).valid).toBe(true);
+
       // Inside terrain obstacle
       const insideObstacle = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -15 });
       expect(insideObstacle.valid).toBe(false);

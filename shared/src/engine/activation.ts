@@ -11,7 +11,7 @@ import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
-import { baseRadius, markerGap, modelGap, unitGap, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
+import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -259,7 +259,7 @@ export function applyRoundEndMorale(
         !c.status.includes('stunned') &&
         !c.status.includes('routed') &&
         hasTrait(c.specialRules, 'commander') &&
-        unitGap(c, unit) <= 12.01
+        unitDistance(c, unit) <= 12.01
     );
     const commanderQuality =
       commanders.length > 0
@@ -441,7 +441,7 @@ export function validateDeploymentPosition(
     if (other.ownerId === unit.ownerId || other.isDestroyed || other.isDeployed === false) {
       continue;
     }
-    const dist = modelGap(position, other.position, baseRadius(unit), baseRadius(other));
+    const dist = gapToUnit(position, other);
     if (dist <= ENEMY_KEEP_AWAY_GAP) {
       return { valid: false, reason: 'Cannot deploy within 1" of enemy models' };
     }

@@ -192,9 +192,9 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
-    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) clamps movement before contact (1.0" base separation)
+    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) clamps movement 1" (base edge) short of it
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
-    expect(container.textContent).toContain('3.0" (max 6") · can shoot after moving');
+    expect(container.textContent).toContain('2.0" (max 6") · can shoot after moving');
     clickByText(container, 'Cancel');
 
     // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
@@ -380,6 +380,7 @@ describe('GameHUD', () => {
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     // Position target 5" away (well within double speed of 12")
     target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 5 };
+    syncModels(target);
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Charge');
@@ -1170,6 +1171,8 @@ describe('GameHUD', () => {
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     attacker.position = { x: 0, y: 0, z: 0 };
     target.position = { x: 0, y: 0, z: 5 };
+    syncModels(attacker);
+    syncModels(target);
     state.terrain = [
       {
         id: 'wall-1',
@@ -1464,6 +1467,8 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, attacker.id);
       attacker.position = { x: 0, y: 0, z: 0 };
       target.position = { x: 1.0, y: 5.0, z: 0 }; // 5.0" tall ledge (> 4.0" reach)
+      syncModels(attacker);
+      syncModels(target);
 
       const { hud, container, controller } = setup(HOST, state);
 
@@ -2063,17 +2068,21 @@ describe('GameHUD', () => {
 
       const enemy = state.units.find((u) => u.ownerId === GUEST)!;
       enemy.position = { x: 0, y: 0, z: 0 };
+      syncModels(unit);
+      syncModels(enemy);
 
-      const { hud, container } = setup(HOST, state);
+      const { hud, container, controller } = setup(HOST, state);
 
       clickByText(container, 'Move');
-      // Pick position at z = -0.6 (distance 0.6" <= 1.0" engagement range)
+      // Pick a spot at z = -0.6 (0" from the enemy's base edge, deep inside melee contact): the planned move
+      // stops short at the 1" keep-away distance (centre z = -2.0) instead
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -0.6 } });
+      clickByText(container, 'Confirm');
 
-      expect(container.querySelector('.sl-hud-toast')?.textContent).toBe(
-        'Move cannot end in melee contact — use Charge instead'
-      );
-      expect(container.textContent).not.toContain('Confirm Move');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const finalZ = controller.submitAction.mock.calls[0][0].payload.finalPosition.z;
+      expect(finalZ).toBeLessThanOrEqual(-1.97);
+      expect(finalZ).toBeGreaterThan(-2.2);
     });
   });
 });
