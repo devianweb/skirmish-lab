@@ -50,8 +50,8 @@ The default testing map layout is defined in [`shared/src/data/scenario.ts`](../
 | `terrain-wall-north` | North Solid Wall | `wall` | Procedural Wall Block | `(0, 0, 8)` | `4.0 × 2.0 × 0.5` | Solid wall: 100% LoS obstruction & movement blocking. |
 | `terrain-wall-south` | South Window Wall | `wall-window` | Procedural Wall Block | `(0, 0, -8)` | `4.0 × 2.0 × 0.5` | Window wall: blocks movement, 1.0" center aperture grants Cover (+1 Def). |
 | `terrain-door-east` | East Doorway Wall | `wall-doorway` | Procedural Wall Block | `(8, 0, 0)` | `4.0 × 2.0 × 0.5` | Doorway wall: 1.0" center doorway permits model passage and clear LoS. |
-| `terrain-crate-sw` | SW Low Crate | `crate` | Procedural Crate Block | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
-| `terrain-crate-ne` | NE Low Crate | `crate` | Procedural Crate Block | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
+| `terrain-crate-sw` | SW Low Crate | `crate` | Procedural Crate Block | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: stepped over when moving (can't end on it); defenders within 1.0" gain +1 Defense. |
+| `terrain-crate-ne` | NE Low Crate | `crate` | Procedural Crate Block | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: stepped over when moving (can't end on it); defenders within 1.0" gain +1 Defense. |
 | `terrain-col-nw` | NW Column | `column` | Procedural Pillar | `(-8, 0, 6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
 | `terrain-col-se` | SE Column | `column` | Procedural Pillar | `(8, 0, -6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
 | `terrain-platform-west` | West Overlook Platform | `platform` | Procedural Deck Platform | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Legacy walkable elevation ($y = 2.5″$); new platforms use the 3.0" deck structures (`platform-small`, `platform-large`). |

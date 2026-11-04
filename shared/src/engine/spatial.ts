@@ -119,6 +119,24 @@ export function legacyElevation(piece: TerrainPiece): number | undefined {
   return piece.elevation;
 }
 
+/** Tallest a solid may stand above its floor and still be stepped over by a moving model (inches). */
+export const STEP_OVER_MAX_HEIGHT = 1.0;
+
+/**
+ * True for low scatter a model walks straight over: an obstacle piece with no floors, stairs or ladders
+ * whose solids all rise no more than `STEP_OVER_MAX_HEIGHT` above the floor the piece stands on (its own
+ * base, so a barricade stacked on a deck is measured from the deck). Movement ignores such pieces; models
+ * still can't end overlapping them, and cover / line of sight are unchanged.
+ */
+export function isStepOverPiece(piece: TerrainPiece): boolean {
+  if (!piece.isObstacle || isStairPiece(piece) || isLadderPiece(piece)) return false;
+  if (piece.isWalkable || legacyElevation(piece) !== undefined) return false;
+  const solids = resolveTerrainStructure(piece).solids;
+  if (solids.some((solid) => solid.walkable)) return false;
+  const blocking = solids.filter((solid) => solid.isObstacle);
+  return blocking.length > 0 && blocking.every((solid) => solid.maxY <= STEP_OVER_MAX_HEIGHT + 1e-6);
+}
+
 /** True if the piece's structure has at least one walkable solid (deck, catwalk, ledge, roof). */
 export function hasStructuredFloor(piece: TerrainPiece): boolean {
   return resolveTerrainStructure(piece).solids.some((solid) => solid.walkable);
@@ -434,7 +452,7 @@ export function findMoveBlocker(
         continue;
       }
 
-      if (!piece.isObstacle) continue;
+      if (!piece.isObstacle || isStepOverPiece(piece)) continue;
 
       if (isOnStairs) {
         // Stairs, ladders, and ramps: do not block segments traversing them
@@ -624,7 +642,7 @@ export function clampMoveDestinationWithObstacles(
         continue;
       }
 
-      if (!piece.isObstacle) continue;
+      if (!piece.isObstacle || isStepOverPiece(piece)) continue;
       const pieceBaseY = piece.position.y ?? 0;
       const pieceHeight = piece.scale.y ?? 1.0;
       const pieceTopY = legacyElevation(piece) ?? pieceBaseY + pieceHeight;
@@ -2371,7 +2389,7 @@ export function findNavPath(
 
   // 3c. Ground Obstacles
   for (const piece of state.terrain) {
-    if (!piece.isObstacle) continue;
+    if (!piece.isObstacle || isStepOverPiece(piece)) continue;
     const pieceBaseY = piece.position.y ?? 0;
 
     const addLocalBoxCorners = (minX: number, maxX: number, minZ: number, maxZ: number) => {
