@@ -82,7 +82,7 @@ interface ChargeState {
 
 interface PendingReaction {
   id: string;
-  type: string;
+  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in'
   promptingPlayerId: string;   // The player who must choose (defender)
   sourceUnitId: string;        // The attacker/charger
   targetUnitId: string;        // The defender making the decision
@@ -298,6 +298,8 @@ type ActionType =
   | 'charge'
   | 'fight'
   | 'respond-reaction' // Reaction choice submitted by player
+  | 'consolidate-move' // Winner's 3" consolidation after wiping out a unit
+  | 'pile-in-move'     // Defender places the models that were not touching a charger (reaction type 'pile-in')
   | 'use-ability'
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
@@ -327,6 +329,7 @@ interface DeclaredTraversal {
 }
 
 type ActionPayload =
+  | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model

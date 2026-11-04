@@ -101,6 +101,9 @@ type GameMessage =
 ### Charge action types
 A split charge (batch 1D PR 16) uses three ordinary `action-request` actions, each validated and applied by the host like any other (no new message types): `begin-charge { attackerId, targetId }` (declares and locks the target; no dice), `charge-leg { attackerId, path, traversal? }` (one leg; jump/hazard/fall dice come from the server via the usual dice specs and are attached to the leg's log entry) and the final `charge` (melee dice). While `turnState.charge` is set the host rejects every other action except `end-activation`, which abandons the charge.
 
+### Pile-in reaction
+After a final charge that leaves some defender models out of base contact, the host sets `turnState.pendingReaction` of type `pile-in` (60 s) and rolls no strike dice. The defending peer answers with an ordinary `action-request`: `pile-in-move { modelPositions, modelPaths? }` or `respond-reaction` with the `auto-pile-in` choice; the host validates it, then requests the charger's strike dice for that action (`getDiceSpecs` counts the strikers from the submitted spots, so the dice are server-rolled under the pile-in action's id) and broadcasts the resulting state. If the countdown ends the host submits `auto-pile-in` itself. The pending reaction is part of `GameState`, so a reconnecting peer sees it in the state snapshot.
+
 ### Action Flow
 ```
 Guest wants to move unit:
