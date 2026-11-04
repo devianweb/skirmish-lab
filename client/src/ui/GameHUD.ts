@@ -178,6 +178,8 @@ export class GameHUD {
   private stagedSquadModelPositions: Map<string, Vector3> = new Map();
   /** Staged individual model navigation paths during squad movement (keyed by model ID) */
   private stagedSquadModelPaths: Map<string, Vector3[]> = new Map();
+  /** Jumps/falls declared for individual squad models while staging (model id -> the declared leap). */
+  private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
   /** ID of the squad model currently selected for placement */
   private selectedSquadModelId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
@@ -846,6 +848,7 @@ export class GameHUD {
     this.hoveredEngagedTargetId = null;
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
     this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
     this.flow = { mode: 'targeting', action };
 
@@ -882,20 +885,24 @@ export class GameHUD {
     if (!currentModel) return;
 
     const startPos = currentModel.position ?? active.position;
-    // Squads cannot declare a jump yet (host rule), but the cursor still snaps to floor edges
-    rawDestination = resolveMoveTarget(this.state, active, startPos, rawDestination, false).target;
+    // The cursor snaps to floor edges; a model standing at an edge may declare its own jump or fall
+    const resolved = resolveMoveTarget(this.state, active, startPos, rawDestination, true);
+    const jump = resolved.jump;
+    rawDestination = resolved.target;
 
     const isRush = actionKind === 'rush';
     const remainingBudget = active.isRushing
       ? active.remainingMovement
       : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
     let maxAllowance = remainingBudget;
-    let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
-      keepAway: true,
-      startPosition: startPos,
-      stopBeforeDifficult: isRush || !!active.isRushing,
-    });
-    const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
+    let path = jump
+      ? jump.path
+      : findNavPath(this.state, active, rawDestination, maxAllowance, {
+          keepAway: true,
+          startPosition: startPos,
+          stopBeforeDifficult: isRush || !!active.isRushing,
+        });
+    const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
     const effectiveCap = getEffectiveMaxMovement(active, isRush || active.isRushing ? 'rush' : 'move', isDifficult);
     const cappedAllowance = Math.min(effectiveCap, remainingBudget);
     if (isDifficult && maxAllowance > cappedAllowance) {
@@ -912,7 +919,7 @@ export class GameHUD {
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path);
-    if (distance < 0.05) {
+    if (distance < 0.05 && !jump) {
       this.showToast('Pick a destination away from the model');
       return;
     }
@@ -980,6 +987,12 @@ export class GameHUD {
     // Model placed successfully
     this.stagedSquadModelPositions.set(currentModel.id, destination);
     this.stagedSquadModelPaths.set(currentModel.id, path);
+    if (jump) {
+      this.stagedSquadModelTraversals.set(currentModel.id, jump);
+      this.showToast(`Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}`);
+    } else {
+      this.stagedSquadModelTraversals.delete(currentModel.id);
+    }
 
     if (this.stagedSquadModelPositions.size < alive.length) {
       // Auto-advance selection to the next unplaced model
@@ -1048,13 +1061,18 @@ export class GameHUD {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
 
-    for (const p of orderedPaths) {
+    const orderedJumps = alive.map((m) => this.stagedSquadModelTraversals.get(m.id) ?? null);
+    const orderedTraversals = orderedJumps.map((j) =>
+      j ? { kind: j.kind, takeoff: j.takeoff, landing: j.landing } : null
+    );
+    orderedJumps.forEach((j, i) => {
+      if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
+    });
+    orderedPaths.forEach((p, i) => {
+      if (orderedTraversals[i]) return; // the declared jump is already described
       const warning = this.dropWarning(active, p, null);
-      if (warning) {
-        summary += ` · ${warning}`;
-        break;
-      }
-    }
+      if (warning) summary += ` · ${warning}`;
+    });
 
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
     this.movePreview = finalCentroid;
@@ -1070,6 +1088,7 @@ export class GameHUD {
         finalPosition: finalCentroid,
         modelPositions: orderedPositions,
         modelPaths: orderedPaths,
+        ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
@@ -1662,6 +1681,7 @@ export class GameHUD {
     this.selectedShootWeaponId = null;
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
     this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     this.flow = { mode: 'idle' };
@@ -3259,6 +3279,7 @@ export class GameHUD {
           case 'reset-squad-move':
             this.stagedSquadModelPositions.clear();
             this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
             this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
             this.moveJump = null;

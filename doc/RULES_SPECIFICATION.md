@@ -284,7 +284,8 @@ Whenever a target model receives a **Suppressed (Shaken)** result from an attack
   - Takes 1 automatic hit with **AP(1) per full 3" of vertical fall**.
   - Model lands within 2" of where it fell, on the highest floor below (a lower deck, else the ground), at a spot clear of terrain and other models with its whole base supported, and its activation terminates immediately.
   - Falling damage applies to any fall of 2" or more, including a failed jump off a 3" deck.
-  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains.
+  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains. This covers a failed jump, a drop over 6" and a failed gap jump alike: it is always the falling model that is lost, never "the first living model".
+  - **Squads declare jumps per model.** Each model of a squad that is at a floor edge may declare its own jump (or fall) as part of the squad's move or rush; the other models walk as usual. Only the declaring models roll, each with its own dice, in model order. A model that fails falls and is lost (the last living model instead takes the normal falling damage), and the squad's activation ends; the models that had been moved stay where they were placed. The squad still has to finish in coherency.
 
 ---
 

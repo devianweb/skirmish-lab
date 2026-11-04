@@ -184,7 +184,7 @@ describe('failed jump-down: lands on the floor below', () => {
 
 describe('failed gap jump: squads', () => {
   it('only the jumping model falls and is lost; the others stay where they were', () => {
-    // Squads cannot declare jumps through validation yet, so drive the traversal step directly.
+    // Drives the traversal step directly (the declared-jump path is covered in squadDeclaredJumps.test.ts).
     const unit = makeUnit(takeoff, 3);
     unit.models[0].position = P(-1.5, 3, 0.5);
     unit.models[2].position = P(-1.5, 3, -0.5);

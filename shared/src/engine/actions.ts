@@ -291,12 +291,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
@@ -400,6 +401,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           reason: `Model positions count mismatch (${modelPositions!.length} vs ${activeCount} active models)`,
         };
       }
+      if (modelTraversals && modelTraversals.length > modelPositions!.length) {
+        return { valid: false, reason: 'More declared jumps than squad models' };
+      }
       const coherency = validateSquadCoherency(modelPositions!);
       if (!coherency.coherent) {
         return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
@@ -468,8 +472,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (detectPathGapJump(state, mPath, unit.result).tooWide) {
           return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
         }
-        if (validateDeclaredTraversal(state, unit.result, mPath, undefined)) {
-          return { valid: false, reason: `Squad model ${i + 1} needs a jump, which squads cannot declare yet` };
+        const mJumpProblem = validateDeclaredTraversal(state, unit.result, mPath, modelTraversals?.[i]);
+        if (mJumpProblem) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${mJumpProblem}` };
         }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
@@ -640,12 +645,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const actor = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in actor) return actor;
@@ -749,6 +755,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           reason: `Model positions count mismatch (${modelPositions!.length} vs ${activeCount} active models)`,
         };
       }
+      if (modelTraversals && modelTraversals.length > modelPositions!.length) {
+        return { valid: false, reason: 'More declared jumps than squad models' };
+      }
       const coherency = validateSquadCoherency(modelPositions!);
       if (!coherency.coherent) {
         return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
@@ -810,8 +819,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
-        if (validateDeclaredTraversal(state, unit, mPath, undefined)) {
-          return { valid: false, reason: `Squad model ${i + 1} needs a jump, which squads cannot declare yet` };
+        const mJumpProblem = validateDeclaredTraversal(state, unit, mPath, modelTraversals?.[i]);
+        if (mJumpProblem) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${mJumpProblem}` };
         }
         if (detectPathGapJump(state, mPath, unit).tooWide) {
           return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
@@ -977,34 +987,38 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     const payload = action.payload as {
       unitId?: string;
       path?: Vector3[];
+      modelPaths?: Vector3[][];
+      modelTraversals?: (DeclaredTraversal | null)[];
     };
     const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
     const path = payload.path;
+    const specs: DiceSpec[] = [];
+    const hasModelJumps = Boolean(payload.modelTraversals?.some((t) => t) && payload.modelPaths);
     if (unit && path && path.length > 0) {
-      const specs: DiceSpec[] = [];
-      const gap = detectPathGapJump(state, path, unit);
-      if (gap.isGapJump) {
-        specs.push({ count: gap.dice, sides: 6, purpose: 'gap_jump' });
-      }
-      if (isPathDangerous(state, path, unit)) {
-        const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
-        specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
-      }
-      const fall = detectPathFall(path, state);
-      // a hop that is already a gap jump rolls once, on its straight-line length
-      const dropNeedsDice = !gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
-      if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-        specs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: 'drop_jump' });
-      }
-      // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
-      const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
-      if (dropNeedsDice || gapMayFall) {
-        specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
-        specs.push({ count: 1, sides: 6, purpose: 'trauma' });
-      }
-      if (specs.length > 0) return specs;
+      // With per-model jumps the summary path is not a jump itself: keep only its shared hazard roll
+      const shared = pathTraversalSpecs(state, unit, path);
+      specs.push(...(hasModelJumps ? shared.filter((sp) => sp.purpose === 'hazard') : shared));
     }
-    return null;
+    // Squad models that declared a jump roll their own dice, tagged `m<index>_<purpose>` and listed in
+    // model order so every model's rolls are consumed in order.
+    if (unit && payload.modelTraversals && payload.modelPaths) {
+      const jumpers = payload.modelTraversals
+        .map((t, i) => (t ? i : -1))
+        .filter((i) => i >= 0 && payload.modelPaths![i]?.length >= 2);
+      const aliveCount = Math.max(1, unit.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      // A jumper only takes a normal falling hit if every other model could already have been lost.
+      const needsFallDice = jumpers.length >= aliveCount;
+      for (const i of jumpers) {
+        specs.push(
+          ...pathTraversalSpecs(state, unit, payload.modelPaths[i], {
+            prefix: `m${i}_`,
+            singleModel: true,
+            includeFallDice: needsFallDice,
+          })
+        );
+      }
+    }
+    return specs.length > 0 ? specs : null;
   }
 
   if (action.type === 'respond-reaction') {
@@ -1171,6 +1185,75 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   return attackSpecs;
 }
 
+
+/**
+ * Dice a path's jumps, hazards and falls need. `prefix` tags the purposes (squad models), `singleModel`
+ * rolls one hazard die instead of one per living model, and `includeFallDice` can drop the falling dice
+ * for a squad model that is simply lost when it falls.
+ */
+function pathTraversalSpecs(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  opts: { prefix?: string; singleModel?: boolean; includeFallDice?: boolean } = {}
+): DiceSpec[] {
+  const prefix = opts.prefix ?? '';
+  const specs: DiceSpec[] = [];
+  const gap = detectPathGapJump(state, path, unit);
+  if (gap.isGapJump) {
+    specs.push({ count: gap.dice, sides: 6, purpose: `${prefix}gap_jump` });
+  }
+  if (isPathDangerous(state, path, unit)) {
+    const aliveCount = opts.singleModel ? 1 : unit.models?.filter((m) => !m.isDestroyed).length || 1;
+    specs.push({ count: aliveCount, sides: 6, purpose: `${prefix}hazard` });
+  }
+  const fall = detectPathFall(path, state);
+  // a hop that is already a gap jump rolls once, on its straight-line length
+  const dropNeedsDice = !gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
+  if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
+    specs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: `${prefix}drop_jump` });
+  }
+  // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
+  const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
+  if ((dropNeedsDice || gapMayFall) && opts.includeFallDice !== false) {
+    specs.push({ count: 1, sides: 6, purpose: `${prefix}falling_defense` });
+    specs.push({ count: 1, sides: 6, purpose: `${prefix}trauma` });
+  }
+  return specs;
+}
+
+/** The rolls a squad model uses: its own `m<index>_` dice (prefix removed) plus the untagged ones. */
+function diceForModel(dice: DiceResult[] | undefined, index: number): DiceResult[] | undefined {
+  if (!dice) return dice;
+  const prefix = `m${index}_`;
+  const own = dice.filter((d) => (d.purpose ?? '').startsWith(prefix)).map((d) => ({ ...d, purpose: (d.purpose ?? '').slice(prefix.length) }));
+  return [...own, ...dice.filter((d) => !/^m\d+_/.test((d.purpose ?? '')))];
+}
+
+/** Resolves each squad model's own path in order. */
+function applyModelPathTraversals(
+  state: GameState,
+  unit: Unit,
+  modelPaths: Vector3[][],
+  models: Model[],
+  action: GameAction,
+  dice?: DiceResult[]
+): void {
+  for (let i = 0; i < modelPaths.length; i++) {
+    const before = traversalLog.get(action)?.events.length ?? 0;
+    applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
+    const entry = traversalLog.get(action);
+    if (entry && dice) {
+      entry.results = dice; // every roll stays on the log entry, tagged by model
+      if (modelPaths.length > 1) {
+        for (let e = before; e < entry.events.length; e++) {
+          entry.events[e] = { ...entry.events[e], text: `Model ${i + 1}: ${entry.events[e].text}` };
+        }
+      }
+    }
+  }
+}
+
 /** Traversal hazards resolved per action, so the log entry can show the dice story (jumps, falls, hazards). */
 const traversalLog = new WeakMap<GameAction, { unitId: string; events: TraversalEvent[]; results: DiceResult[] }>();
 
@@ -1196,6 +1279,11 @@ export function applyTraversalHazardsAndFalls(
   const done = (result: { terminated: boolean; wounds: number }) => {
     recordTraversal(action, unit, events, dice);
     return result;
+  };
+
+  // A fall ends the activation; with several squad models failing in one move it ends only once
+  const endActivationOnce = () => {
+    if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice);
   };
 
   // Fall damage roll helper shared by failed jumps and plain falls
@@ -1272,7 +1360,7 @@ export function applyTraversalHazardsAndFalls(
       }
       unit.hasMoved = true;
       unit.remainingMovement = 0;
-      finishActivation(state, dice);
+      endActivationOnce();
       return done({ terminated: true, wounds: fallWounds });
     }
   }
@@ -1319,10 +1407,30 @@ export function applyTraversalHazardsAndFalls(
     if (jump.canJump && jump.passed) {
       return done({ terminated: false, wounds: 0 }); // landed the jump
     }
+    const aliveNow = unit.models?.filter((m) => !m.isDestroyed) ?? [];
+    if (aliveNow.length > 1 && model && aliveNow.includes(model)) {
+      // Squad: the model that fell is lost (the last survivor takes the normal falling hit instead)
+      const cause = jump.canJump ? '' : 'Too far to jump.';
+      model.isDestroyed = true;
+      model.wounds = 0;
+      unit.wounds = Math.max(1, unit.wounds - 1);
+      unit.position = computeSquadCentroid(
+        aliveNow.filter((m) => m !== model).map((m) => m.position ?? unit.position)
+      );
+      events.push({
+        type: 'fall',
+        wounds: 1,
+        text: `${cause} Fell ${fall.maxDrop.toFixed(1)}": the model is lost`.trim(),
+      });
+      unit.hasMoved = true;
+      unit.remainingMovement = 0;
+      endActivationOnce();
+      return done({ terminated: true, wounds: 1 });
+    }
     const fallRes = resolveFall(fall.maxDrop, jump.canJump ? '' : 'Too far to jump.');
     unit.hasMoved = true;
     unit.remainingMovement = 0;
-    finishActivation(state, dice);
+    endActivationOnce();
     return done({ terminated: true, wounds: fallRes.wounds });
   }
 
@@ -1431,12 +1539,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path?: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const unit = getUnit(newState, unitId)!;
       const isSquad = Boolean(modelPositions && modelPositions.length > 0);
@@ -1482,10 +1591,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         );
 
         if (modelPaths && modelPaths.length > 0) {
-          for (let i = 0; i < modelPaths.length; i++) {
-            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice, activeModels[i]);
-            if (traversal.terminated) break;
-          }
+          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
         } else if (path && path.length > 0) {
           applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
         }
@@ -1880,12 +1986,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path?: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const unit = getUnit(newState, unitId)!;
       const isSquad = Boolean(modelPositions && modelPositions.length > 0);
@@ -1936,10 +2043,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         refreshEngagements(newState);
 
         if (modelPaths && modelPaths.length > 0) {
-          for (let i = 0; i < modelPaths.length; i++) {
-            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice, activeModels[i]);
-            if (traversal.terminated) break;
-          }
+          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
         } else if (path && path.length > 0) {
           applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
         }
