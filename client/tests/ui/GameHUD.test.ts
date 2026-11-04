@@ -60,6 +60,11 @@ function clickByText(root: HTMLElement, text: string): HTMLElement | null {
   return found;
 }
 
+/** Test fixtures move `unit.position`; keep a lone model standing on it (rules measure per model). */
+function syncModels(unit: { position: { x: number; y: number; z: number }; models?: Array<{ position?: any }> }): void {
+  for (const m of unit.models ?? []) m.position = { ...unit.position };
+}
+
 describe('GameHUD', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -213,6 +218,7 @@ describe('GameHUD', () => {
     activateUnit(state, HOST, attacker.id);
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 10 };
+    syncModels(target);
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Shoot');
@@ -248,6 +254,7 @@ describe('GameHUD', () => {
     });
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 }; // within range 12 of both weapons
+    syncModels(target);
 
     activateUnit(state, HOST, attacker.id);
     const { hud, container, controller } = setup(HOST, state);
@@ -282,7 +289,9 @@ describe('GameHUD', () => {
     const targetA = guestUnits[0];
     const targetB = guestUnits[1];
     targetA.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 };
+    syncModels(targetA);
     targetB.position = { x: attacker.position.x + 5, y: 0, z: attacker.position.z + 8 };
+    syncModels(targetB);
 
     activateUnit(state, HOST, attacker.id);
     const { hud, container, controller } = setup(HOST, state);
@@ -1885,6 +1894,7 @@ describe('GameHUD', () => {
       squad.position = { x: 0, y: 0, z: -10 };
       const enemy = state.units.find((u) => u.ownerId === GUEST)!;
       enemy.position = { x: 0, y: 0, z: -5 };
+      syncModels(enemy);
 
       const { hud, container } = setup(HOST, state);
 

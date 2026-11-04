@@ -35,8 +35,9 @@ export function markerGap(model: Vector3, marker: Vector3, radius: number = UNIT
 }
 
 /**
- * Base-edge gap between two units' anchor points. Squads still measure from the unit anchor here;
- * per-model measuring will swap the endpoints, not the rule.
+ * Base-edge gap between two units' anchor points (`unit.position` is only the display anchor, the
+ * centroid for squads). Shooting and "> 9 inch" rules measure between models with `unitDistance`;
+ * charges and engagement still use this until PR 9b swaps them.
  */
 export function unitGap(a: Pick<Unit, 'position'>, b: Pick<Unit, 'position'>): number {
   return modelGap(a.position, b.position, baseRadius(a), baseRadius(b));
@@ -53,3 +54,47 @@ export const ENGAGEMENT_EDGE_GAP = 0.5;
 export const CHARGE_END_EDGE_GAP = 0.25;
 /** Deployment (and similar placement) must stay more than this far, edge to edge, from enemy models. */
 export const ENEMY_KEEP_AWAY_GAP = 1;
+
+// ---------------------------------------------------------------------------
+// Per-model geometry (squads). `unit.position` is only an anchor; rules measure between models.
+// ---------------------------------------------------------------------------
+
+/** World position of every living model (a unit with no model list is one model at its anchor). */
+export function livingModelPositions(unit: Pick<Unit, 'position' | 'models'>): Vector3[] {
+  if (!unit.models || unit.models.length === 0) return [{ ...unit.position }];
+  return unit.models.filter((m) => !m.isDestroyed).map((m) => ({ ...(m.position ?? unit.position) }));
+}
+
+export interface ModelPair {
+  /** Model of unit `a`. */
+  from: Vector3;
+  /** Model of unit `b`. */
+  to: Vector3;
+  /** Base-edge gap between them. */
+  gap: number;
+}
+
+/** The closest pair of living models (one from each unit) by base-edge gap, or null if a unit has none. */
+export function closestModelPair(
+  a: Pick<Unit, 'position' | 'models'>,
+  b: Pick<Unit, 'position' | 'models'>
+): ModelPair | null {
+  let best: ModelPair | null = null;
+  const rA = baseRadius(a);
+  const rB = baseRadius(b);
+  for (const from of livingModelPositions(a)) {
+    for (const to of livingModelPositions(b)) {
+      const gap = modelGap(from, to, rA, rB);
+      if (!best || gap < best.gap) best = { from, to, gap };
+    }
+  }
+  return best;
+}
+
+/** Base-edge distance between the closest models of two units. */
+export function unitDistance(
+  a: Pick<Unit, 'position' | 'models'>,
+  b: Pick<Unit, 'position' | 'models'>
+): number {
+  return closestModelPair(a, b)?.gap ?? unitGap(a, b);
+}

@@ -256,11 +256,14 @@ describe('GameManager', () => {
       );
       // Move the attacker into rifle range of a guest unit.
       const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
-      (manager as any).gameState.units.find((u: any) => u.id === attacker.id).position = {
+      const movedAttacker = (manager as any).gameState.units.find((u: any) => u.id === attacker.id);
+      movedAttacker.position = {
         x: target.position.x,
         y: 0,
         z: target.position.z - 10,
       };
+      // Rules measure per model: stand every model on the new anchor.
+      for (const m of movedAttacker.models) m.position = { ...movedAttacker.position };
 
       const action = createAction(HOST_PLAYER_ID, 'shoot', {
         type: 'shoot',
@@ -301,11 +304,14 @@ describe('GameManager', () => {
         createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: attacker.id })
       );
       const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
-      (manager as any).gameState.units.find((u: any) => u.id === attacker.id).position = {
+      const movedAttacker = (manager as any).gameState.units.find((u: any) => u.id === attacker.id);
+      movedAttacker.position = {
         x: target.position.x,
         y: 0,
         z: target.position.z - 10,
       };
+      // Rules measure per model: stand every model on the new anchor.
+      for (const m of movedAttacker.models) m.position = { ...movedAttacker.position };
 
       const action = createAction(HOST_PLAYER_ID, 'shoot', {
         type: 'shoot',
@@ -341,11 +347,14 @@ describe('GameManager', () => {
         createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: attacker.id })
       );
       const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
-      (manager as any).gameState.units.find((u: any) => u.id === attacker.id).position = {
+      const movedAttacker = (manager as any).gameState.units.find((u: any) => u.id === attacker.id);
+      movedAttacker.position = {
         x: target.position.x,
         y: 0,
         z: target.position.z - 10,
       };
+      // Rules measure per model: stand every model on the new anchor.
+      for (const m of movedAttacker.models) m.position = { ...movedAttacker.position };
 
       const shoot = createAction(HOST_PLAYER_ID, 'shoot', {
         type: 'shoot',
