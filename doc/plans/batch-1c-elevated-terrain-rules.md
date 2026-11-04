@@ -1,5 +1,5 @@
 # Batch 1C: elevated-terrain rules (Beginner's Guide alignment)
-Status: approved (2026-11-02)
+Status: done (2026-11-04): PR 7 #202, PR 8 #201 (PR 6 → 1E)
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
 Stepping over terrain up to 1" (PR 7) and split-level coherency (PR 8). Climbing (PR 6) moved to batch 1E (E2 + E4). Do these after batch 1E.

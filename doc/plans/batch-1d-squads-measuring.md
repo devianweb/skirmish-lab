@@ -1,5 +1,5 @@
 # Batch 1D: squads and measuring (tabletop per-model rules)
-Status: approved (2026-11-02)
+Status: done (2026-11-04): PR 14 #203, 9a #204, 9b #205, 9c #206, PR 10 #207, PR 15 #208, PR 16 #209, PR 11 #210
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first: decision numbers below refer to it.
 
 Base-edge measuring, then measuring between models instead of unit centres (shooting, charges, the 1" rule), confirm-early squad moves, and per-model charges. Order: PR 14 with/before PR 9a → 9b → 9c; PR 10 + PR 15 (squad jumps) together any time; PR 16 (split charges) before PR 11; PR 11 last.

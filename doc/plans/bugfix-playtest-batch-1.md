@@ -60,8 +60,8 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 | :--- | :--- | :--- |
 | [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
 | [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
-| [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
-| [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 15, 16, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, squad jumps, charge jumps, per-model charges |
+| [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) ✓ done | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
+| [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) ✓ done | 14, 9, 10, 15, 16, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, squad jumps, charge jumps, per-model charges |
 | [batch-1h-post-1f-fixes.md](batch-1h-post-1f-fixes.md) ✓ done | 24, 25, 26 | Raised stairs, gap-with-drop jump classification, stale rush message |
 | [batch-1g-board-size.md](batch-1g-board-size.md) ✓ done | 21, 22 | Configurable board size (default 48×48), roadmap 13D |
 | [batch-1f-traversal-followups.md](batch-1f-traversal-followups.md) ✓ done | 20, 17, 18, 19 | No overhanging ends + climb label, stacked-level climb/drop, failed-jump landing fixes, floating 3D path labels |
