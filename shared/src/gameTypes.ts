@@ -374,7 +374,7 @@ export interface WeaponAttackOutcome {
  */
 /** One traversal hazard resolved during a move: a jump, a fall or dangerous terrain (rolled with server dice). */
 export interface TraversalEvent {
-  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard';
+  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard' | 'jump-skipped';
   /** Human-readable result for the dice panel and log. */
   text: string;
   /** The dice rolled for this event (each d6). */
