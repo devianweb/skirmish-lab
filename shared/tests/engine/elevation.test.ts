@@ -163,11 +163,11 @@ describe('elevation: stacking low cover and walls on a deck', () => {
     expect(hasLineOfSight(makeState([shooter, target], [plat, wall]), shooter, target)).toBe(false);
   });
 
-  it('a barricade on the deck blocks movement through it and gives low cover within 1" behind it', () => {
+  it('a barricade on the deck is stepped over but still gives low cover within 1" behind it', () => {
     const mover = makeUnit('m', HOST, { x: -1.5, y: 3, z: 0 });
     const barricade = piece('barricade', 0, 3, 0, Math.PI / 2, 'barricade');
     const state = makeState([mover], [plat, barricade]);
-    expect(findMoveBlocker(state, mover, [{ x: -1.5, y: 3, z: 0 }, { x: 1.5, y: 3, z: 0 }]).blocked).toBe(true);
+    expect(findMoveBlocker(state, mover, [{ x: -1.5, y: 3, z: 0 }, { x: 1.5, y: 3, z: 0 }]).blocked).toBe(false);
 
     const shooter = makeUnit('s', HOST, { x: -1.9, y: 3, z: 0 });
     const behind = makeUnit('t', GUEST, { x: 0.8, y: 3, z: 0 });

@@ -68,13 +68,13 @@ function makeWall(id: string, position: Vector3, blocksLineOfSight = true): Terr
   };
 }
 
-function makeCrate(id: string, position: Vector3): TerrainPiece {
+function makeCrate(id: string, position: Vector3, height = 1): TerrainPiece {
   return {
     id,
     terrainType: 'crate',
     position,
     rotation: { x: 0, y: 0, z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
+    scale: { x: 1, y: height, z: 1 },
     blocksLineOfSight: false,
     providesCover: true,
     isObstacle: true,
@@ -480,9 +480,9 @@ describe('spatial: findNavPath obstacle pathfinding', () => {
     expect(path[1]).toEqual({ x: 0, y: 0, z: 4 });
   });
 
-  it('navigates around an obstacle crate to reach the destination behind it', () => {
+  it('navigates around a tall (2") block to reach the destination behind it', () => {
     const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
-    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 }, 2); // taller than 1": can't be stepped over
     const state = makeState([unit], [crate]);
 
     // Destination is directly behind crate at (0, 0, 6)
@@ -498,7 +498,7 @@ describe('spatial: findNavPath obstacle pathfinding', () => {
 
   it('clamps path along polyline when destination exceeds max movement', () => {
     const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
-    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 }, 2); // taller than 1": can't be stepped over
     const state = makeState([unit], [crate]);
 
     // Only 3" of movement allowed
