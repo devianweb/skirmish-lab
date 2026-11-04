@@ -98,6 +98,9 @@ type GameMessage =
 - **Confirmation:** Only host can produce `state-update` messages with confirmed state
 - **Rejection:** Host can reject invalid actions with reason
 
+### Charge action types
+A split charge (batch 1D PR 16) uses three ordinary `action-request` actions, each validated and applied by the host like any other (no new message types): `begin-charge { attackerId, targetId }` (declares and locks the target; no dice), `charge-leg { attackerId, path, traversal? }` (one leg; jump/hazard/fall dice come from the server via the usual dice specs and are attached to the leg's log entry) and the final `charge` (melee dice). While `turnState.charge` is set the host rejects every other action except `end-activation`, which abandons the charge.
+
 ### Action Flow
 ```
 Guest wants to move unit:

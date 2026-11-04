@@ -1,5 +1,6 @@
 import {
   boardDistance,
+  ChargeState,
   CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
@@ -41,6 +42,7 @@ import {
   markerGap,
   modelGap,
   unitDistance,
+  validateAction,
   pointEngagesUnit,
   chargeContact,
   chargeDestination,
@@ -282,6 +284,10 @@ export class GameHUD {
     this.moveJump = null;
     this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
+    // A declared charge can't be undone: keep the player in the charge legs flow
+    if (this.flow.mode === 'idle' && this.declaredCharge && this.myTurn) {
+      this.flow = { mode: 'targeting', action: 'charge' };
+    }
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
     if (this.selectedDeployUnitId) {
       const unit = state.units.find((u) => u.id === this.selectedDeployUnitId);
@@ -466,6 +472,8 @@ export class GameHUD {
     ) {
       if (target.kind === 'unit') {
         this.prepareAttack(target.unitId);
+      } else if (target.kind === 'position' && this.flow.action === 'charge' && this.declaredCharge) {
+        this.prepareChargeLeg(target.position);
       }
       return;
     }
@@ -648,14 +656,16 @@ export class GameHUD {
 
     if (this.flow.mode === 'targeting' && this.flow.action === 'charge') {
       const active = this.activeUnit;
+      const declared = this.declaredCharge;
+      const budget = active ? (declared ? active.remainingMovement : active.speed * 2) : 0;
       const targetUnitId = target?.kind === 'unit' ? target.unitId : null;
       const enemy = targetUnitId
         ? this.state.units.find((u) => u.id === targetUnitId && u.ownerId !== this.localPlayerId && !u.isDestroyed)
         : null;
 
-      if (active && enemy) {
+      if (active && enemy && (!declared || enemy.id === declared.targetId)) {
         const contactTarget = chargeDestination(active, enemy);
-        const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
+        const path = findNavPath(this.state, active, contactTarget, budget, {
           ignoreUnitId: enemy.id,
           keepAway: true,
         });
@@ -663,8 +673,30 @@ export class GameHUD {
         this.movePreviewDifficult = isDifficult;
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.moveJump = null;
+        this.moveSegments = null;
         this.hoveredEngagedTargetId = enemy.id;
         this.updateMoveWarning(isDifficult, this.flow.action);
+      } else if (active && declared && target?.kind === 'position') {
+        // A leg: walk toward the cursor, or declare a jump when standing at an edge (same as a move)
+        const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true);
+        const path = resolved.jump
+          ? resolved.jump.path
+          : findNavPath(this.state, active, resolved.target, budget, {
+              ignoreUnitId: declared.targetId,
+              keepAway: true,
+            });
+        const isDifficult = !resolved.jump && path.length > 0 && isPathDifficult(this.state, path, active);
+        this.movePreviewDifficult = isDifficult;
+        this.moveJump = resolved.jump;
+        this.moveSegments = describePathSegments(this.state, active, path);
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.hoveredEngagedTargetId = null;
+        this.updateMoveWarning(isDifficult, this.flow.action);
+        this.showTraversalChip();
+        this.emitMarkers();
+        return;
       } else {
         this.movePathPreview = null;
         this.moveJump = null;
@@ -739,6 +771,13 @@ export class GameHUD {
   private get activeUnit(): Unit | null {
     const id = this.state?.turnState.activeUnitId;
     return id ? (this.state?.units.find((u) => u.id === id) ?? null) : null;
+  }
+
+  /** The local player's declared (in-progress) charge on the active unit, if any. */
+  private get declaredCharge(): ChargeState | null {
+    const charge = this.state?.turnState.charge;
+    const active = this.activeUnit;
+    return charge && active && charge.unitId === active.id && active.ownerId === this.localPlayerId ? charge : null;
   }
 
   private get myUnits(): Unit[] {
@@ -1294,6 +1333,71 @@ export class GameHUD {
     );
   }
 
+  /** A leg of a declared charge: a safe path toward the cursor, or a declared jump from an edge. */
+  private prepareChargeLeg(rawDestination: Vector3): void {
+    const active = this.activeUnit;
+    const declared = this.declaredCharge;
+    if (!active || !declared || !this.state) return;
+    const target = this.state.units.find((u) => u.id === declared.targetId);
+    if (!target) return;
+
+    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    const jump = resolved.jump;
+    const dest = resolved.target;
+    let allowance = active.remainingMovement;
+    let path = jump
+      ? jump.path
+      : findNavPath(this.state, active, dest, allowance, { ignoreUnitId: target.id, keepAway: true });
+    const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
+    if (isDifficult) {
+      const spent = getEffectiveMaxMovement(active, 'charge', false) - active.remainingMovement;
+      const cap = Math.max(0, getEffectiveMaxMovement(active, 'charge', true) - spent);
+      if (allowance > cap) {
+        allowance = cap;
+        path = findNavPath(this.state, active, dest, allowance, { ignoreUnitId: target.id, keepAway: true });
+      }
+    }
+    if (path.length < 2) {
+      this.showToast('Pick a spot to walk to, or click the target to make contact');
+      return;
+    }
+    const end = path[path.length - 1];
+    const cost = pathMovementCost(this.state, path);
+    if (cost < 0.05 && !jump) {
+      this.showToast('Pick a spot away from the unit');
+      return;
+    }
+    if (!jump && chargeContact(active, target, end, MELEE_MAX_VERTICAL_REACH) === 'ok') {
+      this.showToast(`Click ${target.name} to make contact and strike`);
+      return;
+    }
+
+    const left = Math.max(0, active.remainingMovement - cost);
+    let summary = `Charge leg ${cost.toFixed(1)}" · ${left.toFixed(1)}" of the charge left after it (no melee yet)`;
+    if (isDifficult) summary += ' · [Difficult Terrain 6.0" cap]';
+    const dropNote = this.dropWarning(active, path, jump);
+    if (dropNote) summary += ` · ${dropNote}`;
+    if (isPathDangerous(this.state, path, active)) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+    summary += this.traversalSummary(active, path, jump);
+    if (jump) summary += ' · a failed jump falls and ends the activation with no melee';
+
+    this.movePreview = end;
+    this.movePathPreview = path;
+    this.moveJump = jump;
+    this.moveSegments = describePathSegments(this.state, active, path);
+    this.beginConfirmation(
+      createAction(this.localPlayerId, 'charge-leg', {
+        type: 'charge-leg',
+        attackerId: active.id,
+        path,
+        ...(jump ? { traversal: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing } } : {}),
+      }),
+      summary
+    );
+  }
+
   private prepareAttack(targetUnitId: string): void {
     let actionKind: string;
     if (this.flow.mode === 'targeting') {
@@ -1411,15 +1515,53 @@ export class GameHUD {
         return;
       }
 
+      const declared = this.declaredCharge;
+      if (declared && declared.targetId !== target.id) {
+        this.showToast(`The charge is locked to ${this.unitName(declared.targetId)}`);
+        return;
+      }
       // Charge ends at true base contact (centre distance = both base radii).
       const contactTarget = chargeDestination(active, target);
+      // After legs, the final move may only use what the legs left of the one charge budget
+      const chargeLeft = declared ? active.remainingMovement : active.speed * 2;
+      const chargeSpent = declared ? active.speed * 2 - active.remainingMovement : 0;
 
-      const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
+      const path = findNavPath(this.state!, active, contactTarget, chargeLeft, {
         ignoreUnitId: target.id,
         keepAway: true,
       });
       const end = path[path.length - 1];
       const contact = chargeContact(active, target, end, MELEE_MAX_VERTICAL_REACH);
+      const pathCharge = pathMovementCost(this.state!, path);
+      const isDifficult = isPathDifficult(this.state!, path, active);
+      const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
+      // The host must accept this exact path (the pathfinder can fall back to a straight line across a gap)
+      const reachesInOne =
+        contact === 'ok' &&
+        pathCharge + chargeSpent <= maxCharge + 0.01 &&
+        pathCharge <= chargeLeft + 0.01 &&
+        validateAction(
+          this.state!,
+          createAction(this.localPlayerId, 'charge', {
+            type: 'charge',
+            attackerId: active.id,
+            targetId: target.id,
+            path,
+            weaponId: weapon.id,
+          })
+        ).valid;
+      if (!reachesInOne && !declared && contact !== 'too-high' && boardDistance(active.position, contactTarget) <= active.speed * 2 + 0.01) {
+        // Not reachable by one safe path, but within reach in a straight line: offer to make it in legs
+        this.beginConfirmation(
+          createAction(this.localPlayerId, 'begin-charge', {
+            type: 'begin-charge',
+            attackerId: active.id,
+            targetId: target.id,
+          }),
+          `Declare a charge on ${target.name}: no single safe path reaches it, so you make the charge in legs (walk to an edge, jump a gap), then click ${target.name} to make contact. The charge can't be undone: end the activation to abandon it (no melee). Budget ${(active.speed * 2).toFixed(0)}"`
+        );
+        return;
+      }
       if (contact === 'too-far') {
         this.showToast('Cannot reach engagement range of target');
         return;
@@ -1428,10 +1570,8 @@ export class GameHUD {
         this.showToast('Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)');
         return;
       }
-      const isDifficult = isPathDifficult(this.state!, path, active);
-      const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
-      const chargeDistance = pathMovementCost(this.state!, path);
-      if (chargeDistance > maxCharge + 0.01) {
+      const chargeDistance = pathCharge;
+      if (chargeDistance + chargeSpent > maxCharge + 0.01 || chargeDistance > chargeLeft + 0.01) {
         this.showToast(
           isDifficult
             ? `Charge in Difficult Terrain is capped at 6.0" (${chargeDistance.toFixed(1)}" exceeds 6.0")`
@@ -1684,7 +1824,8 @@ export class GameHUD {
     this.stagedSquadModelTraversals.clear();
     this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
-    this.flow = { mode: 'idle' };
+    // A declared charge can't be cancelled: back to choosing its next leg
+    this.flow = this.declaredCharge ? { mode: 'targeting', action: 'charge' } : { mode: 'idle' };
     this.render();
   }
 
@@ -2286,6 +2427,10 @@ export class GameHUD {
         return `rushed ${this.unitName((action.payload as any).unitId)}`;
       case 'shoot':
         return `shot ${this.unitName((action.payload as any).targetId)}`;
+      case 'begin-charge':
+        return `declared a charge on ${this.unitName((action.payload as any).targetId)}`;
+      case 'charge-leg':
+        return 'made a charge leg';
       case 'charge':
         return `charged ${this.unitName((action.payload as any).targetId)}`;
       case 'fight':
@@ -2551,7 +2696,9 @@ export class GameHUD {
           : this.flow.action === 'rush'
           ? 'Click a destination to Rush (double move, auto-paths around obstacles)'
           : this.flow.action === 'charge'
-          ? 'Click an enemy unit within charge range to Charge into melee and strike'
+          ? this.declaredCharge && active
+            ? `Charge declared on ${this.unitName(this.declaredCharge.targetId)}: ${active.remainingMovement.toFixed(1)}" left. Click a spot to walk a leg (at an edge, click across the gap to jump), or click the target to make contact`
+            : 'Click an enemy unit within charge range to Charge into melee and strike'
           : `Select an enemy target within the red range ring (${this.flow.action})`;
 
       const isSquadMovement =
@@ -2617,7 +2764,11 @@ export class GameHUD {
                     }<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>`
                   : ''
               }
-              <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+              ${
+                this.flow.action === 'charge' && this.declaredCharge
+                  ? '<button class="sl-hud-btn primary" data-action="end-activation">End (no melee)</button>'
+                  : '<button class="sl-hud-btn" data-action="cancel">Cancel</button>'
+              }
             </div>
           </div>
         </div>`;
@@ -3316,7 +3467,9 @@ export class GameHUD {
           case 'end-activation': {
             this.beginConfirmation(
               createAction(this.localPlayerId, 'end-activation', { type: 'end-activation' }),
-              `End ${this.activeUnit?.name ?? 'the'} activation`
+              this.declaredCharge
+                ? `Abandon the charge and end ${this.activeUnit?.name ?? 'the'} activation: no melee`
+                : `End ${this.activeUnit?.name ?? 'the'} activation`
             );
             break;
           }
@@ -3481,6 +3634,7 @@ export class GameHUD {
         (this.flow.action.type === 'move-unit' ||
           this.flow.action.type === 'rush' ||
           this.flow.action.type === 'charge' ||
+          this.flow.action.type === 'charge-leg' ||
           this.flow.action.type === 'consolidate-move') &&
         payload.path &&
         payload.path.length >= 2
@@ -3656,8 +3810,8 @@ export class GameHUD {
       );
     }
     if (action === 'charge') {
-      // Charge moves up to double speed (12") to reach engagement range of target.
-      return unit.speed * 2;
+      // Charge moves up to double speed (12") to reach engagement range of target; after legs, what is left.
+      return this.declaredCharge ? unit.remainingMovement : unit.speed * 2;
     }
     return 1.5;
   }
@@ -3665,6 +3819,11 @@ export class GameHUD {
   /** All living enemy units within max range and Line of Sight of the given action. */
   private reachableEnemies(unit: Unit, action: 'shoot' | 'charge' | 'fight'): Unit[] {
     if (!this.state) return [];
+    const declared = action === 'charge' ? this.declaredCharge : null;
+    if (declared) {
+      // A declared charge is locked to its target
+      return this.state.units.filter((u) => u.id === declared.targetId && !u.isDestroyed);
+    }
     const limit = this.actionMaxRange(unit, action);
     return this.state.units.filter((candidate) => {
       if (candidate.ownerId === this.localPlayerId || candidate.isDestroyed) return false;
