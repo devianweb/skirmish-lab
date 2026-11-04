@@ -26,6 +26,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 6. Squads
+- [ ] Coherency is one chain (batch 1I PR 28): stage a 4-model squad move as two separate pairs about 3" apart (inside the 6" spread): placing the last model is refused with "Squad is split into 2 groups". Bring the pairs within 1" (edge to edge) of each other so they form a line: accepted. A link across levels (up to 3") still counts.
 - [ ] Squad jump preview (retest after batch 1I PR 27): while placing a squad model at a deck edge, hovering across a 2-5" gap (or a 3-6" drop) shows the same red jump path, floating label and jump chip as a single model does, before you click. (Before the fix the jump only appeared after the click.)
 - [ ] Too-wide gap hint (batch 1I PR 27): with a single model and with a squad model at a deck edge, hover across a gap of more than 6" to a deck: the chip reads "Too far to jump (N\", max 6\")" and no jump path is shown; clicking does not declare a jump. A 5" gap still shows the normal jump chip.
 - [ ] Aim lines follow the clicked model (batch 1I PR 27): select Shoot with a squad and hover/click a far model of the enemy squad that your models can see: their aim lines go to that model (a model that cannot see or reach it keeps aiming at its nearest visible model); the "N of M models can fire" count and cover are the same as without the click.

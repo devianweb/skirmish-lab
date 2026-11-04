@@ -1913,7 +1913,7 @@ describe('GameHUD', () => {
         expect(btn).toBeTruthy();
 
         btn!.click();
-        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
         clickByText(container, 'Confirm');
         expect(controller.submitAction).toHaveBeenCalledTimes(1);
         const action = controller.submitAction.mock.calls[0][0];
@@ -1970,7 +1970,7 @@ describe('GameHUD', () => {
       expect(container.textContent).toContain('4d6');
     });
 
-    it('allows a 4-model squad to move into two buddy pairs within 6" total spread', () => {
+    it('allows a 4-model squad to move into one unbroken chain', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;
       squad.name = 'Warden Patrol Squad';
@@ -1998,12 +1998,12 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
       expect(container.textContent).toContain('Place Model 3 of 4');
 
-      // Model 3 placed at (4.0, 0, -4.5) [Pair 2 leader, 4.7" from M1, within 6" spread, starts new pair!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
+      // Model 3 placed at (4.0, 0, -4.5) [chain continues below M1]
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -3 } });
       expect(container.textContent).toContain('Place Model 4 of 4');
 
-      // Model 4 placed at (5.0, 0, -4.5) [Pair 2 buddy, 1.0" from M3, 5.5" from M1 — full squad coherency satisfied!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
+      // Model 4 placed at (5.0, 0, -4.5) [2.0" from M3, linked to M2: one unbroken chain]
+      hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: -3 } });
 
       // Should enter Move Confirmation successfully!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -2016,8 +2016,32 @@ describe('GameHUD', () => {
       expect(action.payload.modelPositions).toHaveLength(4);
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -2 });
       expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -2 });
-      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -4.5 });
-      expect(action.payload.modelPositions[3]).toEqual({ x: 5.0, y: 0, z: -4.5 });
+      expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -3 });
+      expect(action.payload.modelPositions[3]).toEqual({ x: 2.0, y: 0, z: -3 });
+    });
+
+    it('refuses to finish a squad move as two separate pairs and says the squad is split', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.position = { x: 0, y: 0, z: -5 };
+      squad.speed = 6;
+      squad.remainingMovement = 6;
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm4', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+      const { hud, container } = setup(HOST, state);
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
+      expect(container.textContent).not.toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.querySelector('.sl-hud-toast')?.textContent).toContain('split into 2 groups');
     });
 
     it('allows player to select squad models to move in any arbitrary order via chips or board clicks', () => {
@@ -2059,11 +2083,11 @@ describe('GameHUD', () => {
       const m1Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]');
       expect(m1Chip).toBeTruthy();
       m1Chip!.click();
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -3 } });
 
       // 4. Finally place Model 2 at (5.0, 0, -4.5) [buddy to M1 with 1.0" base contact]
       expect(container.textContent).toContain('Place Model 2 of 4');
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -3 } });
 
       // All 4 models placed in arbitrary order (M3 -> M4 -> M1 -> M2)!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -2073,8 +2097,8 @@ describe('GameHUD', () => {
       const action = controller.submitAction.mock.calls[0][0];
       expect(action.type).toBe('move-unit');
       // Payload positions must be indexed according to living model order [m1, m2, m3, m4]
-      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -4.5 }); // m1
-      expect(action.payload.modelPositions[1]).toEqual({ x: 5.0, y: 0, z: -4.5 }); // m2
+      expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -3 }); // m1
+      expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -3 }); // m2
       expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -2 });   // m3
       expect(action.payload.modelPositions[3]).toEqual({ x: 1.0, y: 0, z: -2 }); // m4
     });
