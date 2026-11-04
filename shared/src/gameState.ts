@@ -1,3 +1,4 @@
+import { DEFAULT_BOARD_SIZE } from './data/mapSchema';
 import { GameState, GameAction, Player, TurnState, Board, Unit, UnitStatus } from './gameTypes';
 
 export const SCHEMA_VERSION = '2.1.0';
@@ -41,8 +42,8 @@ export function createInitialGameState(hostId: string, guestId: string, hostName
   };
 
   const board: Board = {
-    width: 36,
-    height: 36,
+    width: DEFAULT_BOARD_SIZE,
+    height: DEFAULT_BOARD_SIZE,
     gridSize: 1,
     scale: 1,
     terrain: [],

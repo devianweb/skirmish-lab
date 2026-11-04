@@ -282,8 +282,26 @@ describe('activation', () => {
   });
 
   describe('Phase 10B: Pre-Match Deployment Engine', () => {
+    it.each([
+      [48, 12],
+      [36, 6],
+      [30, 3],
+      [26, 1],
+      [72, 12],
+    ])('zones on a %i"-deep board are %f" deep and stay at least 24" apart', (height, depth) => {
+      const state = makeState([]);
+      state.board.height = height;
+      const host = getDeploymentZoneBounds(state, HOST, false);
+      const guest = getDeploymentZoneBounds(state, GUEST, false);
+      expect(host.maxZ - host.minZ).toBe(depth);
+      expect(guest.maxZ - guest.minZ).toBe(depth);
+      expect(guest.minZ - host.maxZ).toBeGreaterThanOrEqual(24);
+    });
+
     it('calculates standard and vanguard deployment zone boundaries (zones stay 24" apart)', () => {
       const state = makeState([]);
+      state.board.width = 36; // the default board is 48x48 now; this case pins the 36-deep behaviour
+      state.board.height = 36;
       // Board 36x36 (halfW = 18, halfH = 18): 12" zones would be only 12" apart, so they are 6" deep
       const hostStandard = getDeploymentZoneBounds(state, HOST, false);
       expect(hostStandard.minZ).toBe(-18);

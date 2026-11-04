@@ -1,4 +1,4 @@
-import { CustomMapDefinition } from '@skirmish-lab/shared';
+import { CustomMapDefinition, createBlankMap } from '@skirmish-lab/shared';
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
@@ -325,7 +325,7 @@ export class Lobby {
             <div style="margin-bottom: 14px;">
               <label style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Battlefield Map:</label>
               <select id="mapSelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
-                <option value="blank" ${this.selectedMapSelection === 'blank' ? 'selected' : ''}>Empty Battlefield (44"x30")</option>
+                <option value="blank" ${this.selectedMapSelection === 'blank' ? 'selected' : ''}>Empty Battlefield (${createBlankMap().board?.width}"x${createBlankMap().board?.height}")</option>
                 ${customOptionsHtml}
               </select>
             </div>

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState, HOST_PLAYER_ID, GUEST_PLAYER_ID } from '../../src/gameState';
 import {
   applyDefaultScenario,
+  createBalancedObjectives,
+  createBlankMap,
   createDefaultScenarioObjectives,
   createDefaultScenarioTerrain,
   createDefaultScenarioUnits,
@@ -120,7 +122,7 @@ describe('scenario data pack', () => {
 
   it('spawns 3 to 5 objective markers placed > 9" apart outside deployment zones', () => {
     const objectives = createDefaultScenarioObjectives();
-    expect(objectives.length).toBeGreaterThanOrEqual(3);
+    expect(objectives).toHaveLength(4);
     expect(objectives.length).toBeLessThanOrEqual(5);
 
     // All objectives are placed outside deployment zones (deployment is z = ±12)
@@ -345,11 +347,24 @@ describe('custom map board size and the TEST army', () => {
     expect(state.board.height).toBe(30);
   });
 
-  it('the blank map is also 44x30', () => {
+  it('the blank map and a fresh game state are 48x48', () => {
+    expect(createBlankMap().board).toEqual({ width: 48, height: 48 });
     const state = createInitialGameState(HOST, GUEST);
+    expect(state.board.width).toBe(48);
+    expect(state.board.height).toBe(48);
     applyDefaultScenario(state, {});
-    expect(state.board.width).toBe(44);
-    expect(state.board.height).toBe(30);
+    expect(state.board.width).toBe(48);
+    expect(state.board.height).toBe(48);
+  });
+
+  it('an old 44x30 map keeps its size, 3" zones, and its objectives', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    const map: CustomMapDefinition = { ...createBlankMap(), board: { width: 44, height: 30 } };
+    applyDefaultScenario(state, { customMap: map });
+    expect(state.board).toMatchObject({ width: 44, height: 30 });
+    const zone = getDeploymentZoneBounds(state, state.hostId, false);
+    expect(zone.maxZ - zone.minZ).toBe(3);
+    expect(validateMapDefinition(map).filter((n) => n.severity === 'error')).toEqual([]);
   });
 
   it('the TEST army spawns one very fast single-model fighter per side', () => {
@@ -392,5 +407,95 @@ describe('deployment zones keep armies 24" apart', () => {
   it('60" deep: still 12" zones (36" apart)', () => {
     const z = zones(48, 60);
     expect(z.host.maxZ).toBe(-18);
+  });
+});
+
+describe('board size validation', () => {
+  const mapOf = (width: number, height: number): CustomMapDefinition => ({
+    id: 'm', name: 'M', version: 1, board: { width, height }, terrain: [], objectives: createBalancedObjectives({ width, height }),
+  });
+  const errors = (m: CustomMapDefinition) => validateMapDefinition(m).filter((n) => n.severity === 'error');
+
+  it('accepts the limits 24 and 72 and rejects outside them or fractions', () => {
+    expect(errors(mapOf(24, 36))).toEqual([]);
+    expect(errors(mapOf(72, 72))).toEqual([]);
+    expect(errors(mapOf(23, 48)).some((n) => n.message.includes('width'))).toBe(true);
+    expect(errors(mapOf(73, 48)).some((n) => n.message.includes('width'))).toBe(true);
+    expect(errors(mapOf(48, 73)).some((n) => n.message.includes('height'))).toBe(true);
+    expect(errors(mapOf(48.5, 48)).some((n) => n.message.includes('width'))).toBe(true);
+  });
+
+  it('errors when the board is too shallow for 24" separation, warns under 36"', () => {
+    expect(errors(mapOf(44, 25)).some((n) => n.message.includes('too shallow'))).toBe(true);
+    expect(errors(mapOf(44, 26)).some((n) => n.message.includes('too shallow'))).toBe(false);
+    const warn = (h: number) => validateMapDefinition(mapOf(44, h)).some((n) => n.severity === 'warning' && n.message.includes('under 6"'));
+    expect(warn(30)).toBe(true);
+    expect(warn(35)).toBe(true);
+    expect(warn(36)).toBe(false);
+    expect(warn(48)).toBe(false);
+  });
+
+  it('checks objectives against the real zone depth of the board', () => {
+    // 48-deep: zone inner edge z = -12; 30-deep: inner edge z = -12 too (3" zone); 36-deep: edge -12 (6" zone)
+    const obj = (z: number) => ({ id: 'o', name: 'O', position: { x: 0, y: 0, z }, controllingPlayerId: null, isContested: false });
+    const m = (h: number, z: number): CustomMapDefinition => ({ ...mapOf(44, h), objectives: [obj(z), { ...obj(0), id: 'p', name: 'P', position: { x: 20, y: 0, z: 0 } }, { ...obj(0), id: 'q', name: 'Q', position: { x: -20, y: 0, z: 0 } }] });
+    const inHost = (map: CustomMapDefinition) => validateMapDefinition(map).some((n) => n.message.includes('inside the Host deployment zone'));
+    expect(inHost(m(48, -12))).toBe(true);
+    expect(inHost(m(48, -11.5))).toBe(false);
+    expect(inHost(m(72, -20))).toBe(false); // 72-deep: zone is -36..-24
+    expect(inHost(m(72, -25))).toBe(true);
+    expect(inHost(m(30, -13))).toBe(true);
+    expect(inHost(m(30, -11))).toBe(false);
+  });
+
+  it('warns about terrain and objectives outside the board', () => {
+    const map: CustomMapDefinition = {
+      ...mapOf(24, 36),
+      terrain: [{
+        id: 'far', terrainType: 'wall', position: { x: 13, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 },
+        blocksLineOfSight: true, providesCover: true, isObstacle: true,
+      }],
+      objectives: [
+        { id: 'a', name: 'Out', position: { x: 0, y: 0, z: 19 }, controllingPlayerId: null, isContested: false },
+      ],
+    };
+    const n = validateMapDefinition(map);
+    expect(n.some((x) => x.severity === 'warning' && x.message.includes('Terrain piece "far" is outside'))).toBe(true);
+    expect(n.some((x) => x.severity === 'warning' && x.message.includes('Objective "Out" is outside'))).toBe(true);
+  });
+});
+
+describe('createBalancedObjectives', () => {
+  it.each([[24, 36], [36, 36], [48, 48], [44, 30], [72, 72], [30, 26]])(
+    'on %i x %i: more than 9" apart, outside both zones, inside the board',
+    (width, height) => {
+      const objectives = createBalancedObjectives({ width, height });
+      expect(objectives).toHaveLength(4);
+      const state = createInitialGameState(HOST, GUEST);
+      state.board.width = width;
+      state.board.height = height;
+      const host = getDeploymentZoneBounds(state, HOST, false);
+      const guest = getDeploymentZoneBounds(state, GUEST, false);
+      for (const [i, a] of objectives.entries()) {
+        expect(a.position.z).toBeGreaterThan(host.maxZ);
+        expect(a.position.z).toBeLessThan(guest.minZ);
+        expect(Math.abs(a.position.x)).toBeLessThanOrEqual(width / 2);
+        for (const b of objectives.slice(i + 1)) {
+          expect(Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)).toBeGreaterThan(9);
+        }
+      }
+      expect(new Set(objectives.map((o) => o.id)).size).toBe(objectives.length);
+      const map: CustomMapDefinition = { id: 'x', name: 'x', board: { width, height }, terrain: [], objectives };
+      expect(validateMapDefinition(map).filter((n) => n.message.includes('Objective'))).toEqual([]);
+    },
+  );
+
+  it('scales positions with the board and falls back to fewer markers when space runs out', () => {
+    const big = createBalancedObjectives({ width: 72, height: 72 });
+    expect(Math.max(...big.map((o) => Math.abs(o.position.x)))).toBe(18);
+    expect(createBalancedObjectives({ width: 24, height: 36 }).length).toBe(4);
+    const tiny = createBalancedObjectives({ width: 8, height: 26 });
+    expect(tiny.length).toBeGreaterThanOrEqual(1);
+    expect(tiny.length).toBeLessThan(4);
   });
 });

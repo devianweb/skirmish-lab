@@ -12,6 +12,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 1. Map builder & editor
 - All items verified.
+- [ ] A new blank map is 48" x 48" (grid and ground). "Auto objectives" places four markers, each more than 9" apart and clear of both deployment zones. Opening an older 44" x 30" saved map still shows it at that size. The validation badge shows no new warnings on either.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified.
@@ -36,3 +37,4 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - All items verified.
+- [ ] The lobby's "Empty Battlefield" option reads 48"x48". A game on it has 12"-deep deployment zones (the camera framing for the larger board arrives in a later PR). A game on an old 44"x30" map still has 3"-deep zones.

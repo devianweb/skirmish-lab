@@ -15,7 +15,9 @@ describe('BoardRenderer', () => {
 
   it('renders a ground plane sized from board dimensions and grid size', () => {
     const { renderer, boardGroup } = setup();
-    renderer.renderBoard(makeState());
+    const state = makeState();
+    state.board = { ...state.board, width: 36, height: 36 }; // explicit: the default board is 48x48 now
+    renderer.renderBoard(state);
 
     const ground = boardGroup.children.find((c) => c.name === 'ground') as THREE.Mesh;
     expect(ground).toBeDefined();
@@ -26,7 +28,9 @@ describe('BoardRenderer', () => {
 
   it('renders a grid with one line per gridSize step across the board', () => {
     const { renderer, boardGroup } = setup();
-    renderer.renderBoard(makeState());
+    const state = makeState();
+    state.board = { ...state.board, width: 36, height: 36 }; // explicit: the default board is 48x48 now
+    renderer.renderBoard(state);
 
     const grid = boardGroup.children.find((c) => c.name === 'grid') as THREE.LineSegments;
     expect(grid).toBeDefined();
