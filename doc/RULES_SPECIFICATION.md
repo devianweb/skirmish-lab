@@ -173,6 +173,7 @@ Whenever a model suffers wounds, place **1 wound token (WT)** per unsaved wound 
 ### 6.1 Multi-Model Squads
 - For units containing multiple models, **each wound immediately eliminates one model** until only the final surviving model remains.
 - Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
+- **The owner chooses who goes (batch 1I, Decision 37).** When an attack's wounds would remove models from a squad that survives the attack, the squad's owner picks which living models are removed (30 s; on timeout the host picks, preferring models whose removal keeps the squad one connected chain, then list order). Any living models may be picked: sight and coherency do not limit the choice, since hits and wounds go to the unit; a pick that breaks the chain is allowed and the squad regroups next activation. Each damaged squad gets its own prompt, in resolution order (split fire at two units: one prompt per unit). If the wounds destroy the whole squad, or the unit has a single model, nothing is asked. In melee the order is: charge strike, the defender's pick, the strike-back (counted from the surviving models within reach), the charger's owner's pick, then the step back or consolidation. Hazard (fall / jump) casualties keep their own picker.
 
 ### 6.2 Resilient(X) (Toughness) Progression
 - Standard models (Toughness 1) check wound effects immediately upon suffering their 1st wound ($1\text{d}6 + 1$ token; KO on 6+).

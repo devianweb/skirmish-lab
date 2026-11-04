@@ -101,6 +101,19 @@ import {
   validatePileIn,
   withModelPositions,
 } from './pileIn';
+import {
+  CasualtyContinuation,
+  CasualtyEntry,
+  PICK_CASUALTIES_AUTO_CHOICE,
+  PickCasualtiesData,
+  PickCasualtiesPayload,
+  WoundApplication,
+  autoPickCasualties,
+  createPickCasualtiesReaction,
+  restoreUnit,
+  snapshotUnit,
+  validatePickCasualties,
+} from './casualties';
 import { modelRemainingMovement, resetModelMovement, spendAllModels, spendModelMovement } from './modelMovement';
 
 /**
@@ -476,7 +489,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
     return { valid: false, reason: 'Game is over' };
   }
   if (state.turnState.pendingReaction) {
-    if (action.type !== 'respond-reaction' && action.type !== 'consolidate-move' && action.type !== 'pile-in-move') {
+    if (
+      action.type !== 'respond-reaction' &&
+      action.type !== 'consolidate-move' &&
+      action.type !== 'pile-in-move' &&
+      action.type !== 'pick-casualties'
+    ) {
       return { valid: false, reason: 'A reaction is pending — waiting for opponent' };
     }
     if (action.actorId !== state.turnState.pendingReaction.promptingPlayerId) {
@@ -1311,6 +1329,15 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: `Invalid reaction choice: ${choiceId}` };
       }
       return { valid: true };
+    }
+
+    case 'pick-casualties': {
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'pick-casualties') {
+        return { valid: false, reason: 'No pending casualty pick' };
+      }
+      const result = validatePickCasualties(state, pending, action.actorId, action.payload as PickCasualtiesPayload);
+      return result.valid ? { valid: true } : { valid: false, reason: result.reason };
     }
 
     case 'pile-in-move': {
@@ -2235,6 +2262,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let totalWounds = 0;
       let primaryTargetDestroyed = false;
       let primaryTargetShaken = false;
+      const ledger: WoundLedger = new Map();
 
       // Turn attacker to face the primary target
       const primaryTarget = getUnit(newState, allocations[0].targetId);
@@ -2308,7 +2336,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         }
 
         const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-        const trauma = applyWounds(target, outcome.wounds, traumaRolls, 0, lethalValue);
+        const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, 0, lethalValue);
 
         totalAttackCount += outcome.attackCount;
         totalHitCount += outcome.hitCount;
@@ -2355,6 +2383,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             : {}),
         });
       }
+
+      // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
+      deferCasualties(newState, ledger, action.id, attacker, { kind: 'shoot', attackerId: attacker.id });
 
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
@@ -2496,13 +2527,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       const dreadBonus = isMelee ? (getTraitValue(attacker.specialRules, 'dread') ?? 0) : 0;
       const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-      const trauma = applyWounds(
-        target,
-        outcome.wounds,
-        traumaRolls,
-        dreadBonus,
-        lethalValue
-      );
+      const ledger: WoundLedger = new Map();
+      const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, dreadBonus, lethalValue);
+      deferCasualties(newState, ledger, action.id, attacker, {
+        kind: 'fight',
+        attackerId: attacker.id,
+        targetId: target.id,
+      });
       if (target.isDestroyed) {
         newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
       }
@@ -2833,6 +2864,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         logEntry = piled.logEntry;
         break;
       }
+      if (pending.type === 'pick-casualties') {
+        // The owner ran out of time (the only option is the host's own pick)
+        const pickData = pending.data as unknown as PickCasualtiesData;
+        const damaged = getUnit(newState, pickData.entry.unitId)!;
+        logEntry = applyPickCasualties(newState, action, autoPickCasualties(damaged, pickData.entry.count));
+        break;
+      }
       const defender = getUnit(newState, pending.targetUnitId)!;
       const charger = getUnit(newState, pending.sourceUnitId)!;
       const defenderMelee = pending.data?.weaponId
@@ -2841,6 +2879,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       let retCombat: ReturnType<typeof resolveAttack> | undefined;
       let trauma: ReturnType<typeof applyWounds> | undefined;
+      const ledger: WoundLedger = new Map();
 
       if (choiceId === 'strike-back' && defenderMelee && dice) {
         // Turn defender to face the charger
@@ -2892,39 +2931,23 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         const retDreadBonus = getTraitValue(defender.specialRules, 'dread') ?? 0;
         const retLethalValue = getTraitValue(defenderMelee.profile.specialRules, 'lethal') ?? 1;
-        trauma = applyWounds(
-          charger,
-          retCombat.wounds,
-          retRolls.trauma,
-          retDreadBonus,
-          retLethalValue
-        );
+        trauma = applyTrackedWounds(ledger, charger, retCombat.wounds, retRolls.trauma, retDreadBonus, retLethalValue);
 
         if (!defender.status.includes('fatigued')) {
           defender.status.push('fatigued');
         }
       }
 
-      // Separation / 1" Push-Back (if both units survived)
-      let pushedBack = false;
-      let pushBackPos: Vector3 | undefined;
-      if (!charger.isDestroyed && !defender.isDestroyed) {
-        pushBackPos = pushBackChargerModels(newState, charger, defender);
-        pushedBack = true;
-        charger.status = charger.status.filter((s) => s !== 'engaged');
-        defender.status = defender.status.filter((s) => s !== 'engaged');
-      }
-
-      if (charger.isDestroyed && !defender.isDestroyed) {
-        // Defender consolidates up to 3" upon wiping out charger in melee retaliation
-        newState.turnState.pendingReaction = createConsolidationReaction(action.id, defender, charger.name);
-      } else if (!charger.isDestroyed && defender.isDestroyed) {
-        // Charger consolidates up to 3" upon wiping out defender in melee
-        newState.turnState.pendingReaction = createConsolidationReaction(action.id, charger, defender.name);
-      } else {
-        newState.turnState.pendingReaction = null;
-      }
-      refreshEngagements(newState);
+      const chargerShaken = charger.status.includes('shaken');
+      // A surviving charging squad that lost models: its owner picks who goes, then the step back follows
+      const deferred = deferCasualties(newState, ledger, action.id, defender, {
+        kind: 'strike-back',
+        attackerId: defender.id,
+        targetId: charger.id,
+      });
+      const { pushedBack, pushBackPos } = deferred
+        ? { pushedBack: false, pushBackPos: undefined }
+        : settleStrikeBack(newState, action.id, charger, defender);
 
       let diceResolution: DiceResolution | undefined;
       if (retCombat && dice && defenderMelee) {
@@ -2946,7 +2969,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             blockedRolls: retCombat.blockedRolls,
             wounds: retCombat.wounds,
             targetDestroyed: charger.isDestroyed,
-            targetShaken: charger.status.includes('shaken'),
+            targetShaken: chargerShaken,
             baseQuality: defender.quality,
             effectiveQuality: retCombat.effectiveQuality,
             hitModifiers: retCombat.hitModifiers,
@@ -2989,6 +3012,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       logEntry = acceptedEntry(action, diceResolution);
+      break;
+    }
+
+    case 'pick-casualties': {
+      const payload = action.payload as PickCasualtiesPayload;
+      logEntry = applyPickCasualties(newState, action, payload.modelIds ?? []);
       break;
     }
 
@@ -3143,68 +3172,25 @@ function resolveChargeStrike(
 
     const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
     const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-    const trauma = applyWounds(
-      target,
-      outcome.wounds,
-      rolls.trauma,
-      dreadBonus,
-      lethalValue
-    );
+    const ledger: WoundLedger = new Map();
+    const trauma = applyTrackedWounds(ledger, target, outcome.wounds, rolls.trauma, dreadBonus, lethalValue);
+    const targetShaken = target.status.includes('shaken');
+    // A surviving squad that lost models: its owner picks who goes, then the strike-back / push-back follows
+    const deferred = deferCasualties(newState, ledger, action.id, attacker, {
+      kind: 'charge-strike',
+      attackerId: attacker.id,
+      targetId: target.id,
+      weaponId: weapon.id,
+    });
 
     if (!attacker.status.includes('fatigued')) {
       attacker.status.push('fatigued');
     }
 
     const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-    let pushedBack = false;
-    let pushBackPos: Vector3 | undefined;
-
-    if (target.isDestroyed) {
-      // If defender is destroyed, victor may consolidate up to 3"
-      newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
-      refreshEngagements(newState);
-    } else if (!defenderMelee) {
-      pushBackPos = pushBackChargerModels(newState, attacker, target);
-      pushedBack = true;
-      attacker.status = attacker.status.filter((s) => s !== 'engaged');
-      target.status = target.status.filter((s) => s !== 'engaged');
-      refreshEngagements(newState);
-    } else {
-      // Defer retaliation strike to defender's choice via pendingReaction
-      newState.turnState.pendingReaction = {
-        id: `${action.id}-retaliation`,
-        type: 'melee-retaliation',
-        promptingPlayerId: target.ownerId,
-        sourceUnitId: attacker.id,
-        targetUnitId: target.id,
-        title: 'Melee Retaliation',
-        description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
-        warning: target.status.includes('fatigued') || target.status.includes('shaken')
-          ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
-          : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
-        options: [
-          {
-            id: 'strike-back',
-            label: `Strike Back (${defenderMelee.name})`,
-            isDefault: true,
-            style: 'primary',
-          },
-          {
-            id: 'decline',
-            label: 'Decline (Avoid Fatigue)',
-            style: 'secondary',
-          },
-        ],
-        expiresAt: Date.now() + 15000,
-        durationMs: 15000,
-        data: {
-          chargeActionId: action.id,
-          attackerId: attacker.id,
-          targetId: target.id,
-          weaponId: defenderMelee.id,
-        },
-      };
-    }
+    const { pushedBack, pushBackPos } = deferred
+      ? { pushedBack: false, pushBackPos: undefined }
+      : settleChargeStrike(newState, action.id, attacker, target);
 
     diceResolution = {
       rollId: action.id,
@@ -3226,7 +3212,7 @@ function resolveChargeStrike(
         ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
         wounds: outcome.wounds,
         targetDestroyed: target.isDestroyed,
-        targetShaken: target.status.includes('shaken'),
+        targetShaken,
         baseQuality: attacker.quality,
         effectiveQuality: outcome.effectiveQuality,
         hitModifiers: outcome.hitModifiers,
@@ -3249,6 +3235,102 @@ function resolveChargeStrike(
       },
     };
   return diceResolution;
+}
+
+/**
+ * What follows the charger's strike once its wounds are on the target: the winner's consolidation when the
+ * target is gone, the step back when it cannot strike back, otherwise the defender's strike-back prompt.
+ */
+function settleChargeStrike(
+  newState: GameState,
+  actionId: string,
+  attacker: Unit,
+  target: Unit
+): { pushedBack: boolean; pushBackPos?: Vector3 } {
+  const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+  let pushedBack = false;
+  let pushBackPos: Vector3 | undefined;
+
+  if (target.isDestroyed) {
+    // If defender is destroyed, victor may consolidate up to 3"
+    newState.turnState.pendingReaction = createConsolidationReaction(actionId, attacker, target.name);
+    refreshEngagements(newState);
+  } else if (!defenderMelee) {
+    pushBackPos = pushBackChargerModels(newState, attacker, target);
+    pushedBack = true;
+    attacker.status = attacker.status.filter((s) => s !== 'engaged');
+    target.status = target.status.filter((s) => s !== 'engaged');
+    refreshEngagements(newState);
+  } else {
+    // Defer retaliation strike to defender's choice via pendingReaction
+    newState.turnState.pendingReaction = {
+      id: `${actionId}-retaliation`,
+      type: 'melee-retaliation',
+      promptingPlayerId: target.ownerId,
+      sourceUnitId: attacker.id,
+      targetUnitId: target.id,
+      title: 'Melee Retaliation',
+      description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
+      warning: target.status.includes('fatigued') || target.status.includes('shaken')
+        ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
+        : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
+      options: [
+        {
+          id: 'strike-back',
+          label: `Strike Back (${defenderMelee.name})`,
+          isDefault: true,
+          style: 'primary',
+        },
+        {
+          id: 'decline',
+          label: 'Decline (Avoid Fatigue)',
+          style: 'secondary',
+        },
+      ],
+      expiresAt: Date.now() + 15000,
+      durationMs: 15000,
+      data: {
+        chargeActionId: actionId,
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: defenderMelee.id,
+      },
+    };
+  }
+  return { pushedBack, pushBackPos };
+}
+
+/**
+ * What follows the defender's strike-back (or decline): both units step apart when both survive, and the
+ * survivor of a wipe-out consolidates.
+ */
+function settleStrikeBack(
+  newState: GameState,
+  actionId: string,
+  charger: Unit,
+  defender: Unit
+): { pushedBack: boolean; pushBackPos?: Vector3 } {
+  // Separation / 1" Push-Back (if both units survived)
+  let pushedBack = false;
+  let pushBackPos: Vector3 | undefined;
+  if (!charger.isDestroyed && !defender.isDestroyed) {
+    pushBackPos = pushBackChargerModels(newState, charger, defender);
+    pushedBack = true;
+    charger.status = charger.status.filter((s) => s !== 'engaged');
+    defender.status = defender.status.filter((s) => s !== 'engaged');
+  }
+
+  if (charger.isDestroyed && !defender.isDestroyed) {
+    // Defender consolidates up to 3" upon wiping out charger in melee retaliation
+    newState.turnState.pendingReaction = createConsolidationReaction(actionId, defender, charger.name);
+  } else if (!charger.isDestroyed && defender.isDestroyed) {
+    // Charger consolidates up to 3" upon wiping out defender in melee
+    newState.turnState.pendingReaction = createConsolidationReaction(actionId, charger, defender.name);
+  } else {
+    newState.turnState.pendingReaction = null;
+  }
+  refreshEngagements(newState);
+  return { pushedBack, pushBackPos };
 }
 
 function requireActiveUnit(state: GameState, actorId: string, unitId: string): RequireResult {
@@ -3362,7 +3444,8 @@ function applyWounds(
   wounds: number,
   traumaRolls?: number[],
   dreadBonus: number = 0,
-  lethalValue: number = 1
+  lethalValue: number = 1,
+  victimIds?: string[]
 ): TraumaOutcome | undefined {
   if (wounds <= 0) return undefined;
 
@@ -3375,7 +3458,9 @@ function applyWounds(
     while (remainingWounds > 0) {
       const alive = unit.models.filter((m) => !m.isDestroyed);
       if (alive.length <= 1) break;
-      const victim = alive[0];
+      // The owner's picks (consumed in order) decide who goes; without them it is the first living model
+      const wanted = victimIds?.shift();
+      const victim = (wanted ? alive.find((m) => m.id === wanted) : undefined) ?? alive[0];
       const applied = Math.min(remainingWounds, Math.max(victim.wounds, step));
       victim.wounds = 0;
       victim.isDestroyed = true;
@@ -3441,6 +3526,136 @@ function applyWounds(
     finalModel.isDestroyed = true;
   }
   return undefined;
+}
+
+/** Wounds taken by multi-model units during one action, so each damaged unit's owner can be asked who goes. */
+type WoundLedger = Map<string, { snapshot: Unit; livingBefore: number; applications: WoundApplication[] }>;
+
+/** `applyWounds`, remembering the unit as it was and each application so the casualties can be deferred. */
+function applyTrackedWounds(
+  ledger: WoundLedger,
+  unit: Unit,
+  wounds: number,
+  traumaRolls?: number[],
+  dreadBonus: number = 0,
+  lethalValue: number = 1
+): TraumaOutcome | undefined {
+  const alive = livingModels(unit).length;
+  if (wounds > 0 && alive >= 2) {
+    let record = ledger.get(unit.id);
+    if (!record) {
+      record = { snapshot: snapshotUnit(unit), livingBefore: alive, applications: [] };
+      ledger.set(unit.id, record);
+    }
+    record.applications.push({
+      wounds,
+      ...(traumaRolls ? { traumaRolls: [...traumaRolls] } : {}),
+      dreadBonus,
+      lethalValue,
+    });
+  }
+  return applyWounds(unit, wounds, traumaRolls, dreadBonus, lethalValue);
+}
+
+/**
+ * After an attack's wounds are applied: every tracked unit that lost models but survived is put back as it was
+ * and queued for its owner's pick (one prompt per unit, in resolution order). Units the attack wiped out keep
+ * the result they have. Returns the first prompt (now pending), or null when nobody needs to pick.
+ */
+function deferCasualties(
+  newState: GameState,
+  ledger: WoundLedger,
+  actionId: string,
+  sourceUnit: Unit,
+  after: CasualtyContinuation
+): PendingReaction | null {
+  const entries: CasualtyEntry[] = [];
+  for (const [unitId, record] of ledger) {
+    const unit = getUnit(newState, unitId);
+    if (!unit || unit.isDestroyed) continue;
+    const removed = record.livingBefore - livingModels(unit).length;
+    if (removed <= 0) continue;
+    const carried = Math.max(0, (unit.traumaTokens ?? 0) - (record.snapshot.traumaTokens ?? 0));
+    restoreUnit(unit, record.snapshot);
+    entries.push({ unitId, count: removed, remainingWounds: carried, applications: record.applications });
+  }
+  if (entries.length === 0) return null;
+  const [entry, ...rest] = entries;
+  const reaction = createPickCasualtiesReaction(actionId, 0, getUnit(newState, entry.unitId)!, sourceUnit, {
+    entry,
+    rest,
+    after,
+  });
+  newState.turnState.pendingReaction = reaction;
+  refreshEngagements(newState);
+  return reaction;
+}
+
+/** Remove the picked models from the damaged unit and put the rest of the wounds (and wound-effect roll) on the survivor. */
+function replayCasualties(unit: Unit, entry: CasualtyEntry, victims: string[]): void {
+  const ids = [...victims];
+  for (const app of entry.applications) {
+    applyWounds(unit, app.wounds, app.traumaRolls, app.dreadBonus, app.lethalValue, ids);
+  }
+}
+
+/** A pick-casualties action (the owner's, or the host's on timeout): apply it, then carry on with the interrupted flow. */
+function applyPickCasualties(newState: GameState, action: GameAction, victims: string[]): ActionLogEntry {
+  const pending = newState.turnState.pendingReaction!;
+  const data = pending.data as unknown as PickCasualtiesData;
+  const unit = getUnit(newState, data.entry.unitId)!;
+  replayCasualties(unit, data.entry, victims);
+  newState.turnState.pendingReaction = null;
+
+  // Another damaged unit of the same action is still waiting for its owner
+  if (data.rest.length > 0) {
+    const [entry, ...rest] = data.rest;
+    const next = getUnit(newState, entry.unitId)!;
+    const source = getUnit(newState, data.after.attackerId) ?? unit;
+    newState.turnState.pendingReaction = createPickCasualtiesReaction(data.actionId, data.index + 1, next, source, {
+      entry,
+      rest,
+      after: data.after,
+    });
+    refreshEngagements(newState);
+    return acceptedEntry(action);
+  }
+
+  const after = data.after;
+  let settled: { pushedBack: boolean; pushBackPos?: Vector3 } = { pushedBack: false };
+  if (after.kind === 'charge-strike') {
+    const attacker = getUnit(newState, after.attackerId)!;
+    settled = settleChargeStrike(newState, action.id, attacker, unit);
+  } else if (after.kind === 'strike-back') {
+    const defender = getUnit(newState, after.attackerId)!;
+    settled = settleStrikeBack(newState, action.id, unit, defender);
+  } else if (after.kind === 'fight' && unit.isDestroyed) {
+    const attacker = getUnit(newState, after.attackerId)!;
+    newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, unit.name);
+  }
+  refreshEngagements(newState);
+
+  if (!settled.pushedBack) return acceptedEntry(action);
+  const dice: DiceResolution = {
+    rollId: action.id,
+    specs: [],
+    results: [],
+    context: {
+      attackerId: after.attackerId,
+      targetId: unit.id,
+      actionId: action.id,
+    },
+    outcome: {
+      attackCount: 0,
+      hitCount: 0,
+      blockedCount: 0,
+      wounds: 0,
+      targetDestroyed: false,
+      pushedBack: true,
+      pushBackPosition: settled.pushBackPos,
+    },
+  };
+  return acceptedEntry(action, dice);
 }
 
 /**

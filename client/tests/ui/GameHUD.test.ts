@@ -1118,6 +1118,51 @@ describe('GameHUD', () => {
     expect(container.textContent).toMatch(/piled in(?! \(auto\))/);
   });
 
+  it('labels casualty picks correctly in the dice panel and the log (not as a retaliation)', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+    const stepBack = {
+      rollId: 'c1',
+      specs: [],
+      results: [],
+      context: { attackerId: charger.id, targetId: defender.id },
+      outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, pushedBack: true },
+    };
+    state.actionLog.push({
+      action: createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: defender.id, modelIds: ['a', 'b'] }),
+      status: 'accepted',
+      dice: stepBack,
+    } as any);
+    const { hud, container } = setup(HOST, state);
+    const title = container.querySelector('.sl-hud-dice-title')?.textContent ?? '';
+    expect(title).toContain(`Casualties removed: ${defender.name}`);
+    expect(title).not.toContain('Retaliation');
+    expect(container.textContent).toContain(`removed casualties from ${defender.name}`);
+    expect(container.textContent).not.toContain('declined retaliation');
+
+    const auto = scenarioState();
+    auto.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', { type: 'respond-reaction', reactionId: 'r1', choiceId: 'auto-pick-casualties' }),
+      status: 'accepted',
+      dice: { ...stepBack, rollId: 'c2' },
+    } as any);
+    hud.syncFromState(auto);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(`Casualties removed: ${defender.name}`);
+    expect(container.querySelector('.sl-hud-pushback-notice')).not.toBeNull();
+    expect(container.textContent).toContain('casualties picked (auto)');
+    expect(container.textContent).not.toContain('declined retaliation');
+
+    // A pick with no dice story still reads correctly in the log
+    const quiet = scenarioState();
+    quiet.actionLog.push({
+      action: createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: defender.id, modelIds: ['a'] }),
+      status: 'accepted',
+    } as any);
+    hud.syncFromState(quiet);
+    expect(container.textContent).toContain(`removed casualties from ${defender.name}`);
+  });
+
   describe('Phase 7: Objectives & 4-Round Mission UI', () => {
     it('displays round number out of 4 and live objective score badges in header', () => {
       const state = scenarioState();

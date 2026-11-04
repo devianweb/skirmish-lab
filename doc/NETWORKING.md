@@ -104,6 +104,9 @@ A split charge (batch 1D PR 16) uses three ordinary `action-request` actions, ea
 ### Pile-in reaction
 After a final charge that leaves some defender models out of base contact, the host sets `turnState.pendingReaction` of type `pile-in` (60 s) and rolls no strike dice. The defending peer answers with an ordinary `action-request`: `pile-in-move { modelPositions, modelPaths? }` or `respond-reaction` with the `auto-pile-in` choice; the host validates it, then requests the charger's strike dice for that action (`getDiceSpecs` counts the strikers from the submitted spots, so the dice are server-rolled under the pile-in action's id) and broadcasts the resulting state. If the countdown ends the host submits `auto-pile-in` itself. The pending reaction is part of `GameState`, so a reconnecting peer sees it in the state snapshot.
 
+### Casualty-pick reaction
+When an attack's wounds would remove models from a surviving multi-model unit, the host leaves the unit untouched, logs the attack as usual (all its dice were rolled up front, including the wound-effect roll) and sets `turnState.pendingReaction` of type `pick-casualties` (30 s) for that unit's owner; further damaged units of the same action queue behind it. The owner's peer answers with an ordinary `action-request`: `pick-casualties { unitId, modelIds }`, or `respond-reaction` with `auto-pick-casualties`; no dice are requested for either (the wounds were rolled with the attack, so reconnection and `rollId` idempotency are unaffected). The host validates, applies the picks, then either sets the next pick or continues the interrupted flow (end of shooting, the strike-back prompt, the step back, consolidation) and broadcasts the state. If the countdown ends the host submits `auto-pick-casualties` itself (the existing reaction timer). The pending reaction, with its queued entries, is part of `GameState`, so a reconnecting peer sees it in the snapshot.
+
 ### Action Flow
 ```
 Guest wants to move unit:

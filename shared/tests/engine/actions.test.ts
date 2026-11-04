@@ -69,6 +69,21 @@ function act(state: GameState, action: GameAction, results?: DiceResult[]) {
   return applyAction(state, action, results);
 }
 
+/** The owner's casualty pick, left to the host (as on timeout), when an attack is waiting for one. */
+function settlePicks(state: GameState): GameState {
+  const pending = state.turnState.pendingReaction;
+  if (pending?.type !== 'pick-casualties') return state;
+  const res = applyAction(
+    state,
+    createAction(pending.promptingPlayerId, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: pending.id,
+      choiceId: 'auto-pick-casualties',
+    })
+  );
+  return res.state!;
+}
+
 describe('validateAction + applyAction: activate-unit', () => {
   it('activates a unit and records it for the round', () => {
     const state = makeState([
@@ -1803,13 +1818,15 @@ describe('applyAction invariants', () => {
       { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
     ]);
-    const g1After1 = firstShot.state!.units.find((u) => u.id === 'g1')!;
+    expect(firstShot.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
+    const afterFirst = settlePicks(firstShot.state!);
+    const g1After1 = afterFirst.units.find((u) => u.id === 'g1')!;
     expect(g1After1.models.filter((m) => !m.isDestroyed)).toHaveLength(1);
     expect(g1After1.isDestroyed).toBe(false);
 
     // 2nd wound hits the last survivor; trauma roll of 3 (+1 token = 4 <= 5) -> Shaken (survives!).
-    firstShot.state!.units[0].hasAttacked = false;
-    const secondShot = act(firstShot.state!, shootAction, [
+    afterFirst.units[0].hasAttacked = false;
+    const secondShot = act(afterFirst, shootAction, [
       { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
       { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       { rolls: [3], total: 3, finalTotal: 3, purpose: 'trauma' },
@@ -1862,7 +1879,8 @@ describe('applyAction invariants', () => {
       { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
     ]);
-    const squad1 = shot1.state!.units.find((u) => u.id === 'g-squad')!;
+    const afterShot1 = settlePicks(shot1.state!);
+    const squad1 = afterShot1.units.find((u) => u.id === 'g-squad')!;
     expect(squad1.isDestroyed).toBe(false);
     expect(squad1.models.filter((m) => !m.isDestroyed)).toHaveLength(2);
     expect(squad1.models[0].isDestroyed).toBe(true);
@@ -1871,13 +1889,14 @@ describe('applyAction invariants', () => {
     expect(shot1.logEntry.dice?.outcome.traumaRoll).toBeUndefined(); // No trauma rolled!
 
     // 2nd wound: eliminates m2 outright. Only m3 remains at 1.4
-    shot1.state!.units[0].hasAttacked = false;
-    const shot2 = act(shot1.state!, shootAction, [
+    afterShot1.units[0].hasAttacked = false;
+    const shot2 = act(afterShot1, shootAction, [
       { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
       { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
     ]);
-    const squad2 = shot2.state!.units.find((u) => u.id === 'g-squad')!;
+    const afterShot2 = settlePicks(shot2.state!);
+    const squad2 = afterShot2.units.find((u) => u.id === 'g-squad')!;
     expect(squad2.isDestroyed).toBe(false);
     expect(squad2.models.filter((m) => !m.isDestroyed)).toHaveLength(1);
     expect(squad2.wounds).toBe(1);
@@ -1885,8 +1904,8 @@ describe('applyAction invariants', () => {
     expect(shot2.logEntry.dice?.outcome.traumaRoll).toBeUndefined(); // Still no trauma rolled!
 
     // 3rd wound: strikes final surviving model (m3). Trauma roll = 6 + 1 token = 7 >= 6 -> Knocked Out!
-    shot2.state!.units[0].hasAttacked = false;
-    const shot3 = act(shot2.state!, shootAction, [
+    afterShot2.units[0].hasAttacked = false;
+    const shot3 = act(afterShot2, shootAction, [
       { rolls: [5], total: 5, finalTotal: 5, purpose: 'to-hit' },
       { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
       { rolls: [6], total: 6, finalTotal: 6, purpose: 'trauma' },
