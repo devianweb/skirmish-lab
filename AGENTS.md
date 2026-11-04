@@ -40,7 +40,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Zero-dependency audio cues:** In-game notifications (turn transitions, reaction alerts) synthesize tones procedurally via the Web Audio API (`AudioContext`) with zero network latency or external asset bundle dependencies.
 
 ### Rendering & Camera
-- **Role-dependent perspective:** The camera starts positioned from each player's deployment corner looking across the battlefield (Host at South corner `(20, 20, -20)` looking +z; Guest at North corner `(-20, 20, 20)` looking -z).
+- **Role-dependent perspective:** The camera starts positioned from each player's deployment corner looking across the battlefield (Host at South corner `(d, d, -d)` looking +z; Guest at North corner `(-d, d, d)` looking -z), where `d` = half the board's longer edge (24 on the default 48"×48" board), so the whole board is framed at any size.
 - **Decoupled from state:** Scene meshes are purely visual and reactive; game state is never stored in Three.js objects.
 
 ### Development Do's

@@ -1,5 +1,5 @@
 # Batch 1G: configurable board size (map builder)
-Status: approved (2026-11-03), not started.
+Status: done (2026-11-04): PR 21 #196, PR 22 #197
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)**, **Out of scope** and **Background** first.
 Roadmap: doc/ROADMAP.md Phase 13 → **Sub-phase 13D: Configurable Board Size**.
 

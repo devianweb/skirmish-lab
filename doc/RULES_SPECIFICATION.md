@@ -25,7 +25,7 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 
 ### 2.1 Spatial Dimensions & Coherency
 - **Table Dimensions:** Standard $48" \times 48"$ ($4' \times 4'$) playing area, or compact custom formats with at least **24" separation** between opposing deployment lines.
-- **Deployment Zones:** Opposing table edges up to **12" depth**, shallower on small tables so the two zones are always at least **24"** apart (e.g. 3" deep on a 30"-deep table). The game board is the map's own size (the default battlefield is 44" × 30").
+- **Deployment Zones:** Opposing table edges up to **12" depth**, shallower on small tables so the two zones are always at least **24"** apart (e.g. 3" deep on a 30"-deep table). The game board is the map's own size (the default battlefield is 48" × 48"; boards run from 24" to 72" per side, and maps saved at 44" × 30" keep that size).
 - **Model Coherency:**
   - Every model in a squad must remain within **1" horizontal** of at least one other squad member.
   - Every model in a squad must remain within **6" horizontal** of all squad members.
@@ -223,7 +223,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`swift`** | **Swift** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
 | **`dread(X)`** | **Dread(X)** | Model counts as having dealt $+X$ additional wounds when calculating Wound Effects roll in melee (requires at least 1 actual wound dealt). |
 | **`stoic`** | **Stoic** | When failing a morale test, roll 1d6. On a 4+, the test is treated as passed. |
-| **`airborne`** | **Airborne** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. |
+| **`airborne`** | **Airborne** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. Must still end its move fully supported on a floor or the ground (no overhanging or mid-air endings). |
 | **`frenzy`** | **Frenzy** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
 | **`commander`** | **Commander** | Friendly units within 12" may test Morale using the Commander's Quality score (provided Commander is not Suppressed). |
 | **`stationary`** | **Stationary** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |

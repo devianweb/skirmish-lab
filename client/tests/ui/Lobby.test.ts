@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionStore } from '../../src/storage/SessionStore';
+import { MapStore } from '../../src/storage/MapStore';
+import { createBlankMap } from '@skirmish-lab/shared';
 import { Lobby, PeerReadyContext } from '../../src/ui/Lobby';
 
 describe('Lobby UI', () => {
@@ -247,5 +249,17 @@ describe('Lobby UI', () => {
 
     expect(capturedContext).toBeTruthy();
     expect(capturedContext?.customMap).toBeUndefined();
+  });
+
+  it('map dropdown shows each custom map board size, and the blank option shows the default', () => {
+    const mapStore = new MapStore(createMockStorage());
+    mapStore.saveMap({ ...createBlankMap(), id: 'm1', name: 'Wide One', board: { width: 44, height: 30 } });
+    mapStore.saveMap({ ...createBlankMap(), id: 'm2', name: 'Square One', board: { width: 36, height: 36 } });
+    const lobby = new Lobby(container, { mapStore });
+    (lobby as any).render();
+    const labels = Array.from(container.querySelectorAll('option')).map((o) => o.textContent);
+    expect(labels).toContain('Wide One (0 pieces, 44"×30")');
+    expect(labels).toContain('Square One (0 pieces, 36"×36")');
+    expect(labels.some((l) => l?.includes('Empty Battlefield (48"x48")'))).toBe(true);
   });
 });

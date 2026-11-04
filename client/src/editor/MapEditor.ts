@@ -3,6 +3,10 @@ import {
   MapValidationNotice,
   Objective,
   createBlankMap,
+  createBalancedObjectives,
+  DEFAULT_BOARD_SIZE,
+  MIN_BOARD_SIZE,
+  MAX_BOARD_SIZE,
   GameState,
   TerrainCategory,
   findWalkableSurfaceAt,
@@ -35,10 +39,17 @@ export type GridSnapSetting = 1.0 | 0.5 | 0;
 /**
  * 3D Map Builder & Battlefield Editor overlay.
  * Allows tabletop players to visually place, snap, rotate, elevate, and customize
- * modular terrain pieces and objectives on a 44" x 30" skirmish battlefield.
+ * modular terrain pieces and objectives on a 48" x 48" (by default) skirmish battlefield.
  */
 /** Horizontal click distance (inches) within which a click selects an objective. */
 const OBJECTIVE_PICK_RADIUS = 1.0;
+
+/** Board-size presets offered in the toolbar (width x height in inches; height is the deployment axis). */
+export const BOARD_PRESETS: ReadonlyArray<{ id: string; label: string; width: number; height: number }> = [
+  { id: '48x48', label: '48×48 (standard)', width: 48, height: 48 },
+  { id: '36x36', label: '36×36', width: 36, height: 36 },
+  { id: '24x36', label: '24×36 (narrow)', width: 24, height: 36 },
+];
 
 export class MapEditor {
   private container: HTMLElement;
@@ -58,6 +69,7 @@ export class MapEditor {
   private placementElevation: number = 0;
   private validationNotices: MapValidationNotice[] = [];
   private isVisible: boolean = false;
+  private customBoardMode: boolean = false;
 
   private keydownHandler?: (e: KeyboardEvent) => void;
   private pickHandler?: (target: PickTarget) => void;
@@ -107,6 +119,7 @@ export class MapEditor {
 
   setMap(map: CustomMapDefinition): void {
     this.currentMap = JSON.parse(JSON.stringify(map));
+    this.customBoardMode = false;
     this.selectedPieceId = null;
     this.selectedObjectiveId = null;
     this.activePlacementType = null;
@@ -141,6 +154,32 @@ export class MapEditor {
   setGridSnap(snap: GridSnapSetting): void {
     this.gridSnap = snap;
     this.render();
+  }
+
+  getBoardSize(): { width: number; height: number } {
+    return {
+      width: this.currentMap.board?.width ?? DEFAULT_BOARD_SIZE,
+      height: this.currentMap.board?.height ?? DEFAULT_BOARD_SIZE,
+    };
+  }
+
+  /** Preset id matching the current board, or 'custom'. */
+  getBoardPresetId(): string {
+    const { width, height } = this.getBoardSize();
+    if (this.customBoardMode) return 'custom';
+    return BOARD_PRESETS.find((p) => p.width === width && p.height === height)?.id ?? 'custom';
+  }
+
+  /** Resize the board (whole inches, clamped to the allowed range), revalidate and redraw the grid. */
+  setBoardSize(width: number, height: number): void {
+    const clamp = (v: number): number => {
+      const n = Number.isFinite(v) ? Math.round(v) : DEFAULT_BOARD_SIZE;
+      return Math.min(MAX_BOARD_SIZE, Math.max(MIN_BOARD_SIZE, n));
+    };
+    this.currentMap.board = { ...(this.currentMap.board ?? {}), width: clamp(width), height: clamp(height) };
+    this.validateCurrentMap();
+    this.render();
+    this.syncGameView();
   }
 
   getValidationNotices(): MapValidationNotice[] {
@@ -309,37 +348,9 @@ export class MapEditor {
   }
 
   autoDistributeObjectives(): void {
-    // 4 standard balanced objectives in quadrant open spaces outside z = ±12
-    this.currentMap.objectives = [
-      {
-        id: `objective-alpha-${Date.now()}`,
-        name: 'Objective Alpha (North-West)',
-        position: { x: -9, y: 0, z: 5 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-      {
-        id: `objective-bravo-${Date.now()}`,
-        name: 'Objective Bravo (South-East)',
-        position: { x: 9, y: 0, z: -5 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-      {
-        id: `objective-charlie-${Date.now()}`,
-        name: 'Objective Charlie (Center Catwalk)',
-        position: { x: 0, y: 0, z: 0 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-      {
-        id: `objective-delta-${Date.now()}`,
-        name: 'Objective Delta (South-West)',
-        position: { x: -4, y: 0, z: -8.5 },
-        controllingPlayerId: null,
-        isContested: false,
-      },
-    ];
+    // Balanced objectives sized to the board, outside both deployment zones
+    const board = this.currentMap.board ?? { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE };
+    this.currentMap.objectives = createBalancedObjectives(board);
     this.validateCurrentMap();
     this.render();
     this.syncGameView();
@@ -609,8 +620,8 @@ export class MapEditor {
       players: [],
       status: 'in-progress',
       board: {
-        width: this.currentMap.board?.width ?? 44,
-        height: this.currentMap.board?.height ?? 30,
+        width: this.currentMap.board?.width ?? DEFAULT_BOARD_SIZE,
+        height: this.currentMap.board?.height ?? DEFAULT_BOARD_SIZE,
         gridSize: 1,
         scale: 1,
         terrain: [],
@@ -647,8 +658,34 @@ export class MapEditor {
 
   render(): void {
     const noticesCount = this.validationNotices.length;
-    const warningBadgeColor = noticesCount === 0 ? '#4caf50' : '#ff9800';
-    const warningBadgeText = noticesCount === 0 ? '✓ Ready' : `⚠️ ${noticesCount} Notice${noticesCount > 1 ? 's' : ''}`;
+    const errorCount = this.validationNotices.filter((n) => n.severity === 'error').length;
+    const warningBadgeColor = errorCount > 0 ? '#ef5350' : noticesCount === 0 ? '#4caf50' : '#ff9800';
+    const warningBadgeText =
+      errorCount > 0
+        ? `⛔ ${errorCount} Error${errorCount > 1 ? 's' : ''}${noticesCount > errorCount ? ` + ${noticesCount - errorCount} Notice${noticesCount - errorCount > 1 ? 's' : ''}` : ''}`
+        : noticesCount === 0
+          ? '✓ Ready'
+          : `⚠️ ${noticesCount} Notice${noticesCount > 1 ? 's' : ''}`;
+    const boardSize = this.getBoardSize();
+    const boardPresetId = this.getBoardPresetId();
+    const boardInputStyle =
+      'width: 46px; padding: 4px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 12px;';
+    const boardControlHtml = `
+            <div style="display: flex; align-items: center; background: #263238; border-radius: 4px; padding: 2px 6px; gap: 4px;">
+              <span style="font-size: 11px; color: #90caf9;">Board:</span>
+              <select id="boardPresetSelect" style="padding: 4px 6px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 11px;">
+                ${BOARD_PRESETS.map((p) => `<option value="${p.id}" ${boardPresetId === p.id ? 'selected' : ''}>${p.label}</option>`).join('')}
+                <option value="custom" ${boardPresetId === 'custom' ? 'selected' : ''}>Custom</option>
+              </select>
+              ${
+                boardPresetId === 'custom'
+                  ? `<input id="boardWidthInput" type="number" step="1" min="${MIN_BOARD_SIZE}" max="${MAX_BOARD_SIZE}" value="${boardSize.width}" style="${boardInputStyle}" title="Width (inches)" />
+              <span style="font-size: 11px; color: #cfd8dc;">×</span>
+              <input id="boardHeightInput" type="number" step="1" min="${MIN_BOARD_SIZE}" max="${MAX_BOARD_SIZE}" value="${boardSize.height}" style="${boardInputStyle}" title="Height (inches)" />
+              <span style="font-size: 11px; color: #cfd8dc;">"</span>`
+                  : ''
+              }
+            </div>`;
 
     const categories: Array<{ id: TerrainCategory | 'objectives'; label: string; icon: string }> = [
       { id: 'structures', label: 'Structures', icon: '🏢' },
@@ -808,7 +845,7 @@ export class MapEditor {
       customMaps.length > 0
         ? `
           <optgroup label="Saved Custom Maps">
-            ${customMaps.map((m) => `<option value="custom:${m.id}">${m.name} (${m.terrain?.length ?? 0} pieces)</option>`).join('')}
+            ${customMaps.map((m) => `<option value="custom:${m.id}">${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
           </optgroup>
         `
         : '';
@@ -826,6 +863,7 @@ export class MapEditor {
               <button id="snap05Btn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0.5 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0.5 ? '#12161c' : '#cfd8dc'};">0.5"</button>
               <button id="snapFreeBtn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 0 ? '#12161c' : '#cfd8dc'};">Free</button>
             </div>
+            ${boardControlHtml}
             <select id="loadMapSelect" style="padding: 6px 8px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 12px;">
               <option value="">Load Map...</option>
               ${savedMapsGroupHtml}
@@ -971,12 +1009,34 @@ export class MapEditor {
       this.options.onExit?.();
     });
 
+    // Board size control
+    this.rootElement.querySelector<HTMLSelectElement>('#boardPresetSelect')?.addEventListener('change', (e) => {
+      const id = (e.target as HTMLSelectElement).value;
+      const preset = BOARD_PRESETS.find((p) => p.id === id);
+      if (preset) {
+        this.customBoardMode = false;
+        this.setBoardSize(preset.width, preset.height);
+      } else {
+        this.customBoardMode = true;
+        this.render();
+      }
+    });
+    const applyCustomBoard = () => {
+      const w = this.rootElement.querySelector<HTMLInputElement>('#boardWidthInput');
+      const h = this.rootElement.querySelector<HTMLInputElement>('#boardHeightInput');
+      if (w && h) this.setBoardSize(Number(w.value), Number(h.value));
+    };
+    this.rootElement.querySelector('#boardWidthInput')?.addEventListener('change', applyCustomBoard);
+    this.rootElement.querySelector('#boardHeightInput')?.addEventListener('change', applyCustomBoard);
+
     // Validation badge click (alert notices)
     this.rootElement.querySelector('#validationBadgeBtn')?.addEventListener('click', () => {
       if (this.validationNotices.length === 0) {
         alert('✓ Map validation passed with 0 issues! All objectives and terrain are standard-compliant.');
       } else {
-        const report = this.validationNotices.map((n) => `• ${n.message}`).join('\n');
+        const report = this.validationNotices
+          .map((n) => `${n.severity === 'error' ? '⛔ ERROR' : '•'} ${n.message}`)
+          .join('\n');
         alert(`Map Validation Advisory Notices (${this.validationNotices.length}):\n\n${report}`);
       }
     });
