@@ -1354,10 +1354,14 @@ export class GameHUD {
     let summary: string;
     if (inContact) {
       const attacks = (weapon.profile.attacks as number) * Math.max(1, strikers);
-      summary = `${active.name} charges ${target.name} (${alive.length} models, longest move ${cost.toFixed(1)}") & strikes with ${weapon.name} · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (${attacks} attacks before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
+      summary = `${active.name} charges ${target.name} (${alive.length} models, furthest walk ${cost.toFixed(1)}") & strikes with ${weapon.name} · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (${attacks} attacks before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
     } else {
-      const left = Math.max(0, active.remainingMovement - cost);
-      summary = `Charge leg for ${active.name} (${alive.length} models) · longest move ${cost.toFixed(1)}" · ${left.toFixed(1)}" of the charge left after it (no melee yet; no model is in contact)`;
+      // Each model keeps its own distance: report the most any model has left after this leg
+      const left = Math.max(
+        0,
+        ...alive.map((m, i) => this.distanceLeft(active, 'charge', m) - pathMovementCost(state, orderedPaths[i]))
+      );
+      summary = `Charge leg for ${active.name} (${alive.length} models) · furthest walk ${cost.toFixed(1)}" · each model keeps its own distance (up to ${left.toFixed(1)}" left after this leg; no melee yet)`;
     }
     alive.forEach((m, i) => {
       const j = this.stagedSquadModelTraversals.get(m.id);
