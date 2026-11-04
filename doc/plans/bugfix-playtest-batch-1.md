@@ -63,7 +63,7 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 | [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
 | [batch-1d-squads-measuring.md](batch-1d-squads-measuring.md) | 14, 9, 10, 15, 16, 11 | Base-edge measuring, per-model squad geometry, confirm-early moves, squad jumps, charge jumps, per-model charges |
 | [batch-1h-post-1f-fixes.md](batch-1h-post-1f-fixes.md) ✓ done | 24, 25, 26 | Raised stairs, gap-with-drop jump classification, stale rush message |
-| [batch-1g-board-size.md](batch-1g-board-size.md) | 21, 22 | Configurable board size (default 48×48), roadmap 13D |
+| [batch-1g-board-size.md](batch-1g-board-size.md) ✓ done | 21, 22 | Configurable board size (default 48×48), roadmap 13D |
 | [batch-1f-traversal-followups.md](batch-1f-traversal-followups.md) ✓ done | 20, 17, 18, 19 | No overhanging ends + climb label, stacked-level climb/drop, failed-jump landing fixes, floating 3D path labels |
 | [batch-1e-movement-model.md](batch-1e-movement-model.md) ✓ done | E1–E4 | Safe-only pathfinding, declared jumps, climbable terrain, traversal preview. Replaces 1B PR 3a and 1C PR 6; supersedes Decision 6. |
 
@@ -89,4 +89,5 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 - Squad moves without explicit `modelPositions` are only overlap-checked at the centroid → covered by 1D PR 9 (per-model geometry).
 - ~~Airborne and the no-overhang rule~~: not exempt (Decision 25).
 - A plain fall over 6" in a squad applies its hit to the first living model (pre-existing); tidy with 1D squad work.
+- `MapStore.importMapJson` falls back to 44×30 when an imported file has no board (keeps old maps unchanged; differs from `DEFAULT_BOARD_SIZE`).
 - Editor: the Cover / Blocks LoS / Obstacle inspector toggles don't redraw the F9 debug marker until the next sync (pre-existing, cosmetic; unplanned).
