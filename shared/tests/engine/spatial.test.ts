@@ -8,6 +8,7 @@ import {
   computeShootingRayDebug,
   computeSquadCentroid,
   createSquadPositions,
+  findCoverSource,
   findMoveBlocker,
   findNavPath,
   findWalkablePlatformAt,
@@ -257,6 +258,47 @@ describe('spatial: hasCoverAgainstAttack', () => {
 
     expect(hasCoverAgainstAttack(stateNear, attacker, targetNear)).toBe(true);
     expect(hasCoverAgainstAttack(stateFar, attacker, targetFar)).toBe(false);
+  });
+
+  describe('low cover proximity is measured base edge to piece (playtest: pipe at an angle)', () => {
+    // Playtest map: a 4" x 0.75" pipe at (3, -2) and a crate at (8, -2).
+    const pipe: TerrainPiece = {
+      id: 'pipe',
+      terrainType: 'industrial-pipe',
+      position: { x: 3, y: 0, z: -2 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 0.75, z: 0.75 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: true,
+    };
+    const crate = { ...makeCrate('crate', { x: 8, y: 0, z: -2 }, 0.75) };
+
+    it('grants cover to a model touching the pipe when an angled shot crosses it', () => {
+      // Blue's base touches the pipe's south face; the shot from Red crosses the pipe obliquely,
+      // so the old "exit point to target centre along the shot" measure came out at 1.06".
+      const blue = makeUnit('blue', HOST, { x: 1.93, y: 0, z: -2.81 });
+      const red = makeUnit('red', GUEST, { x: 8.18, y: 0, z: -1.06 });
+      const state = makeState([blue, red], [pipe, crate]);
+      expect(findCoverSource(state, red, blue)?.pieceId).toBe('pipe');
+    });
+
+    it('still denies cover when the shooter fires over its own adjacent pipe at a target beside a crate', () => {
+      const blue = makeUnit('blue', HOST, { x: 1.93, y: 0, z: -2.81 });
+      const red = makeUnit('red', GUEST, { x: 8.18, y: 0, z: -1.06 });
+      const state = makeState([blue, red], [pipe, crate]);
+      expect(findCoverSource(state, blue, red)).toBeNull();
+    });
+
+    it('denies cover when the target base edge is more than 1" from the crossed piece', () => {
+      const attacker = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
+      // Crate spans z 4.5..5.5; target at z 7.1 has a base-edge gap of 1.1".
+      const target = makeUnit('g1', GUEST, { x: 0, y: 0, z: 7.1 });
+      const state = makeState([attacker, target], [makeCrate('c1', { x: 0, y: 0, z: 5 })]);
+      expect(hasCoverAgainstAttack(state, attacker, target)).toBe(false);
+      target.position.z = 6.9; // gap 0.9"
+      expect(hasCoverAgainstAttack(state, attacker, target)).toBe(true);
+    });
   });
 
   it('does NOT grant cover to an open target when the attacker is shooting out of adjacent cover', () => {
