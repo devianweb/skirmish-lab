@@ -33,6 +33,17 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 23. **Default board for new maps is 48" × 48"** (the core rules' and tournament standard); existing maps keep their stored size. See batch 1G. Owner: "Go with your recommendation."
 24. **Jump distance is measured spot to spot, like a tape on the table:** the straight 3D line from the model's take-off standing spot to its landing standing spot (front of base to front of base), so a jump across a gap is about gap + 1". Dice are X+1, one per full 3" of that distance; the 6" limit applies to it (a longer gap hop isn't offered; a pure drop over 6" is still a declared fall). A hop crossing more than 1" of open air is a gap jump even if it also drops. Owner: "Lets go for C … Spot to spot is more tabletop like right? As you'd measure from the front of the base to the front of the base."
 25. **Airborne is not exempt from the end-position rules:** an Airborne (Flying) model moves through units and terrain and ignores terrain effects while moving, and passes jump tests automatically, but it must still end its move fully supported on a floor or the ground (no overhanging, no mid-air endings), like any model placed on the table. Owner: "Go with your recommendation."
+26. **Aim line prefers the clicked model** (preview only). See 1I PR 27.
+27. **Cover by majority stays strict** (more than half the living target models).
+28. **A squad that started its activation out of coherency can't shoot without moving** (it's a Hold). See 1I PR 29.
+29. **Regrouping: closer counts.** A squad that started an action out of coherency may end it still out of coherency if its coherency shortfall goes down; a coherent squad must stay coherent. Owner: "Your suggestion sounds reasonable." See 1I PR 29.
+30. **A failed squad jump stops the later jumpers** at their take-off spots; walking models finish. Owner: "Lets go with your original plan if it's closer to the tabletop." See 1I PR 31.
+31. **"As close as possible" in squad charges uses ordinary movement only**, is checked by the host, and fills in unplaced models; at least one model must still be in base contact; no extra 3" for chargers. See 1I PR 32.
+32. **Per-model movement budgets across legs** in split moves and split charges. Owner: "Makes sense." See 1I PR 30.
+33. **The host rejects a squad charge without `modelPositions`.** Owner: "Agreed." See 1I PR 27.
+34. **Coherency is one unbroken chain:** the links (1" same level, 3" across levels) must join every living model into one group, plus the 6" spread. Owner: "Add the chain rule." See 1I PR 28.
+35. **The defender places their own pile-in models** (prompt; host-checked "as close as possible"; the charger's strike is rolled after; timeout falls back to automatic placement). Owner: "It's unfair to just move the minis when it could put them in dumb / unsafe positions." See 1I PRs 33–34.
+36. **Squad-mates never block each other's line of sight** (already true; only other units' models block). No change.
 
 ## Order
 **Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). 1F ✓. **Next:** PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
@@ -58,6 +69,7 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 ## Sub-plans (hand one PR section at a time to the `implementer`)
 | Sub-plan | PRs | Theme |
 | :--- | :--- | :--- |
+| [batch-1i-squad-followups.md](batch-1i-squad-followups.md) (approved) | 27–34 | Aim at clicked model + no block charges, chain coherency, regrouping, per-model budgets, failed squad jumps, as close as possible for chargers, defender pile-in prompt (Decisions 26–36) |
 | [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
 | [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
 | [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) ✓ done | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
@@ -80,15 +92,15 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 8. ~~Base-edge measuring~~: answered. Yes (Decision 12, PR 14).
 9. ~~Zero marker colour~~: answered. Grey (Decision 13).
 
-**Open after 1C/1D (owner to answer; none block play, each would be a small follow-up PR):**
-10. Should the shooting aim line prefer the model the player clicked, rather than the nearest one?
-11. Cover by majority: is "more than half the target models" right (so 2 of 4 is not enough)?
-12. Should shooting without moving be blocked while a squad is out of coherency?
-13. A squad that can't regroup: move "as close as possible", or Hold if it can't move at all?
-14. Should a failed jump by one squad model stop the remaining models' moves?
-15. Keep the looser "as close as possible" test for squad charges?
-16. Is spending a split charge's budget per leg (the longest model path in that leg) acceptable?
-17. Should the host reject a rigid squad charge sent without `modelPositions`?
+**Answered after 1C/1D (2026-11-04, Decisions 26–33, planned in [batch-1i-squad-followups.md](batch-1i-squad-followups.md)):**
+10. ~~Aim line prefers the clicked model?~~ Yes (Decision 26).
+11. ~~Cover by strict majority?~~ Yes, unchanged: 2 of 4 is not cover (Decision 27).
+12. ~~Block shooting without moving while out of coherency?~~ Yes (Decision 28).
+13. ~~Squad that can't regroup?~~ A move that ends closer to coherent is accepted; Hold stays blocked (Decision 29).
+14. ~~Failed jump stops the others?~~ Walkers finish; later jumpers stop at their take-off spot (Decision 30).
+15. ~~Loose "as close as possible" in squad charges?~~ No: checked by ordinary movement, unplaced models auto-placed; still needs one model in contact; no extra 3" (Decision 31). The defender now places their own pile-in models (Decision 35).
+16. ~~Budget per leg as the longest model path?~~ No: per-model totals across legs (Decision 32).
+17. ~~Reject a squad charge without `modelPositions`?~~ Yes (Decision 33).
 
 ## Follow-ups found during 1B/1E
 - Squads can't declare jumps → **1D PR 15**.
