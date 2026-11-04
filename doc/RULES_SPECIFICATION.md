@@ -26,17 +26,21 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 ### 2.1 Spatial Dimensions & Coherency
 - **Table Dimensions:** Standard $48" \times 48"$ ($4' \times 4'$) playing area, or compact custom formats with at least **24" separation** between opposing deployment lines.
 - **Deployment Zones:** Opposing table edges up to **12" depth**, shallower on small tables so the two zones are always at least **24"** apart (e.g. 3" deep on a 30"-deep table). The game board is the map's own size (the default battlefield is 48" × 48"; boards run from 24" to 72" per side, and maps saved at 44" × 30" keep that size).
+- **Measuring rule (base edges):** every distance between two models is measured between the closest points of their bases (centre distance minus both base radii; bases are 1" wide, radius 0.5"), and distances to a marker run from the marker point to the model's base edge. This covers weapon range, range-gated rules (`> 9"`), coherency, the 1" exclusion/deployment gap, objective control and engagement. Movement allowances are path lengths and stay centre-based, because a model moves its centre. Heights are separate limits. In code: `shared/src/engine/unitGeometry.ts` (`modelGap`, `markerGap`, `unitDistance`, `unitsInContact`). Between units everything is measured model to model (the closest pair of living models); `unit.position` is only a display anchor.
 - **Model Coherency:**
-  - Every model in a squad must remain within **1" horizontal** of at least one other squad member.
-  - Every model in a squad must remain within **6" horizontal** of all squad members.
-- **Proximity Exclusion Zone:** Models may not enter within **1"** of an opposing model unless executing an Assault/Charge maneuver.
+  - Every model in a squad must remain within **1" horizontal** (base edge to base edge) of at least one other squad member. When the two models are on different levels (heights differ by more than 0.5"), the allowance is **3"** instead. Simplification: this applies whenever the models are on different levels; the game does not check whether they would all fit on one level.
+  - Every model in a squad must remain within **6" horizontal** (base edge to base edge, 7.0" centre to centre) of all squad members.
+  - **Coherency at the start of an activation:** a squad that begins its activation out of coherency must spend it getting back together. It may not Hold, or end its activation without having moved. Its move or rush must finish coherent (the final-position check already requires that), and shooting after an Advance that restores coherency is fine. The host rejects `hold` / `end-activation` for such a squad before it has moved or attacked; the HUD disables Hold and shows a hint. Stunned units are exempt (their Hold only clears the stun) and a lone surviving model is always coherent. Open question: shooting without moving while incoherent is currently still allowed.
+  - **Partial squad moves:** each model moves *up to* the allowance, so a model may stay put. A move/rush may be confirmed before every model has been placed; unplaced models keep their position (a one-point path, 0" of movement) and the final positions must still be coherent, off other models and not mid-air. A rush with unmoved models is still a rush.
+- **Proximity Exclusion Zone (the 1" rule):** a model may not come within **1"** (base edge to base edge) of any living model of **another unit, friendly or enemy**, unless it is charging, and then only toward the declared charge target. It applies to the whole move or rush path, not just the end: the host rejects a path that brushes closer, and the pathfinder stops short or routes around. A model that already starts closer than 1" (for example next to a friendly squad) may move away but not get any closer than it began. Exactly 1.0" is allowed. Deployment uses the same gap (an enemy must be more than 1" away, measured to the closest enemy model). A move or rush that would end with its base edge within **0.5"** of an enemy is reported as melee contact (use a charge). Models also never move **through** other models: every living model of every other unit is an obstacle along the whole path (a charge may touch its target's models, never pass through one).
 
 ### 2.2 Objective Placement & Control
 - **Quantity:** $N = \lfloor\text{d}3\rfloor + 2$ objectives (3 to 5 markers).
 - **Placement Rules:** Placed alternately by players outside deployment zones and $> 9"$ apart from each other.
 - **Seizure & Contest Rules:**
   - Evaluated at the **end of each round**.
-  - A marker is **controlled** by a player if they have at least one friendly model within **3" horizontal** and zero enemy models within 3".
+  - A marker is **controlled** by a player if they have at least one friendly model within **3" horizontal** of the marker, measured to the model's base edge (centre up to 3.5"), and zero enemy models within the same distance.
+  - **Squads count per model:** each living model of a multi-model unit is checked on its own base edge (and the 3" vertical limit); the unit's anchor point (centroid) never counts, so a squad whose models all stand outside the ring does not hold a marker even if its middle is inside it. Single models are unchanged.
   - Markers remain under a player's control even after leaving the radius.
   - If opposing units are simultaneously within 3", the objective becomes **contested** and reverts to neutral.
   - Suppressed / Shaken units cannot seize or contest objectives.
@@ -93,6 +97,7 @@ A player selects one ready unit that has not yet activated this round. The unit 
 - **Movement Allowance Budgeting:** At activation start, a unit possesses a movement allowance (`remainingMovement`) equal to its speed ($6.0″$ for Advance, or $12.0″$ for Rush).
 - **Incremental Micro-Moves:** Players may spend from this budget across multiple sequential move actions (e.g. advance $2.5″$ to peek around a corner, verify Line of Sight, and advance another $3.5″$).
 - **Shooting Window Closure:** Firing a ranged weapon immediately exhausts all remaining movement allowance (`remainingMovement = 0`), ending the movement phase for that activation.
+- **Split Charges (legs):** a Charge is one continuous move with a single budget (double speed, e.g. 12"). When no single safe path reaches the target, the player *declares* the charge on a target and then spends the budget in legs: each leg is a safe walk, or a jump/fall declared from a floor edge exactly like a move. A passed jump costs no movement; a failed jump falls and ends the activation with no melee. The legs plus the final move into contact may never exceed the one budget (Difficult Terrain still caps the whole charge at 6"). A separate move action before a charge is not allowed (one action per activation). During legs, every other unit keeps the 1" edge-to-edge keep-away rule; only the declared target may be approached into base contact. A declared charge can't be undone or turned into another action: the only ways out are the final contact (melee resolves normally) or ending the activation, which abandons the charge with no melee.
 - **Rush Commitment:** Choosing Rush grants double movement allowance ($12.0″$) and immediately locks out shooting (`hasAttacked = true`), permitting incremental micro-moves until the full budget is spent or the player concludes the activation.
 
 ---
@@ -106,7 +111,7 @@ sequenceDiagram
     participant Defender
 
     Attacker->>Server: Declare Target & Weapon Profiles
-    Note over Server: Check Range & LOS
+    Note over Server: Check Range (base edge to base edge) & LOS
     Server->>Server: Roll Hit Dice (1d6 >= Quality)
     Server-->>Defender: Hits Scored (Passes to defender)
     Defender->>Server: Roll Defense Dice (1d6 >= Defense - AP + Cover)
@@ -115,7 +120,10 @@ sequenceDiagram
 ```
 
 1. **Targeting & Split Fire:**
-   - Attacker must have line of sight and target within weapon range.
+   - Shooting is per model. A target unit is valid for a weapon when at least one attacking model has line of sight (traced from that model's eye) to **some** living model of the target **and** that same target model is within the weapon's range, measured base edge to base edge. Lobbed weapons need range only.
+   - **Who fires:** only the attacking models that meet that test fire; the weapon's attack count is its attacks times the number of firing models (the other models neither see nor reach the target). Split-fire allocations apply the same test per weapon group.
+   - **Blocking:** an attacker's own squad-mates never block its sight; models of any other unit (friend or foe) do. The target unit's own models do not block sight to each other.
+   - **Distance rules:** the `> 9"` rule checks and the distance shown to the player use the closest pair of models. `unit.position` is only an anchor for a squad and is never used to measure between units.
    - A squad may divide its fire among up to **two distinct targets**, provided each target is fired upon by distinct weapon profiles.
 2. **Hit Allocation:**
    - Attacker rolls 1d6 per weapon attack count. Each roll $\ge Q$ scores 1 hit.
@@ -127,6 +135,7 @@ sequenceDiagram
      - *Apertures (Windows & Doorways):*
        - *Doorways (`wall-doorway`):* Open air between two jambs under a lintel. Line of Sight and movement pass freely and the doorway itself gives no cover; a model partly hidden behind a jamb claims ordinary sight-blocker cover.
        - *Windows / Firing Ports (`wall-window`):* Windows block model movement. Line of Sight can only be drawn through a window if at least one fighter (shooter or target) has its base edge within **1.0"** of the window aperture ("manning the port" / peeking). A model within 1.0" of a window receiving fire through it gains $+1$ Defense (Cover). If both models are $>1.0"$ from the window, the wall blocks sight entirely (preventing distant geometric keyholing).
+   - **Squad targets:** each living target model is judged individually against the nearest firing model. The unit has cover only if a strict majority of its living models are in cover (3 of 4 yes; 2 of 4 or 1 of 4 no). A single-model target is judged on its own, as before.
    - **Armor Piercing (AP):** Subtracts $X$ from defender's roll.
 4. **Wound Infliction:**
    - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Wound Effects Table)**.
@@ -136,17 +145,19 @@ sequenceDiagram
 ## 5. Close Quarters Combat (Melee)
 
 1. **Charge Contact & Consolidation:**
-   - Charging models must move into base contact with enemy models (or as close as geometry allows).
-   - Defending models in the target unit consolidate up to **3"** toward the chargers into base contact.
+   - Charging models must move into base contact with enemy models (or as close as geometry allows). A charge counts as reaching its target when a charging model's base edge ends within 0.25" of the base edge of the **closest model** of the target unit (and within 4" vertically); melee is possible while some pair of models has base edges within 0.5" (the old 1.25" / 1.5" centre values, unchanged for single models). A squad charges **model by model** (batch 1D PR 11): the charge is valid when at least one charging model can reach base contact with a target model (no line of sight needed); each charging model then walks its own path, up to the charge distance (one budget, each model's own path must fit it; the Difficult Terrain 6" cap applies per model), ending in base contact with a model of the target unit or as close as it can get. The squad must end in coherency (split-level rule included), no model passes through another unit's model, and the 1" keep-away is waived only toward the declared target. The host accepts a final charge when at least one model ends in contact (within 0.25" base edge, 4" vertically) and every other model ends no farther from the target than it started; it does not try to prove a model could not have got closer. Models may jump individually (declared per model, as for squad moves). Models the player does not place stay where they are (Confirm charge early). Units with a single model keep the plain one-path charge.
+   - After the charge, the defending models that are not already in base contact move up to **3"** straight toward the closest charging model and stop at base contact, short of any other model, and only if the squad stays in coherency (`consolidateSquadToward`).
+   - The 1" rule is waived toward the charge target only; other units still keep a 1" edge gap.
+   - A charge that no single safe path can reach is declared first and made in legs (section 3.3); the final leg into contact then resolves exactly like a one-click charge. Abandoning a declared charge (ending the activation) means no melee. Squads use the same flow with per-model legs: each leg moves the models (the longest model path is what the leg spends from the shared budget), and the final charge needs at least one model in contact.
 2. **Striking Reach:**
-   - All models within **2" horizontal** and **4" vertical** of an enemy model strike with all equipped melee weapons.
+   - Only the models within **2" horizontal** (base edge) and **4" vertical** of some model of the enemy unit strike; their attacks are pooled (the weapon's attacks times the number of striking models, always at least one). This holds for the charge strike, a fight and the defenders' strike-back, and it is counted after the charger has moved in and the defenders have piled in (`strikingModelCount`; `getDiceSpecs` simulates the move so the dice count matches). Before this rule every living model of the striking unit rolled.
 3. **Simultaneous Melee Resolution:**
    - Attackers roll hits (Quality test) and defenders roll saves (Defense test) following standard combat rules.
 4. **Retaliatory Strike:**
    - If the defending unit survives, it may choose to strike back with its eligible models.
 5. **Separation & Consolidation:**
    - If either unit is completely wiped out, the surviving unit may consolidate up to **3"**.
-   - If both units survive, the charging unit must push back to create a **1" gap** between the units.
+   - If both units survive, the charging unit must push back to create a **1" gap** between the units. It is done per model (batch 1D PR 11): every charging model that is within 1" (base edge) of any enemy model slides directly away to a 1" gap; models already clear stay put. The new spots must be on the board, clear of terrain and models and keep a coherent squad coherent; otherwise the whole formation steps back together along the old anchor line.
 6. **Fatigue / Exhaustion:**
    - Once a unit has charged or retaliated in melee during a round, it becomes **Fatigued**.
    - For the rest of the round, fatigued units only hit in melee on **unmodified natural 6s**.
@@ -199,7 +210,7 @@ At the **end of each round**, evaluate total army strength:
 
 | Terrain Type | Environmental Rule | Mechanical Implementation |
 | :--- | :--- | :--- |
-| **Cover Terrain** | Light foliage, low barricades, crates, visual obscuration, window sills. | Defenders receive **$+1$ to Defense rolls** against shooting attacks when positioned within cover, within 1.0" of intervening low cover along the line of fire, or within 1.0" of a window aperture being fired through. |
+| **Cover Terrain** | Light foliage, low barricades, crates, visual obscuration, window sills. | Low pieces (solids no more than 1.0" above the floor they stand on: barricade, crate, pipe) can be stepped over: movement goes straight across at no extra cost (not a climb, not difficult), but a model may not end its move on or overlapping one. Taller pieces still block movement. Defenders receive **$+1$ to Defense rolls** against shooting attacks when positioned within cover, within 1.0" of intervening low cover along the line of fire, or within 1.0" of a window aperture being fired through. |
 | **Aperture Walls** | Doorway passages and window firing ports. | Doorways are open air: movement and Line of Sight pass freely, with no cover from the gap itself. Windows allow Line of Sight through the port only while a model is manning it (base edge within 1.0"), grant that model +1 Defense, and block movement. |
 | **Elevated Floors** | Platforms, catwalks and the ruin ledge at the 3.0" floor tier. | Decks are solid slabs: models walk beneath them and stand on top. Sight is traced in 3D, so a deck blocks sight from below at close range while low cover stacked on it (barricades, crates) is seen over and a wall hides a model. Ladders and stairs are the way up onto decks; a piece marked climbable (container, ruin ledge by default) can also be climbed straight up, 3" or less (see 2.3). |
 | **Difficult Terrain** | Mud, dense trenches, steep inclines, deep water. | Maximum movement distance across the entire activation is **capped at 6"** (negates speed bonuses for Rush and Charge). |
@@ -275,7 +286,8 @@ Whenever a target model receives a **Suppressed (Shaken)** result from an attack
   - Takes 1 automatic hit with **AP(1) per full 3" of vertical fall**.
   - Model lands within 2" of where it fell, on the highest floor below (a lower deck, else the ground), at a spot clear of terrain and other models with its whole base supported, and its activation terminates immediately.
   - Falling damage applies to any fall of 2" or more, including a failed jump off a 3" deck.
-  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains.
+  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains. This covers a failed jump, a drop over 6" and a failed gap jump alike: it is always the falling model that is lost, never "the first living model".
+  - **Squads declare jumps per model.** Each model of a squad that is at a floor edge may declare its own jump (or fall) as part of the squad's move or rush; the other models walk as usual. Only the declaring models roll, each with its own dice, in model order. A model that fails falls and is lost (the last living model instead takes the normal falling damage), and the squad's activation ends; the models that had been moved stay where they were placed. The squad still has to finish in coherency.
 
 ---
 

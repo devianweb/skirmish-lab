@@ -232,6 +232,46 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     expect(summary).not.toMatch(/dice, all|roll \d dice/);
   });
 
+  describe('split-level squad coherency staging', () => {
+    function squadOnDeck() {
+      const ctx = setup(P(1.0, 3, 0));
+      const { hud, container, state } = ctx;
+      state.terrain = [deckPiece('d', 0, 3)];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.speed = 6;
+      unit.remainingMovement = 6;
+      unit.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: P(1.0, 3, 0), rotation: P(0, 0, 0) },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: P(1.5, 3, 0.8), rotation: P(0, 0, 0) },
+      ] as any;
+      hud.syncFromState(state);
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: P(0.5, 3, 0) });
+      return ctx;
+    }
+
+    it('allows a ground model 3.4" from a deck model and the host agrees', () => {
+      const { hud, container, controller, state } = squadOnDeck();
+      expect(container.textContent).toContain('Place Model 2 of 2');
+      hud.handleBoardPick({ kind: 'position', position: P(3.9, 0, 0) });
+      expect(container.textContent).toContain('Confirm');
+      clickByText(container, 'Confirm');
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.payload.modelPositions).toHaveLength(2);
+      expect(action.payload.modelPositions[1].y).toBeCloseTo(0, 1);
+      const res = validateAction(state, { ...action, actorId: HOST });
+      expect(res.reason ?? '').not.toMatch(/coherency|from nearest squad member/);
+    });
+
+    it('the toast explains the allowance when 3" across levels is exceeded', () => {
+      const { hud, container, controller } = squadOnDeck();
+      hud.handleBoardPick({ kind: 'position', position: P(5.2, 0, 0) });
+      const toast = container.querySelector('.sl-hud-toast')?.textContent ?? '';
+      expect(toast).toContain('different levels: 3"');
+      expect(controller.submitAction).not.toHaveBeenCalled();
+    });
+  });
+
   it('squads get no jump chip (the host does not accept a declared jump for a multi-model move)', () => {
     const { hud, container, state, unit } = setup(P(-0.2, 3, 0));
     unit.models = [
@@ -277,5 +317,52 @@ describe('GameHUD move preview: segment styling (P6)', () => {
     expect(segs.some((s) => s.kind === 'climb' && s.label === 'climb 2.3"')).toBe(true);
     hud.handleBoardPick({ kind: 'position', position: P(-8, 2.25, -3) });
     expect(container.textContent).toContain('climb 2.3"');
+  });
+});
+
+describe('GameHUD squad staging: per-model declared jumps (batch 1D PR 15)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** A 3-model squad: model 1 stands at the ledge edge, models 2 and 3 already stand on the far deck. */
+  function squadSetup(action: 'Move' | 'Rush' = 'Move') {
+    const base = setup(P(-0.2, 3, 0), action);
+    const { state, unit, container } = base;
+    const mk = (id: string, p: Vector3) => ({
+      id, wounds: 1, maxWounds: 1, isDestroyed: false, position: { ...p }, rotation: { x: 0, y: 0, z: 0 },
+    });
+    unit.models = [mk('m1', P(-0.2, 3, 0)), mk('m2', P(5.6, 3, 0.4)), mk('m3', P(6.6, 3, -0.2))] as any;
+    unit.wounds = 3;
+    unit.maxWounds = 3;
+    base.hud.syncFromState(state);
+    clickByText(container, action);
+    return base;
+  }
+
+  it('the edge model is offered the jump and the confirmed squad move declares it for that model only', () => {
+    const { hud, container, controller, state } = squadSetup();
+    hud.handleBoardPick({ kind: 'position', position: P(5.6, 3, -1) });
+    expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/^Model 1: Jump gap/);
+    container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]')!.click();
+    expect(container.textContent).toContain('Model 1: Jump gap');
+    clickByText(container, 'Confirm');
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.payload.modelTraversals).toHaveLength(3);
+    expect(action.payload.modelTraversals[0]).toMatchObject({ kind: 'jump-gap', takeoff: { x: -0.2, y: 3, z: 0 } });
+    expect(action.payload.modelTraversals[1]).toBeNull();
+    expect(action.payload.modelTraversals[2]).toBeNull();
+    expect(action.payload.modelPaths[0]).toHaveLength(2);
+    // the host accepts exactly what the HUD sent
+    expect(validateAction(state, action)).toEqual({ valid: true });
+  });
+
+  it('a squad move with no jump carries no modelTraversals', () => {
+    const { hud, container, controller } = squadSetup();
+    hud.handleBoardPick({ kind: 'position', position: P(-1.7, 3, 0) });
+    container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]')?.click();
+    clickByText(container, 'Confirm');
+    const action = controller.submitAction.mock.calls[0]?.[0];
+    if (action) expect(action.payload.modelTraversals).toBeUndefined();
   });
 });

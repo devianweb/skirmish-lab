@@ -45,6 +45,25 @@ export interface MovePathSegment {
   label?: string | null;
 }
 
+/** One firing model's aim line (eye height) to the target model it shoots at. */
+export interface AimLine {
+  from: Vector3;
+  to: Vector3;
+  /** False for an attacker model that cannot fire (drawn faint red). */
+  fires: boolean;
+}
+
+/** Shooting preview: a line per attacker model, plus the target model the player pointed at. */
+export interface AimLinesMarker {
+  lines: AimLine[];
+  /** Ground position of the target model aimed at (only when a firing model can see it). */
+  aimedModel?: Vector3;
+}
+
+const AIM_LINE_COLOR = 0xff7043;
+const AIM_BLOCKED_COLOR = 0xef5350;
+const AIMED_MODEL_COLOR = 0xffeb3b;
+
 export interface MovePathMarker {
   from: Vector3;
   to: Vector3;
@@ -121,6 +140,7 @@ export class MarkerRenderer {
   private terrainDebug: THREE.Object3D | null = null;
   private unitsDebug: THREE.Object3D | null = null;
   private shootingDebug: THREE.Object3D | null = null;
+  private aimLines: THREE.Object3D | null = null;
   private deploymentZones: THREE.Object3D | null = null;
   private objectivesDebug: THREE.Object3D | null = null;
   private squadCoherency: THREE.Object3D | null = null;
@@ -212,6 +232,40 @@ export class MarkerRenderer {
     }
     this.markerGroup.add(group);
     this.target = group;
+  }
+
+  /**
+   * Shooting preview: one line per attacker model to the target model it aims at (blocked models faint red),
+   * and a bright ring under the target model the player pointed at when a firing model can see it.
+   */
+  setAimLines(spec: AimLinesMarker | null): void {
+    this.removeMarker('aimLines');
+    if (!spec || (spec.lines.length === 0 && !spec.aimedModel)) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-aim-lines';
+    spec.lines.forEach((line, i) => {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(line.from.x, line.from.y ?? 0, line.from.z),
+        new THREE.Vector3(line.to.x, line.to.y ?? 0, line.to.z),
+      ]);
+      const mat = new THREE.LineBasicMaterial({
+        color: line.fires ? AIM_LINE_COLOR : AIM_BLOCKED_COLOR,
+        transparent: !line.fires,
+        opacity: line.fires ? 1 : 0.3,
+      });
+      const obj = new THREE.Line(geo, mat);
+      obj.name = line.fires ? `aim-line-${i}` : `aim-line-blocked-${i}`;
+      group.add(obj);
+    });
+    if (spec.aimedModel) {
+      const ring = this.createFlatRing(AIMED_MODEL_COLOR, 0.62, 0.03);
+      ring.name = 'aimed-model';
+      ring.position.set(spec.aimedModel.x, (spec.aimedModel.y ?? 0) + 0.03, spec.aimedModel.z);
+      group.add(ring);
+    }
+    this.markerGroup.add(group);
+    this.aimLines = group;
   }
 
   /** Darker red floor rings under all enemy units within attack range (under each model's feet). */
@@ -599,6 +653,26 @@ export class MarkerRenderer {
       }
     }
 
+    // 1b. Squad shooting: one eye-level ray per attacker model (cyan = fires, faint red = cannot)
+    if (debug.modelRays) {
+      debug.modelRays.forEach((ray, i) => {
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(ray.from.x, ray.from.y, ray.from.z),
+          new THREE.Vector3(ray.to.x, ray.to.y, ray.to.z),
+        ]);
+        const line = new THREE.Line(
+          geo,
+          new THREE.LineBasicMaterial({
+            color: ray.fires ? 0x00e5ff : 0xef5350,
+            transparent: true,
+            opacity: ray.fires ? 0.6 : 0.3,
+          })
+        );
+        line.name = `model-ray-${i}`;
+        group.add(line);
+      });
+    }
+
     // 2. Segmented shooting line & intersection discs
     // Eye-level ray (the shared engine traces LoS in 3D from the shooter's eye).
     const startPt = new THREE.Vector3(debug.from.x, debug.from.y, debug.from.z);
@@ -937,6 +1011,7 @@ export class MarkerRenderer {
     this.removeMarker('terrainDebug');
     this.removeMarker('unitsDebug');
     this.removeMarker('shootingDebug');
+    this.removeMarker('aimLines');
     this.removeMarker('deploymentZones');
     this.removeMarker('objectivesDebug');
     this.removeMarker('squadCoherency');
@@ -976,6 +1051,7 @@ export class MarkerRenderer {
       | 'terrainDebug'
       | 'unitsDebug'
       | 'shootingDebug'
+      | 'aimLines'
       | 'deploymentZones'
       | 'objectivesDebug'
       | 'squadCoherency'

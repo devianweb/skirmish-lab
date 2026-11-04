@@ -145,6 +145,59 @@ describe('activation', () => {
   });
 
   describe('objectives & 4-round mission engine', () => {
+    it('measures objective control from the base edge: centre 3.4" counts, 3.6" does not', () => {
+      const inside = makeState([makeUnit('h1', HOST, { position: { x: 3.4, y: 0, z: 0 } })]);
+      const outside = makeState([makeUnit('h1', HOST, { position: { x: 3.6, y: 0, z: 0 } })]);
+      for (const st of [inside, outside]) {
+        st.objectives = [
+          { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+        ];
+        evaluateObjectives(st);
+      }
+      expect(inside.objectives[0].controllingPlayerId).toBe(HOST);
+      expect(outside.objectives[0].controllingPlayerId).toBeNull();
+    });
+
+    it('squad models count by base edge too', () => {
+      const state = makeState([makeUnit('h1', HOST, { position: { x: 8, y: 0, z: 0 } })]);
+      state.units[0].models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 8, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 3.45, y: 0, z: 0 } },
+      ];
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBe(HOST);
+    });
+
+    it('a squad anchor inside the ring does not count when every living model is outside it', () => {
+      // Ring of four models ~3.6" from the marker; the centroid sits on the marker.
+      const mk = (id: string, x: number, z: number) => ({
+        id, wounds: 1, maxWounds: 1, isDestroyed: false, position: { x, y: 0, z },
+      });
+      const state = makeState([makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } })]);
+      state.units[0].models = [mk('m1', 3.6, 0), mk('m2', -3.6, 0), mk('m3', 0, 3.6), mk('m4', 0, -3.6)];
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBeNull();
+    });
+
+    it('a squad does not count through a destroyed model that stood inside the ring', () => {
+      const state = makeState([makeUnit('h1', HOST, { position: { x: 5, y: 0, z: 0 } })]);
+      state.units[0].models = [
+        { id: 'm1', wounds: 0, maxWounds: 1, isDestroyed: true, position: { x: 1, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 8, y: 0, z: 0 } },
+      ];
+      state.objectives = [
+        { id: 'obj1', name: 'Alpha', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+      ];
+      evaluateObjectives(state);
+      expect(state.objectives[0].controllingPlayerId).toBeNull();
+    });
+
     it('captures an objective if a friendly non-shaken unit is within 3" and 0 enemy units are in 3"', () => {
       const state = makeState([
         makeUnit('h1', HOST, { position: { x: 2, y: 0, z: 0 } }),
@@ -370,6 +423,33 @@ describe('activation', () => {
       const outOfZone = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -4 });
       expect(outOfZone.valid).toBe(false);
       expect(outOfZone.reason).toContain('outside friendly 12" deployment zone');
+
+      // Enemy at z = -13: base edges must be more than 1" apart (centre more than 2")
+      const enemyState = makeState([
+        makeUnit('h1', HOST, { isDeployed: false }),
+        makeUnit('g1', GUEST, { isDeployed: true, position: { x: 0, y: 0, z: -13 } }),
+      ]);
+      const hostUnit = enemyState.units[0];
+      expect(validateDeploymentPosition(enemyState, hostUnit, { x: 0, y: 0, z: -15.1 }).valid).toBe(true);
+      const tooClose = validateDeploymentPosition(enemyState, hostUnit, { x: 0, y: 0, z: -14.9 });
+      expect(tooClose.valid).toBe(false);
+      expect(tooClose.reason).toContain('within 1"');
+
+      // A squad is measured from its closest model, not its anchor: models at z = -13 and z = -9 (anchor -11)
+      const squadState = makeState([
+        makeUnit('h1', HOST, { isDeployed: false }),
+        makeUnit('g1', GUEST, {
+          isDeployed: true,
+          position: { x: 0, y: 0, z: -11 },
+          models: [
+            { id: 'a', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -13 } },
+            { id: 'b', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -9 } },
+          ] as any,
+        }),
+      ]);
+      const squadHost = squadState.units[0];
+      expect(validateDeploymentPosition(squadState, squadHost, { x: 0, y: 0, z: -14.9 }).reason).toContain('within 1"');
+      expect(validateDeploymentPosition(squadState, squadHost, { x: 0, y: 0, z: -15.1 }).valid).toBe(true);
 
       // Inside terrain obstacle
       const insideObstacle = validateDeploymentPosition(state, unit, { x: 0, y: 0, z: -15 });

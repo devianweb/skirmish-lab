@@ -443,6 +443,9 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       attacker.isActivated = true;
       attacker.position = { x: 0, y: 0, z: 0 };
       target.position = { x: 1.0, y: 5.0, z: 0 }; // 5.0" tall ledge (> 4.0" vertical melee reach)
+      // Squad models follow the anchor (charges and reach are measured per model)
+      for (const m of target.models) m.position = { ...target.position };
+      for (const m of attacker.models) m.position = { ...attacker.position };
 
       const chargeAction = createAction('host-1', 'charge', {
         attackerId: attacker.id,

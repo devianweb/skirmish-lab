@@ -1,4 +1,5 @@
 import { DiceSpec, DiceResult, Vector3 } from './types';
+import type { DeclaredTraversal } from './engine/traversal';
 
 // Alternating-activation round phases
 export type TurnPhase =
@@ -41,6 +42,23 @@ export interface TurnState {
   activeUnitId?: string | null;
   /** An active prompt awaiting a reaction choice from promptingPlayerId. */
   pendingReaction?: PendingReaction | null;
+  /**
+   * A declared charge in progress (set by begin-charge, cleared by the final charge, a fall, or the end of
+   * the activation). While set, the active unit may only make charge legs, the final charge on the locked
+   * target, or end its activation (which abandons the charge: no melee). The charge budget lives in the
+   * unit's `remainingMovement`.
+   */
+  charge?: ChargeState | null;
+}
+
+/** A charge declared on a target and made in legs. Plain data: it is part of the game state. */
+export interface ChargeState {
+  /** The charging unit (the active unit). */
+  unitId: string;
+  /** The locked charge target; the final contact must be with this unit. */
+  targetId: string;
+  /** Legs made so far (each a safe walk or a declared jump). */
+  legs: number;
 }
 
 export type UnitStatus =
@@ -236,6 +254,8 @@ export type ActionType =
   | 'move-unit'
   | 'rush'
   | 'shoot'
+  | 'begin-charge'
+  | 'charge-leg'
   | 'charge'
   | 'fight'
   | 'use-ability'
@@ -257,7 +277,9 @@ export type ActionPayload =
       weaponId?: string;
       allocations?: WeaponAllocation[];
     }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string }
+  | { type: 'begin-charge', attackerId: string, targetId: string }
+  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal, modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal, modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }

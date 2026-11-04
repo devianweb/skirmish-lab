@@ -60,6 +60,11 @@ function clickByText(root: HTMLElement, text: string): HTMLElement | null {
   return found;
 }
 
+/** Test fixtures move `unit.position`; keep a lone model standing on it (rules measure per model). */
+function syncModels(unit: { position: { x: number; y: number; z: number }; models?: Array<{ position?: any }> }): void {
+  for (const m of unit.models ?? []) m.position = { ...unit.position };
+}
+
 describe('GameHUD', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -187,9 +192,9 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Move');
-    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) clamps movement before contact (1.0" base separation)
+    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) clamps movement 1" (base edge) short of it
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
-    expect(container.textContent).toContain('3.0" (max 6") · can shoot after moving');
+    expect(container.textContent).toContain('2.0" (max 6") · can shoot after moving');
     clickByText(container, 'Cancel');
 
     // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
@@ -213,6 +218,7 @@ describe('GameHUD', () => {
     activateUnit(state, HOST, attacker.id);
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 10 };
+    syncModels(target);
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Shoot');
@@ -248,6 +254,7 @@ describe('GameHUD', () => {
     });
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 }; // within range 12 of both weapons
+    syncModels(target);
 
     activateUnit(state, HOST, attacker.id);
     const { hud, container, controller } = setup(HOST, state);
@@ -282,7 +289,9 @@ describe('GameHUD', () => {
     const targetA = guestUnits[0];
     const targetB = guestUnits[1];
     targetA.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 };
+    syncModels(targetA);
     targetB.position = { x: attacker.position.x + 5, y: 0, z: attacker.position.z + 8 };
+    syncModels(targetB);
 
     activateUnit(state, HOST, attacker.id);
     const { hud, container, controller } = setup(HOST, state);
@@ -371,6 +380,7 @@ describe('GameHUD', () => {
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     // Position target 5" away (well within double speed of 12")
     target.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 5 };
+    syncModels(target);
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Charge');
@@ -666,7 +676,8 @@ describe('GameHUD', () => {
 
     clickByText(container, 'Shoot');
     const targetingSnap = snapshots[snapshots.length - 1];
-    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24, concentricRanges: [24] });
+    // Rings sit one base radius (0.5") out so they show where an enemy base edge can be (24" from the shooter's base edge).
+    expect(targetingSnap.attackRange).toEqual({ unitId: active.id, range: 24.5, concentricRanges: [24.5] });
     // Enemies within 24" and Line of Sight appear in reachableTargetIds.
     expect(targetingSnap.reachableTargetIds?.length).toBeGreaterThan(0);
   });
@@ -1160,6 +1171,8 @@ describe('GameHUD', () => {
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     attacker.position = { x: 0, y: 0, z: 0 };
     target.position = { x: 0, y: 0, z: 5 };
+    syncModels(attacker);
+    syncModels(target);
     state.terrain = [
       {
         id: 'wall-1',
@@ -1454,6 +1467,8 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, attacker.id);
       attacker.position = { x: 0, y: 0, z: 0 };
       target.position = { x: 1.0, y: 5.0, z: 0 }; // 5.0" tall ledge (> 4.0" reach)
+      syncModels(attacker);
+      syncModels(target);
 
       const { hud, container, controller } = setup(HOST, state);
 
@@ -1817,7 +1832,7 @@ describe('GameHUD', () => {
       // 3. Try placing Model 2 at (0, 0, 3) (> 2.0" from Model 1 at z = -1)
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 3 } });
       // Should reject with toast
-      expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/exceeds 2" limit|coherency/i);
+      expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/exceeds 1" limit|coherency/i);
       expect(controller.submitAction).not.toHaveBeenCalled();
 
       // 4. Place Model 2 legally within 2.0" coherency at (1, 0, -1) [1.0" distance from Model 1]
@@ -1871,6 +1886,66 @@ describe('GameHUD', () => {
       expect(lastMarkers?.squadCoherency).toBeUndefined();
     });
 
+    describe('confirm a squad move before every model has moved', () => {
+      function fourModelSquad() {
+        const state = scenarioState();
+        const squad = state.units.find((u) => u.ownerId === HOST)!;
+        squad.name = 'Warden Patrol Squad';
+        squad.position = { x: 0.5, y: 0, z: -4.5 };
+        squad.speed = 6;
+        squad.remainingMovement = 6;
+        const mk = (id: string, x: number, z: number) => ({
+          id, wounds: 1, maxWounds: 1, isDestroyed: false, position: { x, y: 0, z }, rotation: { x: 0, y: 0, z: 0 },
+        });
+        squad.models = [mk('m1', 0, -5), mk('m2', 1, -5), mk('m3', 0, -4), mk('m4', 1, -4)];
+        activateUnit(state, HOST, squad.id);
+        return { state, squad };
+      }
+
+      it('offers Confirm move after the first staged model and keeps unplaced models in place', () => {
+        const { state } = fourModelSquad();
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        expect(container.querySelector('[data-action="confirm-squad-move"]')).toBeNull();
+
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -6 } });
+        const btn = container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]');
+        expect(btn).toBeTruthy();
+
+        btn!.click();
+        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+        clickByText(container, 'Confirm');
+        expect(controller.submitAction).toHaveBeenCalledTimes(1);
+        const action = controller.submitAction.mock.calls[0][0];
+        expect(action.type).toBe('move-unit');
+        expect(action.payload.modelPositions).toHaveLength(4);
+        expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -6 });
+        expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -5 });
+        expect(action.payload.modelPaths[1]).toEqual([{ x: 1, y: 0, z: -5 }]);
+        expect(action.payload.modelPaths[3]).toEqual([{ x: 1, y: 0, z: -4 }]);
+      });
+
+      it('refuses to confirm early when the unmoved models would leave the squad incoherent', () => {
+        const { state } = fourModelSquad();
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -9 } });
+        container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]')!.click();
+        expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/1"|coherency/i);
+        expect(container.textContent).not.toContain('Move Warden Patrol Squad (4 models)');
+        expect(controller.submitAction).not.toHaveBeenCalled();
+      });
+
+      it('disables Hold and shows a hint when the squad starts out of coherency', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 6, y: 0, z: -4 };
+        const { container } = setup(HOST, state);
+        const hold = container.querySelector<HTMLButtonElement>('[data-action="hold"]')!;
+        expect(hold.disabled).toBe(true);
+        expect(container.textContent).toContain('Squad is out of coherency');
+      });
+    });
+
     it('multiplies attack dice by living models count in shoot confirmation summary', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;
@@ -1884,6 +1959,7 @@ describe('GameHUD', () => {
       squad.position = { x: 0, y: 0, z: -10 };
       const enemy = state.units.find((u) => u.ownerId === GUEST)!;
       enemy.position = { x: 0, y: 0, z: -5 };
+      syncModels(enemy);
 
       const { hud, container } = setup(HOST, state);
 
@@ -2052,17 +2128,21 @@ describe('GameHUD', () => {
 
       const enemy = state.units.find((u) => u.ownerId === GUEST)!;
       enemy.position = { x: 0, y: 0, z: 0 };
+      syncModels(unit);
+      syncModels(enemy);
 
-      const { hud, container } = setup(HOST, state);
+      const { hud, container, controller } = setup(HOST, state);
 
       clickByText(container, 'Move');
-      // Pick position at z = -0.6 (distance 0.6" <= 1.0" engagement range)
+      // Pick a spot at z = -0.6 (0" from the enemy's base edge, deep inside melee contact): the planned move
+      // stops short at the 1" keep-away distance (centre z = -2.0) instead
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -0.6 } });
+      clickByText(container, 'Confirm');
 
-      expect(container.querySelector('.sl-hud-toast')?.textContent).toBe(
-        'Move cannot end in melee contact — use Charge instead'
-      );
-      expect(container.textContent).not.toContain('Confirm Move');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const finalZ = controller.submitAction.mock.calls[0][0].payload.finalPosition.z;
+      expect(finalZ).toBeLessThanOrEqual(-1.97);
+      expect(finalZ).toBeGreaterThan(-2.2);
     });
   });
 });

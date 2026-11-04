@@ -34,8 +34,8 @@ import {
   TraumaOutcome,
 } from './combat';
 import {
-  computePushBackPosition,
   computeSquadCentroid,
+  pushBackChargerModels,
   consolidateSquadToward,
   createSquadPositions,
   findMoveBlocker,
@@ -69,9 +69,25 @@ import {
   validateDeclaredTraversal,
   DeclaredTraversal,
   allocateSquadCasualties,
-  validateMeleeVerticalReach,
+  MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
+import type { ChargeState } from '../gameTypes';
 import { getTraitValue, hasTrait } from '../rules/traits';
+import {
+  unitDistance,
+  edgeGapToCentre,
+  pointEngagesUnit,
+  unitsInContact,
+  modelsWithin,
+  chargeContact,
+  chargeDestination,
+  strikingModelCount,
+  ENGAGEMENT_EDGE_GAP,
+  CHARGE_END_EDGE_GAP,
+  modelGap,
+  livingModelPositions,
+} from './unitGeometry';
+import { firingModels, targetCoverByMajority } from './squadTargeting';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -102,9 +118,7 @@ export function pathLength(path: Vector3[]): number {
 /** Engagement distance: how close a charging unit ends to its target. */
 /** Rejection text for an end position whose base hangs over an edge. */
 const OVERHANG_REASON = 'Models cannot end movement partly overhanging an edge — the whole base must rest on the floor';
-const ENGAGEMENT_DISTANCE = 1;
-/** Melee is legal within this many board units of the target. */
-const ENGAGEMENT_RANGE = 1.5;
+const ENGAGEMENT_DISTANCE = edgeGapToCentre(0);
 
 export interface ValidationResult {
   valid: boolean;
@@ -165,6 +179,249 @@ export function getActiveUnit(state: GameState): Unit | undefined {
  * movement allowance, range, and engagement. Dice completeness is NOT
  * checked here (the host requests dice only after this passes).
  */
+/**
+ * A squad that starts its activation out of coherency must spend it getting back
+ * together: it may not Hold or end the activation without having moved. Stunned
+ * units are exempt (their Hold only clears the stun and they cannot move).
+ * Returns a rejection, or null when the unit is free to hold/end.
+ */
+function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | null {
+  if (unit.status.includes('stunned')) return null;
+  const positions = (unit.models ?? [])
+    .filter((m) => !m.isDestroyed)
+    .map((m) => m.position ?? unit.position);
+  if (positions.length <= 1) return null;
+  if (validateSquadCoherency(positions).coherent) return null;
+  return {
+    valid: false,
+    reason:
+      'Squad is out of coherency: this activation must move it back together (it cannot hold or end without moving)',
+  };
+}
+
+/** Per-model parts of a squad charge / charge leg payload (a single model keeps the plain `path`). */
+interface SquadChargePayload {
+  modelPositions?: Vector3[];
+  modelPaths?: Vector3[][];
+  modelTraversals?: (DeclaredTraversal | null)[];
+}
+
+function livingModels(unit: Unit): Model[] {
+  return (unit.models ?? []).filter((m) => !m.isDestroyed);
+}
+
+/** A squad (more than one living model) that sent per-model positions. */
+function isSquadChargePayload(unit: Unit, payload: SquadChargePayload): boolean {
+  return !!payload.modelPositions && livingModels(unit).length > 1;
+}
+
+/** Each living model's path: the one sent, or a straight line from where it stands to its end spot. */
+function squadChargePaths(unit: Unit, payload: SquadChargePayload): Vector3[][] {
+  return livingModels(unit).map((m, i) => {
+    const start = m.position ?? unit.position;
+    const sent = payload.modelPaths?.[i];
+    return sent && sent.length >= 2 ? sent : [start, payload.modelPositions![i]];
+  });
+}
+
+/**
+ * Host check of a squad's charge move: every model walks its own path from where it stands (a shared budget:
+ * each model's path must fit what is left of the charge), the squad ends coherent, and no model passes through
+ * another unit or comes within 1" of any unit but the target. A final move needs at least one model in base
+ * contact with a target model; models that cannot reach contact must simply end no farther from the target
+ * than they started ("as close as possible", tested loosely on purpose: the host cannot know what the
+ * terrain would have let them reach).
+ */
+function validateSquadChargeMove(
+  state: GameState,
+  unit: Unit,
+  target: Unit,
+  payload: SquadChargePayload,
+  mode: 'leg' | 'final'
+): ValidationResult {
+  const positions = payload.modelPositions ?? [];
+  const alive = livingModels(unit);
+  const declared = declaredCharge(state, unit.id);
+  const remaining = declared ? unit.remainingMovement : chargeBudget(unit);
+  const spent = declared ? chargeSpent(unit) : 0;
+  if (positions.length !== alive.length) {
+    return {
+      valid: false,
+      reason: `Model positions count mismatch (${positions.length} vs ${alive.length} active models)`,
+    };
+  }
+  if (
+    (payload.modelTraversals && payload.modelTraversals.length > positions.length) ||
+    (payload.modelPaths && payload.modelPaths.length > positions.length)
+  ) {
+    return { valid: false, reason: 'More model paths or declared jumps than squad models' };
+  }
+  const coherency = validateSquadCoherency(positions);
+  if (!coherency.coherent) {
+    return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
+  }
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      if (boardDistance(positions[i], positions[j]) < 0.9) {
+        return { valid: false, reason: `Squad models ${i + 1} and ${j + 1} cannot overlap` };
+      }
+    }
+    if (!isWithinBoard(state, positions[i])) {
+      return { valid: false, reason: 'Squad model position leaves the board' };
+    }
+  }
+
+  const paths = squadChargePaths(unit, payload);
+  const targetModels = livingModelPositions(target);
+  let moved = 0;
+  let inContact = false;
+  let reachedTooHigh = false;
+  for (let i = 0; i < alive.length; i++) {
+    const n = i + 1;
+    const mStart = alive[i].position ?? unit.position;
+    const mEnd = positions[i];
+    const mPath = paths[i];
+    if (boardDistance(mPath[0], mStart) > 0.05) {
+      return { valid: false, reason: `Squad model ${n} move path does not start at model position` };
+    }
+    if (boardDistance(mPath[mPath.length - 1], mEnd) > 0.05) {
+      return { valid: false, reason: `Squad model ${n} move path does not end at its position` };
+    }
+    for (const pt of mPath) {
+      if (!isWithinBoard(state, pt)) return { valid: false, reason: `Squad model ${n} move path leaves the board` };
+    }
+    const difficult = isPathDifficult(state, mPath, unit);
+    const cap = getEffectiveMaxMovement(unit, 'charge', difficult);
+    const dist = pathMovementCost(state, mPath, unit);
+    if (dist > remaining + 0.05 || spent + dist > cap + 0.05) {
+      return {
+        valid: false,
+        reason:
+          difficult && cap === 6.0
+            ? `Squad model ${n} exceeds the Difficult Terrain charge cap (6.0")`
+            : `Squad model ${n} exceeds the charge distance (${dist.toFixed(1)}" vs ${Math.max(0, Math.min(remaining, cap - spent)).toFixed(1)}")`,
+      };
+    }
+    moved = Math.max(moved, dist);
+    // The 1" rule is ignored only toward the declared target, and nobody walks through a model
+    const blocker = findMoveBlocker(state, unit, mPath, { ignoreUnitId: target.id, keepAway: true });
+    if (blocker.blocked) return { valid: false, reason: `Squad model ${n} move path is blocked: ${blocker.reason}` };
+    if (detectPathGapJump(state, mPath, unit).tooWide) {
+      return { valid: false, reason: `Squad model ${n} cannot cross a gap wider than 6"` };
+    }
+    const jumpProblem = validateDeclaredTraversal(state, unit, mPath, payload.modelTraversals?.[i]);
+    if (jumpProblem) return { valid: false, reason: `Squad model ${n}: ${jumpProblem}` };
+    if (isSuspendedInMidAir(state, mEnd)) {
+      return { valid: false, reason: `Squad model ${n} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
+    }
+    if (isBaseOverhanging(state, mEnd)) return { valid: false, reason: `Squad model ${n}: ${OVERHANG_REASON}` };
+    for (const piece of state.terrain) {
+      if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, mEnd)) {
+        return {
+          valid: false,
+          reason: `Squad model ${n} cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot`,
+        };
+      }
+    }
+    const overlap = findEndOverlap(state, unit.id, mEnd);
+    if (overlap) return { valid: false, reason: `Squad model ${n}: ${describeEndOverlap(overlap)}` };
+
+    if (mode === 'final') {
+      let modelInContact = false;
+      let startGap = Infinity;
+      let endGap = Infinity;
+      for (const t of targetModels) {
+        const gap = modelGap(mEnd, t);
+        startGap = Math.min(startGap, modelGap(mStart, t));
+        endGap = Math.min(endGap, gap);
+        if (gap <= CHARGE_END_EDGE_GAP + 0.001) {
+          if (Math.abs((mEnd.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH) modelInContact = true;
+          else reachedTooHigh = true;
+        }
+      }
+      if (modelInContact) inContact = true;
+      else if (endGap > startGap + 0.05) {
+        return {
+          valid: false,
+          reason: `Squad model ${n} must end in contact or closer to the target, not farther from it`,
+        };
+      }
+    }
+  }
+  if (mode === 'leg' && moved < 0.05) return { valid: false, reason: 'Charge leg moves nothing' };
+  if (mode === 'final' && !inContact) {
+    return {
+      valid: false,
+      reason: reachedTooHigh
+        ? 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)'
+        : 'Charge must end in engagement range',
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * Put a squad's living models on their new spots (anchor = centroid), turning each toward where it moved.
+ * Returns the positions they left, in model order.
+ */
+function placeSquadModels(unit: Unit, positions: Vector3[]): Vector3[] {
+  const alive = livingModels(unit);
+  const prev = alive.map((m) => ({ ...(m.position ?? unit.position) }));
+  alive.forEach((m, i) => {
+    m.position = { ...positions[i] };
+  });
+  unit.position = computeSquadCentroid(positions);
+  if (positions.length > 0 && prev.length > 0) {
+    const dx = positions[0].x - prev[0].x;
+    const dz = positions[0].z - prev[0].z;
+    if (Math.hypot(dx, dz) > 1e-4) unit.rotation = { ...unit.rotation, y: Math.atan2(dx, dz) };
+  }
+  alive.forEach((m, i) => {
+    const dx = positions[i].x - prev[i].x;
+    const dz = positions[i].z - prev[i].z;
+    m.rotation = Math.hypot(dx, dz) > 1e-4 ? { x: 0, y: Math.atan2(dx, dz), z: 0 } : { ...unit.rotation };
+  });
+  return prev;
+}
+
+/** Jump, hazard and fall dice a squad charge (leg) needs: jumpers roll tagged `m<index>_` dice in model order. */
+function squadChargeTraversalSpecs(state: GameState, unit: Unit, payload: SquadChargePayload): DiceSpec[] {
+  const paths = squadChargePaths(unit, payload);
+  const aliveCount = livingModels(unit).length;
+  const jumpers = paths.map((_, i) => (payload.modelTraversals?.[i] ? i : -1)).filter((i) => i >= 0);
+  const specs: DiceSpec[] = [];
+  // Models that walk share one hazard roll for the squad; jumpers carry their own
+  if (paths.some((p, i) => !jumpers.includes(i) && isPathDangerous(state, p, unit))) {
+    specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
+  }
+  const needsFallDice = jumpers.length >= aliveCount;
+  for (const i of jumpers) {
+    specs.push(
+      ...pathTraversalSpecs(state, unit, paths[i], { prefix: `m${i}_`, singleModel: true, includeFallDice: needsFallDice })
+    );
+  }
+  return specs;
+}
+
+/** Action types allowed while a charge is declared (Decision 22: no undo, no switching to another action). */
+const CHARGE_LOCK_ALLOWED: string[] = ['charge-leg', 'charge', 'end-activation'];
+
+/** Full charge budget of a unit (before Difficult Terrain caps). */
+function chargeBudget(unit: Unit): number {
+  return getEffectiveMaxMovement(unit, 'charge', false);
+}
+
+/** The declared charge belonging to this unit, if any. */
+function declaredCharge(state: GameState, unitId: string): ChargeState | null {
+  const c = state.turnState.charge;
+  return c && c.unitId === unitId ? c : null;
+}
+
+/** Charge movement already spent this activation (budget minus what is left). */
+function chargeSpent(unit: Unit): number {
+  return Math.max(0, chargeBudget(unit) - unit.remainingMovement);
+}
+
 export function validateAction(state: GameState, action: GameAction): ValidationResult {
   if (state.status === 'game-over') {
     return { valid: false, reason: 'Game is over' };
@@ -183,6 +440,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
   }
   if (state.status !== 'in-progress' && state.status !== 'setting-up') {
     return { valid: false, reason: `Game is ${state.status}` };
+  }
+  // A declared charge can't be undone or turned into another action: legs, the final charge, or abandoning it.
+  if (
+    state.turnState.charge &&
+    !state.turnState.pendingReaction &&
+    !CHARGE_LOCK_ALLOWED.includes(action.type)
+  ) {
+    return {
+      valid: false,
+      reason: 'A charge is declared: make a charge leg, finish it on the target, or end the activation',
+    };
   }
 
   switch (action.type) {
@@ -224,12 +492,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (unit.hasMoved || unit.hasAttacked) {
           return { valid: false, reason: 'Unit has already acted and cannot hold' };
         }
-        return { valid: true };
+        return incoherentStartBlock(unit) ?? { valid: true };
       }
       if (unit.isActivated || state.turnState.unitsActivatedThisRound.includes(unitId)) {
         return { valid: false, reason: 'Unit already activated this round' };
       }
-      return { valid: true };
+      return incoherentStartBlock(unit) ?? { valid: true };
     }
 
     case 'deploy-unit': {
@@ -262,12 +530,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
@@ -320,8 +589,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           (u) =>
             !u.isDestroyed &&
             u.ownerId !== action.actorId &&
-            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
-            Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+            pointEngagesUnit(end, u)
         );
         if (wouldEngage) {
           return {
@@ -329,7 +597,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
             reason: 'Move cannot end in melee contact (use Charge instead)',
           };
         }
-        const blocker = findMoveBlocker(state, unit.result, path);
+        const blocker = findMoveBlocker(state, unit.result, path, { keepAway: true });
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
@@ -371,6 +639,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           valid: false,
           reason: `Model positions count mismatch (${modelPositions!.length} vs ${activeCount} active models)`,
         };
+      }
+      if (modelTraversals && modelTraversals.length > modelPositions!.length) {
+        return { valid: false, reason: 'More declared jumps than squad models' };
       }
       const coherency = validateSquadCoherency(modelPositions!);
       if (!coherency.coherent) {
@@ -429,7 +700,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
               : `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${mMax.toFixed(1)}")`,
           };
         }
-        const mBlocker = findMoveBlocker(state, unit.result, mPath);
+        const mBlocker = findMoveBlocker(state, unit.result, mPath, { keepAway: true });
         if (mBlocker.blocked) {
           return {
             valid: false,
@@ -440,8 +711,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (detectPathGapJump(state, mPath, unit.result).tooWide) {
           return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
         }
-        if (validateDeclaredTraversal(state, unit.result, mPath, undefined)) {
-          return { valid: false, reason: `Squad model ${i + 1} needs a jump, which squads cannot declare yet` };
+        const mJumpProblem = validateDeclaredTraversal(state, unit.result, mPath, modelTraversals?.[i]);
+        if (mJumpProblem) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${mJumpProblem}` };
         }
         if (isSuspendedInMidAir(state, mEnd)) {
           return { valid: false, reason: `Squad model ${i + 1} cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
@@ -466,11 +738,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         (u) =>
           !u.isDestroyed &&
           u.ownerId !== action.actorId &&
-          modelPositions!.some(
-            (pos) =>
-              boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
-              Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
-          )
+          modelPositions!.some((pos) => pointEngagesUnit(pos, u))
       );
       if (wouldEngage) {
         return {
@@ -519,15 +787,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const target = requireTarget(state, action.actorId, alloc.targetId);
         if ('reason' in target) return target;
 
-        const distance = boardDistance(attacker.result.position, target.result.position);
-        if (distance > weapon.profile.range + 0.01) {
-          return { valid: false, reason: 'Target out of range' };
-        }
-        if (
-          !hasTrait(weapon.profile.specialRules, 'lobbed') &&
-          !hasLineOfSight(state, attacker.result, target.result)
-        ) {
-          return { valid: false, reason: 'No line of sight to target' };
+        if (firingModels(state, attacker.result, target.result, weapon).length === 0) {
+          // Tell the player which condition failed (closest models decide range).
+          const reach = unitDistance(attacker.result, target.result);
+          return {
+            valid: false,
+            reason: reach > weapon.profile.range + 0.01 ? 'Target out of range' : 'No line of sight to target',
+          };
         }
       }
 
@@ -536,6 +802,101 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Cannot split fire across more than 2 distinct targets' };
       }
 
+      return { valid: true };
+    }
+
+    case 'begin-charge': {
+      const { attackerId, targetId } = action.payload as { attackerId: string; targetId: string };
+      const attacker = requireActiveUnit(state, action.actorId, attackerId);
+      if ('reason' in attacker) return attacker;
+      if (state.turnState.charge) {
+        return { valid: false, reason: 'A charge is already declared' };
+      }
+      if (hasTrait(attacker.result.specialRules, 'stationary')) {
+        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      }
+      if (attacker.result.hasMoved || attacker.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
+      if (isEngaged(attacker.result)) {
+        return { valid: false, reason: 'Already engaged — fight instead' };
+      }
+      const target = requireTarget(state, action.actorId, targetId);
+      if ('reason' in target) return target;
+      if (!attacker.result.weapons.some((w) => w.isEquipped && w.profile.type === 'melee')) {
+        return { valid: false, reason: 'No equipped melee weapon for charge strike' };
+      }
+      // The target must be within charge reach at the start (straight line to base contact; a lower bound
+      // on any real path, so legs can then only get closer or fail).
+      const contactSpot = chargeDestination(attacker.result, target.result);
+      if (boardDistance(attacker.result.position, contactSpot) > chargeBudget(attacker.result) + 0.01) {
+        return { valid: false, reason: 'Target out of charge range' };
+      }
+      return { valid: true };
+    }
+
+    case 'charge-leg': {
+      const { attackerId, path, traversal } = action.payload as {
+        attackerId: string;
+        path: Vector3[];
+        traversal?: DeclaredTraversal;
+      };
+      const legModels = action.payload as SquadChargePayload;
+      const attacker = requireActiveUnit(state, action.actorId, attackerId);
+      if ('reason' in attacker) return attacker;
+      const unit = attacker.result;
+      const charge = declaredCharge(state, unit.id);
+      if (!charge) return { valid: false, reason: 'No charge is declared' };
+      const target = getUnit(state, charge.targetId);
+      if (!target || target.isDestroyed) return { valid: false, reason: 'Charge target is gone' };
+      if (isEngaged(unit)) return { valid: false, reason: 'Already engaged — fight instead' };
+      if (unit.remainingMovement <= 0.01) {
+        return { valid: false, reason: 'No charge movement left' };
+      }
+      if (isSquadChargePayload(unit, legModels)) {
+        return validateSquadChargeMove(state, unit, target, legModels, 'leg');
+      }
+      if (!path || path.length < 2) return { valid: false, reason: 'Charge leg path is empty' };
+      if (boardDistance(path[0], unit.position) > 0.01) {
+        return { valid: false, reason: 'Charge leg must start at the unit position' };
+      }
+      const end = path[path.length - 1];
+      const isDifficult = isPathDifficult(state, path, unit);
+      const distance = pathMovementCost(state, path, unit);
+      const cap = getEffectiveMaxMovement(unit, 'charge', isDifficult);
+      if (distance > unit.remainingMovement + 0.01 || chargeSpent(unit) + distance > cap + 0.01) {
+        return {
+          valid: false,
+          reason: isDifficult && cap === 6.0
+            ? 'Charge in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+            : 'Charge leg exceeds the remaining charge movement',
+        };
+      }
+      for (const point of path) {
+        if (!isWithinBoard(state, point)) return { valid: false, reason: 'Move leaves the board' };
+      }
+      // Keep-away applies to every unit except the declared target, which may be approached into contact.
+      const blocker = findMoveBlocker(state, unit, path, { ignoreUnitId: target.id, keepAway: true });
+      if (blocker.blocked) return { valid: false, reason: blocker.reason };
+      if (detectPathGapJump(state, path, unit).tooWide) {
+        return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
+      }
+      const legJumpProblem = validateDeclaredTraversal(state, unit, path, traversal);
+      if (legJumpProblem) return { valid: false, reason: legJumpProblem };
+      if (isSuspendedInMidAir(state, end)) {
+        return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
+      }
+      if (isBaseOverhanging(state, end)) return { valid: false, reason: OVERHANG_REASON };
+      for (const piece of state.terrain) {
+        if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
+          return {
+            valid: false,
+            reason: 'Models cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot',
+          };
+        }
+      }
+      const legOverlap = findEndOverlap(state, unit.id, end);
+      if (legOverlap) return { valid: false, reason: describeEndOverlap(legOverlap) };
       return { valid: true };
     }
 
@@ -548,16 +909,32 @@ export function validateAction(state: GameState, action: GameAction): Validation
       };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
+      const legs = declaredCharge(state, attackerId);
+      if (legs && legs.targetId !== targetId) {
+        return { valid: false, reason: 'The declared charge is locked to its target' };
+      }
       if (hasTrait(attacker.result.specialRules, 'stationary')) {
         return { valid: false, reason: 'Stationary units cannot move or charge' };
       }
-      if (attacker.result.hasMoved || attacker.result.hasAttacked) {
+      if ((attacker.result.hasMoved && !legs) || attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
       }
       const target = requireTarget(state, action.actorId, targetId);
       if ('reason' in target) return target;
       if (isEngaged(attacker.result)) {
         return { valid: false, reason: 'Already engaged — fight instead' };
+      }
+      const squadMoves = action.payload as SquadChargePayload;
+      if (isSquadChargePayload(attacker.result, squadMoves)) {
+        const squadResult = validateSquadChargeMove(state, attacker.result, target.result, squadMoves, 'final');
+        if (!squadResult.valid) return squadResult;
+        const squadWeapon = weaponId
+          ? attacker.result.weapons.find((w) => w.id === weaponId)
+          : attacker.result.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+        if (!squadWeapon || squadWeapon.profile.type !== 'melee') {
+          return { valid: false, reason: 'No equipped melee weapon for charge strike' };
+        }
+        return { valid: true };
       }
       if (!path || path.length === 0) {
         return { valid: false, reason: 'Charge path is empty' };
@@ -569,7 +946,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const isDifficult = isPathDifficult(state, fullPath, attacker.result);
       const distance = pathMovementCost(state, fullPath, attacker.result);
       const maxCharge = getEffectiveMaxMovement(attacker.result, 'charge', isDifficult);
-      if (distance > maxCharge + 0.01) {
+      // After legs, the final move may only use what the legs left of the one charge budget
+      const spent = legs ? chargeSpent(attacker.result) : 0;
+      if (distance + spent > maxCharge + 0.01 || (legs && distance > attacker.result.remainingMovement + 0.01)) {
         return {
           valid: false,
           reason: isDifficult
@@ -579,6 +958,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       const chargeBlocker = findMoveBlocker(state, attacker.result, fullPath, {
         ignoreUnitId: target.result.id,
+        keepAway: true,
       });
       if (chargeBlocker.blocked) {
         return { valid: false, reason: chargeBlocker.reason };
@@ -597,11 +977,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isBaseOverhanging(state, end)) return { valid: false, reason: OVERHANG_REASON };
       const chargeOverlap = findEndOverlap(state, attacker.result.id, end);
       if (chargeOverlap) return { valid: false, reason: describeEndOverlap(chargeOverlap) };
-      const distToEnd = boardDistance(end, target.result.position);
-      if (distToEnd > 1.25) {
+      const contact = chargeContact(attacker.result, target.result, end, MELEE_MAX_VERTICAL_REACH);
+      if (contact === 'too-far') {
         return { valid: false, reason: 'Charge must end in engagement range' };
       }
-      if (!validateMeleeVerticalReach(end, target.result.position)) {
+      if (contact === 'too-high') {
         return {
           valid: false,
           reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
@@ -617,12 +997,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const actor = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in actor) return actor;
@@ -667,7 +1048,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
                   : `Rush distance exceeds remaining rush allowance (${dist.toFixed(1)}" vs ${maxRush.toFixed(1)}")`),
           };
         }
-        const blocker = findMoveBlocker(state, unit, fullPath);
+        const blocker = findMoveBlocker(state, unit, fullPath, { keepAway: true });
         if (blocker.blocked) {
           return { valid: false, reason: blocker.reason };
         }
@@ -705,8 +1086,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           (u) =>
             !u.isDestroyed &&
             u.ownerId !== action.actorId &&
-            boardDistance(end, u.position) <= ENGAGEMENT_RANGE &&
-            Math.abs((end.y ?? 0) - (u.position.y ?? 0)) <= 1.5
+            pointEngagesUnit(end, u)
         );
         if (wouldEngage) {
           return {
@@ -726,6 +1106,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           valid: false,
           reason: `Model positions count mismatch (${modelPositions!.length} vs ${activeCount} active models)`,
         };
+      }
+      if (modelTraversals && modelTraversals.length > modelPositions!.length) {
+        return { valid: false, reason: 'More declared jumps than squad models' };
       }
       const coherency = validateSquadCoherency(modelPositions!);
       if (!coherency.coherent) {
@@ -780,7 +1163,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
               : `Squad model ${i + 1} movement exceeds speed allowance (${mDist.toFixed(1)}" vs ${mMax.toFixed(1)}")`,
           };
         }
-        const mBlocker = findMoveBlocker(state, unit, mPath);
+        const mBlocker = findMoveBlocker(state, unit, mPath, { keepAway: true });
         if (mBlocker.blocked) {
           return {
             valid: false,
@@ -788,8 +1171,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           };
         }
         const mEnd = modelPositions![i];
-        if (validateDeclaredTraversal(state, unit, mPath, undefined)) {
-          return { valid: false, reason: `Squad model ${i + 1} needs a jump, which squads cannot declare yet` };
+        const mJumpProblem = validateDeclaredTraversal(state, unit, mPath, modelTraversals?.[i]);
+        if (mJumpProblem) {
+          return { valid: false, reason: `Squad model ${i + 1}: ${mJumpProblem}` };
         }
         if (detectPathGapJump(state, mPath, unit).tooWide) {
           return { valid: false, reason: `Squad model ${i + 1} cannot cross a gap wider than 6"` };
@@ -817,11 +1201,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         (u) =>
           !u.isDestroyed &&
           u.ownerId !== action.actorId &&
-          modelPositions!.some(
-            (pos) =>
-              boardDistance(pos, u.position) <= ENGAGEMENT_RANGE &&
-              Math.abs((pos.y ?? 0) - (u.position.y ?? 0)) <= 1.5
-          )
+          modelPositions!.some((pos) => pointEngagesUnit(pos, u))
       );
       if (wouldEngage) {
         return {
@@ -848,11 +1228,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!isEngaged(attacker.result)) {
         return { valid: false, reason: 'Unit is not engaged' };
       }
-      const distance = boardDistance(attacker.result.position, target.result.position);
-      if (distance > ENGAGEMENT_RANGE + 0.01) {
+      const distance = unitDistance(attacker.result, target.result);
+      if (distance > ENGAGEMENT_EDGE_GAP + 0.01) {
         return { valid: false, reason: 'Target not in engagement range' };
       }
-      if (!validateMeleeVerticalReach(attacker.result.position, target.result.position)) {
+      if (!modelsWithin(attacker.result, target.result, ENGAGEMENT_EDGE_GAP + 0.01, MELEE_MAX_VERTICAL_REACH)) {
         return {
           valid: false,
           reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
@@ -919,6 +1299,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!state.turnState.activeUnitId) {
         return { valid: false, reason: 'No unit is activating' };
       }
+      const activeUnit = getUnit(state, state.turnState.activeUnitId);
+      if (activeUnit && !activeUnit.hasMoved && !activeUnit.hasAttacked) {
+        const blocked = incoherentStartBlock(activeUnit);
+        if (blocked) return blocked;
+      }
       return { valid: true };
     }
 
@@ -954,34 +1339,50 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     const payload = action.payload as {
       unitId?: string;
       path?: Vector3[];
+      modelPaths?: Vector3[][];
+      modelTraversals?: (DeclaredTraversal | null)[];
     };
     const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
     const path = payload.path;
+    const specs: DiceSpec[] = [];
+    const hasModelJumps = Boolean(payload.modelTraversals?.some((t) => t) && payload.modelPaths);
     if (unit && path && path.length > 0) {
-      const specs: DiceSpec[] = [];
-      const gap = detectPathGapJump(state, path, unit);
-      if (gap.isGapJump) {
-        specs.push({ count: gap.dice, sides: 6, purpose: 'gap_jump' });
-      }
-      if (isPathDangerous(state, path, unit)) {
-        const aliveCount = unit.models?.filter((m) => !m.isDestroyed).length || 1;
-        specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
-      }
-      const fall = detectPathFall(path, state);
-      // a hop that is already a gap jump rolls once, on its straight-line length
-      const dropNeedsDice = !gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
-      if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-        specs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: 'drop_jump' });
-      }
-      // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
-      const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
-      if (dropNeedsDice || gapMayFall) {
-        specs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
-        specs.push({ count: 1, sides: 6, purpose: 'trauma' });
-      }
-      if (specs.length > 0) return specs;
+      // With per-model jumps the summary path is not a jump itself: keep only its shared hazard roll
+      const shared = pathTraversalSpecs(state, unit, path);
+      specs.push(...(hasModelJumps ? shared.filter((sp) => sp.purpose === 'hazard') : shared));
     }
-    return null;
+    // Squad models that declared a jump roll their own dice, tagged `m<index>_<purpose>` and listed in
+    // model order so every model's rolls are consumed in order.
+    if (unit && payload.modelTraversals && payload.modelPaths) {
+      const jumpers = payload.modelTraversals
+        .map((t, i) => (t ? i : -1))
+        .filter((i) => i >= 0 && payload.modelPaths![i]?.length >= 2);
+      const aliveCount = Math.max(1, unit.models?.filter((m) => !m.isDestroyed).length ?? 1);
+      // A jumper only takes a normal falling hit if every other model could already have been lost.
+      const needsFallDice = jumpers.length >= aliveCount;
+      for (const i of jumpers) {
+        specs.push(
+          ...pathTraversalSpecs(state, unit, payload.modelPaths[i], {
+            prefix: `m${i}_`,
+            singleModel: true,
+            includeFallDice: needsFallDice,
+          })
+        );
+      }
+    }
+    return specs.length > 0 ? specs : null;
+  }
+
+  if (action.type === 'charge-leg') {
+    const payload = action.payload as { attackerId?: string; path?: Vector3[] } & SquadChargePayload;
+    const unit = payload.attackerId ? getUnit(state, payload.attackerId) : undefined;
+    if (unit && isSquadChargePayload(unit, payload)) {
+      const squadSpecs = squadChargeTraversalSpecs(state, unit, payload);
+      return squadSpecs.length > 0 ? squadSpecs : null;
+    }
+    if (!unit || !payload.path || payload.path.length === 0) return null;
+    const specs = pathTraversalSpecs(state, unit, payload.path);
+    return specs.length > 0 ? specs : null;
   }
 
   if (action.type === 'respond-reaction') {
@@ -1001,8 +1402,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     }
 
     const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
-    const livingDefenderModels = Math.max(1, defender.models?.filter((m) => !m.isDestroyed).length ?? 1);
-    const totalAttacks = (defenderMelee.profile.attacks as number) * livingDefenderModels;
+    const totalAttacks = (defenderMelee.profile.attacks as number) * strikers(defender, charger);
     return getAttackDiceSpecs(totalAttacks, {
       attackerRules: defender.specialRules,
       weaponRules: defenderMelee.profile.specialRules,
@@ -1033,10 +1433,11 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       const attacks = weapon.profile.attacks;
       if (typeof attacks !== 'number' || attacks < 1) return;
 
-      const distance = boardDistance(attacker.position, target.position);
+      const distance = unitDistance(attacker, target);
       const aliveDefenderModels = Math.max(1, target.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const totalAttacks = attacks * aliveAttackerModels;
+      // Only models that can see and reach the target contribute attacks.
+      const firingCount = Math.max(1, firingModels(state, attacker, target, weapon).length);
+      const totalAttacks = attacks * firingCount;
       const specs = getAttackDiceSpecs(totalAttacks, {
         attackerRules: attacker.specialRules,
         weaponRules: weapon.profile.specialRules,
@@ -1083,12 +1484,30 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   }
 
   const isMelee = action.type === 'fight' || action.type === 'charge';
-  const distance = target ? boardDistance(attacker.position, target.position) : 12;
+  const distance = target ? unitDistance(attacker, target) : 12;
   const aliveModels = target
     ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
     : 1;
-  const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-  const totalAttacks = attacks * aliveAttackerModels;
+  let strikingCount = 1;
+  if (target) {
+    if (action.type === 'charge') {
+      // Strikers are counted after the charger has moved in and the defenders have piled in.
+      const squadMoves = action.payload as SquadChargePayload;
+      const chargeEnd = (action.payload as { path?: Vector3[] }).path?.slice(-1)[0];
+      if (isSquadChargePayload(attacker, squadMoves) || chargeEnd) {
+        const sim = JSON.parse(JSON.stringify(state)) as GameState;
+        const simAttacker = getUnit(sim, attacker.id)!;
+        const simTarget = getUnit(sim, target.id)!;
+        if (isSquadChargePayload(attacker, squadMoves)) placeSquadModels(simAttacker, squadMoves.modelPositions!);
+        else moveChargerModels(simAttacker, chargeEnd!);
+        consolidateSquadToward(sim, simTarget, simAttacker.position, 3.0, { intoContact: true, contactWith: simAttacker });
+        strikingCount = strikers(simAttacker, simTarget);
+      }
+    } else {
+      strikingCount = strikers(attacker, target);
+    }
+  }
+  const totalAttacks = attacks * strikingCount;
 
   const attackSpecs = getAttackDiceSpecs(totalAttacks, {
     attackerRules: attacker.specialRules,
@@ -1102,27 +1521,15 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   });
 
   if (action.type === 'charge') {
-    const chargePayload = action.payload as { path?: Vector3[] };
+    const chargePayload = action.payload as { path?: Vector3[] } & SquadChargePayload;
+    if (isSquadChargePayload(attacker, chargePayload)) {
+      const squadSpecs = squadChargeTraversalSpecs(state, attacker, chargePayload);
+      return squadSpecs.length > 0 ? [...squadSpecs, ...attackSpecs] : attackSpecs;
+    }
     if (chargePayload.path && chargePayload.path.length > 0) {
-      const traversalSpecs: DiceSpec[] = [];
-      const chargeGap = detectPathGapJump(state, chargePayload.path, attacker);
-      if (chargeGap.isGapJump) {
-        traversalSpecs.push({ count: chargeGap.dice, sides: 6, purpose: 'gap_jump' });
-      }
-      if (isPathDangerous(state, chargePayload.path, attacker)) {
-        const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
-        traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
-      }
-      const fall = detectPathFall(chargePayload.path, state);
-      const dropNeedsDice = !chargeGap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne');
-      if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-        traversalSpecs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: 'drop_jump' });
-      }
-      const gapMayFall = chargeGap.isGapJump && (chargePayload.path[0].y ?? 0) >= FALL_DAMAGE_MIN;
-      if (dropNeedsDice || gapMayFall) {
-        traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
-        traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
-      }
+      // Jump, hazard and fall dice come from the validated path, same as a move (the declared traversal
+      // is checked to match it), so a charge and a charge leg roll identically.
+      const traversalSpecs = pathTraversalSpecs(state, attacker, chargePayload.path);
       if (traversalSpecs.length > 0) {
         return [...traversalSpecs, ...attackSpecs];
       }
@@ -1130,6 +1537,75 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   }
 
   return attackSpecs;
+}
+
+
+/**
+ * Dice a path's jumps, hazards and falls need. `prefix` tags the purposes (squad models), `singleModel`
+ * rolls one hazard die instead of one per living model, and `includeFallDice` can drop the falling dice
+ * for a squad model that is simply lost when it falls.
+ */
+function pathTraversalSpecs(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  opts: { prefix?: string; singleModel?: boolean; includeFallDice?: boolean } = {}
+): DiceSpec[] {
+  const prefix = opts.prefix ?? '';
+  const specs: DiceSpec[] = [];
+  const gap = detectPathGapJump(state, path, unit);
+  if (gap.isGapJump) {
+    specs.push({ count: gap.dice, sides: 6, purpose: `${prefix}gap_jump` });
+  }
+  if (isPathDangerous(state, path, unit)) {
+    const aliveCount = opts.singleModel ? 1 : unit.models?.filter((m) => !m.isDestroyed).length || 1;
+    specs.push({ count: aliveCount, sides: 6, purpose: `${prefix}hazard` });
+  }
+  const fall = detectPathFall(path, state);
+  // a hop that is already a gap jump rolls once, on its straight-line length
+  const dropNeedsDice = !gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
+  if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
+    specs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: `${prefix}drop_jump` });
+  }
+  // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
+  const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
+  if ((dropNeedsDice || gapMayFall) && opts.includeFallDice !== false) {
+    specs.push({ count: 1, sides: 6, purpose: `${prefix}falling_defense` });
+    specs.push({ count: 1, sides: 6, purpose: `${prefix}trauma` });
+  }
+  return specs;
+}
+
+/** The rolls a squad model uses: its own `m<index>_` dice (prefix removed) plus the untagged ones. */
+function diceForModel(dice: DiceResult[] | undefined, index: number): DiceResult[] | undefined {
+  if (!dice) return dice;
+  const prefix = `m${index}_`;
+  const own = dice.filter((d) => (d.purpose ?? '').startsWith(prefix)).map((d) => ({ ...d, purpose: (d.purpose ?? '').slice(prefix.length) }));
+  return [...own, ...dice.filter((d) => !/^m\d+_/.test((d.purpose ?? '')))];
+}
+
+/** Resolves each squad model's own path in order. */
+function applyModelPathTraversals(
+  state: GameState,
+  unit: Unit,
+  modelPaths: Vector3[][],
+  models: Model[],
+  action: GameAction,
+  dice?: DiceResult[]
+): void {
+  for (let i = 0; i < modelPaths.length; i++) {
+    const before = traversalLog.get(action)?.events.length ?? 0;
+    applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
+    const entry = traversalLog.get(action);
+    if (entry && dice) {
+      entry.results = dice; // every roll stays on the log entry, tagged by model
+      if (modelPaths.length > 1) {
+        for (let e = before; e < entry.events.length; e++) {
+          entry.events[e] = { ...entry.events[e], text: `Model ${i + 1}: ${entry.events[e].text}` };
+        }
+      }
+    }
+  }
 }
 
 /** Traversal hazards resolved per action, so the log entry can show the dice story (jumps, falls, hazards). */
@@ -1157,6 +1633,11 @@ export function applyTraversalHazardsAndFalls(
   const done = (result: { terminated: boolean; wounds: number }) => {
     recordTraversal(action, unit, events, dice);
     return result;
+  };
+
+  // A fall ends the activation; with several squad models failing in one move it ends only once
+  const endActivationOnce = () => {
+    if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice);
   };
 
   // Fall damage roll helper shared by failed jumps and plain falls
@@ -1233,7 +1714,7 @@ export function applyTraversalHazardsAndFalls(
       }
       unit.hasMoved = true;
       unit.remainingMovement = 0;
-      finishActivation(state, dice);
+      endActivationOnce();
       return done({ terminated: true, wounds: fallWounds });
     }
   }
@@ -1280,10 +1761,30 @@ export function applyTraversalHazardsAndFalls(
     if (jump.canJump && jump.passed) {
       return done({ terminated: false, wounds: 0 }); // landed the jump
     }
+    const aliveNow = unit.models?.filter((m) => !m.isDestroyed) ?? [];
+    if (aliveNow.length > 1 && model && aliveNow.includes(model)) {
+      // Squad: the model that fell is lost (the last survivor takes the normal falling hit instead)
+      const cause = jump.canJump ? '' : 'Too far to jump.';
+      model.isDestroyed = true;
+      model.wounds = 0;
+      unit.wounds = Math.max(1, unit.wounds - 1);
+      unit.position = computeSquadCentroid(
+        aliveNow.filter((m) => m !== model).map((m) => m.position ?? unit.position)
+      );
+      events.push({
+        type: 'fall',
+        wounds: 1,
+        text: `${cause} Fell ${fall.maxDrop.toFixed(1)}": the model is lost`.trim(),
+      });
+      unit.hasMoved = true;
+      unit.remainingMovement = 0;
+      endActivationOnce();
+      return done({ terminated: true, wounds: 1 });
+    }
     const fallRes = resolveFall(fall.maxDrop, jump.canJump ? '' : 'Too far to jump.');
     unit.hasMoved = true;
     unit.remainingMovement = 0;
-    finishActivation(state, dice);
+    endActivationOnce();
     return done({ terminated: true, wounds: fallRes.wounds });
   }
 
@@ -1392,12 +1893,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'move-unit': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path?: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const unit = getUnit(newState, unitId)!;
       const isSquad = Boolean(modelPositions && modelPositions.length > 0);
@@ -1443,10 +1945,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         );
 
         if (modelPaths && modelPaths.length > 0) {
-          for (let i = 0; i < modelPaths.length; i++) {
-            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice, activeModels[i]);
-            if (traversal.terminated) break;
-          }
+          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
         } else if (path && path.length > 0) {
           applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
         }
@@ -1553,14 +2052,14 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const alloc = allocations[i];
         const weapon = getWeapon(attacker, alloc.weaponId)!;
         const target = getUnit(newState, alloc.targetId)!;
-        const distance = boardDistance(attacker.position, target.position);
+        const distance = unitDistance(attacker, target);
         const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        const firing = firingModels(newState, attacker, target, weapon);
         const inCover =
           target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(newState, attacker, target));
+          (!isLobbed && targetCoverByMajority(newState, firing, attacker, target));
         const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
-        const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-        const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
+        const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
 
         let outcome: CombatOutcome;
         let traumaRolls: number[] | undefined;
@@ -1701,10 +2200,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const target = getUnit(newState, targetId)!;
       const weapon = getWeapon(attacker, weaponId ?? '')!;
       const isMelee = true;
-      const distance = boardDistance(attacker.position, target.position);
+      const distance = unitDistance(attacker, target);
       const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
-      const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
+      const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
       const isFatigued =
         attacker.status.includes('fatigued') || attacker.status.includes('shaken');
 
@@ -1842,12 +2340,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'rush': {
-      const { unitId, path, finalPosition, modelPositions, modelPaths } = action.payload as {
+      const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path?: Vector3[];
         finalPosition?: Vector3;
         modelPositions?: Vector3[];
         modelPaths?: Vector3[][];
+        modelTraversals?: (DeclaredTraversal | null)[];
       };
       const unit = getUnit(newState, unitId)!;
       const isSquad = Boolean(modelPositions && modelPositions.length > 0);
@@ -1898,10 +2397,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         refreshEngagements(newState);
 
         if (modelPaths && modelPaths.length > 0) {
-          for (let i = 0; i < modelPaths.length; i++) {
-            const traversal = applyTraversalHazardsAndFalls(newState, unit, modelPaths[i], action, dice, activeModels[i]);
-            if (traversal.terminated) break;
-          }
+          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
         } else if (path && path.length > 0) {
           applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
         }
@@ -1958,6 +2454,56 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'begin-charge': {
+      const { attackerId, targetId } = action.payload as { attackerId: string; targetId: string };
+      const attacker = getUnit(newState, attackerId)!;
+      // The one charge move is budgeted in remainingMovement; legs spend it
+      attacker.remainingMovement = chargeBudget(attacker);
+      newState.turnState.charge = { unitId: attackerId, targetId, legs: 0 };
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
+    case 'charge-leg': {
+      const { attackerId, path } = action.payload as { attackerId: string; path: Vector3[] };
+      const unit = getUnit(newState, attackerId)!;
+      const legModels = action.payload as SquadChargePayload;
+      if (isSquadChargePayload(unit, legModels)) {
+        // Each model walks its own path; the shared budget is spent by the longest one
+        const legPaths = squadChargePaths(unit, legModels);
+        const legCost = Math.max(...legPaths.map((p) => pathMovementCost(state, p, unit)), 0);
+        const legAlive = livingModels(unit);
+        placeSquadModels(unit, legModels.modelPositions!);
+        unit.hasMoved = true;
+        unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - legCost) * 100) / 100);
+        if (newState.turnState.charge) newState.turnState.charge.legs += 1;
+        // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
+        applyModelPathTraversals(newState, unit, legPaths, legAlive, action, dice);
+        logEntry = acceptedEntry(action);
+        break;
+      }
+      const lastStep = path[path.length - 1];
+      const prevStep = path[path.length - 2];
+      const ldx = lastStep.x - prevStep.x;
+      const ldz = lastStep.z - prevStep.z;
+      if (Math.hypot(ldx, ldz) > 1e-4) {
+        unit.rotation = { ...unit.rotation, y: Math.atan2(ldx, ldz) };
+      }
+      const cost = pathMovementCost(state, path, unit);
+      moveChargerModels(unit, lastStep);
+      for (const m of unit.models ?? []) {
+        if (!m.isDestroyed) m.rotation = { ...unit.rotation };
+      }
+      unit.hasMoved = true;
+      unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - cost) * 100) / 100);
+      const charge = newState.turnState.charge;
+      if (charge) charge.legs += 1;
+      // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
+      applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
     case 'charge': {
       const { attackerId, targetId, path, weaponId } = action.payload as {
         attackerId: string;
@@ -1965,27 +2511,15 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         path: Vector3[];
         weaponId?: string;
       };
+      newState.turnState.charge = null;
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
-      const end = path[path.length - 1];
-      const deltaX = end.x - attacker.position.x;
-      const deltaZ = end.z - attacker.position.z;
-      if (attacker.models && attacker.models.length > 0) {
-        for (const m of attacker.models) {
-          if (!m.isDestroyed) {
-            if (m.position) {
-              m.position = {
-                x: Math.round((m.position.x + deltaX) * 100) / 100,
-                y: end.y ?? m.position.y ?? 0,
-                z: Math.round((m.position.z + deltaZ) * 100) / 100,
-              };
-            } else {
-              m.position = { ...end };
-            }
-          }
-        }
-      }
-      attacker.position = { ...end };
+      const squadMoves = action.payload as SquadChargePayload;
+      const squadCharge = isSquadChargePayload(attacker, squadMoves);
+      const squadAlive = livingModels(attacker);
+      const squadPaths = squadCharge ? squadChargePaths(attacker, squadMoves) : [];
+      if (squadCharge) placeSquadModels(attacker, squadMoves.modelPositions!);
+      else moveChargerModels(attacker, path[path.length - 1]);
       attacker.hasMoved = true;
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
@@ -2024,8 +2558,15 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         }
       }
 
-      const traversal = applyTraversalHazardsAndFalls(newState, attacker, path, action, dice);
-      if (traversal.terminated || attacker.isDestroyed) {
+      let chargeTerminated: boolean;
+      if (squadCharge) {
+        // A failed jump falls and ends the activation: no melee
+        applyModelPathTraversals(newState, attacker, squadPaths, squadAlive, action, dice);
+        chargeTerminated = newState.turnState.activeUnitId !== attackerId;
+      } else {
+        chargeTerminated = applyTraversalHazardsAndFalls(newState, attacker, path, action, dice).terminated;
+      }
+      if (chargeTerminated || attacker.isDestroyed) {
         logEntry = acceptedEntry(action);
         break;
       }
@@ -2034,7 +2575,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
       // Defending squad models consolidate up to 3" into contact with chargers
-      consolidateSquadToward(newState, target, attacker.position, 3.0, { intoContact: true });
+      consolidateSquadToward(newState, target, attacker.position, 3.0, { intoContact: true, contactWith: attacker });
 
       const weapon = weaponId
         ? getWeapon(attacker, weaponId)
@@ -2043,8 +2584,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (weapon && dice) {
         const rolls = extractAttackRolls(dice);
         const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
-        const aliveAttackerModels = Math.max(1, attacker.models?.filter((m) => !m.isDestroyed).length ?? 1);
-        const totalAttacks = (weapon.profile.attacks as number) * aliveAttackerModels;
+        const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
         const outcome = resolveAttack(
           {
             quality: attacker.quality,
@@ -2090,21 +2630,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
           refreshEngagements(newState);
         } else if (!defenderMelee) {
-          pushBackPos = computePushBackPosition(newState, attacker, target, 2.0);
-          const deltaX = pushBackPos.x - attacker.position.x;
-          const deltaZ = pushBackPos.z - attacker.position.z;
-          attacker.position = { ...pushBackPos };
-          if (attacker.models && attacker.models.length > 0) {
-            for (const m of attacker.models) {
-              if (!m.isDestroyed && m.position) {
-                m.position = {
-                  x: Math.round((m.position.x + deltaX) * 100) / 100,
-                  y: pushBackPos.y ?? m.position.y ?? 0,
-                  z: Math.round((m.position.z + deltaZ) * 100) / 100,
-                };
-              }
-            }
-          }
+          pushBackPos = pushBackChargerModels(newState, attacker, target);
           pushedBack = true;
           attacker.status = attacker.status.filter((s) => s !== 'engaged');
           target.status = target.status.filter((s) => s !== 'engaged');
@@ -2241,8 +2767,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const retRolls = extractAttackRolls(dice);
         const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
         const retAliveModels = charger.models?.filter((m) => !m.isDestroyed).length ?? 1;
-        const aliveDefenderModels = Math.max(1, defender.models?.filter((m) => !m.isDestroyed).length ?? 1);
-        const totalRetAttacks = (defenderMelee.profile.attacks as number) * aliveDefenderModels;
+        const totalRetAttacks = (defenderMelee.profile.attacks as number) * strikers(defender, charger);
         retCombat = resolveAttack(
           {
             quality: defender.quality,
@@ -2284,21 +2809,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let pushedBack = false;
       let pushBackPos: Vector3 | undefined;
       if (!charger.isDestroyed && !defender.isDestroyed) {
-        pushBackPos = computePushBackPosition(newState, charger, defender, 2.0);
-        const deltaX = pushBackPos.x - charger.position.x;
-        const deltaZ = pushBackPos.z - charger.position.z;
-        charger.position = { ...pushBackPos };
-        if (charger.models && charger.models.length > 0) {
-          for (const m of charger.models) {
-            if (!m.isDestroyed && m.position) {
-              m.position = {
-                x: Math.round((m.position.x + deltaX) * 100) / 100,
-                y: pushBackPos.y ?? m.position.y ?? 0,
-                z: Math.round((m.position.z + deltaZ) * 100) / 100,
-              };
-            }
-          }
-        }
+        pushBackPos = pushBackChargerModels(newState, charger, defender);
         pushedBack = true;
         charger.status = charger.status.filter((s) => s !== 'engaged');
         defender.status = defender.status.filter((s) => s !== 'engaged');
@@ -2317,8 +2828,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       let diceResolution: DiceResolution | undefined;
       if (retCombat && dice && defenderMelee) {
-        const aliveDefenderModels = Math.max(1, defender.models?.filter((m) => !m.isDestroyed).length ?? 1);
-        const totalRetAttacks = (defenderMelee.profile.attacks as number) * aliveDefenderModels;
+        const totalRetAttacks = retCombat.attackCount;
         diceResolution = {
           rollId: action.id,
           specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalRetAttacks),
@@ -2482,6 +2992,32 @@ function engagementPosition(target: Unit, fromPosition: Vector3): Vector3 {
   };
 }
 
+/** Models that strike in melee (within 2" / 4" of an enemy model); at least one so a lone fighter always swings. */
+function strikers(striker: Unit, foe: Unit): number {
+  return Math.max(1, strikingModelCount(striker, foe));
+}
+
+/** Move a charging unit (anchor and every living model) as one block so its anchor stands at `end`. */
+function moveChargerModels(attacker: Unit, end: Vector3): void {
+  const deltaX = end.x - attacker.position.x;
+  const deltaZ = end.z - attacker.position.z;
+  if (attacker.models && attacker.models.length > 0) {
+    for (const m of attacker.models) {
+      if (m.isDestroyed) continue;
+      if (m.position) {
+        m.position = {
+          x: Math.round((m.position.x + deltaX) * 100) / 100,
+          y: end.y ?? m.position.y ?? 0,
+          z: Math.round((m.position.z + deltaZ) * 100) / 100,
+        };
+      } else {
+        m.position = { ...end };
+      }
+    }
+  }
+  attacker.position = { ...end };
+}
+
 function beginActivation(state: GameState, unit: Unit): void {
   unit.isActivated = true;
   unit.hasMoved = false;
@@ -2491,6 +3027,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
+  state.turnState.charge = null;
   state.turnState.phase = 'activation';
 }
 
@@ -2504,6 +3041,7 @@ function runMoraleIfProvided(state: GameState, dice?: DiceResult[]): void {
 
 function finishActivation(state: GameState, dice?: DiceResult[]): void {
   state.turnState.activeUnitId = null;
+  state.turnState.charge = null; // an unfinished declared charge is abandoned: no melee
   if (isRoundComplete(state)) {
     runMoraleIfProvided(state, dice);
   }
@@ -2616,8 +3154,7 @@ function refreshEngagements(state: GameState): void {
       (other) =>
         !other.isDestroyed &&
         other.ownerId !== unit.ownerId &&
-        boardDistance(unit.position, other.position) <= ENGAGEMENT_RANGE + 0.01 &&
-        Math.abs((unit.position.y ?? 0) - (other.position.y ?? 0)) <= 1.5 &&
+        unitsInContact(unit, other) &&
         (other.weapons.some((w) => w.isEquipped && w.profile.type === 'melee') ||
          unit.weapons.some((w) => w.isEquipped && w.profile.type === 'melee'))
     );

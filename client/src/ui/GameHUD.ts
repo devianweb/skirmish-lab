@@ -1,8 +1,11 @@
 import {
   boardDistance,
+  ChargeState,
   CombatModifierBreakdown,
   computeCombatModifiers,
   computeShootingRayDebug,
+  computeSquadShootingRayDebug,
+  squadAim,
   computeSquadCentroid,
   createAction,
   describeTerrainPiece,
@@ -18,8 +21,6 @@ import {
   getDeploymentZoneBounds,
   getEffectiveMaxMovement,
   getUnitTough,
-  hasCoverAgainstAttack,
-  hasLineOfSight,
   hasTrait,
   isPathDangerous,
   isPathDifficult,
@@ -34,8 +35,25 @@ import {
   ShootingRayDebugInfo,
   Unit,
   validateDeploymentPosition,
-  validateMeleeVerticalReach,
   validateSquadCoherency,
+  SQUAD_COHERENCY_SPREAD,
+  SQUAD_COHERENCY_SPREAD_EDGE,
+  baseRadius,
+  markerGap,
+  modelGap,
+  unitDistance,
+  validateAction,
+  pointEngagesUnit,
+  chargeContact,
+  chargeDestination,
+  CHARGE_END_EDGE_GAP,
+  MELEE_STRIKE_EDGE_GAP,
+  edgeGapToCentre,
+  livingModelPositions,
+  MELEE_MAX_VERTICAL_REACH,
+  firingModels,
+  targetCoverByMajority,
+  ENGAGEMENT_EDGE_GAP,
   Vector3,
   Weapon,
 } from '@skirmish-lab/shared';
@@ -52,6 +70,7 @@ import {
   DeploymentZoneBounds,
   DeploymentZoneMarker,
   MovePathMarker,
+  AimLinesMarker,
 } from '../renderer/MarkerRenderer';
 
 function escapeHtmlAttr(str: string): string {
@@ -89,6 +108,7 @@ export interface MarkerSnapshot {
   movementRangeColor?: number;
   attackRange?: { unitId: string; range: number; concentricRanges?: number[] } | null;
   movePath?: MovePathMarker | null;
+  aimLines?: AimLinesMarker | null;
   engagedTargetId?: string | null;
   hoveredTerrainId?: string | null;
   outcome: { position: Vector3; wounds: number } | null;
@@ -128,6 +148,8 @@ export class GameHUD {
   private selectedDeployUnitId: string | null = null;
   /** Unit hovered in the fighter list or on the board. */
   private hoveredUnitId: string | null = null;
+  /** Model of the hovered unit the cursor is over (squads); drives the "aimed at" highlight. */
+  private hoveredModelId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
   /** Objective hovered on the board within control radius. */
@@ -162,6 +184,8 @@ export class GameHUD {
   private stagedSquadModelPositions: Map<string, Vector3> = new Map();
   /** Staged individual model navigation paths during squad movement (keyed by model ID) */
   private stagedSquadModelPaths: Map<string, Vector3[]> = new Map();
+  /** Jumps/falls declared for individual squad models while staging (model id -> the declared leap). */
+  private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
   /** ID of the squad model currently selected for placement */
   private selectedSquadModelId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
@@ -264,6 +288,10 @@ export class GameHUD {
     this.moveJump = null;
     this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
+    // A declared charge can't be undone: keep the player in the charge legs flow
+    if (this.flow.mode === 'idle' && this.declaredCharge && this.myTurn) {
+      this.flow = { mode: 'targeting', action: 'charge' };
+    }
     this.selectedUnitId = state.turnState.activeUnitId ?? null;
     if (this.selectedDeployUnitId) {
       const unit = state.units.find((u) => u.id === this.selectedDeployUnitId);
@@ -417,6 +445,31 @@ export class GameHUD {
       return;
     }
 
+    if (this.isSquadChargeFlow && this.activeUnit && this.declaredCharge) {
+      const declared = this.declaredCharge;
+      if (target.kind === 'unit' && target.unitId === this.activeUnit.id && target.modelId) {
+        this.selectSquadModel(target.modelId);
+        return;
+      }
+      if (target.kind === 'unit' && target.unitId === declared.targetId) {
+        // Clicking the target moves the selected model into base contact with it
+        const enemy = this.state?.units.find((u) => u.id === declared.targetId);
+        const model = this.selectedSquadModel;
+        if (enemy && model) {
+          this.handleSquadModelPick(this.contactSpotFor(model.position ?? this.activeUnit.position, enemy), 'charge');
+        }
+        return;
+      }
+      if (target.kind === 'position') {
+        this.handleSquadModelPick(target.position, 'charge');
+        return;
+      }
+      if (target.kind === 'unit') {
+        this.prepareAttack(target.unitId); // another unit: explains the lock
+        return;
+      }
+    }
+
     if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
       const aliveSquad = this.activeAliveSquadModels;
       if (aliveSquad.length > 1 && this.activeUnit) {
@@ -448,6 +501,8 @@ export class GameHUD {
     ) {
       if (target.kind === 'unit') {
         this.prepareAttack(target.unitId);
+      } else if (target.kind === 'position' && this.flow.action === 'charge' && this.declaredCharge) {
+        this.prepareChargeLeg(target.position);
       }
       return;
     }
@@ -538,6 +593,7 @@ export class GameHUD {
         let path = resolved.jump
           ? resolved.jump.path
           : findNavPath(this.state, active, cursor, nominalMax, {
+              keepAway: true,
               startPosition: startPos,
               stopBeforeDifficult: isRush || !!active.isRushing,
             });
@@ -577,6 +633,7 @@ export class GameHUD {
         const cappedAllowance = Math.min(effectiveCap, remainingBudget);
         if (isDifficult && nominalMax > cappedAllowance) {
           path = findNavPath(this.state, active, cursor, cappedAllowance, {
+            keepAway: true,
             startPosition: startPos,
             stopBeforeDifficult: isRush || !!active.isRushing,
           });
@@ -588,13 +645,12 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
 
-        // Detect if move/rush destination places the fighter in melee engagement contact (<= 1.0" horizontal, <= 1.5" vertical)
+        // Detect if move/rush destination places the fighter in melee engagement contact (base edges <= 0.5" apart, <= 1.5" vertical)
         if (this.movePreview) {
           const enemy = this.enemyUnits.find(
             (e) =>
               !e.isDestroyed &&
-              Math.hypot(e.position.x - this.movePreview!.x, e.position.z - this.movePreview!.z) <= 1.0 &&
-              Math.abs((e.position.y ?? 0) - (this.movePreview!.y ?? 0)) <= 1.5
+              pointEngagesUnit(this.movePreview!, e)
           );
           this.hoveredEngagedTargetId = enemy ? enemy.id : null;
         } else {
@@ -627,31 +683,93 @@ export class GameHUD {
       return;
     }
 
+    if (this.isSquadChargeFlow && this.activeUnit && this.declaredCharge) {
+      // Preview the selected model's path (to the cursor, or into contact when hovering the target)
+      const active = this.activeUnit;
+      const declared = this.declaredCharge;
+      const model = this.selectedSquadModel;
+      const startPos = model?.position ?? active.position;
+      const enemy = this.state.units.find((u) => u.id === declared.targetId);
+      let cursor: Vector3 | null = null;
+      let jump = null as JumpOption | null;
+      if (target?.kind === 'position') {
+        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
+        cursor = resolved.target;
+        jump = resolved.jump;
+      } else if (target?.kind === 'unit' && target.unitId === declared.targetId && enemy) {
+        cursor = this.contactSpotFor(startPos, enemy);
+      }
+      if (cursor && model) {
+        const path = jump
+          ? jump.path
+          : findNavPath(this.state, active, cursor, active.remainingMovement, {
+              ignoreUnitId: declared.targetId,
+              keepAway: true,
+              startPosition: startPos,
+            });
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.moveJump = jump;
+        this.moveSegments = describePathSegments(this.state, active, path);
+        this.movePreviewDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
+        this.hoveredEngagedTargetId = target?.kind === 'unit' ? declared.targetId : null;
+        this.updateMoveWarning(this.movePreviewDifficult, 'charge');
+        this.showTraversalChip();
+      } else {
+        this.movePathPreview = null;
+        this.movePreview = null;
+        this.moveJump = null;
+        this.moveSegments = null;
+        this.hoveredEngagedTargetId = null;
+        this.updateMoveWarning(false, 'charge');
+      }
+      this.emitMarkers();
+      return;
+    }
+
     if (this.flow.mode === 'targeting' && this.flow.action === 'charge') {
       const active = this.activeUnit;
+      const declared = this.declaredCharge;
+      const budget = active ? (declared ? active.remainingMovement : active.speed * 2) : 0;
       const targetUnitId = target?.kind === 'unit' ? target.unitId : null;
       const enemy = targetUnitId
         ? this.state.units.find((u) => u.id === targetUnitId && u.ownerId !== this.localPlayerId && !u.isDestroyed)
         : null;
 
-      if (active && enemy) {
-        const dx = active.position.x - enemy.position.x;
-        const dz = active.position.z - enemy.position.z;
-        const len = Math.hypot(dx, dz) || 1;
-        const contactTarget = {
-          x: Math.round((enemy.position.x + (dx / len) * 1.0) * 100) / 100,
-          y: active.position.y ?? 0,
-          z: Math.round((enemy.position.z + (dz / len) * 1.0) * 100) / 100,
-        };
-        const path = findNavPath(this.state, active, contactTarget, active.speed * 2, {
+      if (active && enemy && (!declared || enemy.id === declared.targetId) && this.activeAliveSquadModels.length <= 1) {
+        const contactTarget = chargeDestination(active, enemy);
+        const path = findNavPath(this.state, active, contactTarget, budget, {
           ignoreUnitId: enemy.id,
+          keepAway: true,
         });
         const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
         this.movePreviewDifficult = isDifficult;
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.moveJump = null;
+        this.moveSegments = null;
         this.hoveredEngagedTargetId = enemy.id;
         this.updateMoveWarning(isDifficult, this.flow.action);
+      } else if (active && declared && target?.kind === 'position') {
+        // A leg: walk toward the cursor, or declare a jump when standing at an edge (same as a move)
+        const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true);
+        const path = resolved.jump
+          ? resolved.jump.path
+          : findNavPath(this.state, active, resolved.target, budget, {
+              ignoreUnitId: declared.targetId,
+              keepAway: true,
+            });
+        const isDifficult = !resolved.jump && path.length > 0 && isPathDifficult(this.state, path, active);
+        this.movePreviewDifficult = isDifficult;
+        this.moveJump = resolved.jump;
+        this.moveSegments = describePathSegments(this.state, active, path);
+        this.movePathPreview = path;
+        this.movePreview = path.length > 0 ? path[path.length - 1] : null;
+        this.hoveredEngagedTargetId = null;
+        this.updateMoveWarning(isDifficult, this.flow.action);
+        this.showTraversalChip();
+        this.emitMarkers();
+        return;
       } else {
         this.movePathPreview = null;
         this.moveJump = null;
@@ -664,18 +782,23 @@ export class GameHUD {
     }
 
     const nextHover = target?.kind === 'unit' ? target.unitId : null;
+    const nextHoverModel = target?.kind === 'unit' ? target.modelId ?? null : null;
+    const modelChanged = nextHoverModel !== this.hoveredModelId;
+    this.hoveredModelId = nextHoverModel;
     const nextObjective = this.inspectedObjective;
     const objectiveChanged = nextObjective?.id !== this.lastHoveredObjectiveId;
     this.lastHoveredObjectiveId = nextObjective?.id ?? null;
 
     if (
       nextHover !== this.hoveredUnitId ||
+      modelChanged ||
       terrainChanged ||
       objectiveChanged ||
       (this.terrainDebugEnabled && groundPosChanged)
     ) {
       this.hoveredUnitId = nextHover;
       this.updateDataCardSlot();
+      this.updateAimChip();
       this.emitMarkers();
     }
   }
@@ -723,6 +846,13 @@ export class GameHUD {
     return id ? (this.state?.units.find((u) => u.id === id) ?? null) : null;
   }
 
+  /** The local player's declared (in-progress) charge on the active unit, if any. */
+  private get declaredCharge(): ChargeState | null {
+    const charge = this.state?.turnState.charge;
+    const active = this.activeUnit;
+    return charge && active && charge.unitId === active.id && active.ownerId === this.localPlayerId ? charge : null;
+  }
+
   private get myUnits(): Unit[] {
     return this.state?.units.filter((u) => u.ownerId === this.localPlayerId) ?? [];
   }
@@ -735,6 +865,39 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !active.models || active.models.length === 0) return [];
     return active.models.filter((m) => !m.isDestroyed);
+  }
+
+  /** True while a multi-model squad stages the models of its declared charge (each model is placed in turn). */
+  private get isSquadChargeFlow(): boolean {
+    return (
+      this.flow.mode === 'targeting' &&
+      this.flow.action === 'charge' &&
+      !!this.declaredCharge &&
+      this.activeAliveSquadModels.length > 1
+    );
+  }
+
+  /** Where a model at `from` would stand in base contact with the nearest model of `target`. */
+  private contactSpotFor(from: Vector3, target: Unit): Vector3 {
+    const models = livingModelPositions(target);
+    let nearest = models[0] ?? target.position;
+    let best = Infinity;
+    for (const m of models) {
+      const d = boardDistance(from, m);
+      if (d < best) {
+        best = d;
+        nearest = m;
+      }
+    }
+    const dx = from.x - nearest.x;
+    const dz = from.z - nearest.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const contact = edgeGapToCentre(0);
+    return {
+      x: Math.round((nearest.x + (dx / len) * contact) * 100) / 100,
+      y: nearest.y ?? 0,
+      z: Math.round((nearest.z + (dz / len) * contact) * 100) / 100,
+    };
   }
 
   private get selectedSquadModel(): Model | null {
@@ -830,6 +993,7 @@ export class GameHUD {
     this.hoveredEngagedTargetId = null;
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
     this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
     this.flow = { mode: 'targeting', action };
 
@@ -855,7 +1019,7 @@ export class GameHUD {
     this.render();
   }
 
-  private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush'): void {
+  private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush' | 'charge'): void {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
@@ -866,27 +1030,41 @@ export class GameHUD {
     if (!currentModel) return;
 
     const startPos = currentModel.position ?? active.position;
-    // Squads cannot declare a jump yet (host rule), but the cursor still snaps to floor edges
-    rawDestination = resolveMoveTarget(this.state, active, startPos, rawDestination, false).target;
+    // The cursor snaps to floor edges; a model standing at an edge may declare its own jump or fall
+    const resolved = resolveMoveTarget(this.state, active, startPos, rawDestination, true);
+    const jump = resolved.jump;
+    rawDestination = resolved.target;
 
     const isRush = actionKind === 'rush';
-    const remainingBudget = active.isRushing
+    const isCharge = actionKind === 'charge';
+    const chargeTargetId = isCharge ? this.declaredCharge?.targetId : undefined;
+    const chargeTarget = chargeTargetId ? this.state.units.find((u) => u.id === chargeTargetId) : undefined;
+    if (isCharge && !chargeTarget) return;
+    const remainingBudget = isCharge
+      ? active.remainingMovement
+      : active.isRushing
       ? active.remainingMovement
       : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
+    // Charge legs share one budget: what earlier legs spent comes off the Difficult Terrain cap too
+    const chargeSpentSoFar = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - active.remainingMovement : 0;
     let maxAllowance = remainingBudget;
-    let path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+    const navOptions = {
+      keepAway: true,
       startPosition: startPos,
-      stopBeforeDifficult: isRush || !!active.isRushing,
-    });
-    const isDifficult = path.length > 0 && isPathDifficult(this.state, path, active);
-    const effectiveCap = getEffectiveMaxMovement(active, isRush || active.isRushing ? 'rush' : 'move', isDifficult);
+      stopBeforeDifficult: !isCharge && (isRush || !!active.isRushing),
+      ...(chargeTargetId ? { ignoreUnitId: chargeTargetId } : {}),
+    };
+    let path = jump
+      ? jump.path
+      : findNavPath(this.state, active, rawDestination, maxAllowance, navOptions);
+    const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
+    const effectiveCap = isCharge
+      ? Math.max(0, getEffectiveMaxMovement(active, 'charge', isDifficult) - chargeSpentSoFar)
+      : getEffectiveMaxMovement(active, isRush || active.isRushing ? 'rush' : 'move', isDifficult);
     const cappedAllowance = Math.min(effectiveCap, remainingBudget);
     if (isDifficult && maxAllowance > cappedAllowance) {
       maxAllowance = cappedAllowance;
-      path = findNavPath(this.state, active, rawDestination, maxAllowance, {
-        startPosition: startPos,
-        stopBeforeDifficult: isRush || !!active.isRushing,
-      });
+      path = findNavPath(this.state, active, rawDestination, maxAllowance, navOptions);
     }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the model');
@@ -894,7 +1072,7 @@ export class GameHUD {
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path);
-    if (distance < 0.05) {
+    if (distance < 0.05 && !jump) {
       this.showToast('Pick a destination away from the model');
       return;
     }
@@ -903,15 +1081,22 @@ export class GameHUD {
       this.showToast('Difficult Terrain / Climb: Rush capped at 6.0" (speed bonus negated)');
     }
 
-    const wouldEngage = this.enemyUnits.some(
-      (e) =>
-        !e.isDestroyed &&
-        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
-        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
-    );
-    if (wouldEngage) {
-      this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Move'} cannot end in melee contact — use Charge instead`);
-      return;
+    if (isCharge) {
+      // A charging model may end in contact with the target, but not on top of one of its models
+      if (livingModelPositions(chargeTarget!).some((t) => boardDistance(t, destination) < 0.9)) {
+        this.showToast('Cannot place a model on top of an enemy model (bases would overlap)');
+        return;
+      }
+    } else {
+      const wouldEngage = this.enemyUnits.some(
+        (e) =>
+          !e.isDestroyed &&
+          pointEngagesUnit(destination, e)
+      );
+      if (wouldEngage) {
+        this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Move'} cannot end in melee contact — use Charge instead`);
+        return;
+      }
     }
 
     // Minimum model separation check: models cannot physically overlap (bases must not overlap)
@@ -936,11 +1121,11 @@ export class GameHUD {
     }
 
     if (otherPlaced.length > 0) {
-      // 1. All models must remain within 6.0" max spread of all other placed models
+      // 1. All models must remain within 6" (base edge to base edge) of all other placed models
       for (const placed of otherPlaced) {
         const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
-        if (d > 6.0 + 0.02) {
-          this.showToast(`Model spread of ${d.toFixed(1)}" exceeds max 6.0" coherency limit from ${placed.name}`);
+        if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
+          this.showToast(`Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`);
           return;
         }
       }
@@ -949,12 +1134,12 @@ export class GameHUD {
       const isPlacingLastModel = otherPlaced.length === alive.length - 1;
       if (isPlacingLastModel) {
         const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
-        const coherency = validateSquadCoherency(candidatePositions, {
-          maxMemberDistance: 2.0,
-          maxSquadSpread: 6.0,
-        });
+        const coherency = validateSquadCoherency(candidatePositions);
         if (!coherency.coherent) {
-          this.showToast(coherency.reason ?? 'Each model must be within 1.0" of at least one other squad member');
+          this.showToast(
+            coherency.reason ??
+              'Each model must be within 1" of another squad member (3" if they are on different levels)'
+          );
           return;
         }
       }
@@ -963,6 +1148,12 @@ export class GameHUD {
     // Model placed successfully
     this.stagedSquadModelPositions.set(currentModel.id, destination);
     this.stagedSquadModelPaths.set(currentModel.id, path);
+    if (jump) {
+      this.stagedSquadModelTraversals.set(currentModel.id, jump);
+      this.showToast(`Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}`);
+    } else {
+      this.stagedSquadModelTraversals.delete(currentModel.id);
+    }
 
     if (this.stagedSquadModelPositions.size < alive.length) {
       // Auto-advance selection to the next unplaced model
@@ -980,9 +1171,42 @@ export class GameHUD {
     }
 
     // All living models have been placed!
-    const orderedPositions = alive.map((m) => this.stagedSquadModelPositions.get(m.id)!);
-    const orderedPaths = alive.map((m) => this.stagedSquadModelPaths.get(m.id)!);
+    this.finishSquadMove(actionKind);
+  }
+
+  /**
+   * Build the squad move/rush confirmation from the staged models. Models that were not
+   * staged keep their position with a one-point path (they move 0"). Called automatically
+   * once every model is placed, or from the early "Confirm move" button.
+   */
+  private finishSquadMove(actionKind: 'move' | 'rush' | 'charge'): void {
+    const active = this.activeUnit;
+    if (!active || !this.state) return;
+    const alive = this.activeAliveSquadModels;
+    if (alive.length <= 1 || this.stagedSquadModelPositions.size === 0) return;
+
+    const orderedPositions = alive.map(
+      (m) => this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position
+    );
+    const orderedPaths = alive.map(
+      (m, i) => this.stagedSquadModelPaths.get(m.id) ?? [orderedPositions[i]]
+    );
+    if (this.stagedSquadModelPositions.size < alive.length) {
+      const coherency = validateSquadCoherency(orderedPositions);
+      if (!coherency.coherent) {
+        this.showToast(
+          `Unplaced models stay where they are: ${
+            coherency.reason ?? 'the squad would not be in coherency'
+          }. Place more models or reset.`
+        );
+        return;
+      }
+    }
     const finalCentroid = computeSquadCentroid(orderedPositions);
+    if (actionKind === 'charge') {
+      this.finishSquadCharge(alive, orderedPositions, orderedPaths, finalCentroid);
+      return;
+    }
     const isAnyModelDifficult = orderedPaths.some((p) =>
       isPathDifficult(this.state!, p, active)
     );
@@ -1002,13 +1226,18 @@ export class GameHUD {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
 
-    for (const p of orderedPaths) {
+    const orderedJumps = alive.map((m) => this.stagedSquadModelTraversals.get(m.id) ?? null);
+    const orderedTraversals = orderedJumps.map((j) =>
+      j ? { kind: j.kind, takeoff: j.takeoff, landing: j.landing } : null
+    );
+    orderedJumps.forEach((j, i) => {
+      if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
+    });
+    orderedPaths.forEach((p, i) => {
+      if (orderedTraversals[i]) return; // the declared jump is already described
       const warning = this.dropWarning(active, p, null);
-      if (warning) {
-        summary += ` · ${warning}`;
-        break;
-      }
-    }
+      if (warning) summary += ` · ${warning}`;
+    });
 
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
     this.movePreview = finalCentroid;
@@ -1024,10 +1253,94 @@ export class GameHUD {
         finalPosition: finalCentroid,
         modelPositions: orderedPositions,
         modelPaths: orderedPaths,
+        ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
     );
+  }
+
+  /**
+   * Build the confirmation for a squad charge from the staged models: a final charge into contact when at least
+   * one model ends touching the target, otherwise a leg (the rest of the budget stays). The host check runs first
+   * so the player sees why a placement is refused.
+   */
+  private finishSquadCharge(
+    alive: Model[],
+    orderedPositions: Vector3[],
+    orderedPaths: Vector3[][],
+    centroid: Vector3
+  ): void {
+    const active = this.activeUnit;
+    const declared = this.declaredCharge;
+    const state = this.state;
+    if (!active || !declared || !state) return;
+    const target = state.units.find((u) => u.id === declared.targetId);
+    const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+    if (!target || !weapon) return;
+
+    const targetModels = livingModelPositions(target);
+    const inContact = orderedPositions.some((pos) =>
+      targetModels.some(
+        (t) =>
+          modelGap(pos, t) <= CHARGE_END_EDGE_GAP + 0.001 &&
+          Math.abs((pos.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH
+      )
+    );
+    const strikers = orderedPositions.filter((pos) =>
+      targetModels.some((t) => modelGap(pos, t) <= MELEE_STRIKE_EDGE_GAP + 0.001)
+    ).length;
+
+    const orderedTraversals = alive.map((m) => {
+      const j = this.stagedSquadModelTraversals.get(m.id);
+      return j ? { kind: j.kind, takeoff: j.takeoff, landing: j.landing } : null;
+    });
+    const common = {
+      attackerId: active.id,
+      path: [{ ...active.position }, centroid],
+      modelPositions: orderedPositions,
+      modelPaths: orderedPaths,
+      ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+    };
+    const action = inContact
+      ? createAction(this.localPlayerId, 'charge', {
+          type: 'charge',
+          ...common,
+          targetId: target.id,
+          weaponId: weapon.id,
+        })
+      : createAction(this.localPlayerId, 'charge-leg', { type: 'charge-leg', ...common });
+
+    const check = validateAction(state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'The host would refuse this charge placement');
+      return;
+    }
+
+    const cost = Math.max(...orderedPaths.map((p) => pathMovementCost(state, p)), 0);
+    let summary: string;
+    if (inContact) {
+      const attacks = (weapon.profile.attacks as number) * Math.max(1, strikers);
+      summary = `${active.name} charges ${target.name} (${alive.length} models, longest move ${cost.toFixed(1)}") & strikes with ${weapon.name} · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (${attacks} attacks before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
+    } else {
+      const left = Math.max(0, active.remainingMovement - cost);
+      summary = `Charge leg for ${active.name} (${alive.length} models) · longest move ${cost.toFixed(1)}" · ${left.toFixed(1)}" of the charge left after it (no melee yet; no model is in contact)`;
+    }
+    alive.forEach((m, i) => {
+      const j = this.stagedSquadModelTraversals.get(m.id);
+      if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
+    });
+    if (orderedPaths.some((p) => isPathDangerous(state, p, active))) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+
+    this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
+    this.movePreview = centroid;
+    this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
+    this.hoveredEngagedTargetId = inContact ? target.id : null;
+    this.beginConfirmation(action, summary);
   }
 
   private prepareMove(rawDestination: Vector3): void {
@@ -1041,13 +1354,13 @@ export class GameHUD {
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
     const jump = resolved.jump;
     rawDestination = resolved.target;
-    let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance);
+    let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance, { keepAway: true });
     const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
     const effectiveCap = getEffectiveMaxMovement(active, active.isRushing ? 'rush' : 'move', isDifficult);
     const maxMove = Math.min(effectiveCap, currentBudget);
     if (isDifficult && maxAllowance > maxMove) {
       maxAllowance = maxMove;
-      path = findNavPath(this.state, active, rawDestination, maxAllowance);
+      path = findNavPath(this.state, active, rawDestination, maxAllowance, { keepAway: true });
     }
     if (path.length < 2) {
       this.showToast('Pick a destination away from the unit');
@@ -1063,8 +1376,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
-        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+        pointEngagesUnit(destination, e)
     );
     if (wouldEngage) {
       this.showToast('Move cannot end in melee contact — use Charge instead');
@@ -1119,6 +1431,7 @@ export class GameHUD {
     let path = jump
       ? jump.path
       : findNavPath(this.state, active, rawDestination, maxAllowance, {
+          keepAway: true,
           stopBeforeDifficult: true,
         });
 
@@ -1152,6 +1465,7 @@ export class GameHUD {
     if (isDifficult && maxAllowance > maxRush) {
       maxAllowance = maxRush;
       path = findNavPath(this.state, active, rawDestination, maxAllowance, {
+        keepAway: true,
         stopBeforeDifficult: true,
       });
     }
@@ -1169,8 +1483,7 @@ export class GameHUD {
     const wouldEngage = this.enemyUnits.some(
       (e) =>
         !e.isDestroyed &&
-        Math.hypot(e.position.x - destination.x, e.position.z - destination.z) <= 1.0 &&
-        Math.abs((e.position.y ?? 0) - (destination.y ?? 0)) <= 1.5
+        pointEngagesUnit(destination, e)
     );
     if (wouldEngage) {
       this.showToast('Rush cannot end in melee contact — use Charge instead');
@@ -1229,6 +1542,71 @@ export class GameHUD {
     );
   }
 
+  /** A leg of a declared charge: a safe path toward the cursor, or a declared jump from an edge. */
+  private prepareChargeLeg(rawDestination: Vector3): void {
+    const active = this.activeUnit;
+    const declared = this.declaredCharge;
+    if (!active || !declared || !this.state) return;
+    const target = this.state.units.find((u) => u.id === declared.targetId);
+    if (!target) return;
+
+    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    const jump = resolved.jump;
+    const dest = resolved.target;
+    let allowance = active.remainingMovement;
+    let path = jump
+      ? jump.path
+      : findNavPath(this.state, active, dest, allowance, { ignoreUnitId: target.id, keepAway: true });
+    const isDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
+    if (isDifficult) {
+      const spent = getEffectiveMaxMovement(active, 'charge', false) - active.remainingMovement;
+      const cap = Math.max(0, getEffectiveMaxMovement(active, 'charge', true) - spent);
+      if (allowance > cap) {
+        allowance = cap;
+        path = findNavPath(this.state, active, dest, allowance, { ignoreUnitId: target.id, keepAway: true });
+      }
+    }
+    if (path.length < 2) {
+      this.showToast('Pick a spot to walk to, or click the target to make contact');
+      return;
+    }
+    const end = path[path.length - 1];
+    const cost = pathMovementCost(this.state, path);
+    if (cost < 0.05 && !jump) {
+      this.showToast('Pick a spot away from the unit');
+      return;
+    }
+    if (!jump && chargeContact(active, target, end, MELEE_MAX_VERTICAL_REACH) === 'ok') {
+      this.showToast(`Click ${target.name} to make contact and strike`);
+      return;
+    }
+
+    const left = Math.max(0, active.remainingMovement - cost);
+    let summary = `Charge leg ${cost.toFixed(1)}" · ${left.toFixed(1)}" of the charge left after it (no melee yet)`;
+    if (isDifficult) summary += ' · [Difficult Terrain 6.0" cap]';
+    const dropNote = this.dropWarning(active, path, jump);
+    if (dropNote) summary += ` · ${dropNote}`;
+    if (isPathDangerous(this.state, path, active)) {
+      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+    }
+    summary += this.traversalSummary(active, path, jump);
+    if (jump) summary += ' · a failed jump falls and ends the activation with no melee';
+
+    this.movePreview = end;
+    this.movePathPreview = path;
+    this.moveJump = jump;
+    this.moveSegments = describePathSegments(this.state, active, path);
+    this.beginConfirmation(
+      createAction(this.localPlayerId, 'charge-leg', {
+        type: 'charge-leg',
+        attackerId: active.id,
+        path,
+        ...(jump ? { traversal: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing } } : {}),
+      }),
+      summary
+    );
+  }
+
   private prepareAttack(targetUnitId: string): void {
     let actionKind: string;
     if (this.flow.mode === 'targeting') {
@@ -1243,12 +1621,11 @@ export class GameHUD {
     const target = this.state?.units.find((u) => u.id === targetUnitId);
     if (!target || target.ownerId === this.localPlayerId || target.isDestroyed) return;
 
-    const distance = Math.hypot(
-      target.position.x - active.position.x,
-      target.position.z - active.position.z
-    );
+    const distance = unitDistance(active, target);
 
     if (actionKind === 'shoot') {
+      const canFire = (w: Weapon): boolean =>
+        !!this.state && firingModels(this.state, active, target, w).length > 0;
       const rangedWeapons = active.weapons.filter(
         (w) => w.isEquipped && w.profile.type === 'ranged'
       );
@@ -1260,13 +1637,12 @@ export class GameHUD {
       // Single ranged weapon: instant streamlined flow
       if (rangedWeapons.length === 1) {
         const weapon = rangedWeapons[0];
-        if (distance > weapon.profile.range + 0.01) {
-          this.showToast(`Out of range (${distance.toFixed(1)}" > ${weapon.profile.range}")`);
-          return;
-        }
-        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-        if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
-          this.showToast(`No line of sight to ${target.name}`);
+        if (!canFire(weapon)) {
+          this.showToast(
+            distance > weapon.profile.range + 0.01
+              ? `Out of range (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+              : `No line of sight to ${target.name}`
+          );
           return;
         }
         this.shootAllocations.set(weapon.id, target.id);
@@ -1280,9 +1656,7 @@ export class GameHUD {
         let assignedAny = false;
         let firstUnreachableWeaponId: string | null = null;
         for (const weapon of rangedWeapons) {
-          const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-          const hasLos = isLobbed || (this.state && hasLineOfSight(this.state, active, target));
-          if (distance <= weapon.profile.range + 0.01 && hasLos) {
+          if (canFire(weapon)) {
             this.shootAllocations.set(weapon.id, target.id);
             assignedAny = true;
           } else {
@@ -1309,15 +1683,12 @@ export class GameHUD {
         rangedWeapons.find((w) => this.shootAllocations.get(w.id) === null) ??
         rangedWeapons[0];
 
-      if (distance > currentWeapon.profile.range + 0.01) {
+      if (!canFire(currentWeapon)) {
         this.showToast(
-          `${currentWeapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${currentWeapon.profile.range}")`
+          distance > currentWeapon.profile.range + 0.01
+            ? `${currentWeapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${currentWeapon.profile.range}")`
+            : `No line of sight to ${target.name}`
         );
-        return;
-      }
-      const isLobbed = hasTrait(currentWeapon.profile.specialRules, 'lobbed');
-      if (this.state && !isLobbed && !hasLineOfSight(this.state, active, target)) {
-        this.showToast(`No line of sight to ${target.name}`);
         return;
       }
 
@@ -1353,33 +1724,81 @@ export class GameHUD {
         return;
       }
 
-      // Charge ends at true base contact (1.0" center-to-center for 0.5" radius bases).
-      const dx = active.position.x - target.position.x;
-      const dz = active.position.z - target.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const contactTarget = {
-        x: Math.round((target.position.x + (dx / len) * 1.0) * 100) / 100,
-        y: active.position.y ?? 0,
-        z: Math.round((target.position.z + (dz / len) * 1.0) * 100) / 100,
-      };
+      const declared = this.declaredCharge;
+      if (declared && declared.targetId !== target.id) {
+        this.showToast(`The charge is locked to ${this.unitName(declared.targetId)}`);
+        return;
+      }
+      if (this.activeAliveSquadModels.length > 1) {
+        // A squad charges model by model: declare first, then place each model (legs share one budget)
+        const begin = createAction(this.localPlayerId, 'begin-charge', {
+          type: 'begin-charge',
+          attackerId: active.id,
+          targetId: target.id,
+        });
+        const check = validateAction(this.state!, begin);
+        if (!check.valid) {
+          this.showToast(check.reason ?? 'Cannot declare this charge');
+          return;
+        }
+        this.beginConfirmation(
+          begin,
+          `Declare a charge on ${target.name}: then place each model of ${active.name} (up to ${(active.speed * 2).toFixed(0)}" each, into base contact with ${target.name} or as close as you can get, staying in coherency). The charge can't be undone: end the activation to abandon it (no melee)`
+        );
+        return;
+      }
+      // Charge ends at true base contact (centre distance = both base radii).
+      const contactTarget = chargeDestination(active, target);
+      // After legs, the final move may only use what the legs left of the one charge budget
+      const chargeLeft = declared ? active.remainingMovement : active.speed * 2;
+      const chargeSpent = declared ? active.speed * 2 - active.remainingMovement : 0;
 
-      const path = findNavPath(this.state!, active, contactTarget, active.speed * 2, {
+      const path = findNavPath(this.state!, active, contactTarget, chargeLeft, {
         ignoreUnitId: target.id,
+        keepAway: true,
       });
       const end = path[path.length - 1];
-      const distToEnemy = Math.hypot(end.x - target.position.x, end.z - target.position.z);
-      if (distToEnemy > 1.25) {
+      const contact = chargeContact(active, target, end, MELEE_MAX_VERTICAL_REACH);
+      const pathCharge = pathMovementCost(this.state!, path);
+      const isDifficult = isPathDifficult(this.state!, path, active);
+      const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
+      // The host must accept this exact path (the pathfinder can fall back to a straight line across a gap)
+      const reachesInOne =
+        contact === 'ok' &&
+        pathCharge + chargeSpent <= maxCharge + 0.01 &&
+        pathCharge <= chargeLeft + 0.01 &&
+        validateAction(
+          this.state!,
+          createAction(this.localPlayerId, 'charge', {
+            type: 'charge',
+            attackerId: active.id,
+            targetId: target.id,
+            path,
+            weaponId: weapon.id,
+          })
+        ).valid;
+      if (!reachesInOne && !declared && contact !== 'too-high' && boardDistance(active.position, contactTarget) <= active.speed * 2 + 0.01) {
+        // Not reachable by one safe path, but within reach in a straight line: offer to make it in legs
+        this.beginConfirmation(
+          createAction(this.localPlayerId, 'begin-charge', {
+            type: 'begin-charge',
+            attackerId: active.id,
+            targetId: target.id,
+          }),
+          `Declare a charge on ${target.name}: no single safe path reaches it, so you make the charge in legs (walk to an edge, jump a gap), then click ${target.name} to make contact. The charge can't be undone: end the activation to abandon it (no melee). Budget ${(active.speed * 2).toFixed(0)}"`
+        );
+        return;
+      }
+      if (contact === 'too-far') {
         this.showToast('Cannot reach engagement range of target');
         return;
       }
-      if (!validateMeleeVerticalReach(end, target.position)) {
+      if (contact === 'too-high') {
         this.showToast('Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)');
         return;
       }
-      const isDifficult = isPathDifficult(this.state!, path, active);
-      const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
-      const chargeDistance = pathMovementCost(this.state!, path);
-      if (chargeDistance > maxCharge + 0.01) {
+      const chargeDistance = pathCharge;
+      if (chargeDistance + chargeSpent > maxCharge + 0.01 || chargeDistance > chargeLeft + 0.01) {
         this.showToast(
           isDifficult
             ? `Charge in Difficult Terrain is capped at 6.0" (${chargeDistance.toFixed(1)}" exceeds 6.0")`
@@ -1412,7 +1831,7 @@ export class GameHUD {
           isCharging: true,
           hasMoved: true,
           isFatigued,
-          distance: distToEnemy,
+          distance: 0,
         },
         {
           defense: target.defense,
@@ -1513,25 +1932,23 @@ export class GameHUD {
       const target = this.state.units.find((u) => u.id === targetId && !u.isDestroyed);
       if (!target) continue;
 
-      const distance = boardDistance(active.position, target.position);
-      if (distance > weapon.profile.range + 0.01) {
+      const distance = unitDistance(active, target);
+      const firing = firingModels(this.state, active, target, weapon);
+      if (firing.length === 0) {
         this.showToast(
-          `${weapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+          distance > weapon.profile.range + 0.01
+            ? `${weapon.name} cannot reach ${target.name} (${distance.toFixed(1)}" > ${weapon.profile.range}")`
+            : `No line of sight from ${weapon.name} to ${target.name}`
         );
         return;
       }
       const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
-      if (!isLobbed && !hasLineOfSight(this.state, active, target)) {
-        this.showToast(`No line of sight from ${weapon.name} to ${target.name}`);
-        return;
-      }
 
       const inCover =
         !hasTrait(weapon.profile.specialRules, 'blast') &&
         (target.status.includes('in-cover') ||
-          (!isLobbed && hasCoverAgainstAttack(this.state, active, target)));
-      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const attacks = (weapon.profile.attacks as number) * livingCount;
+          (!isLobbed && targetCoverByMajority(this.state, firing, active, target)));
+      const attacks = (weapon.profile.attacks as number) * firing.length;
       const mods = computeCombatModifiers(
         {
           quality: active.quality,
@@ -1568,7 +1985,7 @@ export class GameHUD {
     let summary: string;
     if (uniqueTargets.size === 1) {
       const target = allocations[0].target;
-      const distance = boardDistance(active.position, target.position);
+      const distance = unitDistance(active, target);
       const weaponNames = allocations.map((a) => a.weapon.name).join(' & ');
       const diceSummaries = allocations.map((a) => `${a.weapon.name}: ${a.diceText}`).join(' | ');
       summary = `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`;
@@ -1576,7 +1993,7 @@ export class GameHUD {
       const splitSummaries = allocations
         .map(
           (a) =>
-            `${a.weapon.name} at ${a.target.name} (${boardDistance(active.position, a.target.position).toFixed(1)}") [${a.diceText}]`
+            `${a.weapon.name} at ${a.target.name} (${unitDistance(active, a.target).toFixed(1)}") [${a.diceText}]`
         )
         .join(' · ');
       summary = `${active.name} split fires: ${splitSummaries}`;
@@ -1605,6 +2022,10 @@ export class GameHUD {
   private confirmPending(): void {
     if (this.flow.mode !== 'confirming') return;
     const action = this.flow.action;
+    this.stagedSquadModelPositions.clear();
+    this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
+    this.selectedSquadModelId = null;
     this.movePreview = null;
     this.movePathPreview = null;
     this.moveJump = null;
@@ -1631,9 +2052,11 @@ export class GameHUD {
     this.selectedShootWeaponId = null;
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
     this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
-    this.flow = { mode: 'idle' };
+    // A declared charge can't be cancelled: back to choosing its next leg
+    this.flow = this.declaredCharge ? { mode: 'targeting', action: 'charge' } : { mode: 'idle' };
     this.render();
   }
 
@@ -2235,6 +2658,10 @@ export class GameHUD {
         return `rushed ${this.unitName((action.payload as any).unitId)}`;
       case 'shoot':
         return `shot ${this.unitName((action.payload as any).targetId)}`;
+      case 'begin-charge':
+        return `declared a charge on ${this.unitName((action.payload as any).targetId)}`;
+      case 'charge-leg':
+        return 'made a charge leg';
       case 'charge':
         return `charged ${this.unitName((action.payload as any).targetId)}`;
       case 'fight':
@@ -2477,6 +2904,7 @@ export class GameHUD {
           <div class="sl-hud-bottom-dock">
             ${dataCardSlot}
             <div class="sl-hud-bottom sl-hud-shoot-dock" style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+              ${this.aimChipHtml()}
               <div class="sl-hud-chips-bar" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
                 ${chipsHtml}
               </div>
@@ -2499,12 +2927,16 @@ export class GameHUD {
           : this.flow.action === 'rush'
           ? 'Click a destination to Rush (double move, auto-paths around obstacles)'
           : this.flow.action === 'charge'
-          ? 'Click an enemy unit within charge range to Charge into melee and strike'
+          ? this.declaredCharge && active
+            ? `Charge declared on ${this.unitName(this.declaredCharge.targetId)}: ${active.remainingMovement.toFixed(1)}" left. Click a spot to walk a leg (at an edge, click across the gap to jump), or click the target to make contact`
+            : 'Click an enemy unit within charge range to Charge into melee and strike'
           : `Select an enemy target within the red range ring (${this.flow.action})`;
 
+      const isSquadChargePlacing = this.isSquadChargeFlow;
       const isSquadMovement =
-        (this.flow.action === 'move' || this.flow.action === 'rush') &&
-        this.activeAliveSquadModels.length > 1;
+        ((this.flow.action === 'move' || this.flow.action === 'rush') &&
+          this.activeAliveSquadModels.length > 1) ||
+        isSquadChargePlacing;
 
       let squadChipsHtml = '';
       if (isSquadMovement && active) {
@@ -2514,7 +2946,10 @@ export class GameHUD {
         const currentModelIndex = alive.findIndex((m) => m.id === currentModel?.id);
         const placedCount = this.stagedSquadModelPositions.size;
 
-        if (placedCount === 0) {
+        if (isSquadChargePlacing && this.declaredCharge) {
+          const modelNo = (currentModelIndex >= 0 ? currentModelIndex : 0) + 1;
+          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${active.remainingMovement.toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip stay put (Confirm charge)`;
+        } else if (placedCount === 0) {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowance}"`;
         } else {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
@@ -2551,16 +2986,27 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+            ${this.aimChipHtml()}
             <div class="sl-hud-move-warning" style="display: none; background: rgba(255, 152, 0, 0.2); border: 1px solid #ff9800; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;"></div>
             ${squadChipsHtml}
             <div style="display: flex; align-items: center; gap: 10px;">
               <span class="sl-hud-hint">${instruction}</span>
               ${
                 isSquadMovement && this.stagedSquadModelPositions.size > 0
-                  ? '<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>'
+                  ? `${
+                      this.stagedSquadModelPositions.size < this.activeAliveSquadModels.length
+                        ? `<button class="sl-hud-btn primary" data-action="confirm-squad-move">${
+                            isSquadChargePlacing ? 'Confirm charge' : 'Confirm move'
+                          }</button>`
+                        : ''
+                    }<button class="sl-hud-btn" data-action="reset-squad-move">Reset Placement</button>`
                   : ''
               }
-              <button class="sl-hud-btn" data-action="cancel">Cancel</button>
+              ${
+                this.flow.action === 'charge' && this.declaredCharge
+                  ? '<button class="sl-hud-btn primary" data-action="end-activation">End (no melee)</button>'
+                  : '<button class="sl-hud-btn" data-action="cancel">Cancel</button>'
+              }
             </div>
           </div>
         </div>`;
@@ -2586,8 +3032,16 @@ export class GameHUD {
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
+      const squadPositions = (active.models ?? [])
+        .filter((m) => !m.isDestroyed)
+        .map((m) => m.position ?? active.position);
+      const outOfCoherency =
+        !hasActed &&
+        !active.status.includes('stunned') &&
+        squadPositions.length > 1 &&
+        !validateSquadCoherency(squadPositions).coherent;
       const finishBtn = !hasActed
-        ? `<button class="sl-hud-btn" data-action="hold">Hold</button>`
+        ? `<button class="sl-hud-btn" data-action="hold" ${outOfCoherency ? 'disabled' : ''}>Hold</button>`
         : `<button class="sl-hud-btn primary" data-action="end-activation">End Activation</button>`;
 
       return `
@@ -2595,6 +3049,11 @@ export class GameHUD {
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-actions">
             <span class="sl-hud-active-name">${active.name}</span>
+            ${
+              outOfCoherency
+                ? `<span class="sl-hud-hint" style="color:#ffb74d">Squad is out of coherency: this activation's move must bring it back together</span>`
+                : ''
+            }
             <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move</button>
             <button class="sl-hud-btn" data-action="rush" ${canRush ? '' : 'disabled'}>Rush</button>
             <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
@@ -2644,7 +3103,7 @@ export class GameHUD {
     if (!this.state?.objectives || !this.hoveredGroundPosition) return null;
     const pos = this.hoveredGroundPosition;
     for (const obj of this.state.objectives) {
-      const dist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
+      const dist = markerGap(pos, obj.position, 0); // hover point, no base
       const dy = Math.abs((pos.y ?? 0) - (obj.position.y ?? 0));
       if (dist <= OBJECTIVE_CONTROL_RADIUS && dy <= OBJECTIVE_CONTROL_MAX_VERTICAL) return obj;
     }
@@ -2828,7 +3287,80 @@ export class GameHUD {
     }
 
     if (!shooter || !targetOrPoint) return null;
+    if ('id' in targetOrPoint && 'weapons' in targetOrPoint) {
+      const weapon = this.shootPreviewWeapon(shooter, targetOrPoint);
+      if (weapon) return computeSquadShootingRayDebug(this.state, shooter, targetOrPoint, weapon);
+    }
     return computeShootingRayDebug(this.state, shooter, targetOrPoint);
+  }
+
+  /** The ranged weapon the shooting preview uses: the selected one, else the first that can fire, else the first. */
+  private shootPreviewWeapon(attacker: Unit, target: Unit): Weapon | null {
+    const ranged = attacker.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+    if (ranged.length === 0) return null;
+    const selected = this.selectedShootWeaponId ? ranged.find((w) => w.id === this.selectedShootWeaponId) : null;
+    if (selected) return selected;
+    if (this.state) {
+      const state = this.state;
+      const canFire = ranged.find((w) => firingModels(state, attacker, target, w).length > 0);
+      if (canFire) return canFire;
+    }
+    return ranged[0];
+  }
+
+  /** Shooter, enemy unit and weapon for the live shooting preview (aim lines, "N of M" chip), or null. */
+  private shootPreview(): { attacker: Unit; target: Unit; weapon: Weapon } | null {
+    if (!this.state) return null;
+    const attacker = this.activeUnit;
+    if (!attacker || attacker.ownerId !== this.localPlayerId) return null;
+    let targetId: string | null = null;
+    if (this.flow.mode === 'targeting' && this.flow.action === 'shoot') {
+      targetId = this.hoveredUnitId;
+    } else if (this.flow.mode === 'confirming' && this.flow.action.type === 'shoot') {
+      targetId = (this.flow.action.payload as { targetId?: string }).targetId ?? null;
+    }
+    if (!targetId) return null;
+    const target = this.state.units.find(
+      (u) => u.id === targetId && u.ownerId !== this.localPlayerId && !u.isDestroyed
+    );
+    if (!target) return null;
+    const weapon = this.shootPreviewWeapon(attacker, target);
+    return weapon ? { attacker, target, weapon } : null;
+  }
+
+  /** "N of M models can fire" for the previewed weapon and target; empty when nothing is being aimed. */
+  private aimChipText(): string {
+    const preview = this.shootPreview();
+    if (!preview || !this.state) return '';
+    const aim = squadAim(this.state, preview.attacker, preview.target, preview.weapon);
+    if (aim.shooterCount <= 1) return '';
+    return `${aim.firingCount} of ${aim.shooterCount} models can fire (${preview.weapon.name})`;
+  }
+
+  private aimChipHtml(): string {
+    const text = this.aimChipText();
+    return `<div class="sl-hud-aim-chip" style="display: ${
+      text ? 'block' : 'none'
+    }; background: rgba(255, 112, 67, 0.18); border: 1px solid #ff7043; color: #ffab91; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;">${text}</div>`;
+  }
+
+  private updateAimChip(): void {
+    const el = this.root.querySelector('.sl-hud-aim-chip') as HTMLElement | null;
+    if (!el) return;
+    const text = this.aimChipText();
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  /** Aim lines per attacker model (and the aimed-at target model) for the shooting preview. */
+  private computeAimLines(): AimLinesMarker | null {
+    const preview = this.shootPreview();
+    if (!preview || !this.state) return null;
+    const aim = squadAim(this.state, preview.attacker, preview.target, preview.weapon, this.hoveredModelId ?? undefined);
+    return {
+      lines: aim.aims.map((a) => ({ from: a.from, to: a.to, fires: a.fires })),
+      ...(aim.aimedModel ? { aimedModel: aim.aimedModel } : {}),
+    };
   }
 
   private renderTerrainDebugCard(): string {
@@ -2901,7 +3433,13 @@ export class GameHUD {
           <div class="sl-hud-datacard-header">
             <span class="sl-hud-datacard-name">Shooting Ray Debug (F9)</span>
             <span class="sl-hud-datacard-meta">${shooterName} ➔ ${targetName} (${ray.distance.toFixed(1)}")</span>
-            <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}</span>
+            <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}${
+              ray.modelRays
+                ? ` · <span style="color:#ffab91;">${ray.firingCount ?? 0} of ${ray.shooterCount ?? 0} models fire · ${
+                    ray.coveredModelCount ?? 0
+                  }/${ray.targetModelCount ?? 0} target models in cover</span>`
+                : ''
+            }</span>
           </div>
           <div class="sl-hud-datacard-tables">
             <table class="sl-hud-table">
@@ -3122,9 +3660,17 @@ export class GameHUD {
             }
             break;
           }
+          case 'confirm-squad-move':
+            if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
+              this.finishSquadMove(this.flow.action);
+            } else if (this.isSquadChargeFlow) {
+              this.finishSquadMove('charge');
+            }
+            break;
           case 'reset-squad-move':
             this.stagedSquadModelPositions.clear();
             this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
             this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
             this.moveJump = null;
@@ -3161,7 +3707,9 @@ export class GameHUD {
           case 'end-activation': {
             this.beginConfirmation(
               createAction(this.localPlayerId, 'end-activation', { type: 'end-activation' }),
-              `End ${this.activeUnit?.name ?? 'the'} activation`
+              this.declaredCharge
+                ? `Abandon the charge and end ${this.activeUnit?.name ?? 'the'} activation: no melee`
+                : `End ${this.activeUnit?.name ?? 'the'} activation`
             );
             break;
           }
@@ -3260,6 +3808,7 @@ export class GameHUD {
       outcome,
       debugActive: this.terrainDebugEnabled,
       shootingDebugRay,
+      aimLines: this.computeAimLines(),
       deploymentZones: null,
     };
 
@@ -3325,6 +3874,7 @@ export class GameHUD {
         (this.flow.action.type === 'move-unit' ||
           this.flow.action.type === 'rush' ||
           this.flow.action.type === 'charge' ||
+          this.flow.action.type === 'charge-leg' ||
           this.flow.action.type === 'consolidate-move') &&
         payload.path &&
         payload.path.length >= 2
@@ -3377,7 +3927,14 @@ export class GameHUD {
                   )
                 ).sort((a, b) => a - b)
               : undefined;
-          markers.attackRange = { unitId: active.id, range: maxRange, concentricRanges };
+          // Shooting range is measured from the shooter's base edge, so the ring sits one base radius out
+          // from the model centre and shows where an enemy base edge can be.
+          const ringPad = attackAction === 'shoot' ? baseRadius(active) : 0;
+          markers.attackRange = {
+            unitId: active.id,
+            range: maxRange + ringPad,
+            concentricRanges: concentricRanges?.map((r) => r + ringPad),
+          };
         }
         const reachable = this.reachableEnemies(active, attackAction);
         const targetedIds = new Set(
@@ -3420,7 +3977,7 @@ export class GameHUD {
           };
         }
       }
-    } else if ((isMoveMode || isRushMode) && this.activeUnit) {
+    } else if ((isMoveMode || isRushMode || this.isSquadChargeFlow) && this.activeUnit) {
       markers.movementRangeUnitId = this.activeUnit.id;
       if (isRushMode) {
         const remainingRush = this.activeUnit.isRushing
@@ -3493,8 +4050,8 @@ export class GameHUD {
       );
     }
     if (action === 'charge') {
-      // Charge moves up to double speed (12") to reach engagement range of target.
-      return unit.speed * 2;
+      // Charge moves up to double speed (12") to reach engagement range of target; after legs, what is left.
+      return this.declaredCharge ? unit.remainingMovement : unit.speed * 2;
     }
     return 1.5;
   }
@@ -3502,46 +4059,39 @@ export class GameHUD {
   /** All living enemy units within max range and Line of Sight of the given action. */
   private reachableEnemies(unit: Unit, action: 'shoot' | 'charge' | 'fight'): Unit[] {
     if (!this.state) return [];
+    const declared = action === 'charge' ? this.declaredCharge : null;
+    if (declared) {
+      // A declared charge is locked to its target
+      return this.state.units.filter((u) => u.id === declared.targetId && !u.isDestroyed);
+    }
     const limit = this.actionMaxRange(unit, action);
     return this.state.units.filter((candidate) => {
       if (candidate.ownerId === this.localPlayerId || candidate.isDestroyed) return false;
-      const distance = Math.hypot(
-        candidate.position.x - unit.position.x,
-        candidate.position.z - unit.position.z
-      );
-      if (distance > limit + 0.01) return false;
       if (action === 'shoot') {
         const weaponToCheck = this.selectedShootWeaponId
           ? unit.weapons.find((w) => w.id === this.selectedShootWeaponId)
           : null;
         if (weaponToCheck && weaponToCheck.profile.type === 'ranged') {
-          if (distance > weaponToCheck.profile.range + 0.01) return false;
-          if (hasTrait(weaponToCheck.profile.specialRules, 'lobbed')) return true;
-          return hasLineOfSight(this.state!, unit, candidate);
+          return firingModels(this.state!, unit, candidate, weaponToCheck).length > 0;
         }
         const rangedWeapons = unit.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
-        return rangedWeapons.some((w) => {
-          if (distance > w.profile.range + 0.01) return false;
-          if (hasTrait(w.profile.specialRules, 'lobbed')) return true;
-          return hasLineOfSight(this.state!, unit, candidate);
-        });
+        return rangedWeapons.some((w) => firingModels(this.state!, unit, candidate, w).length > 0);
       }
+      const distance = unitDistance(unit, candidate);
+      // A charge is refined by the pathfinder below; melee uses the engagement gap.
+      if (distance > (action === 'fight' ? ENGAGEMENT_EDGE_GAP : limit) + 0.01) return false;
       if (action === 'charge') {
         // Verify pathfinder reaches within engagement range under double speed
-        const dx = unit.position.x - candidate.position.x;
-        const dz = unit.position.z - candidate.position.z;
-        const len = Math.hypot(dx, dz) || 1;
-        const contactTarget = {
-          x: candidate.position.x + (dx / len) * 0.9,
-          y: 0,
-          z: candidate.position.z + (dz / len) * 0.9,
-        };
+        const contactTarget = chargeDestination(unit, candidate);
         const path = findNavPath(this.state!, unit, contactTarget, unit.speed * 2, {
           ignoreUnitId: candidate.id,
+          keepAway: true,
         });
         const end = path[path.length - 1];
-        const distToEnd = Math.hypot(end.x - candidate.position.x, end.z - candidate.position.z);
-        return distToEnd <= 1.25 && pathLength(path) <= unit.speed * 2 + 0.01;
+        return (
+          chargeContact(unit, candidate, end, MELEE_MAX_VERTICAL_REACH) === 'ok' &&
+          pathLength(path) <= unit.speed * 2 + 0.01
+        );
       }
       return true;
     });

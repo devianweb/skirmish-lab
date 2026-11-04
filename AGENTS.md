@@ -101,6 +101,8 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - Rules logic lives in `shared/src/engine/` as pure functions over `GameState` — test it in the shared workspace; the client's `GameManager` orchestration (dice requests, broadcast, rejection) is tested in the client workspace with injected dice providers
 - Renderer tests use real Three.js scene classes, which run headless (node environment) for pure scene logic (board/unit/model/game-view); DOM- or WebGL-dependent components use the `jsdom` environment (via `@vitest-environment jsdom` docblock) with `three`'s `WebGLRenderer` mocked
 
+- Rules measure per model (batch 1D): test fixtures that move `unit.position` must also move `unit.models[*].position` (see the `syncModels` helper in `client/tests/ui/GameHUD.test.ts`). Squad payloads pass `modelPositions` / `modelPaths` / `modelTraversals` in living-model order, and per-model dice use `m<index>_` purpose tags (e.g. `m1_gap_jump`).
+
 ## Testing Philosophy
 - **Test behavior, not structure.** Don't test that methods exist or types compile - TypeScript handles that.
 - **Test logic you wrote.** Focus on custom logic: message routing, state transitions, validation, timeouts, error handling.

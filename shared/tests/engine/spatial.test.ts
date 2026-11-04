@@ -68,13 +68,13 @@ function makeWall(id: string, position: Vector3, blocksLineOfSight = true): Terr
   };
 }
 
-function makeCrate(id: string, position: Vector3): TerrainPiece {
+function makeCrate(id: string, position: Vector3, height = 1): TerrainPiece {
   return {
     id,
     terrainType: 'crate',
     position,
     rotation: { x: 0, y: 0, z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
+    scale: { x: 1, y: height, z: 1 },
     blocksLineOfSight: false,
     providesCover: true,
     isObstacle: true,
@@ -480,9 +480,9 @@ describe('spatial: findNavPath obstacle pathfinding', () => {
     expect(path[1]).toEqual({ x: 0, y: 0, z: 4 });
   });
 
-  it('navigates around an obstacle crate to reach the destination behind it', () => {
+  it('navigates around a tall (2") block to reach the destination behind it', () => {
     const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
-    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 }, 2); // taller than 1": can't be stepped over
     const state = makeState([unit], [crate]);
 
     // Destination is directly behind crate at (0, 0, 6)
@@ -498,7 +498,7 @@ describe('spatial: findNavPath obstacle pathfinding', () => {
 
   it('clamps path along polyline when destination exceeds max movement', () => {
     const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
-    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 });
+    const crate = makeCrate('c1', { x: 0, y: 0, z: 3 }, 2); // taller than 1": can't be stepped over
     const state = makeState([unit], [crate]);
 
     // Only 3" of movement allowed
@@ -533,7 +533,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         { x: 2.5, y: 0, z: 0 },
       ]);
       expect(res.coherent).toBe(false);
-      expect(res.reason).toContain('exceeds 2" limit');
+      expect(res.reason).toContain('exceeds 1" limit');
     });
 
     it('validates 3 models in triangle formation where all pairs are within coherency', () => {
@@ -552,7 +552,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       const res = validateSquadCoherency(positions);
       expect(res.coherent).toBe(false);
       expect(res.reason).toContain('Model 3');
-      expect(res.reason).toContain('exceeds 2" limit');
+      expect(res.reason).toContain('exceeds 1" limit');
     });
 
     it('validates formation split into 2 buddy pairs within 6" total spread', () => {
@@ -568,15 +568,69 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       expect(res.maxDistanceToNearestMember).toBeCloseTo(0.5, 2);
     });
 
+    it('squad spread is 6" edge to edge: centre 6.9" is coherent, 7.1" is not', () => {
+      const chain = (end: number): Vector3[] => [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 4, y: 0, z: 0 },
+        { x: end - 2, y: 0, z: 0 },
+        { x: end, y: 0, z: 0 },
+      ];
+      expect(validateSquadCoherency(chain(6.9)).coherent).toBe(true);
+      const bad = validateSquadCoherency(chain(7.1));
+      expect(bad.coherent).toBe(false);
+      expect(bad.reason).toContain('exceeds max coherency limit of 6"');
+    });
+
+    it('same-level link is a 1" edge gap: centre 2.0" links, 2.1" does not', () => {
+      expect(validateSquadCoherency([{ x: 0, y: 0, z: 0 }, { x: 2.0, y: 0, z: 0 }]).coherent).toBe(true);
+      expect(validateSquadCoherency([{ x: 0, y: 0, z: 0 }, { x: 2.1, y: 0, z: 0 }]).coherent).toBe(false);
+    });
+
     it('rejects long daisy chain exceeding 6" max squad spread', () => {
-      // 8 models in a straight line with 0.9" spacing (total spread 7 * 0.9 = 6.3" > 6.0")
+      // 8 models in a straight line with 1.1" spacing (centre spread 7 * 1.1 = 7.7", edge spread 6.7" > 6")
       const positions: Vector3[] = [];
       for (let i = 0; i < 8; i++) {
-        positions.push({ x: i * 0.9, y: 0, z: 0 });
+        positions.push({ x: i * 1.1, y: 0, z: 0 });
       }
       const res = validateSquadCoherency(positions);
       expect(res.coherent).toBe(false);
       expect(res.reason).toContain('exceeds max coherency limit of 6"');
+    });
+  });
+
+  describe('validateSquadCoherency: split levels (Decision 10)', () => {
+    const deck = (x: number): Vector3 => ({ x, y: 3.0, z: 0 });
+    const ground = (x: number): Vector3 => ({ x, y: 0, z: 0 });
+
+    it('deck + ground 3.5" apart horizontally is coherent', () => {
+      expect(validateSquadCoherency([deck(0), ground(3.5)]).coherent).toBe(true);
+    });
+    it('the same 3.5" on one level is not coherent', () => {
+      const res = validateSquadCoherency([ground(0), ground(3.5)]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds 1" limit');
+    });
+    it('exactly 4.0" across levels is coherent, 4.5" is not', () => {
+      expect(validateSquadCoherency([deck(0), ground(4.0)]).coherent).toBe(true);
+      const res = validateSquadCoherency([deck(0), ground(4.5)]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds 3" limit');
+    });
+    it('height difference of 0.5" or less counts as the same level', () => {
+      expect(validateSquadCoherency([ground(0), { x: 3.5, y: 0.5, z: 0 }]).coherent).toBe(false);
+      expect(validateSquadCoherency([ground(0), { x: 3.5, y: 0.6, z: 0 }]).coherent).toBe(true);
+    });
+    it('6" whole-squad spread still applies across levels', () => {
+      const res = validateSquadCoherency([deck(0), ground(3.5), { x: 7.5, y: 3.0, z: 0 }]);
+      expect(res.coherent).toBe(false);
+      expect(res.reason).toContain('exceeds max coherency limit of 6"');
+    });
+    it('chains with mixed levels link each model to at least one other', () => {
+      // deck(0) - ground(3.5) - ground(5.0) : middle model links both ways
+      expect(validateSquadCoherency([deck(0), ground(3.5), ground(5.0)]).coherent).toBe(true);
+      // the far ground model is 5.5 from the deck and 2.5 from its same-level buddy: isolated
+      expect(validateSquadCoherency([deck(0), ground(3.5), ground(6.0)]).coherent).toBe(false);
     });
   });
 
@@ -664,7 +718,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       ];
       const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 3 }, incoherent);
       expect(result.valid).toBe(false);
-      expect(result.reason).toContain('exceeds 2" limit');
+      expect(result.reason).toContain('exceeds 1" limit');
     });
 
     it('rejects formation move if a model ends outside the battlefield', () => {

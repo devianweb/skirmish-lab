@@ -70,6 +70,14 @@ interface TurnState {
   activeUnitId?: string | null; // Unit currently mid-activation (schema 2.1.0)
   roundStartTime?: number;
   pendingReaction?: PendingReaction | null; // Active reaction prompt awaiting player decision
+  charge?: ChargeState | null; // Declared split charge in progress (batch 1D PR 16); cleared by the final charge, a fall or the end of the activation
+}
+
+/** A charge declared on a target and made in legs. The budget is the unit's remainingMovement. */
+interface ChargeState {
+  unitId: string;   // the charging (active) unit
+  targetId: string; // locked target
+  legs: number;     // legs made so far
 }
 
 interface PendingReaction {
@@ -129,7 +137,7 @@ interface Unit {
   speed: number;            // Movement allowance in inches
   
   // Position & Orientation
-  position: Vector3;         // {x, y, z}
+  position: Vector3;         // {x, y, z} display/anchor point only (squad centroid); rules measure per model via models[].position
   rotation: Vector3;         // {x, y, z} in radians
   
   // Status
@@ -243,7 +251,7 @@ interface TerrainGroup {                       // bundle of solids, apertures an
 - `resolveTerrainStructure(piece)` (`shared/src/engine/terrainStructure.ts`) flattens a piece's `structure` (or the catalog definition for its `terrainType`, or a single solid body as a fallback) into inch-sized boxes in the piece's local frame; groups nest and can be offset.
 - Catalog: `wall-short`, `wall`, `wall-long` (1, 2 and 3 identical 2" wall segments, so any length is just more segments), `column`, `wall-window` (two jambs, sill, lintel + one aperture, the same port-wall helper the ruin uses), `wall-doorway` (two jambs + lintel, **no aperture**: open air), `ruin` / `ruin-l` (a group of two port walls; the courtyard is empty space).
 - **Elevation (13.6C):** a solid with `walkable: true` is a floor; its top face (`piece.position.y + maxY`) is where models stand (`getWalkableSurfaces` / `findWalkableSurfaceAt`). Decks are 0.25" thick with their top at the 3.0" floor tier (`FLOOR_TIER`). Catalog: `platform-small` (4"×4") and `platform-large` (6"×4") are a deck on four 0.5" corner pillars; `catwalk` (6"×2") is a bare deck; `support-pillar` is the same pillar as a standalone piece; `ruin-l` has an L-shaped walkable ledge at 3.0". Legacy pieces flagged `isWalkable`/`elevation` still expose their whole footprint as a floor.
-- **Low cover & scatter (13.6D):** `barricade` (3"×0.5"), `crate` (1"×0.75"), `industrial-pipe` (4"×0.75") are single-solid low cover that does not block sight (the piece's `blocksLineOfSight` is false); `shipping-container` (5"×2.25"×2.25") is a sight blocker whose body is a walkable floor (roof at 2.25"). Any non-floor piece (barricade, crate, wall) stacks on a deck, so there are no deck-specific rails or parapets.
+- **Low cover & scatter (13.6D):** `barricade` (3"×0.5"), `crate` (1"×0.75"), `industrial-pipe` (4"×0.75") are single-solid low cover that does not block sight (the piece's `blocksLineOfSight` is false) and can be stepped over by moving models (every solid is 1" or less above its floor, `isStepOverPiece`; they still can't be ended on); `shipping-container` (5"×2.25"×2.25") is a sight blocker whose body is a walkable floor (roof at 2.25"). Any non-floor piece (barricade, crate, wall) stacks on a deck, so there are no deck-specific rails or parapets.
 - Lintels are ordinary solids that sit above head height, so they block sight but not movement beneath them. Heights come from the boxes, not special cases.
 - Piece state stays serializable: a stored piece only needs its `terrainType` (plus an optional `structure`).
 
@@ -278,6 +286,8 @@ type ActionType =
   | 'move-unit'
   | 'rush'
   | 'shoot'
+  | 'begin-charge'   // Declare a charge on a target (split charge)
+  | 'charge-leg'     // One leg of a declared charge (safe path or declared jump)
   | 'charge'
   | 'fight'
   | 'respond-reaction' // Reaction choice submitted by player
@@ -311,8 +321,10 @@ interface DeclaredTraversal {
 
 type ActionPayload =
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal }
-  | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal }
+  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model
+  | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
   | {
       type: 'shoot';
       attackerId: string;
@@ -320,7 +332,14 @@ type ActionPayload =
       weaponId?: string;
       allocations?: WeaponAllocation[];
     }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], traversal?: DeclaredTraversal }
+  | { type: 'begin-charge', attackerId: string, targetId: string }
+  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+  // Squad charges (more than one living model) send modelPositions (one per living model, model order),
+  // modelPaths (per model, from its current spot) and modelTraversals (a declared jump per model, or null);
+  // `path` is then only a summary. Single-model units keep the plain `path` and `traversal`.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }

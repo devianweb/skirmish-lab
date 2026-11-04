@@ -50,8 +50,8 @@ The default testing map layout is defined in [`shared/src/data/scenario.ts`](../
 | `terrain-wall-north` | North Solid Wall | `wall` | Procedural Wall Block | `(0, 0, 8)` | `4.0 × 2.0 × 0.5` | Solid wall: 100% LoS obstruction & movement blocking. |
 | `terrain-wall-south` | South Window Wall | `wall-window` | Procedural Wall Block | `(0, 0, -8)` | `4.0 × 2.0 × 0.5` | Window wall: blocks movement, 1.0" center aperture grants Cover (+1 Def). |
 | `terrain-door-east` | East Doorway Wall | `wall-doorway` | Procedural Wall Block | `(8, 0, 0)` | `4.0 × 2.0 × 0.5` | Doorway wall: 1.0" center doorway permits model passage and clear LoS. |
-| `terrain-crate-sw` | SW Low Crate | `crate` | Procedural Crate Block | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
-| `terrain-crate-ne` | NE Low Crate | `crate` | Procedural Crate Block | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: blocks movement; defenders within 1.0" gain +1 Defense. |
+| `terrain-crate-sw` | SW Low Crate | `crate` | Procedural Crate Block | `(-5, 0, -4)` | `1.0 × 1.0 × 1.0` | Low cover: stepped over when moving (can't end on it); defenders within 1.0" gain +1 Defense. |
+| `terrain-crate-ne` | NE Low Crate | `crate` | Procedural Crate Block | `(5, 0, 4)` | `1.0 × 1.0 × 1.0` | Low cover: stepped over when moving (can't end on it); defenders within 1.0" gain +1 Defense. |
 | `terrain-col-nw` | NW Column | `column` | Procedural Pillar | `(-8, 0, 6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
 | `terrain-col-se` | SE Column | `column` | Procedural Pillar | `(8, 0, -6)` | `1.0 × 2.5 × 1.0` | Architectural column: solid sight-blocker and movement obstruction. |
 | `terrain-platform-west` | West Overlook Platform | `platform` | Procedural Deck Platform | `(-9, 2.5, -2)` | `3.5 × 0.3 × 3.5` | Legacy walkable elevation ($y = 2.5″$); new platforms use the 3.0" deck structures (`platform-small`, `platform-large`). |
@@ -94,6 +94,7 @@ Rendered dynamically by [`client/src/renderer/MarkerRenderer.ts`](../client/src/
 | **Unit Selection** | `indicator-round-b.glb` | Unit $y + 0.02″$ | Blue (`0x29b6f6`) rotating glow ring | Active unit, selected unit, or hovered friendly unit |
 | **Target Indicator** | `indicator-round-b.glb` | Unit $y + 0.02″$ | Red (`0xff5252`) rotating glow ring | Hovered enemy target or selected attack target |
 | **Reachable Targets** | `indicator-round-b.glb` | Unit $y + 0.018″$ | Dark Red (`0x8e2424`) flat rings | All enemy units currently within range of selected weapon/charge |
+| **Aim Lines** | Procedural `LineBasicMaterial` + flat ring | Eye height ($y + 1.1″$); ring at model $y + 0.03″$ | Orange (`0xff7043`) line per firing attacker model to its target model; faint red (`0xef5350`, 30%) for a model that cannot fire; yellow (`0xffeb3b`) ring under the aimed-at target model | Shoot targeting with an enemy hovered, and while confirming a shot (F9 adds cyan per-model rays) |
 | **Movement Range** | Procedural `RingGeometry` | Unit $y + 0.03″$ | Blue (`0x29b6f6`), constant 0.08" thickness | Hovering or preparing Move / Rush action |
 | **Line-of-Sight Fan** | Procedural `los-shadow-fan` | Ground $y + 0.01″$ | Semi-transparent dark red (`0xb71c1c`) | Hovering or preparing Shoot / Charge action |
 | **Move Path Preview** | Procedural `LineBasicMaterial` | Interpolated 3D $y$ | Orange/Cyan path line with waypoint dot rings and terminal destination disc | Dragging or picking destination for Move, Rush, or Charge |

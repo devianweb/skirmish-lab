@@ -11,6 +11,7 @@ import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { hasTrait } from '../rules/traits';
 import { MoraleTestOutcome, resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
+import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -88,29 +89,15 @@ export function isUnitInObjectiveRange(unit: Unit, obj: Objective): boolean {
     return false;
   }
   const objY = obj.position.y ?? 0;
-  // If unit position is within range, it counts
-  const uDist = Math.hypot(unit.position.x - obj.position.x, unit.position.z - obj.position.z);
-  const uDelta = Math.abs((unit.position.y ?? 0) - objY);
-  if (
-    uDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
-    uDelta <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001
-  ) {
-    return true;
-  }
-  // Also check if any constituent model in a multi-model squad is within range
+  const inRange = (pos: Vector3): boolean =>
+    markerGap(pos, obj.position, baseRadius(unit)) <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
+    Math.abs((pos.y ?? 0) - objY) <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001;
+  // Squads: every living model is checked on its own base edge. The unit anchor
+  // (centroid) is only a display point and never counts for a multi-model unit.
   if (unit.models && unit.models.length > 1) {
-    const livingModels = unit.models.filter((m) => !m.isDestroyed);
-    return livingModels.some((m) => {
-      const pos = m.position ?? unit.position;
-      const hDist = Math.hypot(pos.x - obj.position.x, pos.z - obj.position.z);
-      const vDelta = Math.abs((pos.y ?? 0) - objY);
-      return (
-        hDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
-        vDelta <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001
-      );
-    });
+    return unit.models.some((m) => !m.isDestroyed && inRange(m.position ?? unit.position));
   }
-  return false;
+  return inRange(unit.position);
 }
 
 export function evaluateObjectives(state: GameState): void {
@@ -258,7 +245,7 @@ export function applyRoundEndMorale(
         !c.status.includes('stunned') &&
         !c.status.includes('routed') &&
         hasTrait(c.specialRules, 'commander') &&
-        Math.hypot(c.position.x - unit.position.x, c.position.z - unit.position.z) <= 12.01
+        unitDistance(c, unit) <= 12.01
     );
     const commanderQuality =
       commanders.length > 0
@@ -440,8 +427,8 @@ export function validateDeploymentPosition(
     if (other.ownerId === unit.ownerId || other.isDestroyed || other.isDeployed === false) {
       continue;
     }
-    const dist = Math.hypot(position.x - other.position.x, position.z - other.position.z);
-    if (dist <= 1.0) {
+    const dist = gapToUnit(position, other);
+    if (dist <= ENEMY_KEEP_AWAY_GAP) {
       return { valid: false, reason: 'Cannot deploy within 1" of enemy models' };
     }
   }

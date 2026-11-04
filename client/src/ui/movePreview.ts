@@ -172,7 +172,7 @@ export interface MoveTarget {
 
 /**
  * Snap the cursor to an edge, then ask the engine whether a jump (or fall) can be declared from `from`.
- * `allowJump` is false for squads: the host does not accept a declared traversal for a multi-model move yet.
+ * `allowJump` is true for single models and squad models alike (each model declares its own jump).
  */
 export function resolveMoveTarget(
   state: GameState,
