@@ -1886,6 +1886,66 @@ describe('GameHUD', () => {
       expect(lastMarkers?.squadCoherency).toBeUndefined();
     });
 
+    describe('confirm a squad move before every model has moved', () => {
+      function fourModelSquad() {
+        const state = scenarioState();
+        const squad = state.units.find((u) => u.ownerId === HOST)!;
+        squad.name = 'Warden Patrol Squad';
+        squad.position = { x: 0.5, y: 0, z: -4.5 };
+        squad.speed = 6;
+        squad.remainingMovement = 6;
+        const mk = (id: string, x: number, z: number) => ({
+          id, wounds: 1, maxWounds: 1, isDestroyed: false, position: { x, y: 0, z }, rotation: { x: 0, y: 0, z: 0 },
+        });
+        squad.models = [mk('m1', 0, -5), mk('m2', 1, -5), mk('m3', 0, -4), mk('m4', 1, -4)];
+        activateUnit(state, HOST, squad.id);
+        return { state, squad };
+      }
+
+      it('offers Confirm move after the first staged model and keeps unplaced models in place', () => {
+        const { state } = fourModelSquad();
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        expect(container.querySelector('[data-action="confirm-squad-move"]')).toBeNull();
+
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -6 } });
+        const btn = container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]');
+        expect(btn).toBeTruthy();
+
+        btn!.click();
+        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+        clickByText(container, 'Confirm');
+        expect(controller.submitAction).toHaveBeenCalledTimes(1);
+        const action = controller.submitAction.mock.calls[0][0];
+        expect(action.type).toBe('move-unit');
+        expect(action.payload.modelPositions).toHaveLength(4);
+        expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -6 });
+        expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -5 });
+        expect(action.payload.modelPaths[1]).toEqual([{ x: 1, y: 0, z: -5 }]);
+        expect(action.payload.modelPaths[3]).toEqual([{ x: 1, y: 0, z: -4 }]);
+      });
+
+      it('refuses to confirm early when the unmoved models would leave the squad incoherent', () => {
+        const { state } = fourModelSquad();
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -9 } });
+        container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]')!.click();
+        expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/1"|coherency/i);
+        expect(container.textContent).not.toContain('Move Warden Patrol Squad (4 models)');
+        expect(controller.submitAction).not.toHaveBeenCalled();
+      });
+
+      it('disables Hold and shows a hint when the squad starts out of coherency', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 6, y: 0, z: -4 };
+        const { container } = setup(HOST, state);
+        const hold = container.querySelector<HTMLButtonElement>('[data-action="hold"]')!;
+        expect(hold.disabled).toBe(true);
+        expect(container.textContent).toContain('Squad is out of coherency');
+      });
+    });
+
     it('multiplies attack dice by living models count in shoot confirmation summary', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;

@@ -89,29 +89,15 @@ export function isUnitInObjectiveRange(unit: Unit, obj: Objective): boolean {
     return false;
   }
   const objY = obj.position.y ?? 0;
-  // If unit position is within range, it counts
-  const uDist = markerGap(unit.position, obj.position, baseRadius(unit));
-  const uDelta = Math.abs((unit.position.y ?? 0) - objY);
-  if (
-    uDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
-    uDelta <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001
-  ) {
-    return true;
-  }
-  // Also check if any constituent model in a multi-model squad is within range
+  const inRange = (pos: Vector3): boolean =>
+    markerGap(pos, obj.position, baseRadius(unit)) <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
+    Math.abs((pos.y ?? 0) - objY) <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001;
+  // Squads: every living model is checked on its own base edge. The unit anchor
+  // (centroid) is only a display point and never counts for a multi-model unit.
   if (unit.models && unit.models.length > 1) {
-    const livingModels = unit.models.filter((m) => !m.isDestroyed);
-    return livingModels.some((m) => {
-      const pos = m.position ?? unit.position;
-      const hDist = markerGap(pos, obj.position, baseRadius(unit));
-      const vDelta = Math.abs((pos.y ?? 0) - objY);
-      return (
-        hDist <= OBJECTIVE_CONTROL_RADIUS + 0.001 &&
-        vDelta <= OBJECTIVE_CONTROL_MAX_VERTICAL + 0.001
-      );
-    });
+    return unit.models.some((m) => !m.isDestroyed && inRange(m.position ?? unit.position));
   }
-  return false;
+  return inRange(unit.position);
 }
 
 export function evaluateObjectives(state: GameState): void {
