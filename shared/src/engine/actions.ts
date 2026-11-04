@@ -71,6 +71,7 @@ import {
   allocateSquadCasualties,
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
+import type { ChargeState } from '../gameTypes';
 import { getTraitValue, hasTrait } from '../rules/traits';
 import {
   unitDistance,
@@ -79,6 +80,7 @@ import {
   unitsInContact,
   modelsWithin,
   chargeContact,
+  chargeDestination,
   strikingModelCount,
   ENGAGEMENT_EDGE_GAP,
 } from './unitGeometry';
@@ -194,6 +196,25 @@ function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | nu
   };
 }
 
+/** Action types allowed while a charge is declared (Decision 22: no undo, no switching to another action). */
+const CHARGE_LOCK_ALLOWED: string[] = ['charge-leg', 'charge', 'end-activation'];
+
+/** Full charge budget of a unit (before Difficult Terrain caps). */
+function chargeBudget(unit: Unit): number {
+  return getEffectiveMaxMovement(unit, 'charge', false);
+}
+
+/** The declared charge belonging to this unit, if any. */
+function declaredCharge(state: GameState, unitId: string): ChargeState | null {
+  const c = state.turnState.charge;
+  return c && c.unitId === unitId ? c : null;
+}
+
+/** Charge movement already spent this activation (budget minus what is left). */
+function chargeSpent(unit: Unit): number {
+  return Math.max(0, chargeBudget(unit) - unit.remainingMovement);
+}
+
 export function validateAction(state: GameState, action: GameAction): ValidationResult {
   if (state.status === 'game-over') {
     return { valid: false, reason: 'Game is over' };
@@ -212,6 +233,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
   }
   if (state.status !== 'in-progress' && state.status !== 'setting-up') {
     return { valid: false, reason: `Game is ${state.status}` };
+  }
+  // A declared charge can't be undone or turned into another action: legs, the final charge, or abandoning it.
+  if (
+    state.turnState.charge &&
+    !state.turnState.pendingReaction &&
+    !CHARGE_LOCK_ALLOWED.includes(action.type)
+  ) {
+    return {
+      valid: false,
+      reason: 'A charge is declared: make a charge leg, finish it on the target, or end the activation',
+    };
   }
 
   switch (action.type) {
@@ -566,6 +598,97 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return { valid: true };
     }
 
+    case 'begin-charge': {
+      const { attackerId, targetId } = action.payload as { attackerId: string; targetId: string };
+      const attacker = requireActiveUnit(state, action.actorId, attackerId);
+      if ('reason' in attacker) return attacker;
+      if (state.turnState.charge) {
+        return { valid: false, reason: 'A charge is already declared' };
+      }
+      if (hasTrait(attacker.result.specialRules, 'stationary')) {
+        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      }
+      if (attacker.result.hasMoved || attacker.result.hasAttacked) {
+        return { valid: false, reason: 'Unit has already moved or attacked this activation' };
+      }
+      if (isEngaged(attacker.result)) {
+        return { valid: false, reason: 'Already engaged — fight instead' };
+      }
+      const target = requireTarget(state, action.actorId, targetId);
+      if ('reason' in target) return target;
+      if (!attacker.result.weapons.some((w) => w.isEquipped && w.profile.type === 'melee')) {
+        return { valid: false, reason: 'No equipped melee weapon for charge strike' };
+      }
+      // The target must be within charge reach at the start (straight line to base contact; a lower bound
+      // on any real path, so legs can then only get closer or fail).
+      const contactSpot = chargeDestination(attacker.result, target.result);
+      if (boardDistance(attacker.result.position, contactSpot) > chargeBudget(attacker.result) + 0.01) {
+        return { valid: false, reason: 'Target out of charge range' };
+      }
+      return { valid: true };
+    }
+
+    case 'charge-leg': {
+      const { attackerId, path, traversal } = action.payload as {
+        attackerId: string;
+        path: Vector3[];
+        traversal?: DeclaredTraversal;
+      };
+      const attacker = requireActiveUnit(state, action.actorId, attackerId);
+      if ('reason' in attacker) return attacker;
+      const unit = attacker.result;
+      const charge = declaredCharge(state, unit.id);
+      if (!charge) return { valid: false, reason: 'No charge is declared' };
+      const target = getUnit(state, charge.targetId);
+      if (!target || target.isDestroyed) return { valid: false, reason: 'Charge target is gone' };
+      if (isEngaged(unit)) return { valid: false, reason: 'Already engaged — fight instead' };
+      if (unit.remainingMovement <= 0.01) {
+        return { valid: false, reason: 'No charge movement left' };
+      }
+      if (!path || path.length < 2) return { valid: false, reason: 'Charge leg path is empty' };
+      if (boardDistance(path[0], unit.position) > 0.01) {
+        return { valid: false, reason: 'Charge leg must start at the unit position' };
+      }
+      const end = path[path.length - 1];
+      const isDifficult = isPathDifficult(state, path, unit);
+      const distance = pathMovementCost(state, path, unit);
+      const cap = getEffectiveMaxMovement(unit, 'charge', isDifficult);
+      if (distance > unit.remainingMovement + 0.01 || chargeSpent(unit) + distance > cap + 0.01) {
+        return {
+          valid: false,
+          reason: isDifficult && cap === 6.0
+            ? 'Charge in Difficult Terrain is capped at 6.0" (speed bonus negated)'
+            : 'Charge leg exceeds the remaining charge movement',
+        };
+      }
+      for (const point of path) {
+        if (!isWithinBoard(state, point)) return { valid: false, reason: 'Move leaves the board' };
+      }
+      // Keep-away applies to every unit except the declared target, which may be approached into contact.
+      const blocker = findMoveBlocker(state, unit, path, { ignoreUnitId: target.id, keepAway: true });
+      if (blocker.blocked) return { valid: false, reason: blocker.reason };
+      if (detectPathGapJump(state, path, unit).tooWide) {
+        return { valid: false, reason: 'Gap is too wide to jump (6" maximum)' };
+      }
+      const legJumpProblem = validateDeclaredTraversal(state, unit, path, traversal);
+      if (legJumpProblem) return { valid: false, reason: legJumpProblem };
+      if (isSuspendedInMidAir(state, end)) {
+        return { valid: false, reason: 'Models cannot end movement suspended in mid-air — stop at an edge or reach a floor' };
+      }
+      if (isBaseOverhanging(state, end)) return { valid: false, reason: OVERHANG_REASON };
+      for (const piece of state.terrain) {
+        if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
+          return {
+            valid: false,
+            reason: 'Models cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot',
+          };
+        }
+      }
+      const legOverlap = findEndOverlap(state, unit.id, end);
+      if (legOverlap) return { valid: false, reason: describeEndOverlap(legOverlap) };
+      return { valid: true };
+    }
+
     case 'charge': {
       const { attackerId, targetId, path, weaponId } = action.payload as {
         attackerId: string;
@@ -575,10 +698,14 @@ export function validateAction(state: GameState, action: GameAction): Validation
       };
       const attacker = requireActiveUnit(state, action.actorId, attackerId);
       if ('reason' in attacker) return attacker;
+      const legs = declaredCharge(state, attackerId);
+      if (legs && legs.targetId !== targetId) {
+        return { valid: false, reason: 'The declared charge is locked to its target' };
+      }
       if (hasTrait(attacker.result.specialRules, 'stationary')) {
         return { valid: false, reason: 'Stationary units cannot move or charge' };
       }
-      if (attacker.result.hasMoved || attacker.result.hasAttacked) {
+      if ((attacker.result.hasMoved && !legs) || attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
       }
       const target = requireTarget(state, action.actorId, targetId);
@@ -596,7 +723,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const isDifficult = isPathDifficult(state, fullPath, attacker.result);
       const distance = pathMovementCost(state, fullPath, attacker.result);
       const maxCharge = getEffectiveMaxMovement(attacker.result, 'charge', isDifficult);
-      if (distance > maxCharge + 0.01) {
+      // After legs, the final move may only use what the legs left of the one charge budget
+      const spent = legs ? chargeSpent(attacker.result) : 0;
+      if (distance + spent > maxCharge + 0.01 || (legs && distance > attacker.result.remainingMovement + 0.01)) {
         return {
           valid: false,
           reason: isDifficult
@@ -1021,6 +1150,14 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     return specs.length > 0 ? specs : null;
   }
 
+  if (action.type === 'charge-leg') {
+    const payload = action.payload as { attackerId?: string; path?: Vector3[] };
+    const unit = payload.attackerId ? getUnit(state, payload.attackerId) : undefined;
+    if (!unit || !payload.path || payload.path.length === 0) return null;
+    const specs = pathTraversalSpecs(state, unit, payload.path);
+    return specs.length > 0 ? specs : null;
+  }
+
   if (action.type === 'respond-reaction') {
     const { choiceId } = action.payload as { reactionId: string; choiceId: string };
     const pending = state.turnState.pendingReaction;
@@ -1157,25 +1294,9 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   if (action.type === 'charge') {
     const chargePayload = action.payload as { path?: Vector3[] };
     if (chargePayload.path && chargePayload.path.length > 0) {
-      const traversalSpecs: DiceSpec[] = [];
-      const chargeGap = detectPathGapJump(state, chargePayload.path, attacker);
-      if (chargeGap.isGapJump) {
-        traversalSpecs.push({ count: chargeGap.dice, sides: 6, purpose: 'gap_jump' });
-      }
-      if (isPathDangerous(state, chargePayload.path, attacker)) {
-        const aliveCount = attacker.models?.filter((m) => !m.isDestroyed).length || 1;
-        traversalSpecs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
-      }
-      const fall = detectPathFall(chargePayload.path, state);
-      const dropNeedsDice = !chargeGap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(attacker.specialRules, 'airborne');
-      if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-        traversalSpecs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: 'drop_jump' });
-      }
-      const gapMayFall = chargeGap.isGapJump && (chargePayload.path[0].y ?? 0) >= FALL_DAMAGE_MIN;
-      if (dropNeedsDice || gapMayFall) {
-        traversalSpecs.push({ count: 1, sides: 6, purpose: 'falling_defense' });
-        traversalSpecs.push({ count: 1, sides: 6, purpose: 'trauma' });
-      }
+      // Jump, hazard and fall dice come from the validated path, same as a move (the declared traversal
+      // is checked to match it), so a charge and a charge leg roll identically.
+      const traversalSpecs = pathTraversalSpecs(state, attacker, chargePayload.path);
       if (traversalSpecs.length > 0) {
         return [...traversalSpecs, ...attackSpecs];
       }
@@ -2100,6 +2221,41 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'begin-charge': {
+      const { attackerId, targetId } = action.payload as { attackerId: string; targetId: string };
+      const attacker = getUnit(newState, attackerId)!;
+      // The one charge move is budgeted in remainingMovement; legs spend it
+      attacker.remainingMovement = chargeBudget(attacker);
+      newState.turnState.charge = { unitId: attackerId, targetId, legs: 0 };
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
+    case 'charge-leg': {
+      const { attackerId, path } = action.payload as { attackerId: string; path: Vector3[] };
+      const unit = getUnit(newState, attackerId)!;
+      const lastStep = path[path.length - 1];
+      const prevStep = path[path.length - 2];
+      const ldx = lastStep.x - prevStep.x;
+      const ldz = lastStep.z - prevStep.z;
+      if (Math.hypot(ldx, ldz) > 1e-4) {
+        unit.rotation = { ...unit.rotation, y: Math.atan2(ldx, ldz) };
+      }
+      const cost = pathMovementCost(state, path, unit);
+      moveChargerModels(unit, lastStep);
+      for (const m of unit.models ?? []) {
+        if (!m.isDestroyed) m.rotation = { ...unit.rotation };
+      }
+      unit.hasMoved = true;
+      unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - cost) * 100) / 100);
+      const charge = newState.turnState.charge;
+      if (charge) charge.legs += 1;
+      // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
+      applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
     case 'charge': {
       const { attackerId, targetId, path, weaponId } = action.payload as {
         attackerId: string;
@@ -2107,6 +2263,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         path: Vector3[];
         weaponId?: string;
       };
+      newState.turnState.charge = null;
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
       const end = path[path.length - 1];
@@ -2639,6 +2796,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
+  state.turnState.charge = null;
   state.turnState.phase = 'activation';
 }
 
@@ -2652,6 +2810,7 @@ function runMoraleIfProvided(state: GameState, dice?: DiceResult[]): void {
 
 function finishActivation(state: GameState, dice?: DiceResult[]): void {
   state.turnState.activeUnitId = null;
+  state.turnState.charge = null; // an unfinished declared charge is abandoned: no melee
   if (isRoundComplete(state)) {
     runMoraleIfProvided(state, dice);
   }
