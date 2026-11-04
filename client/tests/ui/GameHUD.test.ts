@@ -1508,8 +1508,8 @@ describe('GameHUD', () => {
       // Live hover info banner displayed
       const warningEl = container.querySelector('.sl-hud-move-warning') as HTMLElement;
       expect(warningEl.style.display).toBe('block');
-      expect(warningEl.textContent).toContain('Rushing to wall base');
-      expect(warningEl.textContent).toContain('Stops before sheer climb');
+      expect(warningEl.textContent).toContain("Can't reach that height from here");
+      expect(warningEl.textContent).not.toMatch(/sheer|next turn/i);
 
       // Path ends at the base of the wall (y = 0) on open ground
       const preview = (hud as any).movePathPreview;
@@ -1545,15 +1545,16 @@ describe('GameHUD', () => {
 
       // Toast feedback
       const toast = container.querySelector('.sl-hud-toast');
-      expect(toast?.textContent).toContain('Rushed to wall base (sheer climb deferred to next turn)');
+      expect(toast?.textContent).toContain("Can't reach that height from here");
 
       // Info badge in confirmation bar
       const badge = container.querySelector('.sl-hud-warning-badge');
-      expect(badge?.textContent).toContain('Rush to Obstacle');
-      expect(badge?.textContent).toContain('sheer climb / crossing deferred to next turn');
+      expect(badge?.textContent).toContain('Rush stops short');
+      expect(badge?.textContent).toContain('Rush stops short');
 
       // Summary text
-      expect(container.textContent).toContain('Stops at wall base; sheer climb deferred to next turn');
+      expect(container.textContent).toContain("[Can't reach that height from here");
+      expect(container.textContent).not.toMatch(/sheer climb|next turn/i);
 
       // Confirm submits rush action stopping at wall base
       clickByText(container, 'Confirm');

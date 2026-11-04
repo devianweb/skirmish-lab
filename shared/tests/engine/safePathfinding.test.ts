@@ -131,13 +131,14 @@ describe('classifySegment', () => {
       isObstacle: false,
     });
     const at = (gap: number) => makeState(unit, [deckAt('a', 0), deckAt('b', 4 + gap)]); // a: -2..2
-    it('a 1" gap is ordinary; 1.5" is a jump needing 1 die; 6" a jump; 7" blocked', () => {
+    it('a 1" gap is ordinary; 1.5" is a jump needing 1 die; the hop (take-off to landing) is limited to 6"', () => {
       expect(classifySegment(at(1), P(0, 3, 0), P(4, 3, 0), unit).kind).toBe('gap');
-      const j = classifySegment(at(1.5), P(0, 3, 0), P(5, 3, 0), unit);
+      const j = classifySegment(at(1.5), P(1.6, 3, 0), P(3.9, 3, 0), unit);
       expect(j).toMatchObject({ kind: 'jump-gap', dice: 1, cost: 0 });
-      expect(j.distance).toBeCloseTo(1.5, 0);
-      expect(classifySegment(at(6), P(0, 3, 0), P(10, 3, 0), unit).kind).toBe('jump-gap');
-      expect(classifySegment(at(7), P(0, 3, 0), P(11, 3, 0), unit).kind).toBe('blocked');
+      expect(j.distance).toBeCloseTo(2.3, 1);
+      expect(classifySegment(at(5), P(1.6, 3, 0), P(7.4, 3, 0), unit)).toMatchObject({ kind: 'jump-gap', dice: 2 }); // 5.8"
+      expect(classifySegment(at(5), P(0, 3, 0), P(9, 3, 0), unit).kind).toBe('blocked'); // a 9" hop, though only a 5" gap
+      expect(classifySegment(at(7), P(1.6, 3, 0), P(9.4, 3, 0), unit).kind).toBe('blocked');
     });
     it('touching decks are a plain walk', () => {
       expect(classifySegment(at(0), P(0, 3, 0), P(3, 3, 0), unit).kind).toBe('walk');
@@ -206,8 +207,8 @@ describe('fixture: safe pathfinding (testy-mctestface)', () => {
     const opt = findJumpOption(state, unit, P(-0.2, 3, 0), P(5.6, 3, -1))!;
     expect(opt).not.toBeNull();
     expect(opt.kind).toBe('jump-gap');
-    expect(opt.distance).toBeGreaterThan(4.8);
-    expect(opt.distance).toBeLessThan(5.6);
+    expect(opt.distance).toBeGreaterThan(5.6); // take-off to landing, 3D
+    expect(opt.distance).toBeLessThan(6.05);
     expect(opt.dice).toBe(2);
     expect(opt.target).toBe(3);
     expect(opt.takeoff).toMatchObject(P(-0.2, 3, 0));
@@ -239,7 +240,11 @@ describe('fixture: safe pathfinding (testy-mctestface)', () => {
       return { u, s: makeState(u, [tall(h)]) };
     };
     const a4 = at(4);
-    expect(findJumpOption(a4.s, a4.u, a4.u.position, P(3, 0, 0))).toMatchObject({ kind: 'jump-drop', dice: 2, distance: 4 });
+    expect(findJumpOption(a4.s, a4.u, a4.u.position, P(3, 0, 0))).toMatchObject({
+      kind: 'jump-drop',
+      dice: 2,
+      distance: 4.2, // 4" down plus the 0.7" step-off, measured as a tape
+    });
     const a3 = at(3);
     expect(findJumpOption(a3.s, a3.u, a3.u.position, P(3, 0, 0))).toBeNull();
     const a7 = at(7);
@@ -426,8 +431,8 @@ describe('host: jumps must be declared', () => {
     const unit = makeUnit('u', mid, 6);
     const state = makeState(unit);
     const a = validateAction(state, moveAction([mid, landing], { kind: 'jump-gap', takeoff: mid, landing }));
-    expect(a.valid).toBe(false);
-    expect((a as { reason: string }).reason).toMatch(/edge/i);
+    expect(a.valid).toBe(false); // from mid-deck the hop is over 6" long: it cannot be a jump at all
+    expect(findJumpOption(state, unit, mid, landing)).toBeNull();
 
     const edgeUnit = makeUnit('u', takeoff, 6);
     const edgeState = makeState(edgeUnit);

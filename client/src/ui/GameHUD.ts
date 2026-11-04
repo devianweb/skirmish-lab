@@ -7,7 +7,7 @@ import {
   createAction,
   describeTerrainPiece,
   describeTrait,
-  detectPathFall,
+  classifySegment,
   findNavPath,
   JumpOption,
   findTerrainAtPosition,
@@ -46,6 +46,7 @@ import {
   resolveMoveTarget,
   segmentSummary,
 } from './movePreview';
+import { rushStopReason, rushStopText } from './rushStop';
 import { soundFx } from '../audio/SoundFx';
 import {
   DeploymentZoneBounds,
@@ -144,6 +145,7 @@ export class GameHUD {
   private movePathPreview: Vector3[] | null = null;
   /** Whether the currently previewed path encounters Difficult Terrain or vertical climb. */
   private movePreviewDifficult = false;
+  private readonly rushStopTexts = (['height', 'budget', 'difficult'] as const).map(rushStopText);
   /** The declared jump/fall the engine offers for the previewed target (null: safe path preview). */
   private moveJump: JumpOption | null = null;
   /** Engine classification of each leg of the previewed path (for styling and labels). */
@@ -598,7 +600,16 @@ export class GameHUD {
         } else {
           this.hoveredEngagedTargetId = null;
         }
-        this.updateMoveWarning(isDifficult, this.flow.action, stoppedAtBase, isElevationObstacle);
+        const stopText = stoppedAtBase
+          ? rushStopText(
+              rushStopReason({
+                heightShort: isElevationObstacle,
+                pathCost: pathMovementCost(this.state, path),
+                budget: remainingBudget,
+              })
+            )
+          : '';
+        this.updateMoveWarning(isDifficult, this.flow.action, stopText);
         this.showTraversalChip();
       } else {
         this.movePreview = null;
@@ -607,7 +618,7 @@ export class GameHUD {
         this.moveSegments = null;
         this.movePreviewDifficult = false;
         this.hoveredEngagedTargetId = null;
-        this.updateMoveWarning(false, this.flow.action, false);
+        this.updateMoveWarning(false, this.flow.action);
       }
       if (terrainChanged) {
         this.updateDataCardSlot();
@@ -991,11 +1002,12 @@ export class GameHUD {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
 
-    const maxDrop = Math.max(
-      ...orderedPaths.map((p) => detectPathFall(p, this.state!).maxDrop)
-    );
-    if (describeDrop(maxDrop, active)) {
-      summary += ` · ${describeDrop(maxDrop, active)}`;
+    for (const p of orderedPaths) {
+      const warning = this.dropWarning(active, p, null);
+      if (warning) {
+        summary += ` · ${warning}`;
+        break;
+      }
     }
 
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
@@ -1066,10 +1078,8 @@ export class GameHUD {
     if (isDifficult) {
       summary += ' · [Difficult Terrain: 6.0" speed cap]';
     }
-    const fall = detectPathFall(path, this.state);
-    if (describeDrop(fall.maxDrop, active)) {
-      summary += ` · ${describeDrop(fall.maxDrop, active)}`;
-    }
+    const dropNote = this.dropWarning(active, path, jump);
+    if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
@@ -1167,12 +1177,17 @@ export class GameHUD {
       return;
     }
 
+    const stopText = stoppedAtBase
+      ? rushStopText(
+          rushStopReason({
+            heightShort: isElevationObstacle,
+            pathCost: pathMovementCost(this.state!, path),
+            budget: currentRushBudget,
+          })
+        )
+      : '';
     if (stoppedAtBase) {
-      if (isElevationObstacle) {
-        this.showToast('Rushed to wall base (sheer climb deferred to next turn)');
-      } else {
-        this.showToast('Rushed to obstacle edge (difficult terrain deferred to next turn)');
-      }
+      this.showToast(stopText);
     } else if (isDifficult) {
       this.showToast('Difficult Terrain / Climb: Rush capped at 6.0" (speed bonus negated)');
     }
@@ -1180,18 +1195,12 @@ export class GameHUD {
     const maxRushStr = Number.isInteger(maxRush) ? `${maxRush}` : maxRush.toFixed(1);
     let summary = `Rush ${active.name} ${distance.toFixed(1)}" (max ${maxRushStr}") · double move (ineligible to shoot)`;
     if (stoppedAtBase) {
-      if (isElevationObstacle) {
-        summary += ' · [Stops at wall base; sheer climb deferred to next turn]';
-      } else {
-        summary += ' · [Stops at obstacle edge; difficult terrain deferred to next turn]';
-      }
+      summary += ` · [${stopText}]`;
     } else if (isDifficult) {
       summary += ' · [Difficult Terrain: capped at 6.0" (Rush speed bonus negated)]';
     }
-    const fall = detectPathFall(path, this.state);
-    if (describeDrop(fall.maxDrop, active)) {
-      summary += ` · ${describeDrop(fall.maxDrop, active)}`;
-    }
+    const dropNote = this.dropWarning(active, path, jump);
+    if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
@@ -1383,10 +1392,8 @@ export class GameHUD {
       if (isDifficult) {
         traversalNotes += ' · [Difficult Terrain 6.0" cap]';
       }
-      const fall = detectPathFall(path, this.state);
-      if (describeDrop(fall.maxDrop, active)) {
-        traversalNotes += ` · ${describeDrop(fall.maxDrop, active)}`;
-      }
+      const dropNote = this.dropWarning(active, path, null);
+      if (dropNote) traversalNotes += ` · ${dropNote}`;
       if (isPathDangerous(this.state!, path, active)) {
         traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
       }
@@ -2317,16 +2324,18 @@ export class GameHUD {
         this.movePreviewDifficult ||
         (this.state && active && payloadPath ? isPathDifficult(this.state, payloadPath, active) : false);
 
-      const stoppedAtBase =
-        this.flow.action.type === 'rush' &&
-        (this.flow.summary.includes('Stops at wall base') ||
-          this.flow.summary.includes('Stops at obstacle edge'));
+      const flowSummary = this.flow.summary;
+      const stopText =
+        this.flow.action.type === 'rush'
+          ? this.rushStopTexts.find((t) => flowSummary.includes(`[${t}]`))
+          : undefined;
+      const stoppedAtBase = stopText !== undefined;
 
       if (stoppedAtBase) {
         difficultWarningHtml = `
           <div class="sl-hud-warning-badge" style="background: rgba(41, 182, 246, 0.18); border: 1px solid #29b6f6; color: #81d4fa; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
             <span>ℹ️</span>
-            <span><strong>Rush to Obstacle:</strong> Moving at full Rush speed to obstacle; sheer climb / crossing deferred to next turn.</span>
+            <span><strong>Rush stops short:</strong> ${stopText}</span>
           </div>`;
       } else if (isActionDifficult && active) {
         if (this.flow.action.type === 'rush' || this.flow.action.type === 'charge') {
@@ -2962,6 +2971,20 @@ export class GameHUD {
     }
   }
 
+  /**
+   * The one extra warning a previewed path needs beyond its jump chip / leg labels: only the too-high "fall"
+   * leg. Jumps and gap jumps are already described, with the engine's distance and dice, by the chip or the
+   * leg label, so they never get a second line here.
+   */
+  private dropWarning(active: Unit, path: Vector3[], jump: JumpOption | null): string {
+    if (jump) return '';
+    for (let i = 1; i < path.length; i++) {
+      const cls = classifySegment(this.state!, path[i - 1], path[i], active, path[i - 2], path[i + 1]);
+      if (cls.kind === 'fall') return describeDrop(cls.height, active);
+    }
+    return '';
+  }
+
   /** Summary text for the traversal part of a previewed move: the declared jump, or the labelled legs. */
   private traversalSummary(active: Unit, path: Vector3[], jump: JumpOption | null): string {
     if (jump) return ` · ${jumpChip(jump).text}`;
@@ -2998,19 +3021,12 @@ export class GameHUD {
   private updateMoveWarning(
     isDifficult: boolean,
     actionKind: string,
-    stoppedAtBase: boolean = false,
-    isElevationObstacle: boolean = true
+    stopText: string = ''
   ): void {
     const warningEl = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!warningEl) return;
-    if (stoppedAtBase && actionKind === 'rush') {
-      if (isElevationObstacle) {
-        warningEl.innerHTML =
-          'ℹ️ <strong>Rushing to wall base:</strong> Stops before sheer climb (climb available next turn with full movement)';
-      } else {
-        warningEl.innerHTML =
-          'ℹ️ <strong>Rushing to obstacle edge:</strong> Stops before difficult terrain (crossing available next turn with full movement)';
-      }
+    if (stopText && actionKind === 'rush') {
+      warningEl.textContent = `ℹ️ ${stopText}`;
       warningEl.style.display = 'block';
       warningEl.style.background = 'rgba(41, 182, 246, 0.2)';
       warningEl.style.borderColor = '#29b6f6';

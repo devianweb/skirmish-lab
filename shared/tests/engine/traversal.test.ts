@@ -298,9 +298,9 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       ];
       const res = detectPathGapJump(state, jumpPath, dummyUnit);
       expect(res.isGapJump).toBe(true);
-      // Platforms span x -1..1 and 3..5: the open gap between them is ~2" (path y = 2.5)
-      expect(res.gapDistance).toBeCloseTo(2, 0);
-      expect(res.dice).toBe(1);
+      // Platform centres are 4" apart: a straight tape from take-off to landing reads 4" (the open gap is only 2")
+      expect(res.gapDistance).toBeCloseTo(4, 1);
+      expect(res.dice).toBe(2);
       expect(res.target).toBe(3);
 
       const samePlatPath = [
