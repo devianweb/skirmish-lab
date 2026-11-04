@@ -70,6 +70,14 @@ interface TurnState {
   activeUnitId?: string | null; // Unit currently mid-activation (schema 2.1.0)
   roundStartTime?: number;
   pendingReaction?: PendingReaction | null; // Active reaction prompt awaiting player decision
+  charge?: ChargeState | null; // Declared split charge in progress (batch 1D PR 16); cleared by the final charge, a fall or the end of the activation
+}
+
+/** A charge declared on a target and made in legs. The budget is the unit's remainingMovement. */
+interface ChargeState {
+  unitId: string;   // the charging (active) unit
+  targetId: string; // locked target
+  legs: number;     // legs made so far
 }
 
 interface PendingReaction {
@@ -278,6 +286,8 @@ type ActionType =
   | 'move-unit'
   | 'rush'
   | 'shoot'
+  | 'begin-charge'   // Declare a charge on a target (split charge)
+  | 'charge-leg'     // One leg of a declared charge (safe path or declared jump)
   | 'charge'
   | 'fight'
   | 'respond-reaction' // Reaction choice submitted by player
@@ -322,6 +332,8 @@ type ActionPayload =
       weaponId?: string;
       allocations?: WeaponAllocation[];
     }
+  | { type: 'begin-charge', attackerId: string, targetId: string }
+  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], traversal?: DeclaredTraversal }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
