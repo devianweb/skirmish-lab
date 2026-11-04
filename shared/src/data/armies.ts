@@ -251,6 +251,33 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
    * TEST force for playtesting movement and terrain: one fast single-model fighter. Not a balanced army.
    * Speed 24" (Advance 24", Rush/Charge 48") so a model can reach any terrain on the board in one activation.
    */
+  /**
+   * TEST force for playtesting squads: one 4-model squad per side (per-model shooting, cover majority,
+   * coherency, squad jumps and per-model charges). Not a balanced army. Speed 12" so it can cross the board.
+   */
+  'test-squad-army': {
+    id: 'test-squad-army',
+    name: 'TEST: Single Squad (4 models, speed 12")',
+    factionId: 'test',
+    theme: 'Playtesting only: one 4-model squad per side for squad rules checks',
+    totalPoints: 0,
+    fighters: [
+      {
+        id: 'test-squad',
+        name: 'Test Squad',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 12,
+        modelType: 'trooper',
+        modelCount: 4,
+        weapons: ['rifle', 'blade'],
+        specialRules: [],
+      },
+    ],
+  },
   'test-army': {
     id: 'test-army',
     name: 'TEST: Single Runner (speed 24")',
