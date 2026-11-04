@@ -527,6 +527,7 @@ describe('GameManager', () => {
         y: 0,
         z: hostCharger.position.z + 5,
       };
+      for (const m of patched.units.find((u) => u.id === guestTarget.id)!.models) m.position = { ...patched.units.find((u) => u.id === guestTarget.id)!.position };
       (host as any).gameState = patched;
 
       host.sendAction(
@@ -627,6 +628,7 @@ describe('GameManager', () => {
         y: 0,
         z: hostCharger.position.z + 5,
       };
+      for (const m of targetInState.models) m.position = { ...targetInState.position };
       if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
         targetInState.weapons.push({
           id: 'blade',
@@ -752,6 +754,7 @@ describe('GameManager', () => {
         y: 0,
         z: hostCharger.position.z + 5,
       };
+      for (const m of targetInState.models) m.position = { ...targetInState.position };
       if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
         targetInState.weapons.push({
           id: 'blade',
@@ -835,6 +838,7 @@ describe('GameManager', () => {
         y: 0,
         z: hostCharger.position.z + 5,
       };
+      for (const m of targetInState.models) m.position = { ...targetInState.position };
       if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
         targetInState.weapons.push({
           id: 'blade',
@@ -901,6 +905,7 @@ describe('GameManager', () => {
         y: 0,
         z: hostCharger.position.z + 5,
       };
+      for (const m of targetInState.models) m.position = { ...targetInState.position };
       if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
         targetInState.weapons.push({
           id: 'blade',

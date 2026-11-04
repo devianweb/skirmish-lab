@@ -33,8 +33,14 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] Deployment keeps enemy bases more than 1" apart edge to edge (centre 2.1" away works, 1.9" is refused).
 - [ ] Squad shooting (per model): shoot a multi-model squad that is partly behind a wall or barricade. The shot is accepted when any one of your models can see and reach any one of theirs (even if the squad's middle is hidden), is refused when every target model is hidden, and the dice summary counts attacks only for your models that can see and reach (a shooter model with a wall in front of it adds none). Your own squad-mates never block your sight; another unit standing in the line does. Cover (+1 Defense) shows only when most target models are behind cover (3 of 4 yes, 2 of 4 no).
 
+- [ ] 1" keep-away: with another unit (yours or the enemy's) in the way, plan a Move or Rush toward it. The path stops 1" (base edge to base edge) short of it, or routes around it, and a move you try to force closer than 1" is refused. A model that starts already within 1" of a friend can walk away from it. Squeezing between two units whose base edges are less than 3" apart is not possible (1" clear on each side plus the 1" base).
+- [ ] Models never pass through other models: a lone enemy model standing mid-route (squad anchor far away) blocks the path and the pathfinder detours.
+
 ## 8. Melee & objectives
 - [ ] Objective capture matches base-edge measuring: a model whose base edge just touches the 3" objective ring (centre about 3.4" from the marker) captures it at end of round; a model clearly outside (centre 3.6" or more) does not. The ring itself is still drawn at 3" around the marker.
+- [ ] Charging a squad: you can charge when ANY of its models is within reach, even if the squad's middle is further than 12" (the path ends in contact with the closest model). The charge is refused if a different unit is within 1" of the finishing spot, and a charge cannot pass through one of the target's models.
+- [ ] Who strikes: charge or fight with a squad and read the dice summary. Only models whose bases are within 2" of an enemy model add attacks (a 4-model squad with 2 models in the fray rolls 2 models' worth), same for the defenders' strike-back. A lone fighter always rolls its full attacks.
+- [ ] After a charge, defending squad models that were not touching walk up to 3" into contact with the charger (they never stack on a friend and the squad stays together).
 - [ ] Charges still finish in base contact and the fight is allowed; a normal move or rush that would end with the base edge within 0.5" of an enemy is refused (the move preview shows the contact styling at the same spot).
 
 ## 9. Multiplayer & custom maps

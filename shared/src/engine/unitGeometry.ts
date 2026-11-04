@@ -36,8 +36,8 @@ export function markerGap(model: Vector3, marker: Vector3, radius: number = UNIT
 
 /**
  * Base-edge gap between two units' anchor points (`unit.position` is only the display anchor, the
- * centroid for squads). Shooting and "> 9 inch" rules measure between models with `unitDistance`;
- * charges and engagement still use this until PR 9b swaps them.
+ * centroid for squads). Rules between units measure between models with `unitDistance`; this anchor
+ * version is only for places that really mean "the unit as a point".
  */
 export function unitGap(a: Pick<Unit, 'position'>, b: Pick<Unit, 'position'>): number {
   return modelGap(a.position, b.position, baseRadius(a), baseRadius(b));
@@ -97,4 +97,153 @@ export function unitDistance(
   b: Pick<Unit, 'position' | 'models'>
 ): number {
   return closestModelPair(a, b)?.gap ?? unitGap(a, b);
+}
+
+// ---------------------------------------------------------------------------
+// Engagement and melee reach (per model)
+// ---------------------------------------------------------------------------
+
+/** Models at heights further apart than this (inches) are not engaged / do not keep each other away. */
+export const ENGAGEMENT_MAX_DY = 1.5;
+/** A model strikes in melee when its base edge is at most this far (horizontally) from an enemy model's. */
+export const MELEE_STRIKE_EDGE_GAP = 2;
+/** ...and at most this far apart vertically. */
+export const MELEE_STRIKE_MAX_DY = 4;
+const GEOMETRY_TOLERANCE = 0.001;
+
+type ModelSource = Pick<Unit, 'position' | 'models'>;
+
+/** Base-edge gap from a point (a model about to stand there) to the closest living model of `unit`. */
+export function gapToUnit(point: Vector3, unit: ModelSource): number {
+  let best = Infinity;
+  const r = baseRadius(unit);
+  for (const pos of livingModelPositions(unit)) {
+    best = Math.min(best, modelGap(point, pos, UNIT_BASE_RADIUS, r));
+  }
+  return best;
+}
+
+/**
+ * True when some model of `a` and some model of `b` are within `edgeGap` (base edge to base edge) and no more
+ * than `maxDy` apart vertically.
+ */
+export function modelsWithin(
+  a: ModelSource,
+  b: ModelSource,
+  edgeGap: number,
+  maxDy: number = Infinity
+): boolean {
+  const rA = baseRadius(a);
+  const rB = baseRadius(b);
+  const bPositions = livingModelPositions(b);
+  for (const from of livingModelPositions(a)) {
+    for (const to of bPositions) {
+      if (
+        modelGap(from, to, rA, rB) <= edgeGap + GEOMETRY_TOLERANCE &&
+        Math.abs((from.y ?? 0) - (to.y ?? 0)) <= maxDy + GEOMETRY_TOLERANCE
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** True when a model standing at `point` would be within the engagement gap (and level) of a model of `unit`. */
+export function pointEngagesUnit(point: Vector3, unit: ModelSource): boolean {
+  const r = baseRadius(unit);
+  return livingModelPositions(unit).some(
+    (pos) =>
+      modelGap(point, pos, UNIT_BASE_RADIUS, r) <= ENGAGEMENT_EDGE_GAP + GEOMETRY_TOLERANCE &&
+      Math.abs((point.y ?? 0) - (pos.y ?? 0)) <= ENGAGEMENT_MAX_DY
+  );
+}
+
+/** Two units are in melee contact when any pair of their models is within the engagement gap (and level). */
+export function unitsInContact(a: ModelSource, b: ModelSource): boolean {
+  return modelsWithin(a, b, ENGAGEMENT_EDGE_GAP, ENGAGEMENT_MAX_DY);
+}
+
+/**
+ * Number of `striker`'s living models that can strike `foe` in melee: within 2" (base edge, horizontal) and 4"
+ * (vertical) of some living model of `foe`. Attacks are pooled by the caller (weapon attacks x this count).
+ */
+export function strikingModelCount(striker: ModelSource, foe: ModelSource): number {
+  const rS = baseRadius(striker);
+  const rF = baseRadius(foe);
+  const foePositions = livingModelPositions(foe);
+  let count = 0;
+  for (const from of livingModelPositions(striker)) {
+    if (
+      foePositions.some(
+        (to) =>
+          modelGap(from, to, rS, rF) <= MELEE_STRIKE_EDGE_GAP + GEOMETRY_TOLERANCE &&
+          Math.abs((from.y ?? 0) - (to.y ?? 0)) <= MELEE_STRIKE_MAX_DY + 0.05
+      )
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Where a unit's models would stand if its whole formation moved so the anchor ends at `anchorEnd`
+ * (charges still move a squad as one block until per-model charges land).
+ */
+export function modelsTranslatedTo(unit: ModelSource, anchorEnd: Vector3): Vector3[] {
+  const dx = anchorEnd.x - unit.position.x;
+  const dz = anchorEnd.z - unit.position.z;
+  return livingModelPositions(unit).map((p) => ({
+    x: p.x + dx,
+    y: anchorEnd.y ?? p.y ?? 0,
+    z: p.z + dz,
+  }));
+}
+
+export type ChargeContact = 'ok' | 'too-far' | 'too-high';
+
+/**
+ * Does a charge that ends with the charger's anchor at `anchorEnd` reach the target? Some charging model must end
+ * within `CHARGE_END_EDGE_GAP` (base edge) of some target model, and that pair must be within `maxDy` vertically.
+ */
+export function chargeContact(
+  charger: ModelSource,
+  target: ModelSource,
+  anchorEnd: Vector3,
+  maxDy: number
+): ChargeContact {
+  let reached = false;
+  const rC = baseRadius(charger);
+  const rT = baseRadius(target);
+  const targets = livingModelPositions(target);
+  for (const from of modelsTranslatedTo(charger, anchorEnd)) {
+    for (const to of targets) {
+      if (modelGap(from, to, rC, rT) > CHARGE_END_EDGE_GAP + GEOMETRY_TOLERANCE) continue;
+      reached = true;
+      if (Math.abs((from.y ?? 0) - (to.y ?? 0)) <= maxDy) return 'ok';
+    }
+  }
+  return reached ? 'too-high' : 'too-far';
+}
+
+/**
+ * Where a charger's anchor should end to bring its closest model into base contact with the closest model of
+ * `target` (a single model: simply base contact with the target). Used to plan the charge path.
+ */
+export function chargeDestination(charger: ModelSource, target: ModelSource): Vector3 {
+  const pair = closestModelPair(charger, target);
+  const y = charger.position.y ?? 0;
+  if (!pair) return { x: charger.position.x, y, z: charger.position.z };
+  const dx = pair.from.x - pair.to.x;
+  const dz = pair.from.z - pair.to.z;
+  const len = Math.hypot(dx, dz) || 1;
+  const contact = edgeGapToCentre(0);
+  const modelEndX = pair.to.x + (dx / len) * contact;
+  const modelEndZ = pair.to.z + (dz / len) * contact;
+  return {
+    x: Math.round((modelEndX + (charger.position.x - pair.from.x)) * 100) / 100,
+    y,
+    z: Math.round((modelEndZ + (charger.position.z - pair.from.z)) * 100) / 100,
+  };
 }

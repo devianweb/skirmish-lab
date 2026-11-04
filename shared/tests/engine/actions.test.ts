@@ -1466,16 +1466,14 @@ describe('applyAction: charge', () => {
   it('Phase 9B: defending squad members consolidate up to 3" into contact when charged', () => {
     const state = chargeState();
     const defender = state.units.find((u) => u.id === 'g1')!;
-    // Target squad with front model at (0, 0, 5.0) and rear model at (0, 0, 5.4)
-    // Centroid is (0, 0, 5.2)
+    // Front model at (0, 0, 5.0); rear model beside and behind it at (1.0, 0, 5.8)
     defender.models = [
       { id: 'gm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.0 } },
-      { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 5.4 } },
+      { id: 'gm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1.0, y: 0, z: 5.8 } },
     ];
-    defender.position = { x: 0, y: 0, z: 5.2 };
+    defender.position = { x: 0.5, y: 0, z: 5.4 };
 
-    // Charger ends at z=4.0 (1.2" from the defender centroid, within the 1.25" charge reach, and a full
-    // base clear of the front model)
+    // Charger ends at z=4.0: a full base clear of the front model, which is then in base contact
     const action = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
@@ -1494,11 +1492,15 @@ describe('applyAction: charge', () => {
     expect(outcome.ok).toBe(true);
 
     const postDefender = outcome.state!.units.find((u) => u.id === 'g1')!;
+    const charger = { x: 0, z: 4.0 };
+    const dist = (p: Vector3) => Math.hypot(p.x - charger.x, p.z - charger.z);
     // Front model is already in base contact (1.0" from charger at z=4.0) so stays in place
     expect(postDefender.models[0].position?.z).toBeCloseTo(5.0, 1);
-    // Rear model was at z=5.4 (1.4" from the charger) -> consolidates into base contact (z=5.0)
-    expect(postDefender.models[1].position?.z).toBeLessThan(5.4);
-    expect(postDefender.models[1].position?.z).toBeCloseTo(5.0, 1);
+    // Rear model started 1.57" from the charger: it closes in, but never onto the front model
+    const rear = postDefender.models[1].position!;
+    expect(dist(rear)).toBeLessThan(Math.hypot(1.0, 1.8));
+    expect(dist(rear)).toBeGreaterThanOrEqual(0.99);
+    expect(Math.hypot(rear.x - 0, rear.z - 5.0)).toBeGreaterThanOrEqual(0.9);
   });
 });
 
@@ -2120,14 +2122,17 @@ describe('applyAction invariants', () => {
       expect(res.valid).toBe(false);
       expect(res.reason).toBe('Move cannot end in melee contact (use Charge instead)');
 
-      // Engagement is an edge gap of 0.5" (centre 1.5"): ending 0.6" away is fine, exactly 0.5" is not
-      const edgeOk = createAction(HOST, 'move-unit', {
+      // Engagement is an edge gap of 0.5" (centre 1.5"): ending 0.6" away is no longer melee contact, but the
+      // 1" keep-away rule still rejects it (with its own reason)
+      const edgeNear = createAction(HOST, 'move-unit', {
         type: 'move-unit',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.4 }],
         finalPosition: { x: 0, y: 0, z: 3.4 },
       });
-      expect(validateAction(state, edgeOk).valid).toBe(true);
+      const near = validateAction(state, edgeNear);
+      expect(near.valid).toBe(false);
+      expect(near.reason).not.toBe('Move cannot end in melee contact (use Charge instead)');
       const edgeBad = createAction(HOST, 'move-unit', {
         type: 'move-unit',
         unitId: 'h1',
