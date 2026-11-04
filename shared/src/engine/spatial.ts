@@ -2974,6 +2974,122 @@ export function computePushBackPosition(
   return clampMoveDestinationWithObstacles(state, attacker, directCandidate, separationDistance);
 }
 
+/**
+ * The step back after a melee that leaves both units standing, per model: every living model of `charger` ends at
+ * least `edgeGap` (default 1") from every living model of `foe`, base edge to base edge. Models that are already
+ * clear stay put; the others slide straight away from the enemy model that crowds them. The new spots must be on the
+ * board, clear of terrain and other models, reachable without passing through anything, and keep a coherent squad
+ * coherent. If no such set exists, the whole formation steps back as one block along the old anchor line instead.
+ * Mutates `charger` (models and anchor) and returns the new anchor.
+ */
+export function pushBackChargerModels(
+  state: GameState,
+  charger: Unit,
+  foe: Unit,
+  edgeGap: number = ENEMY_KEEP_AWAY_GAP
+): Vector3 {
+  const minCentre = edgeGapToCentre(edgeGap);
+  const living = (charger.models ?? []).filter((m) => !m.isDestroyed);
+  const foes = livingModelPositions(foe);
+
+  // A unit with no model list is a single model at its anchor
+  if (living.length === 0) {
+    const pos = computePushBackPosition(state, charger, foe, minCentre);
+    charger.position = { ...pos };
+    return pos;
+  }
+
+  const starts = living.map((m) => ({ ...(m.position ?? charger.position) }));
+  const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
+  const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
+  const wasCoherent = validateSquadCoherency(starts).coherent;
+  const tooClose = (p: Vector3): boolean =>
+    foes.some(
+      (f) => Math.abs((f.y ?? 0) - (p.y ?? 0)) <= 1.5 && Math.hypot(p.x - f.x, p.z - f.z) < minCentre - 0.005
+    );
+
+  const usable = (candidates: Vector3[]): boolean => {
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (Math.abs(c.x) > halfW || Math.abs(c.z) > halfH) return false;
+      if (tooClose(c)) return false;
+      if (findEndOverlap(state, charger.id, c)) return false;
+      if (findMoveBlocker(state, charger, [starts[i], c], { ignoreUnitId: foe.id }).blocked) return false;
+      for (let j = i + 1; j < candidates.length; j++) {
+        if (Math.hypot(c.x - candidates[j].x, c.z - candidates[j].z) < MODEL_OVERLAP_DISTANCE) return false;
+      }
+    }
+    return !wasCoherent || validateSquadCoherency(candidates).coherent;
+  };
+
+  // 1. Each crowded model slides directly away from the enemy model(s) pressing on it
+  const slid = starts.map((start) => {
+    let pos = { ...start };
+    for (let iter = 0; iter < 6 && tooClose(pos); iter++) {
+      let nearest = foes[0];
+      let nd = Infinity;
+      for (const f of foes) {
+        const d = Math.hypot(pos.x - f.x, pos.z - f.z);
+        if (d < nd) {
+          nd = d;
+          nearest = f;
+        }
+      }
+      const ax = nd > 1e-4 ? (pos.x - nearest.x) / nd : Math.sin(charger.rotation.y || 0);
+      const az = nd > 1e-4 ? (pos.z - nearest.z) / nd : Math.cos(charger.rotation.y || 0);
+      pos = {
+        x: Math.round((nearest.x + ax * minCentre) * 100) / 100,
+        y: pos.y ?? 0,
+        z: Math.round((nearest.z + az * minCentre) * 100) / 100,
+      };
+    }
+    return pos;
+  });
+
+  let result: Vector3[] | null = usable(slid) ? slid : null;
+
+  // 2. Otherwise the whole formation steps back together, away from the enemy's centre
+  if (!result) {
+    const fx = foes.reduce((a, f) => a + f.x, 0) / foes.length;
+    const fz = foes.reduce((a, f) => a + f.z, 0) / foes.length;
+    const anchor = computeSquadCentroid(starts);
+    const baseAngle = Math.atan2(anchor.x - fx, anchor.z - fz);
+    for (const offset of [0, 0.44, -0.44, 0.87, -0.87, 1.3, -1.3]) {
+      for (let t = 0.1; t <= 4.001 && !result; t += 0.1) {
+        const dx = Math.sin(baseAngle + offset) * t;
+        const dz = Math.cos(baseAngle + offset) * t;
+        const trial = starts.map((s) => ({
+          x: Math.round((s.x + dx) * 100) / 100,
+          y: s.y ?? 0,
+          z: Math.round((s.z + dz) * 100) / 100,
+        }));
+        if (trial.every((p) => !tooClose(p)) && usable(trial)) result = trial;
+      }
+      if (result) break;
+    }
+  }
+
+  // 3. Last resort: the old anchor-based block step (single anchor line, terrain-clamped)
+  if (!result) {
+    const pos = computePushBackPosition(state, charger, foe, minCentre);
+    const anchor = computeSquadCentroid(starts);
+    const dx = pos.x - anchor.x;
+    const dz = pos.z - anchor.z;
+    result = starts.map((s) => ({
+      x: Math.round((s.x + dx) * 100) / 100,
+      y: pos.y ?? s.y ?? 0,
+      z: Math.round((s.z + dz) * 100) / 100,
+    }));
+  }
+
+  living.forEach((m, i) => {
+    m.position = result![i];
+  });
+  const newAnchor = living.length > 1 ? computeSquadCentroid(result) : { ...result[0] };
+  charger.position = { ...newAnchor };
+  return newAnchor;
+}
+
 // ============================================================================
 // Multi-Model Squad Coherency & Formation Engine (Phase 9A)
 // ============================================================================

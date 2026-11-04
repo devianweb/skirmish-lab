@@ -333,8 +333,13 @@ type ActionPayload =
       allocations?: WeaponAllocation[];
     }
   | { type: 'begin-charge', attackerId: string, targetId: string }
-  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], traversal?: DeclaredTraversal }
+  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal,
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+  // Squad charges (more than one living model) send modelPositions (one per living model, model order),
+  // modelPaths (per model, from its current spot) and modelTraversals (a declared jump per model, or null);
+  // `path` is then only a summary. Single-model units keep the plain `path` and `traversal`.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }

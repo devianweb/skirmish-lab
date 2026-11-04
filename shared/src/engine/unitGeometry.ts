@@ -189,7 +189,7 @@ export function strikingModelCount(striker: ModelSource, foe: ModelSource): numb
 
 /**
  * Where a unit's models would stand if its whole formation moved so the anchor ends at `anchorEnd`
- * (charges still move a squad as one block until per-model charges land).
+ * (the block move a squad charge without per-model positions still uses; also used by `chargeContact`).
  */
 export function modelsTranslatedTo(unit: ModelSource, anchorEnd: Vector3): Vector3[] {
   const dx = anchorEnd.x - unit.position.x;

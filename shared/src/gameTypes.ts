@@ -278,8 +278,8 @@ export type ActionPayload =
       allocations?: WeaponAllocation[];
     }
   | { type: 'begin-charge', attackerId: string, targetId: string }
-  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal }
-  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal }
+  | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal, modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+  | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal, modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
