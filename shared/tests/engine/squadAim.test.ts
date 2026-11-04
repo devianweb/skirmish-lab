@@ -129,3 +129,36 @@ describe('computeSquadShootingRayDebug', () => {
     expect(info.distance).toBeCloseTo(8);
   });
 });
+
+describe('squadAim: prefers the clicked model', () => {
+  it('a shooter that sees the clicked model aims at it even when another model is nearer', () => {
+    const a = squad('a', HOST, [pt(0, 0), pt(10, 0)]);
+    const t = squad('t', GUEST, [pt(0, 10), pt(10, 10)]);
+    const aim = squadAim(makeState([a, t]), a, t, a.weapons[0], 't-m1');
+    expect(aim.aims[0].targetModel).toEqual(pt(10, 10));
+    expect(aim.aims[1].targetModel).toEqual(pt(10, 10));
+    expect(aim.aims[0].to.x).toBe(10);
+  });
+
+  it('a clicked model out of range of one shooter leaves that shooter on its nearest visible model', () => {
+    const a = squad('a', HOST, [pt(0, 0), pt(0, 20)]);
+    const t = squad('t', GUEST, [pt(0, 12), pt(0, 40)]);
+    // t-m1 is 40" from shooter 0 (out of range) and 20" from shooter 1 (in range).
+    const aim = squadAim(makeState([a, t]), a, t, a.weapons[0], 't-m1');
+    expect(aim.aims[0].targetModel).toEqual(pt(0, 12));
+    expect(aim.aims[0].fires).toBe(true);
+    expect(aim.aims[1].targetModel).toEqual(pt(0, 40));
+  });
+
+  it('firing count and cover are identical with and without a clicked model', () => {
+    const a = squad('a', HOST, [pt(0, 0), pt(10, 0), pt(20, 0)]);
+    const t = squad('t', GUEST, [pt(0, 10), pt(10, 10), pt(20, 10)]);
+    const state = makeState([a, t], [wall(-2, 5), wall(2, 5)]);
+    const plain = squadAim(state, a, t, a.weapons[0]);
+    const picked = squadAim(state, a, t, a.weapons[0], 't-m2');
+    expect(picked.firingCount).toBe(plain.firingCount);
+    expect(picked.coverByMajority).toBe(plain.coverByMajority);
+    expect(picked.coveredModelCount).toBe(plain.coveredModelCount);
+    expect(picked.aims.map((x) => x.fires)).toEqual(plain.aims.map((x) => x.fires));
+  });
+});

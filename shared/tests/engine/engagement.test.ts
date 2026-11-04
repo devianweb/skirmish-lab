@@ -276,6 +276,7 @@ describe('who strikes in melee', () => {
       attackerId: 'h1',
       targetId: 'g1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2.5 }],
+      modelPositions: [1, 2, 3, 4].map((z) => ({ x: 0, y: 0, z })),
       weaponId: 'blade',
     });
     expect(validateAction(state, charge).valid).toBe(true);

@@ -119,6 +119,18 @@ describe('resolveMoveTarget', () => {
   });
 });
 
+describe('resolveMoveTarget: gap over 6"', () => {
+  it('reports the distance as a hint and offers no jump; jumps off report nothing', () => {
+    const unit = makeUnit(P(-0.2, 3, 0));
+    const state = makeState(unit);
+    const wide = resolveMoveTarget(state, unit, unit.position, P(6.7, 3, -1), true);
+    expect(wide.jump).toBeNull();
+    expect(wide.tooWide!.distance).toBeCloseTo(7.0, 1);
+    expect(resolveMoveTarget(state, unit, unit.position, P(6.7, 3, -1), false).tooWide).toBeNull();
+    expect(resolveMoveTarget(state, unit, unit.position, P(5.6, 3, -1), true).tooWide).toBeNull();
+  });
+});
+
 describe('jumpChip', () => {
   const unit = makeUnit(P(-0.2, 3, 0));
   const state = makeState(unit);
