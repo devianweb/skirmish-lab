@@ -32,6 +32,7 @@ PRs 6–8 bring movement in line with the Elevated/Impassable Terrain guidance i
 22. **A declared charge can't be undone** or changed into another action. Owner: "Agreed, no undoing."
 23. **Default board for new maps is 48" × 48"** (the core rules' and tournament standard); existing maps keep their stored size. See batch 1G. Owner: "Go with your recommendation."
 24. **Jump distance is measured spot to spot, like a tape on the table:** the straight 3D line from the model's take-off standing spot to its landing standing spot (front of base to front of base), so a jump across a gap is about gap + 1". Dice are X+1, one per full 3" of that distance; the 6" limit applies to it (a longer gap hop isn't offered; a pure drop over 6" is still a declared fall). A hop crossing more than 1" of open air is a gap jump even if it also drops. Owner: "Lets go for C … Spot to spot is more tabletop like right? As you'd measure from the front of the base to the front of the base."
+25. **Airborne is not exempt from the end-position rules:** an Airborne (Flying) model moves through units and terrain and ignores terrain effects while moving, and passes jump tests automatically, but it must still end its move fully supported on a floor or the ground (no overhanging, no mid-air endings), like any model placed on the table. Owner: "Go with your recommendation."
 
 ## Order
 **Updated 2026-11-03:** 1A ✓, 1B ✓ (PRs 1, 5, 3b, 2), 1E ✓ (E1–E4). 1F ✓. **Next:** PR 7 (step over ≤ 1") → PR 8 (split-level coherency) → PR 14 (base-edge measuring) with/before PR 9a → PR 9b/9c (squad geometry) → PR 10 (partial squad move; independent, can go any time) → PR 15 (squad jumps, with PR 10) → PR 16 (split charges with jumps) → PR 11 (per-model charges, after 9a/9b, 10 and 16). PR 12 (editor objectives) and PR 13 (zero marker) are independent quick wins, so do them alongside PR 4.
@@ -86,6 +87,6 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 - Failed gap jumps (no damage from 3" decks, lands at y=0/inside things, squads stacked, wrong wound count) → **1F PR 18**.
 - Segment labels HUD-only → **1F PR 19**.
 - Squad moves without explicit `modelPositions` are only overlap-checked at the centroid → covered by 1D PR 9 (per-model geometry).
-- Airborne models are subject to the no-overhang end rule (PR 20) and the mid-air guard; whether Airborne should be exempt is an open rules question for the owner.
+- ~~Airborne and the no-overhang rule~~: not exempt (Decision 25).
 - A plain fall over 6" in a squad applies its hit to the first living model (pre-existing); tidy with 1D squad work.
 - Editor: the Cover / Blocks LoS / Obstacle inspector toggles don't redraw the F9 debug marker until the next sync (pre-existing, cosmetic; unplanned).
