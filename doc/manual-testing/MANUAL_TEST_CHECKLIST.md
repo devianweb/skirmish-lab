@@ -1,6 +1,6 @@
 # Manual Test Checklist (consolidated)
 
-One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, batch 1A the same evening, and batches 1B/1E and 1F on 2026-11-03; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
+One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, batch 1A the same evening, and batches 1B/1E, 1F and 1H on 2026-11-03/04; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
 
 Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-batch-1.md`; retest them after that PR lands.
 
@@ -18,10 +18,8 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 3. Elevation, ladders, stairs
 - All items verified.
-- [ ] Raised stairs: on a map with stairs standing on a deck (e.g. Testy McTestface #2), a model can path up them onto the higher deck, and stop part-way up the slope.
 
 ## 4. Drops, jumps and movement cost
-- [ ] Jump across a gap onto a lower roof (e.g. a 4.5" container stack to a 2.25" container, ~4" apart): the jump chip is offered (2 dice, distance read as the straight line from your spot to the landing) and Confirm is accepted; a hop whose straight line is over 6" (e.g. a 5" gap plus a 5" drop) is not offered; a failed roll drops the model into the gap.
 - All items verified.
 
 ## 5. Low cover & scatter
