@@ -347,6 +347,8 @@ function createProceduralTerrainBlock(): THREE.Object3D {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  // Marks the generic stand-in so the catalog parity test can assert no catalog piece uses it.
+  mesh.userData.fallbackBlock = true;
   return mesh;
 }
 
@@ -596,6 +598,74 @@ export function createProceduralLCornerRuin(): THREE.Object3D {
   return buildFromStructure('ruin-l');
 }
 
+/** Small deterministic PRNG (mulberry32) so seeded dressing is identical on every build and peer. */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Area pieces are authored in inches against their catalog default scale (6x0.25x4 and 4x0.1x4) and
+// expressed as unit-box fractions, so they stretch with the piece like every other builder.
+const RUBBLE_SCALE = { x: 6, y: 0.25, z: 4 };
+const POOL_SCALE = { x: 4, y: 0.1, z: 4 };
+
+/**
+ * Rubble field: a thin base slab (0.05") filling the footprint plus a handful of low chunks (up to
+ * 0.25") at seeded positions. Visual only: the piece has no solids, so it never blocks anything.
+ */
+export function createProceduralRubbleField(): THREE.Object3D {
+  const S = RUBBLE_SCALE;
+  const parts: Part[] = [[0, 0, 0, 1, 0.05 / S.y, 1]];
+  const rand = seededRandom(0x13_6e);
+  for (let i = 0; i < 9; i++) {
+    const w = 0.4 + rand() * 0.6; // inches
+    const d = 0.4 + rand() * 0.5;
+    const h = 0.1 + rand() * 0.15;
+    const cx = (rand() - 0.5) * (S.x - w - 0.2);
+    const cz = (rand() - 0.5) * (S.z - d - 0.2);
+    parts.push([cx / S.x, 0.05 / S.y, cz / S.z, w / S.x, Math.min(h, S.y - 0.05) / S.y, d / S.z]);
+  }
+  return buildFromParts(parts);
+}
+
+/**
+ * Hazard pool: a low rim slab filling the footprint with a muted green emissive surface inset 0.1"
+ * from the edge. Visual only (no solids).
+ */
+export function createProceduralHazardPool(): THREE.Object3D {
+  const S = POOL_SCALE;
+  const group = new THREE.Group();
+  const box = (w: number, h: number, d: number, by: number, material: THREE.Material): void => {
+    const geometry = new THREE.BoxGeometry(w, h, d);
+    geometry.translate(0, by + h / 2, 0);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  };
+  const rimH = 0.06 / S.y;
+  box(1, rimH, 1, 0, new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.1 }));
+  box(
+    1 - 0.2 / S.x,
+    1 - rimH,
+    1 - 0.2 / S.z,
+    rimH,
+    new THREE.MeshStandardMaterial({
+      color: 0x3f6b3a,
+      emissive: 0x2f8f3a,
+      emissiveIntensity: 0.6,
+      roughness: 0.35,
+      metalness: 0.1,
+    })
+  );
+  return group;
+}
+
 const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
   'wall-short': createProceduralShortWall,
   wall: createProceduralSolidWall,
@@ -607,6 +677,9 @@ const PROCEDURAL_TERRAIN_BUILDERS: Record<string, () => THREE.Object3D> = {
   barricade: () => buildFromStructure('barricade'),
   'industrial-pipe': () => buildFromStructure('industrial-pipe'),
   'shipping-container': () => buildFromStructure('shipping-container'),
+  crate: () => buildFromStructure('crate'),
+  'rubble-field': createProceduralRubbleField,
+  'hazard-pool': createProceduralHazardPool,
   ladder: createProceduralLadder,
   'wall-window': createProceduralWindowWall,
   'wall-doorway': createProceduralDoorwayWall,

@@ -24,6 +24,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 5. Low cover & scatter
 - All items verified.
+- [ ] 13.6E area terrain meshes: place a Rubble Field and a Hazard Pool (map editor, via the catalog once PR 3 adds the palette, or a saved map). Both lie flat on the ground; the rubble has low chunks and the pool a green glow with a darker rim. A model can be placed and stand inside either at ground level, and clicking one picks the ground point beneath it. F9 shows a yellow footprint outline on the rubble field and a red one on the pool.
 
 ## 6. Squads
 - All items verified.

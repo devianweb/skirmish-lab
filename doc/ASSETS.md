@@ -79,6 +79,8 @@ All built from the shared structure definitions in `shared/src/data/terrainStruc
 | `crate` | Supply Crate | `1 × 0.75 × 1` | - | Low 0.75" cover; does not block sight (full 1"×1" collision footprint). |
 | `industrial-pipe` | Industrial Pipe (4") | `4 × 0.75 × 0.75` | - | Low 0.75" conduit cover (box collision; round mesh later). |
 | `shipping-container` | Shipping Container (5") | `5 × 2.25 × 2.25` | yes | Solid sight blocker with a walkable 2.25" roof. |
+| `rubble-field` | Rubble Field (6"×4") | `6 × 0.25 × 4` | - | Area terrain (difficult, cover for models inside, no sight block). Mesh: 0.05" base slab plus nine seeded low chunks up to 0.25"; no collision solids. F9 outlines the footprint in yellow. |
+| `hazard-pool` | Hazard Pool (4"×4") | `4 × 0.1 × 4` | - | Area terrain (dangerous, no cover). Mesh: 0.06" rim slab with a muted green emissive surface inset 0.1"; no collision solids. F9 outlines the footprint in red. |
 | `stairs` | Stairs (2"×4") | `2 × 3 × 4` | - | Continuous ramp (wedge physics) up to 3.0"; mesh has risers and stringers. |
 | `ladder` | Wall Ladder | `0.5 × 3 × 0.25` | - | Rails and rungs; snaps to the nearest deck/ledge face in the editor. |
 | `ruin-l` | L-Corner Ruin | `4 × 4 × 4` | yes | Now includes the walkable L-ledge at 3.0" inside the north and west walls. |

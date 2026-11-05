@@ -8,6 +8,7 @@ import {
   Vector3,
   findWalkableSurfaceAt,
   hasStructuredFloor,
+  isAreaPiece,
   legacyElevation,
 } from '@skirmish-lab/shared';
 import { BoardRenderer } from './BoardRenderer';
@@ -338,6 +339,21 @@ export class GameView {
     }
 
     const terrainHit = this.boardRenderer.raycastTerrainHit?.(raycaster) ?? null;
+
+    // Area terrain (rubble field, hazard pool) is never a floor: a pick on it is the ground point beneath
+    // (the piece's base, y = 0 unless it sits on a floor), whatever stray elevation the saved piece carries.
+    if (terrainHit?.piece && isAreaPiece(terrainHit.piece)) {
+      const baseY = terrainHit.piece.position.y ?? 0;
+      const areaPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseY);
+      const areaPoint = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(areaPlane, areaPoint)) {
+        return {
+          kind: 'position',
+          position: { x: Math.round(areaPoint.x * 100) / 100, y: baseY, z: Math.round(areaPoint.z * 100) / 100 },
+          terrainId: terrainHit.terrainId,
+        };
+      }
+    }
 
     // Structured floors (decks, catwalks, ruin ledge, container roofs): only a hit on a floor's top face picks that
     // floor's height, so models and stacked pieces land on it. Hits on pillars, walls or undersides fall through to

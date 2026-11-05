@@ -232,6 +232,58 @@ describe('GameView', () => {
       expect(picks[1].position.y).toBe(0);
     });
 
+    it('a click on a rubble field resolves to the ground beneath (y = 0), never a raised floor', () => {
+      const { gameView, inputElement } = makePickableView();
+      gameView.syncFromState(
+        makeState({
+          terrain: [
+            makeTerrain({
+              id: 'rubble-1',
+              terrainType: 'rubble-field',
+              position: { x: 0, y: 0, z: 0 },
+              scale: { x: 6, y: 0.25, z: 4 },
+              isObstacle: false,
+              blocksLineOfSight: false,
+              providesCover: true,
+              // A stray elevation on a saved map must not lift the pick.
+              elevation: 2,
+              isWalkable: true,
+            }),
+          ],
+        })
+      );
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+      click(inputElement, 110, 100);
+      expect(picks[0].kind).toBe('position');
+      expect(picks[0].position.y).toBe(0);
+      expect(picks[0].position.x).toBeCloseTo(1, 1);
+      expect(picks[0].position.z).toBeCloseTo(0, 1);
+    });
+
+    it('a click on a hazard pool resolves to the ground beneath (y = 0)', () => {
+      const { gameView, inputElement } = makePickableView();
+      gameView.syncFromState(
+        makeState({
+          terrain: [
+            makeTerrain({
+              id: 'pool-1',
+              terrainType: 'hazard-pool',
+              position: { x: 0, y: 0, z: 0 },
+              scale: { x: 4, y: 0.1, z: 4 },
+              isObstacle: false,
+              blocksLineOfSight: false,
+              providesCover: false,
+            }),
+          ],
+        })
+      );
+      const picks: any[] = [];
+      gameView.onPick((target) => picks.push(target));
+      click(inputElement, 100, 100);
+      expect(picks[0].position.y).toBe(0);
+    });
+
     it('picks the catwalk top at 3.0" even when the saved piece carries a stray elevation: 0', () => {
       const { gameView, inputElement } = makePickableView();
       gameView.syncFromState(
