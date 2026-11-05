@@ -9,11 +9,11 @@ import {
   TerrainPiece,
   Vector3,
   createBlankMap,
-  createDefaultScenarioTerrain,
   createInitialGameState,
   applyDefaultScenario,
   validateAction,
 } from '@skirmish-lab/shared';
+import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { GameHUD, MarkerSnapshot } from '../../src/ui/GameHUD';
 
 const HOST = HOST_PLAYER_ID;
@@ -35,7 +35,7 @@ function clickByText(root: HTMLElement, text: string): HTMLElement | null {
 function setup(position: Vector3, action: 'Move' | 'Rush' = 'Move', rules: string[] = []) {
   const state: GameState = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   applyDefaultScenario(state, {
-    customMap: { ...createBlankMap(), id: 'fixture', terrain: createDefaultScenarioTerrain() },
+    customMap: { ...createBlankMap(), id: 'fixture', terrain: legacyScenarioTerrain() },
   });
   state.terrain = fixtureTerrain.map((t) => ({ ...t }));
   const unit = state.units.find((u) => u.ownerId === HOST)!;
