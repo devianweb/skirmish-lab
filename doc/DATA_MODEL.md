@@ -229,9 +229,15 @@ interface TerrainPiece {
   isObstacle: boolean;
   structure?: TerrainGroup;  // Optional override of the catalog structure (see below)
   climbable?: boolean;       // Override of the type's catalog default: may models climb onto this piece's floor (rise <= 3") without a ladder? `isClimbable(piece)` = override ?? catalog default ?? false
+  isDifficult?: boolean;     // Override of the catalog default: movement through the piece is capped at 6". `isDifficultPiece(piece)` = override ?? catalog default ?? legacy type list (trench, forest, mud)
+  isDangerous?: boolean;     // Override of the catalog default: crossing or activating in the piece rolls the hazard test. `isDangerousPiece(piece)` = override ?? catalog default ?? legacy type list (toxic, hazard, fire)
   data?: Record<string, any>;
 }
 ```
+
+Catalog metadata (`TerrainTypeMetadata`) carries the defaults: `isDifficult`, `isDangerous` and `isArea` (area terrain, palette category `area`: `rubble-field` 6"x0.25"x4", difficult and cover; `hazard-pool` 4"x0.1"x4", dangerous, no cover). Area pieces have a structure with no solids and no apertures (`{ id, solids: [] }`), so they never block and never use the fallback body.
+
+`Unit.activationHazardModelIds?: string[]` lists the models that took the hazard test when the current activation began (they stood in dangerous terrain); it is cleared at the next activation and stops them rolling again for crossing dangerous ground that activation.
 
 ### Terrain Structure: Solids + Apertures
 Buildings are composed from two primitives, defined as data in `shared/src/data/terrainStructures.ts` and shared by the rules engine and the renderer (so meshes and collision cannot drift apart):

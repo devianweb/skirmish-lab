@@ -237,6 +237,44 @@ describe('GameManager', () => {
       );
     });
 
+    it('requests server dice for the activation hazard test of a unit standing in a hazard pool', async () => {
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([{ rolls: [1], total: 1, finalTotal: 1, purpose: 'activation_hazard' }]),
+      };
+      const manager = startedHost(diceProvider);
+      const state = (manager as any).gameState;
+      const unit = state.units.find((u: any) => u.ownerId === HOST_PLAYER_ID && u.models.length === 1);
+      unit.wounds = 3;
+      unit.maxWounds = 3;
+      unit.models[0].wounds = 3;
+      unit.models[0].maxWounds = 3;
+      unit.position = { x: 0, y: 0, z: 0 };
+      unit.models[0].position = { x: 0, y: 0, z: 0 };
+      state.terrain = [
+        {
+          id: 'pool',
+          terrainType: 'hazard-pool',
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 4, y: 0.1, z: 4 },
+          blocksLineOfSight: false,
+          providesCover: false,
+          isObstacle: false,
+        },
+      ];
+
+      const action = createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: unit.id });
+      manager.sendAction(action);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
+        { count: 1, sides: 6, purpose: 'activation_hazard' },
+      ]);
+      const after = manager.getGameState()!;
+      expect(after.units.find((u) => u.id === unit.id)!.wounds).toBe(2);
+      expect(after.turnState.activeUnitId).toBe(unit.id);
+    });
+
     it('requests server dice for shoot and applies the resolution', async () => {
       const diceProvider = {
         requestRoll: vi.fn().mockResolvedValue([

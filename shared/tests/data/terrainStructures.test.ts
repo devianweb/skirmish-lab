@@ -28,6 +28,15 @@ describe('terrain structure grid', () => {
     expect(types).toEqual(expect.arrayContaining(['wall-short', 'wall', 'wall-long', 'wall-window', 'wall-doorway', 'column', 'ruin-l']));
   });
 
+  it('area pieces are structured with no boxes, so they never fall back to a solid body', () => {
+    for (const type of ['rubble-field', 'hazard-pool']) {
+      expect(types).toContain(type);
+      const { solids, apertures } = resolveTerrainStructure(pieceAtDefaultScale(type));
+      expect(solids).toHaveLength(0);
+      expect(apertures).toHaveLength(0);
+    }
+  });
+
   for (const type of types) {
     it(`${type}: heights, widths and thicknesses are multiples of 0.25" at the default scale`, () => {
       const { solids, apertures } = resolveTerrainStructure(pieceAtDefaultScale(type));

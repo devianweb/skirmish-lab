@@ -138,6 +138,11 @@ export interface Unit {
    * made; cleared when the activation or charge starts.
    */
   modelMovementSpent?: Record<string, number>;
+  /**
+   * Ids of the models that took the hazard test when this activation began (they stood in dangerous
+   * terrain). They do not roll again for dangerous ground crossed later in the same activation.
+   */
+  activationHazardModelIds?: string[];
 }
 
 /**

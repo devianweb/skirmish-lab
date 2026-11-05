@@ -260,7 +260,7 @@ describe('scenario data pack', () => {
       for (const [key, meta] of Object.entries(TERRAIN_PALETTE_CATALOG)) {
         expect(meta.type).toBe(key);
         expect(meta.displayName.length).toBeGreaterThan(0);
-        expect(['structures', 'walls', 'platforms', 'stairs-ladders', 'scatter']).toContain(meta.category);
+        expect(['structures', 'walls', 'platforms', 'stairs-ladders', 'scatter', 'area']).toContain(meta.category);
         expect(meta.defaultScale.x).toBeGreaterThan(0);
         expect(meta.defaultScale.y).toBeGreaterThan(0);
         expect(meta.defaultScale.z).toBeGreaterThan(0);
