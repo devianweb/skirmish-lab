@@ -12,6 +12,8 @@ import {
   findWalkableSurfaceAt,
   getWalkableSurfaces,
   isClimbable,
+  isDifficultPiece,
+  isDangerousPiece,
   localToWorldXZ,
   worldToLocal,
   TERRAIN_PALETTE_CATALOG,
@@ -231,6 +233,9 @@ export class MapEditor {
           : undefined,
       climbType: meta?.climbType,
     };
+    // Area-terrain flags come from the catalog; only write them when the catalog defines them.
+    if (meta?.isDifficult !== undefined) newPiece.isDifficult = meta.isDifficult;
+    if (meta?.isDangerous !== undefined) newPiece.isDangerous = meta.isDangerous;
 
     if (type === 'ladder') this.snapLadderToFace(newPiece);
     else if (type === 'stairs') this.snapStairsToFace(newPiece);
@@ -693,6 +698,7 @@ export class MapEditor {
       { id: 'platforms', label: 'Platforms & Decks', icon: '🔲' },
       { id: 'stairs-ladders', label: 'Stairs & Ladders', icon: '🪜' },
       { id: 'scatter', label: 'Cover & Pipes', icon: '📦' },
+      { id: 'area', label: 'Area Terrain', icon: '🟫' },
       { id: 'objectives', label: 'Objectives', icon: '🎯' },
     ];
 
@@ -804,6 +810,8 @@ export class MapEditor {
             <label><input type="checkbox" id="inspectLos" ${selectedPiece.blocksLineOfSight ? 'checked' : ''} /> Blocks Line of Sight</label>
             <label><input type="checkbox" id="inspectObstacle" ${selectedPiece.isObstacle ? 'checked' : ''} /> Impassable Obstacle</label>
             <label><input type="checkbox" id="inspectWalkable" ${selectedPiece.isWalkable ? 'checked' : ''} /> Walkable Surface</label>
+            <label title="Moving through this piece is capped at 6 inches. Shown with a yellow outline in the debug view."><input type="checkbox" id="inspectDifficult" ${isDifficultPiece(selectedPiece) ? 'checked' : ''} /> Difficult (6" move cap)</label>
+            <label title="Moving through this piece, or activating inside it, risks wounds. Shown with a red outline in the debug view."><input type="checkbox" id="inspectDangerous" ${isDangerousPiece(selectedPiece) ? 'checked' : ''} /> Dangerous (hazard test)</label>
             ${canClimb ? `<label title="Models may climb onto this piece's floor (up to 3 inches) without a ladder. Shown with an orange outline."><input type="checkbox" id="inspectClimbable" ${isClimbable(selectedPiece) ? 'checked' : ''} /> Climbable (up to 3")</label>` : ''}
           </div>
 
@@ -1086,6 +1094,28 @@ export class MapEditor {
         : undefined;
       if (piece) {
         piece.climbable = climbableCheck.checked;
+        this.syncGameView();
+      }
+    });
+
+    const difficultCheck = this.rootElement.querySelector<HTMLInputElement>('#inspectDifficult');
+    difficultCheck?.addEventListener('change', () => {
+      const piece = this.selectedPieceId
+        ? this.currentMap.terrain.find((t) => t.id === this.selectedPieceId)
+        : undefined;
+      if (piece) {
+        piece.isDifficult = difficultCheck.checked;
+        this.syncGameView();
+      }
+    });
+
+    const dangerousCheck = this.rootElement.querySelector<HTMLInputElement>('#inspectDangerous');
+    dangerousCheck?.addEventListener('change', () => {
+      const piece = this.selectedPieceId
+        ? this.currentMap.terrain.find((t) => t.id === this.selectedPieceId)
+        : undefined;
+      if (piece) {
+        piece.isDangerous = dangerousCheck.checked;
         this.syncGameView();
       }
     });

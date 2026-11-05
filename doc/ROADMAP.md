@@ -688,7 +688,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
 - [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
 - [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.
-- [ ] Update map editor palette to display the new procedural wargaming terrain catalog.
+- [x] Update map editor palette to display the new procedural wargaming terrain catalog. (13.6E PR 3: "Area Terrain" category, Difficult/Dangerous inspector toggles.)
 
 - [x] 13.6E PR 1 (`doc/plans/13.6E-default-scenario.md`): area terrain in the engine. New catalog pieces `rubble-field` (difficult, cover) and `hazard-pool` (dangerous), `isDifficultPiece` / `isDangerousPiece` helpers with legacy type lists, difficult/dangerous detection per path segment at the piece's level, cover for models inside area pieces, and the activation hazard test. Engine only (meshes, editor and the Standard Battlefield follow in PRs 2-5).
 

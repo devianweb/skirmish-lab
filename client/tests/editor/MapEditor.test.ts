@@ -374,6 +374,88 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(container.querySelector('#inspectClimbable')).toBeNull();
   });
 
+  describe('area terrain palette and flags (13.6E)', () => {
+    const toggle = (selector: string, on: boolean) => {
+      const box = container.querySelector(selector) as HTMLInputElement;
+      box.checked = on;
+      box.dispatchEvent(new Event('change'));
+    };
+
+    it('the palette has an Area Terrain category listing both area pieces', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const btn = container.querySelector('button[data-category="area"]') as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      expect(btn.textContent).toContain('Area Terrain');
+      btn.click();
+      expect(container.textContent).toContain(TERRAIN_PALETTE_CATALOG['rubble-field'].displayName);
+      expect(container.textContent).toContain(TERRAIN_PALETTE_CATALOG['hazard-pool'].displayName);
+    });
+
+    it('placing area pieces copies the catalog flags and gives no elevation', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      const rubble = editor.placePieceAt('rubble-field', { x: 0, y: 0, z: 0 })!;
+      const pool = editor.placePieceAt('hazard-pool', { x: 8, y: 0, z: 0 })!;
+      expect(rubble.isDifficult).toBe(true);
+      expect(rubble.isDangerous).toBeUndefined();
+      expect(rubble.elevation).toBeUndefined();
+      expect(pool.isDangerous).toBe(true);
+      expect(pool.isDifficult).toBeUndefined();
+      expect(pool.elevation).toBeUndefined();
+      // Ordinary pieces carry no explicit flags
+      const crate = editor.placePieceAt('crate', { x: 0, y: 0, z: 8 })!;
+      expect('isDifficult' in crate).toBe(false);
+      expect('isDangerous' in crate).toBe(false);
+    });
+
+    it('the inspector shows the effective flags', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const rubble = editor.placePieceAt('rubble-field', { x: 0, y: 0, z: 0 })!;
+      editor.selectPiece(rubble.id);
+      expect((container.querySelector('#inspectDifficult') as HTMLInputElement).checked).toBe(true);
+      expect((container.querySelector('#inspectDangerous') as HTMLInputElement).checked).toBe(false);
+      const pool = editor.placePieceAt('hazard-pool', { x: 8, y: 0, z: 0 })!;
+      editor.selectPiece(pool.id);
+      expect((container.querySelector('#inspectDifficult') as HTMLInputElement).checked).toBe(false);
+      expect((container.querySelector('#inspectDangerous') as HTMLInputElement).checked).toBe(true);
+    });
+
+    it('unchecking Difficult stores an explicit false; checking Dangerous on a crate stores true; both survive save and load', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const rubble = editor.placePieceAt('rubble-field', { x: 0, y: 0, z: 0 })!;
+      editor.selectPiece(rubble.id);
+      toggle('#inspectDifficult', false);
+      expect(editor.getMap().terrain.find((t) => t.id === rubble.id)?.isDifficult).toBe(false);
+
+      const crate = editor.placePieceAt('crate', { x: 0, y: 0, z: 8 })!;
+      editor.selectPiece(crate.id);
+      expect((container.querySelector('#inspectDangerous') as HTMLInputElement).checked).toBe(false);
+      toggle('#inspectDangerous', true);
+      expect(editor.getMap().terrain.find((t) => t.id === crate.id)?.isDangerous).toBe(true);
+
+      editor.importJson(editor.exportJson());
+      const terrain = editor.getMap().terrain;
+      expect(terrain.find((t) => t.id === rubble.id)?.isDifficult).toBe(false);
+      expect(terrain.find((t) => t.id === crate.id)?.isDangerous).toBe(true);
+      editor.selectPiece(rubble.id);
+      expect((container.querySelector('#inspectDifficult') as HTMLInputElement).checked).toBe(false);
+    });
+
+    it('area pieces follow the scatter stacking rule: ground stays ground, dropped on a deck sits on it', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 });
+      const onGround = editor.placePieceAt('rubble-field', { x: 10, y: 0, z: 10 })!;
+      expect(onGround.position.y).toBe(0);
+      const onDeck = editor.placePieceAt('hazard-pool', { x: 0, y: 2.9, z: 0 }, 0, 2.9)!;
+      expect(onDeck.position.y).toBe(3.0);
+      expect(onDeck.elevation).toBeUndefined();
+    });
+  });
+
   it('loadMap returns false for unknown ids', () => {
     const editor = new MapEditor(container);
     editor.show();
