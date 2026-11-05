@@ -6,7 +6,8 @@ export type TerrainCategory =
   | 'walls'
   | 'platforms'
   | 'stairs-ladders'
-  | 'scatter';
+  | 'scatter'
+  | 'area';
 
 export interface TerrainTypeMetadata {
   type: string;
@@ -22,6 +23,15 @@ export interface TerrainTypeMetadata {
   climbSlope?: number;
   /** Default for "models may climb onto this piece's floor (rise up to 3\") without a ladder". Pieces can override it. */
   climbable?: boolean;
+  /**
+   * Area terrain: a flat footprint with no solids. Models inside it (not behind it) are in cover when
+   * `providesCover` is set, and it never lifts a model off the ground.
+   */
+  isArea?: boolean;
+  /** Default for "movement through this piece is capped at 6 inches". Pieces can override it. */
+  isDifficult?: boolean;
+  /** Default for "models that cross or activate in this piece roll the hazard test". Pieces can override it. */
+  isDangerous?: boolean;
   description?: string;
 }
 
@@ -192,6 +202,30 @@ export const TERRAIN_PALETTE_CATALOG: Record<string, TerrainTypeMetadata> = {
     isWalkable: true,
     description: 'Solid 2.25" container that blocks sight; its flat roof is a walkable floor.',
   },
+  'rubble-field': {
+    type: 'rubble-field',
+    displayName: 'Rubble Field (6"×4")',
+    category: 'area',
+    defaultScale: { x: 6, y: 0.25, z: 4 },
+    blocksLineOfSight: false,
+    providesCover: true,
+    isObstacle: false,
+    isArea: true,
+    isDifficult: true,
+    description: 'Loose rubble: difficult ground that gives cover to models standing in it. Does not block sight.',
+  },
+  'hazard-pool': {
+    type: 'hazard-pool',
+    displayName: 'Hazard Pool (4"×4")',
+    category: 'area',
+    defaultScale: { x: 4, y: 0.1, z: 4 },
+    blocksLineOfSight: false,
+    providesCover: false,
+    isObstacle: false,
+    isArea: true,
+    isDangerous: true,
+    description: 'Dangerous ground: crossing it or activating in it risks wounds. Gives no cover.',
+  },
   stairs: {
     type: 'stairs',
     displayName: 'Stairs (2"×4")',
@@ -278,6 +312,31 @@ export function isClimbable(piece: Pick<TerrainPiece, 'terrainType' | 'climbable
   const meta = TERRAIN_PALETTE_CATALOG[piece.terrainType];
   if (meta?.climbable !== undefined) return meta.climbable;
   return LEGACY_CLIMBABLE_TYPES.includes(piece.terrainType);
+}
+
+/** Types outside the catalog that still count as difficult / dangerous by default (older saved maps). */
+const LEGACY_DIFFICULT_TYPES: readonly string[] = ['trench', 'forest', 'mud'];
+const LEGACY_DANGEROUS_TYPES: readonly string[] = ['toxic', 'hazard', 'fire'];
+
+/** Whether movement through the piece is capped at 6": its own `isDifficult`, else the catalog default, else the legacy type list. */
+export function isDifficultPiece(piece: Pick<TerrainPiece, 'terrainType' | 'isDifficult'>): boolean {
+  if (piece.isDifficult !== undefined) return piece.isDifficult;
+  const meta = TERRAIN_PALETTE_CATALOG[piece.terrainType];
+  if (meta?.isDifficult !== undefined) return meta.isDifficult;
+  return LEGACY_DIFFICULT_TYPES.includes(piece.terrainType);
+}
+
+/** Whether the piece calls for the hazard test: its own `isDangerous`, else the catalog default, else the legacy type list. */
+export function isDangerousPiece(piece: Pick<TerrainPiece, 'terrainType' | 'isDangerous'>): boolean {
+  if (piece.isDangerous !== undefined) return piece.isDangerous;
+  const meta = TERRAIN_PALETTE_CATALOG[piece.terrainType];
+  if (meta?.isDangerous !== undefined) return meta.isDangerous;
+  return LEGACY_DANGEROUS_TYPES.includes(piece.terrainType);
+}
+
+/** Whether the piece is area terrain (a footprint with no solids; cover is for models inside it). */
+export function isAreaPiece(piece: Pick<TerrainPiece, 'terrainType'>): boolean {
+  return TERRAIN_PALETTE_CATALOG[piece.terrainType]?.isArea === true;
 }
 
 export function validateMapDefinition(map: CustomMapDefinition): MapValidationNotice[] {

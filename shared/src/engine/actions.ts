@@ -56,6 +56,7 @@ import {
   detectPathFall,
   getEffectiveMaxMovement,
   isPathDangerous,
+  modelsInDangerousTerrain,
   isPathDifficult,
   pathMovementCost,
   resolveDangerousTerrain,
@@ -446,6 +447,69 @@ function placeSquadModels(unit: Unit, positions: Vector3[]): Vector3[] {
   return prev;
 }
 
+/** Living models that have not yet taken this activation's hazard test (see `activationHazardSpecs`). */
+function untestedLivingCount(unit: Unit): number {
+  const tested = unit.activationHazardModelIds ?? [];
+  const alive = livingModels(unit);
+  return Math.max(0, (alive.length || 1) - alive.filter((m) => tested.includes(m.id)).length);
+}
+
+/** Whether the living model at `index` (living-model order) already took this activation's hazard test. */
+function modelWasHazardTested(unit: Unit, index: number): boolean {
+  const model = livingModels(unit)[index];
+  return !!model && (unit.activationHazardModelIds ?? []).includes(model.id);
+}
+
+/**
+ * Dice for the hazard test of models that start their activation inside dangerous terrain: one die per such
+ * model (a single-model unit rolls plain `activation_hazard`, a squad tags `m<index>_activation_hazard` in
+ * living-model order).
+ */
+function activationHazardSpecs(state: GameState, unit: Unit): DiceSpec[] {
+  const inside = modelsInDangerousTerrain(state, unit);
+  if (inside.length === 0) return [];
+  const alive = livingModels(unit);
+  if (alive.length <= 1) return [{ count: 1, sides: 6, purpose: 'activation_hazard' }];
+  return inside.map((m) => ({ count: 1, sides: 6, purpose: `m${alive.indexOf(m)}_activation_hazard` }));
+}
+
+/**
+ * Resolves the activation hazard test: each model standing in dangerous terrain rolls one die, every 1 wounds
+ * the unit (the model that rolled it is the casualty in a squad). Remembers who was tested so a move across
+ * dangerous ground later in the same activation does not roll for them again.
+ */
+function applyActivationHazard(state: GameState, unit: Unit, action: GameAction, dice?: DiceResult[]): void {
+  if (!dice || dice.length === 0) return;
+  const inside = modelsInDangerousTerrain(state, unit);
+  const alive = livingModels(unit);
+  const squad = alive.length > 1;
+  const events: TraversalEvent[] = [];
+  const victims: string[] = [];
+  const tested: string[] = [];
+  const allRolls: number[] = [];
+  for (const model of inside) {
+    const purpose = squad ? `m${alive.indexOf(model)}_activation_hazard` : 'activation_hazard';
+    const rolls = dice.find((d) => d.purpose === purpose)?.rolls;
+    if (!rolls || rolls.length === 0) continue;
+    tested.push(model.id);
+    allRolls.push(...rolls);
+    if (rolls.some((r) => r === 1)) victims.push(model.id);
+  }
+  if (tested.length === 0) return;
+  const wounds = allRolls.filter((r) => r === 1).length;
+  unit.activationHazardModelIds = tested;
+  events.push({
+    type: 'hazard',
+    rolls: allRolls,
+    wounds,
+    text: `Hazard (activated in dangerous terrain): rolled ${rollsText(allRolls)} → ${
+      wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''} (each 1)` : 'no wounds'
+    }`,
+  });
+  recordTraversal(action, unit, events, dice);
+  if (wounds > 0) applyWounds(unit, wounds, undefined, 0, 1, squad ? victims : undefined);
+}
+
 /** Jump, hazard and fall dice a squad charge (leg) needs: jumpers roll tagged `m<index>_` dice in model order. */
 function squadChargeTraversalSpecs(state: GameState, unit: Unit, payload: SquadChargePayload): DiceSpec[] {
   const paths = squadChargePaths(unit, payload);
@@ -453,13 +517,18 @@ function squadChargeTraversalSpecs(state: GameState, unit: Unit, payload: SquadC
   const jumpers = paths.map((_, i) => (payload.modelTraversals?.[i] ? i : -1)).filter((i) => i >= 0);
   const specs: DiceSpec[] = [];
   // Models that walk share one hazard roll for the squad; jumpers carry their own
-  if (paths.some((p, i) => !jumpers.includes(i) && isPathDangerous(state, p, unit))) {
-    specs.push({ count: aliveCount, sides: 6, purpose: 'hazard' });
+  if (paths.some((p, i) => !jumpers.includes(i) && isPathDangerous(state, p, unit)) && untestedLivingCount(unit) > 0) {
+    specs.push({ count: untestedLivingCount(unit), sides: 6, purpose: 'hazard' });
   }
   const needsFallDice = jumpers.length >= aliveCount;
   for (const i of jumpers) {
     specs.push(
-      ...pathTraversalSpecs(state, unit, paths[i], { prefix: `m${i}_`, singleModel: true, includeFallDice: needsFallDice })
+      ...pathTraversalSpecs(state, unit, paths[i], {
+        prefix: `m${i}_`,
+        singleModel: true,
+        includeFallDice: needsFallDice,
+        skipHazard: modelWasHazardTested(unit, i),
+      })
     );
   }
   return specs;
@@ -1431,6 +1500,12 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     return specs;
   }
 
+  if (action.type === 'activate-unit' || (action.type === 'hold' && !state.turnState.activeUnitId)) {
+    const unit = getUnit(state, (action.payload as PayloadWithUnitId).unitId);
+    const specs = unit ? activationHazardSpecs(state, unit) : [];
+    return specs.length > 0 ? specs : null;
+  }
+
   if (action.type === 'move-unit' || action.type === 'rush') {
     const payload = action.payload as {
       unitId?: string;
@@ -1462,6 +1537,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
             prefix: `m${i}_`,
             singleModel: true,
             includeFallDice: needsFallDice,
+            skipHazard: modelWasHazardTested(unit, i),
           })
         );
       }
@@ -1658,7 +1734,7 @@ function pathTraversalSpecs(
   state: GameState,
   unit: Unit,
   path: Vector3[],
-  opts: { prefix?: string; singleModel?: boolean; includeFallDice?: boolean } = {}
+  opts: { prefix?: string; singleModel?: boolean; includeFallDice?: boolean; skipHazard?: boolean } = {}
 ): DiceSpec[] {
   const prefix = opts.prefix ?? '';
   const specs: DiceSpec[] = [];
@@ -1667,8 +1743,13 @@ function pathTraversalSpecs(
     specs.push({ count: gap.dice, sides: 6, purpose: `${prefix}gap_jump` });
   }
   if (isPathDangerous(state, path, unit)) {
-    const aliveCount = opts.singleModel ? 1 : unit.models?.filter((m) => !m.isDestroyed).length || 1;
-    specs.push({ count: aliveCount, sides: 6, purpose: `${prefix}hazard` });
+    // Models that already took the activation test (standing in dangerous terrain) do not roll again
+    const hazardCount = opts.singleModel
+      ? opts.skipHazard
+        ? 0
+        : 1
+      : untestedLivingCount(unit);
+    if (hazardCount > 0) specs.push({ count: hazardCount, sides: 6, purpose: `${prefix}hazard` });
   }
   const fall = detectPathFall(path, state);
   // a hop that is already a gap jump rolls once, on its straight-line length
@@ -2085,9 +2166,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const wasSuppressed =
         unit.status.includes('stunned') || unit.status.includes('shaken');
       beginActivation(newState, unit);
+      applyActivationHazard(newState, unit, action, dice);
       // A stunned/shaken unit spends its activation clearing suppression and
       // passes initiative immediately (cannot move or attack on this activation).
-      if (wasSuppressed) {
+      // A unit the hazard test destroyed has nothing left to activate.
+      if (wasSuppressed || unit.isDestroyed) {
         finishActivation(newState, dice);
       }
       logEntry = acceptedEntry(action);
@@ -2099,6 +2182,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const unit = getUnit(newState, unitId)!;
       if (!newState.turnState.activeUnitId) {
         beginActivation(newState, unit);
+        applyActivationHazard(newState, unit, action, dice);
       }
       // A hold ends the unit's activation immediately without moving or acting.
       finishActivation(newState, dice);
@@ -3405,6 +3489,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.hasAttacked = false;
   unit.isRushing = false;
   unit.remainingMovement = unit.speed;
+  delete unit.activationHazardModelIds;
   resetModelMovement(unit);
   unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
