@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createAction, createInitialGameState } from '../../src/gameState';
 import { DiceResult, GameState, Unit, Vector3, Weapon } from '../../src/gameTypes';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
-import { consolidateSquadToward, findNavPath, validateSquadCoherency, KEEP_AWAY_REASON } from '../../src/engine/spatial';
+import { findNavPath, validateSquadCoherency, KEEP_AWAY_REASON } from '../../src/engine/spatial';
 import { WEAPONS } from '../../src/data/weapons';
 
 const HOST = 'host1';
@@ -265,17 +265,19 @@ describe('charges measure to the closest target model', () => {
 });
 
 describe('who strikes in melee', () => {
-  // Charger column: models 1" apart along z, anchor at the middle
-  const chargerColumn = () => squad('h1', HOST, [[0, -1.5], [0, -0.5], [0, 0.5], [0, 1.5]], { weapons: [weapon('blade')] });
+  // Charger column: models 1" apart along z, charge distance 6" (each model closes up as far as it can walk)
+  const chargerColumn = () =>
+    squad('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5]], { weapons: [weapon('blade')], speed: 3 });
 
   it('only models within 2" of a target model roll attacks on a charge (pooled)', () => {
-    // End the charge with the anchor at z = 2.5: models stand at z = 1, 2, 3, 4; the target is at z = 5.
-    const state = makeState([chargerColumn(), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } })]);
+    // Models end at z = 9, 8, 7, 6; the target is at z = 10.
+    const state = makeState([chargerColumn(), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10 } })]);
     const charge = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
       targetId: 'g1',
-      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2.5 }],
+      path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 7.5 }],
+      modelPositions: [9, 8, 7, 6].map((z) => ({ x: 0, y: 0, z })),
       weaponId: 'blade',
     });
     expect(validateAction(state, charge).valid).toBe(true);
@@ -336,66 +338,5 @@ describe('who strikes in melee', () => {
     const fight = createAction(HOST, 'fight', { type: 'fight', attackerId: 'h1', targetId: 'g1', weaponId: 'blade' });
     // gaps: 0, 1, 2.1, 3.2 -> two strike
     expect(getDiceSpecs(state, fight)?.find((s) => s.purpose === 'to-hit')?.count).toBe(4);
-  });
-});
-
-describe('defenders pile in after a charge', () => {
-  const near = (a: Vector3, b: Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
-
-  it('moves only the models not in contact, up to 3", stopping at base contact', () => {
-    const charger = makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } });
-    // front model already touching; one model 5" back moves 3"; the sideways one closes to contact
-    const defender = squad('g1', GUEST, [[0, 1], [0.9, 1.6], [0, 6]]);
-    const state = makeState([charger, defender]);
-    const target = state.units[1];
-    const before = target.models.map((m) => ({ ...m.position! }));
-    consolidateSquadToward(state, target, charger.position, 3, { intoContact: true, contactWith: state.units[0] });
-    const after = target.models.map((m) => m.position!);
-    expect(after[0]).toEqual(before[0]); // in contact: stays
-    expect(near(after[2], before[2])).toBeLessThanOrEqual(3.001);
-    expect(near(after[2], before[2])).toBeGreaterThan(2.5);
-    expect(near(after[1], charger.position)).toBeGreaterThanOrEqual(0.99); // never inside the charger's base
-    expect(near(after[1], charger.position)).toBeLessThan(near(before[1], charger.position));
-  });
-
-  it('measures to the closest charging model, not the charger anchor', () => {
-    // Charger squad: anchor at the centroid (0, 0) but models at x = -3 and x = 3. Defender model at (3, 4):
-    // its closest charger model is (3, 0).
-    const charger = squad('h1', HOST, [[-3, 0], [3, 0]]);
-    const defender = squad('g1', GUEST, [[-3, 1], [3, 4]]);
-    const state = makeState([charger, defender]);
-    const target = state.units[1];
-    consolidateSquadToward(state, target, charger.position, 3, { intoContact: true, contactWith: state.units[0] });
-    const moved = target.models[1].position!;
-    expect(moved.x).toBeCloseTo(3, 1);
-    expect(moved.z).toBeCloseTo(1, 1); // contact with the model at (3, 0)
-  });
-
-  it('never stacks on another model', () => {
-    const charger = makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } });
-    // The rear model is straight behind the front one, so it can only close up to the front model's back
-    const defender = squad('g1', GUEST, [[0, 1], [0, 3]]);
-    const state = makeState([charger, defender]);
-    const target = state.units[1];
-    consolidateSquadToward(state, target, charger.position, 3, { intoContact: true, contactWith: state.units[0] });
-    const [front, rear] = target.models.map((m) => m.position!);
-    expect(near(front, rear)).toBeGreaterThanOrEqual(0.9);
-  });
-
-  it('the squad stays in coherency when it was coherent before the pile-in', () => {
-    const layouts: Array<Array<[number, number]>> = [
-      [[0, 1], [1, 2.7], [1, 4.6], [1, 6.5]],
-      [[0, 1], [-1.9, 1.2], [-3.8, 1.2], [-3.8, 3]],
-      [[0, 1], [0, 2.9], [0, 4.8], [0, 6.7], [1.9, 6.7]],
-    ];
-    for (const spots of layouts) {
-      const charger = makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } });
-      const defender = squad('g1', GUEST, spots);
-      const state = makeState([charger, defender]);
-      const target = state.units[1];
-      expect(validateSquadCoherency(target.models.map((m) => m.position!)).coherent).toBe(true);
-      consolidateSquadToward(state, target, charger.position, 3, { intoContact: true, contactWith: state.units[0] });
-      expect(validateSquadCoherency(target.models.map((m) => m.position!)).coherent).toBe(true);
-    }
   });
 });

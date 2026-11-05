@@ -3136,7 +3136,7 @@ export function areOnDifferentLevels(a: Vector3, b: Vector3): boolean {
  * 1. Every model must be within maxMemberDistance (2.0" centre = 1" edge gap) of at least one other member,
  *    or within maxCrossLevelMemberDistance (4.0" centre = 3" edge gap) when that member is on a different level.
  * 2. All models must be within maxSquadSpread (7.0" centre = 6" edge gap) of every other member.
- * Models may form separate pairs/sub-groups as long as each has a link and the spread holds.
+ * 3. The links (same limits) must join all models into one connected group: separate pairs/clumps are split.
  */
 export function validateSquadCoherency(
   positions: Vector3[],
@@ -3204,11 +3204,103 @@ export function validateSquadCoherency(
     }
   }
 
+  // 3. The links must join every model into one unbroken chain (connected components).
+  const group = new Array<number>(positions.length).fill(-1);
+  let groups = 0;
+  for (let start = 0; start < positions.length; start++) {
+    if (group[start] !== -1) continue;
+    group[start] = groups;
+    const queue = [start];
+    while (queue.length > 0) {
+      const i = queue.pop() as number;
+      for (let j = 0; j < positions.length; j++) {
+        if (group[j] !== -1) continue;
+        const d = Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z);
+        const limit = areOnDifferentLevels(positions[i], positions[j]) ? maxCrossDist : maxMemberDist;
+        if (d <= limit + tolerance) {
+          group[j] = groups;
+          queue.push(j);
+        }
+      }
+    }
+    groups++;
+  }
+  if (groups > 1) {
+    const members = Array.from({ length: groups }, (_, g) =>
+      positions.flatMap((_p, i) => (group[i] === g ? [String(i + 1)] : [])).join(', ')
+    );
+    return {
+      coherent: false,
+      reason: `Squad is split into ${groups} groups (models ${members.join(' | ')}): every model must link to the rest in one unbroken chain (1" apart edge to edge, 3" across levels)`,
+      maxDistanceBetweenModels: maxPairDist,
+      maxDistanceToNearestMember: maxNearestDist,
+    };
+  }
+
   return {
     coherent: true,
     maxDistanceBetweenModels: Math.round(maxPairDist * 100) / 100,
     maxDistanceToNearestMember: Math.round(maxNearestDist * 100) / 100,
   };
+}
+
+/** Same tolerance as `validateSquadCoherency` (small floating-point margin for tabletop movement). */
+const SQUAD_COHERENCY_TOLERANCE = 0.02;
+
+/**
+ * How far a squad is from being coherent, in inches (0 exactly when `validateSquadCoherency` accepts it).
+ * It is the total length missing from the chain (minimum spanning tree over every pair of living models,
+ * each edge weighing what it lacks of its level-aware link limit, so the gap between separate groups counts)
+ * plus how much the widest pair exceeds the spread limit. Used to judge whether a regrouping move helps.
+ */
+export function coherencyShortfall(positions: Vector3[]): number {
+  const n = positions.length;
+  if (n <= 1) return 0;
+  const tol = SQUAD_COHERENCY_TOLERANCE;
+  const weight = (i: number, j: number): number => {
+    const d = Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z);
+    const limit = areOnDifferentLevels(positions[i], positions[j])
+      ? SQUAD_COHERENCY_CROSS_LEVEL_CENTRE
+      : SQUAD_COHERENCY_SAME_LEVEL_CENTRE;
+    return d <= limit + tol ? 0 : d - limit;
+  };
+  // Prim's algorithm on the complete graph
+  const inTree = new Array<boolean>(n).fill(false);
+  const best = new Array<number>(n).fill(Infinity);
+  best[0] = 0;
+  let chain = 0;
+  for (let step = 0; step < n; step++) {
+    let pick = -1;
+    for (let i = 0; i < n; i++) {
+      if (!inTree[i] && (pick === -1 || best[i] < best[pick])) pick = i;
+    }
+    inTree[pick] = true;
+    chain += best[pick];
+    for (let j = 0; j < n; j++) {
+      if (!inTree[j]) best[j] = Math.min(best[j], weight(pick, j));
+    }
+  }
+  let widest = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      widest = Math.max(widest, Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z));
+    }
+  }
+  const spread = widest > SQUAD_COHERENCY_SPREAD + tol ? widest - SQUAD_COHERENCY_SPREAD : 0;
+  return chain + spread;
+}
+
+/** A regrouping move is progress when the shortfall drops by more than this much (inches). */
+export const COHERENCY_REGROUP_MIN_GAIN = 0.05;
+
+/**
+ * True when a squad that was incoherent before an action (or leg) ends it measurably closer to coherent
+ * ("or as close as possible"). A squad that started coherent never qualifies: it must end coherent.
+ */
+export function isRegroupingMove(before: Vector3[], after: Vector3[]): boolean {
+  const startShortfall = coherencyShortfall(before);
+  if (startShortfall <= 0) return false;
+  return coherencyShortfall(after) < startShortfall - COHERENCY_REGROUP_MIN_GAIN;
 }
 
 /**
@@ -3377,130 +3469,5 @@ export function validateFormationMove(
     destination: finalCentroid,
     modelPositions: resolvedPositions,
   };
-}
-
-/**
- * Consolidates surviving models in a unit up to `maxDistance` toward `targetPosition`,
- * stopping at base contact (`UNIT_SEPARATION_DISTANCE = 1.0"`).
- *
- * With `intoContact` (the defenders' pile-in after a charge) only the models of `unit` that are not already in base
- * contact with `contactWith` move: each steps up to `maxDistance` straight toward its nearest `contactWith` model and
- * stops at base contact, short of any other model, and only if the squad stays in coherency (when it was coherent).
- * Without `contactWith` the single point `targetPosition` stands in for the charger.
- */
-export function consolidateSquadToward(
-  state: GameState,
-  unit: Unit,
-  targetPosition: Vector3,
-  maxDistance: number = 3.0,
-  options: { intoContact?: boolean; contactWith?: Unit } = {}
-): void {
-  const intoContact = options.intoContact ?? false;
-  const contactThreshold = edgeGapToCentre(0); // base contact
-
-  if (intoContact) {
-    if (!unit.models || unit.models.length <= 1) {
-      return;
-    }
-    const foes = options.contactWith ? livingModelPositions(options.contactWith) : [targetPosition];
-    const living = unit.models.filter((m) => !m.isDestroyed);
-    const stepOf = (m: (typeof living)[number]): number => {
-      const p = m.position ?? unit.position;
-      return Math.min(...foes.map((f) => Math.hypot(f.x - p.x, f.z - p.z)));
-    };
-    // Models nearest the enemy settle first so the ones behind fill in around them
-    const order = [...living].sort((a, b) => stepOf(a) - stepOf(b));
-    const wasCoherent = validateSquadCoherency(living.map((m) => m.position ?? unit.position)).coherent;
-
-    const otherModelPositions = (self: (typeof living)[number]): Vector3[] => {
-      const out: Vector3[] = [];
-      for (const u of state.units) {
-        if (u.isDestroyed) continue;
-        if (u.id === unit.id) {
-          for (const m of living) if (m !== self) out.push(m.position ?? unit.position);
-        } else {
-          out.push(...livingModelPositions(u));
-        }
-      }
-      return out;
-    };
-
-    let movedAny = false;
-    for (const model of order) {
-      const mPos = model.position ?? unit.position;
-      let nearest = foes[0];
-      let nearestDist = Infinity;
-      for (const f of foes) {
-        const d = Math.hypot(f.x - mPos.x, f.z - mPos.z);
-        if (d < nearestDist) {
-          nearestDist = d;
-          nearest = f;
-        }
-      }
-      // Only models outside contact consolidate into contact
-      if (nearestDist <= contactThreshold + 0.01) continue;
-      const dirX = (nearest.x - mPos.x) / nearestDist;
-      const dirZ = (nearest.z - mPos.z) / nearestDist;
-      const others = otherModelPositions(model);
-      let allowed = Math.min(maxDistance, nearestDist - UNIT_SEPARATION_DISTANCE);
-      let candidate: Vector3 | null = null;
-      for (; allowed > 0.04; allowed -= 0.05) {
-        const c: Vector3 = {
-          x: Math.round((mPos.x + dirX * allowed) * 100) / 100,
-          y: mPos.y ?? 0,
-          z: Math.round((mPos.z + dirZ * allowed) * 100) / 100,
-        };
-        const crowded = others.some(
-          (o) => Math.abs((o.y ?? 0) - (c.y ?? 0)) < 1.0 && Math.hypot(o.x - c.x, o.z - c.z) < MODEL_OVERLAP_DISTANCE + 0.05
-        );
-        if (!crowded) {
-          candidate = c;
-          break;
-        }
-      }
-      if (!candidate) continue;
-      if (findMoveBlocker(state, unit, [mPos, candidate], { ignoreUnitId: options.contactWith?.id }).blocked) continue;
-      if (wasCoherent) {
-        const trial = living.map((m) => (m === model ? candidate! : (m.position ?? unit.position)));
-        if (!validateSquadCoherency(trial).coherent) continue;
-      }
-      model.position = candidate;
-      movedAny = true;
-    }
-    if (movedAny) {
-      unit.position = computeSquadCentroid(getSquadModelPositions(unit));
-    }
-    return;
-  }
-
-  // Victory consolidation move (advancing up to maxDistance toward / through target position)
-  const dx = targetPosition.x - unit.position.x;
-  const dz = targetPosition.z - unit.position.z;
-  const dist = Math.hypot(dx, dz);
-  const dirX = dist > 1e-4 ? dx / dist : Math.sin(unit.rotation.y || 0);
-  const dirZ = dist > 1e-4 ? dz / dist : Math.cos(unit.rotation.y || 0);
-  const allowed = maxDistance;
-
-  const targetCandidate: Vector3 = {
-    x: Math.round((unit.position.x + dirX * allowed) * 100) / 100,
-    y: unit.position.y ?? 0,
-    z: Math.round((unit.position.z + dirZ * allowed) * 100) / 100,
-  };
-  const clamped = clampMoveDestinationWithObstacles(state, unit, targetCandidate, maxDistance);
-  const deltaX = clamped.x - unit.position.x;
-  const deltaZ = clamped.z - unit.position.z;
-  unit.position = { ...clamped };
-
-  if (unit.models && unit.models.length > 0) {
-    for (const model of unit.models) {
-      if (model.isDestroyed) continue;
-      const mPos = model.position ?? unit.position;
-      model.position = {
-        x: Math.round((mPos.x + deltaX) * 100) / 100,
-        y: clamped.y ?? mPos.y ?? 0,
-        z: Math.round((mPos.z + deltaZ) * 100) / 100,
-      };
-    }
-  }
 }
 

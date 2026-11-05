@@ -710,6 +710,30 @@ export function findJumpOption(
 }
 
 /**
+ * A gap the model at `from` is standing at the edge of but cannot cross: the landing `target` is solid floor
+ * across open air, and the hop (take-off to landing, like a tape) is longer than the 6" jump limit. Returns
+ * that distance for a HUD hint, or null. Never offers a jump; `findJumpOption` stays the only source of those.
+ */
+export function findTooWideGap(
+  state: GameState,
+  unit: Unit,
+  from: Vector3,
+  target: Vector3
+): { distance: number } | null {
+  if (hasTrait(unit.specialRules, 'airborne')) return null;
+  const fromY = from.y ?? 0;
+  const targetY = target.y ?? 0;
+  if (fromY < 1.0 || targetY < 1.0 || Math.abs(targetY - fromY) > 0.5) return null;
+  if (!isAtFloorEdgeToward(state, from, target)) return null;
+  const floor = findWalkableSurfaceAt(state, { x: target.x, y: targetY, z: target.z }, 0);
+  if (!floor || Math.abs(floor.topY - targetY) > 0.3) return null;
+  const cls = classifySegment(state, from, target, unit);
+  if (cls.kind !== 'blocked') return null;
+  if (measureElevatedGap(state, [from, target]) <= FREE_GAP_MAX) return null;
+  return { distance: Math.round(cls.distance * 10) / 10 };
+}
+
+/**
  * Host-side check of the jump a move needs. Recomputes everything from the path (never trusts the client):
  * a path containing a jump or fall must carry a matching `traversal` declaration, made from a floor edge;
  * a declaration with nothing to declare is rejected. Returns a rejection reason, or null when fine.

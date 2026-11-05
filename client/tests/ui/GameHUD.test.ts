@@ -1081,6 +1081,88 @@ describe('GameHUD', () => {
     );
   });
 
+  it('shows a pile-in strike with the charge title and logs pile-ins correctly', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+    const strike = {
+      rollId: 'p1',
+      specs: [],
+      results: [
+        { purpose: 'to-hit', rolls: [6, 4] } as any,
+        { purpose: 'defense', rolls: [5, 2] } as any,
+      ],
+      context: { attackerId: charger.id, targetId: defender.id },
+      outcome: { attackCount: 2, hitCount: 1, blockedCount: 1, wounds: 0 },
+    };
+    state.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', { type: 'respond-reaction', reactionId: 'p1', choiceId: 'auto-pile-in' }),
+      status: 'accepted',
+      dice: strike,
+    } as any);
+    const { hud, container } = setup(HOST, state);
+    const title = container.querySelector('.sl-hud-dice-title')?.textContent ?? '';
+    expect(title).toContain(`${charger.name} → ${defender.name}`);
+    expect(title).not.toContain('Retaliation');
+    expect(container.textContent).toContain('piled in (auto)');
+    expect(container.textContent).not.toContain('declined retaliation');
+
+    const moved = scenarioState();
+    moved.actionLog.push({
+      action: createAction(GUEST, 'pile-in-move', { type: 'pile-in-move', modelPositions: [] }),
+      status: 'accepted',
+      dice: { ...strike, rollId: 'p2' },
+    } as any);
+    hud.syncFromState(moved);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(`${charger.name} → ${defender.name}`);
+    expect(container.textContent).toMatch(/piled in(?! \(auto\))/);
+  });
+
+  it('labels casualty picks correctly in the dice panel and the log (not as a retaliation)', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+    const stepBack = {
+      rollId: 'c1',
+      specs: [],
+      results: [],
+      context: { attackerId: charger.id, targetId: defender.id },
+      outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, pushedBack: true },
+    };
+    state.actionLog.push({
+      action: createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: defender.id, modelIds: ['a', 'b'] }),
+      status: 'accepted',
+      dice: stepBack,
+    } as any);
+    const { hud, container } = setup(HOST, state);
+    const title = container.querySelector('.sl-hud-dice-title')?.textContent ?? '';
+    expect(title).toContain(`Casualties removed: ${defender.name}`);
+    expect(title).not.toContain('Retaliation');
+    expect(container.textContent).toContain(`removed casualties from ${defender.name}`);
+    expect(container.textContent).not.toContain('declined retaliation');
+
+    const auto = scenarioState();
+    auto.actionLog.push({
+      action: createAction(GUEST, 'respond-reaction', { type: 'respond-reaction', reactionId: 'r1', choiceId: 'auto-pick-casualties' }),
+      status: 'accepted',
+      dice: { ...stepBack, rollId: 'c2' },
+    } as any);
+    hud.syncFromState(auto);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(`Casualties removed: ${defender.name}`);
+    expect(container.querySelector('.sl-hud-pushback-notice')).not.toBeNull();
+    expect(container.textContent).toContain('casualties picked (auto)');
+    expect(container.textContent).not.toContain('declined retaliation');
+
+    // A pick with no dice story still reads correctly in the log
+    const quiet = scenarioState();
+    quiet.actionLog.push({
+      action: createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: defender.id, modelIds: ['a'] }),
+      status: 'accepted',
+    } as any);
+    hud.syncFromState(quiet);
+    expect(container.textContent).toContain(`removed casualties from ${defender.name}`);
+  });
+
   describe('Phase 7: Objectives & 4-Round Mission UI', () => {
     it('displays round number out of 4 and live objective score badges in header', () => {
       const state = scenarioState();
@@ -1795,6 +1877,50 @@ describe('GameHUD', () => {
       expect(container.querySelector('.sl-hud-datacard')!.textContent).toContain('Models: 1/2 (1 casualty)');
     });
 
+    it('shows each model its own distance left after a split move (ring and text)', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.speed = 6;
+      squad.position = { x: 0, y: 0, z: -4 };
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+      // Leg 1 done: model 1 walked all 6", model 2 walked 2.5"
+      squad.hasMoved = true;
+      squad.modelMovementSpent = { m1: 6, m2: 2.5 };
+      squad.remainingMovement = 3.5;
+
+      const { hud, container } = setup(HOST, state);
+      let lastMarkers: any = null;
+      hud.onMarkers((m) => {
+        lastMarkers = m;
+      });
+
+      clickByText(container, 'Move');
+      // Model 2 can walk 3.5", model 1 nothing: the unit-level figure is the best of them
+      container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m2"]')!.click();
+      expect(container.textContent).toContain('Place Model 2 of 2 (Warden Patrol Squad) within 3.5"');
+      expect(lastMarkers?.movementRangeRadius).toBe(3.5);
+      container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]')!.click();
+      expect(container.textContent).toContain('Place Model 1 of 2 (Warden Patrol Squad) within 0"');
+      expect(lastMarkers?.movementRangeRadius).toBe(0);
+    });
+
+    it('shows the distance left on a single model\'s second move leg', () => {
+      const state = scenarioState();
+      const unit = state.units.find((u) => u.ownerId === HOST && (u.models?.length ?? 1) <= 1)!;
+      unit.speed = 6;
+      activateUnit(state, HOST, unit.id);
+      unit.hasMoved = true;
+      unit.remainingMovement = 2.5;
+      const { container } = setup(HOST, state);
+      clickByText(container, 'Move');
+      expect(container.textContent).toContain('2.5" left');
+    });
+
     it('sequential model placement enforces 2.0" coherency and submits staged positions', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;
@@ -1913,7 +2039,7 @@ describe('GameHUD', () => {
         expect(btn).toBeTruthy();
 
         btn!.click();
-        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
         clickByText(container, 'Confirm');
         expect(controller.submitAction).toHaveBeenCalledTimes(1);
         const action = controller.submitAction.mock.calls[0][0];
@@ -1944,6 +2070,42 @@ describe('GameHUD', () => {
         expect(hold.disabled).toBe(true);
         expect(container.textContent).toContain('Squad is out of coherency');
       });
+
+      it('disables Shoot too while the squad is out of coherency and has not moved', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 6, y: 0, z: -4 };
+        const { container } = setup(HOST, state);
+        const shoot = container.querySelector<HTMLButtonElement>('[data-action="shoot"]')!;
+        expect(shoot.disabled).toBe(true);
+      });
+
+      it('lets a regrouping squad place its stray closer even though it is still apart', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 12, y: 0, z: -4 };
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        // models 1-3 stay near, the stray comes 6" closer but is still apart
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -4.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 6, y: 0, z: -4 } });
+        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+        clickByText(container, 'Confirm');
+        expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      });
+
+      it('still refuses a placement that leaves a regrouping squad no closer', () => {
+        const { state, squad } = fourModelSquad();
+        squad.models[3].position = { x: 12, y: 0, z: -4 };
+        const { hud, container, controller } = setup(HOST, state);
+        clickByText(container, 'Move');
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -5.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -4.5 } });
+        hud.handleBoardPick({ kind: 'position', position: { x: 12, y: 0, z: -3 } });
+        expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/closer to coherent|coherency/i);
+        expect(controller.submitAction).not.toHaveBeenCalled();
+      });
     });
 
     it('multiplies attack dice by living models count in shoot confirmation summary', () => {
@@ -1970,7 +2132,7 @@ describe('GameHUD', () => {
       expect(container.textContent).toContain('4d6');
     });
 
-    it('allows a 4-model squad to move into two buddy pairs within 6" total spread', () => {
+    it('allows a 4-model squad to move into one unbroken chain', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;
       squad.name = 'Warden Patrol Squad';
@@ -1998,12 +2160,12 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
       expect(container.textContent).toContain('Place Model 3 of 4');
 
-      // Model 3 placed at (4.0, 0, -4.5) [Pair 2 leader, 4.7" from M1, within 6" spread, starts new pair!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
+      // Model 3 placed at (4.0, 0, -4.5) [chain continues below M1]
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -3 } });
       expect(container.textContent).toContain('Place Model 4 of 4');
 
-      // Model 4 placed at (5.0, 0, -4.5) [Pair 2 buddy, 1.0" from M3, 5.5" from M1 — full squad coherency satisfied!]
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
+      // Model 4 placed at (5.0, 0, -4.5) [2.0" from M3, linked to M2: one unbroken chain]
+      hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: -3 } });
 
       // Should enter Move Confirmation successfully!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -2016,8 +2178,32 @@ describe('GameHUD', () => {
       expect(action.payload.modelPositions).toHaveLength(4);
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -2 });
       expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -2 });
-      expect(action.payload.modelPositions[2]).toEqual({ x: 4.0, y: 0, z: -4.5 });
-      expect(action.payload.modelPositions[3]).toEqual({ x: 5.0, y: 0, z: -4.5 });
+      expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -3 });
+      expect(action.payload.modelPositions[3]).toEqual({ x: 2.0, y: 0, z: -3 });
+    });
+
+    it('refuses to finish a squad move as two separate pairs and says the squad is split', () => {
+      const state = scenarioState();
+      const squad = state.units.find((u) => u.ownerId === HOST)!;
+      squad.name = 'Warden Patrol Squad';
+      squad.position = { x: 0, y: 0, z: -5 };
+      squad.speed = 6;
+      squad.remainingMovement = 6;
+      squad.models = [
+        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -5 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm3', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+        { id: 'm4', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: -4 }, rotation: { x: 0, y: 0, z: 0 } },
+      ];
+      activateUnit(state, HOST, squad.id);
+      const { hud, container } = setup(HOST, state);
+      clickByText(container, 'Move');
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
+      expect(container.textContent).not.toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.querySelector('.sl-hud-toast')?.textContent).toContain('split into 2 groups');
     });
 
     it('allows player to select squad models to move in any arbitrary order via chips or board clicks', () => {
@@ -2059,11 +2245,11 @@ describe('GameHUD', () => {
       const m1Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m1"]');
       expect(m1Chip).toBeTruthy();
       m1Chip!.click();
-      hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -3 } });
 
       // 4. Finally place Model 2 at (5.0, 0, -4.5) [buddy to M1 with 1.0" base contact]
       expect(container.textContent).toContain('Place Model 2 of 4');
-      hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
+      hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -3 } });
 
       // All 4 models placed in arbitrary order (M3 -> M4 -> M1 -> M2)!
       expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
@@ -2073,8 +2259,8 @@ describe('GameHUD', () => {
       const action = controller.submitAction.mock.calls[0][0];
       expect(action.type).toBe('move-unit');
       // Payload positions must be indexed according to living model order [m1, m2, m3, m4]
-      expect(action.payload.modelPositions[0]).toEqual({ x: 4.0, y: 0, z: -4.5 }); // m1
-      expect(action.payload.modelPositions[1]).toEqual({ x: 5.0, y: 0, z: -4.5 }); // m2
+      expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -3 }); // m1
+      expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -3 }); // m2
       expect(action.payload.modelPositions[2]).toEqual({ x: 0, y: 0, z: -2 });   // m3
       expect(action.payload.modelPositions[3]).toEqual({ x: 1.0, y: 0, z: -2 }); // m4
     });

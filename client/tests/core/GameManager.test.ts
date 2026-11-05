@@ -880,6 +880,176 @@ describe('GameManager', () => {
       expect((lastEntry.action.payload as any).choiceId).toBe('strike-back');
     });
 
+    it('a squad charge waits for the defender to pile in; the timeout places the models and rolls the strike', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const requested: string[][] = [];
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          // Hits always land and nothing is saved
+          requestRoll: async (_id: string, specs: any[]) => {
+            requested.push(specs.map((s) => s.purpose));
+            return specs.map((s) => {
+              const rolls = Array(s.count).fill(s.purpose === 'defense' ? 6 : 1);
+              return { rolls, total: rolls.reduce((a: number, b: number) => a + b, 0), finalTotal: 0, purpose: s.purpose };
+            });
+          },
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const state = host.getGameState()!;
+      const template = state.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const mkSquad = (id: string, ownerId: string, spots: Array<[number, number]>) => ({
+        ...JSON.parse(JSON.stringify(template)),
+        id,
+        ownerId,
+        name: id,
+        status: [],
+        isActivated: false,
+        hasMoved: false,
+        hasAttacked: false,
+        remainingMovement: 4,
+        speed: 4,
+        position: { x: spots[0][0], y: 0, z: spots[0][1] },
+        models: spots.map(([x, z], i) => ({
+          id: `${id}-m${i}`,
+          wounds: 1,
+          maxWounds: 1,
+          isDestroyed: false,
+          position: { x, y: 0, z },
+          rotation: { x: 0, y: 0, z: 0 },
+        })),
+        wounds: spots.length,
+        maxWounds: spots.length,
+        weapons: [
+          { id: 'blade', name: 'Blade', isEquipped: true, profile: { type: 'melee', range: 1, attacks: 2, specialRules: [] } },
+        ],
+        specialRules: [],
+      });
+      state.terrain = [];
+      state.units = [
+        mkSquad('hs', HOST_PLAYER_ID, [[0, 0], [1, 0], [2, 0], [3, 0]]),
+        mkSquad('gs', GUEST_PLAYER_ID, [[0, 9], [1, 9], [0.5, 10]]),
+      ];
+      state.turnState.currentPlayerId = HOST_PLAYER_ID;
+      (host as any).gameState = state;
+
+      host.sendAction(createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: 'hs' }));
+      host.sendAction(createAction(HOST_PLAYER_ID, 'begin-charge', { type: 'begin-charge', attackerId: 'hs', targetId: 'gs' }));
+      const ends = [0, 1, 2, 3].map((x) => ({ x, y: 0, z: 8 }));
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'charge', {
+          type: 'charge',
+          attackerId: 'hs',
+          targetId: 'gs',
+          path: [{ x: 0, y: 0, z: 0 }, ends[0]],
+          weaponId: 'blade',
+          modelPositions: ends,
+          modelPaths: ends.map((e, i) => [{ x: i, y: 0, z: 0 }, e]),
+        } as any)
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      // The charge rolled nothing and is waiting for the defender (guest sees the same prompt)
+      expect(requested).toEqual([]);
+      const pending = host.getGameState()!.turnState.pendingReaction!;
+      expect(pending.type).toBe('pile-in');
+      expect(guest.getGameState()!.turnState.pendingReaction?.id).toBe(pending.id);
+
+      (host as any).handleReactionTimeout();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // The host placed the model and then rolled the strike (one request, after the pile-in)
+      expect(requested).toHaveLength(1);
+      expect(requested[0]).toContain('to-hit');
+      const after = host.getGameState()!;
+      expect(after.turnState.pendingReaction?.type).toBe('melee-retaliation');
+      const moved = after.units.find((u) => u.id === 'gs')!.models[2].position!;
+      expect(Math.hypot(moved.x - 0.5, moved.z - 10)).toBeGreaterThan(0.5);
+      expect(guest.getGameState()!.turnState.pendingReaction?.type).toBe('melee-retaliation');
+    });
+
+    it('wounds into a squad wait for its owner to pick casualties; the timeout picks without rolling again', async () => {
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const requested: string[][] = [];
+      const host = new GameManager(hostWebRTC, true, {
+        diceProvider: {
+          // Every attack hits and nothing is saved; the wound-effect roll is a 1 (shaken)
+          requestRoll: async (_id: string, specs: any[]) => {
+            requested.push(specs.map((s) => s.purpose));
+            return specs.map((s) => {
+              const rolls = Array(s.count).fill(s.purpose === 'to-hit' ? 6 : 1);
+              return { rolls, total: rolls.reduce((a: number, b: number) => a + b, 0), finalTotal: 0, purpose: s.purpose };
+            });
+          },
+        },
+      });
+      const guest = new GameManager(guestWebRTC, false);
+      host.startGame('Host', 'Guest');
+
+      const state = host.getGameState()!;
+      const template = state.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+      const mkSquad = (id: string, ownerId: string, spots: Array<[number, number]>) => ({
+        ...JSON.parse(JSON.stringify(template)),
+        id,
+        ownerId,
+        name: id,
+        status: [],
+        isActivated: false,
+        hasMoved: false,
+        hasAttacked: false,
+        remainingMovement: 4,
+        speed: 4,
+        position: { x: spots[0][0], y: 0, z: spots[0][1] },
+        models: spots.map(([x, z], i) => ({
+          id: `${id}-m${i}`,
+          wounds: 1,
+          maxWounds: 1,
+          isDestroyed: false,
+          position: { x, y: 0, z },
+          rotation: { x: 0, y: 0, z: 0 },
+        })),
+        wounds: spots.length,
+        maxWounds: spots.length,
+        weapons: [
+          { id: 'rifle', name: 'Rifle', isEquipped: true, profile: { type: 'ranged', range: 24, attacks: 1, specialRules: [] } },
+        ],
+        specialRules: [],
+      });
+      state.terrain = [];
+      state.units = [
+        mkSquad('hs', HOST_PLAYER_ID, [[0, 0], [1, 0]]),
+        mkSquad('gs', GUEST_PLAYER_ID, [[2, 10], [0, 10], [4, 10], [6, 10]]),
+      ];
+      state.turnState.currentPlayerId = HOST_PLAYER_ID;
+      (host as any).gameState = state;
+
+      host.sendAction(createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: 'hs' }));
+      host.sendAction(
+        createAction(HOST_PLAYER_ID, 'shoot', { type: 'shoot', attackerId: 'hs', targetId: 'gs', weaponId: 'rifle' } as any)
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const pending = host.getGameState()!.turnState.pendingReaction!;
+      expect(pending.type).toBe('pick-casualties');
+      expect(pending.promptingPlayerId).toBe(GUEST_PLAYER_ID);
+      expect(guest.getGameState()!.turnState.pendingReaction?.id).toBe(pending.id);
+      expect(host.getGameState()!.units.find((u) => u.id === 'gs')!.models.every((m) => !m.isDestroyed)).toBe(true);
+      const diceRequests = requested.length;
+
+      (host as any).handleReactionTimeout();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // No new dice: the wounds were rolled with the shot. The host kept the chain together.
+      expect(requested).toHaveLength(diceRequests);
+      const after = host.getGameState()!;
+      expect(after.turnState.pendingReaction ?? null).toBeNull();
+      const alive = after.units.find((u) => u.id === 'gs')!.models.filter((m) => !m.isDestroyed).map((m) => m.id);
+      expect(alive).toEqual(['gs-m2', 'gs-m3']); // an end model first, then the next end in list order
+      expect(guest.getGameState()!.turnState.pendingReaction ?? null).toBeNull();
+    });
+
     it('peer disconnect pauses pending reaction timer and resumes it when peer reconnects', async () => {
       const { hostWebRTC, guestWebRTC, disconnectGuest, reconnectGuest } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true, {

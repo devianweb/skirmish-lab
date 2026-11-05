@@ -1,4 +1,5 @@
 import { cloneGameState } from '../gameState';
+import { closestApproach } from './closestApproach';
 import {
   ActionLogEntry,
   DiceResolution,
@@ -36,7 +37,6 @@ import {
 import {
   computeSquadCentroid,
   pushBackChargerModels,
-  consolidateSquadToward,
   createSquadPositions,
   findMoveBlocker,
   hasCoverAgainstAttack,
@@ -48,6 +48,8 @@ import {
   findEndOverlap,
   describeEndOverlap,
   validateSquadCoherency,
+  isRegroupingMove,
+  coherencyShortfall,
 } from './spatial';
 import {
   calculateFallingDamage,
@@ -69,6 +71,7 @@ import {
   validateDeclaredTraversal,
   DeclaredTraversal,
   allocateSquadCasualties,
+  distance3D,
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
 import type { ChargeState } from '../gameTypes';
@@ -88,6 +91,30 @@ import {
   livingModelPositions,
 } from './unitGeometry';
 import { firingModels, targetCoverByMajority } from './squadTargeting';
+import {
+  PILE_IN_AUTO_CHOICE,
+  PILE_IN_DISTANCE,
+  PILE_IN_DURATION_MS,
+  PileInPayload,
+  autoPileIn,
+  pileInModelIds,
+  validatePileIn,
+  withModelPositions,
+} from './pileIn';
+import {
+  CasualtyContinuation,
+  CasualtyEntry,
+  PICK_CASUALTIES_AUTO_CHOICE,
+  PickCasualtiesData,
+  PickCasualtiesPayload,
+  WoundApplication,
+  autoPickCasualties,
+  createPickCasualtiesReaction,
+  restoreUnit,
+  snapshotUnit,
+  validatePickCasualties,
+} from './casualties';
+import { modelRemainingMovement, resetModelMovement, spendAllModels, spendModelMovement } from './modelMovement';
 
 /**
  * Host-side action validation and application (Phase 5 basic actions).
@@ -199,6 +226,31 @@ function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | nu
   };
 }
 
+/** Positions of a unit's living models right now (before the action being validated). */
+function livingModelPositionsNow(unit: Unit): Vector3[] {
+  return (unit.models ?? []).filter((m) => !m.isDestroyed).map((m) => m.position ?? unit.position);
+}
+
+/**
+ * Coherency of a squad's end positions. A squad that started coherent must end coherent; one that started
+ * (the action or leg) out of coherency may also end measurably closer to coherent ("closer counts").
+ */
+function squadEndCoherency(unit: Unit, end: Vector3[]): { valid: true } | { valid: false; reason: string } {
+  const coherency = validateSquadCoherency(end);
+  if (coherency.coherent) return { valid: true };
+  const before = livingModelPositionsNow(unit);
+  if (before.length === end.length && isRegroupingMove(before, end)) return { valid: true };
+  const base = coherency.reason ?? 'Squad models lose coherency';
+  const wasOut = before.length === end.length && coherencyShortfall(before) > 0;
+  return {
+    valid: false,
+    reason: wasOut ? `${base} (the squad started out of coherency: it must end closer to coherent than it began)` : base,
+  };
+}
+
+/** A non-contact charger may end this much (base-edge inches) farther from the target than its best spot. */
+const CLOSEST_APPROACH_TOLERANCE = 0.5;
+
 /** Per-model parts of a squad charge / charge leg payload (a single model keeps the plain `path`). */
 interface SquadChargePayload {
   modelPositions?: Vector3[];
@@ -215,6 +267,9 @@ function isSquadChargePayload(unit: Unit, payload: SquadChargePayload): boolean 
   return !!payload.modelPositions && livingModels(unit).length > 1;
 }
 
+const SQUAD_CHARGE_NEEDS_POSITIONS =
+  'A squad charge must place every model (modelPositions) — block charges are not accepted';
+
 /** Each living model's path: the one sent, or a straight line from where it stands to its end spot. */
 function squadChargePaths(unit: Unit, payload: SquadChargePayload): Vector3[][] {
   return livingModels(unit).map((m, i) => {
@@ -228,9 +283,9 @@ function squadChargePaths(unit: Unit, payload: SquadChargePayload): Vector3[][] 
  * Host check of a squad's charge move: every model walks its own path from where it stands (a shared budget:
  * each model's path must fit what is left of the charge), the squad ends coherent, and no model passes through
  * another unit or comes within 1" of any unit but the target. A final move needs at least one model in base
- * contact with a target model; models that cannot reach contact must simply end no farther from the target
- * than they started ("as close as possible", tested loosely on purpose: the host cannot know what the
- * terrain would have let them reach).
+ * contact with a target model; every other model must end about as close as ordinary movement could have got
+ * it ("as close as possible", `closestApproach` with the model's own remaining distance and the other models'
+ * submitted spots, allowing `CLOSEST_APPROACH_TOLERANCE`). Legs have no closeness rule.
  */
 function validateSquadChargeMove(
   state: GameState,
@@ -242,8 +297,7 @@ function validateSquadChargeMove(
   const positions = payload.modelPositions ?? [];
   const alive = livingModels(unit);
   const declared = declaredCharge(state, unit.id);
-  const remaining = declared ? unit.remainingMovement : chargeBudget(unit);
-  const spent = declared ? chargeSpent(unit) : 0;
+  const unitRemaining = declared ? unit.remainingMovement : chargeBudget(unit);
   if (positions.length !== alive.length) {
     return {
       valid: false,
@@ -256,10 +310,8 @@ function validateSquadChargeMove(
   ) {
     return { valid: false, reason: 'More model paths or declared jumps than squad models' };
   }
-  const coherency = validateSquadCoherency(positions);
-  if (!coherency.coherent) {
-    return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-  }
+  const coherency = squadEndCoherency(unit, positions);
+  if (!coherency.valid) return coherency;
   for (let i = 0; i < positions.length; i++) {
     for (let j = i + 1; j < positions.length; j++) {
       if (boardDistance(positions[i], positions[j]) < 0.9) {
@@ -276,6 +328,7 @@ function validateSquadChargeMove(
   let moved = 0;
   let inContact = false;
   let reachedTooHigh = false;
+  const pending: Array<{ index: number; endGap: number; remaining: number; spent: number }> = [];
   for (let i = 0; i < alive.length; i++) {
     const n = i + 1;
     const mStart = alive[i].position ?? unit.position;
@@ -293,6 +346,9 @@ function validateSquadChargeMove(
     const difficult = isPathDifficult(state, mPath, unit);
     const cap = getEffectiveMaxMovement(unit, 'charge', difficult);
     const dist = pathMovementCost(state, mPath, unit);
+    // Each model spends its own distance: what it has walked in earlier legs counts, not a squad-mate's
+    const remaining = modelRemainingMovement(unit, alive[i], unitRemaining);
+    const spent = declared ? chargeBudget(unit) - remaining : 0;
     if (dist > remaining + 0.05 || spent + dist > cap + 0.05) {
       return {
         valid: false,
@@ -328,11 +384,9 @@ function validateSquadChargeMove(
 
     if (mode === 'final') {
       let modelInContact = false;
-      let startGap = Infinity;
       let endGap = Infinity;
       for (const t of targetModels) {
         const gap = modelGap(mEnd, t);
-        startGap = Math.min(startGap, modelGap(mStart, t));
         endGap = Math.min(endGap, gap);
         if (gap <= CHARGE_END_EDGE_GAP + 0.001) {
           if (Math.abs((mEnd.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH) modelInContact = true;
@@ -340,12 +394,7 @@ function validateSquadChargeMove(
         }
       }
       if (modelInContact) inContact = true;
-      else if (endGap > startGap + 0.05) {
-        return {
-          valid: false,
-          reason: `Squad model ${n} must end in contact or closer to the target, not farther from it`,
-        };
-      }
+      else pending.push({ index: i, endGap, remaining, spent });
     }
   }
   if (mode === 'leg' && moved < 0.05) return { valid: false, reason: 'Charge leg moves nothing' };
@@ -356,6 +405,19 @@ function validateSquadChargeMove(
         ? 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)'
         : 'Charge must end in engagement range',
     };
+  }
+  // "As close as possible": a model not in contact must end about as close as ordinary movement lets it get,
+  // given where the rest of the squad ends and what it has left of its own distance
+  for (const p of pending) {
+    const i = p.index;
+    const mStart = alive[i].position ?? unit.position;
+    const others = positions.filter((_, j) => j !== i);
+    const best = closestApproach(state, unit, i, mStart, p.remaining, target, others, {
+      difficultBudget: Math.max(0, getEffectiveMaxMovement(unit, 'charge', true) - p.spent),
+    });
+    if (best && p.endGap > best.gap + CLOSEST_APPROACH_TOLERANCE) {
+      return { valid: false, reason: `Model ${i + 1} could get closer to the target` };
+    }
   }
   return { valid: true };
 }
@@ -427,7 +489,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
     return { valid: false, reason: 'Game is over' };
   }
   if (state.turnState.pendingReaction) {
-    if (action.type !== 'respond-reaction' && action.type !== 'consolidate-move') {
+    if (
+      action.type !== 'respond-reaction' &&
+      action.type !== 'consolidate-move' &&
+      action.type !== 'pile-in-move' &&
+      action.type !== 'pick-casualties'
+    ) {
       return { valid: false, reason: 'A reaction is pending — waiting for opponent' };
     }
     if (action.actorId !== state.turnState.pendingReaction.promptingPlayerId) {
@@ -643,10 +710,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
-      const coherency = validateSquadCoherency(modelPositions!);
-      if (!coherency.coherent) {
-        return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-      }
+      const coherency = squadEndCoherency(unit.result, modelPositions!);
+      if (!coherency.valid) return coherency;
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -690,7 +755,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           unit.result.isRushing ? 'rush' : 'move',
           mDifficult
         );
-        const mMax = Math.min(mCap, unit.result.remainingMovement);
+        const mMax = Math.min(mCap, modelRemainingMovement(unit.result, aliveModels[i], unit.result.remainingMovement));
         const mDist = pathMovementCost(state, mPath, unit.result);
         if (mDist > mMax + 0.05) {
           return {
@@ -759,6 +824,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       if (attacker.result.isRushing) {
         return { valid: false, reason: 'Rushing units cannot shoot' };
+      }
+      // Shooting without having moved is a Hold: a squad that started out of coherency must move first
+      if (!attacker.result.hasMoved) {
+        const blocked = incoherentStartBlock(attacker.result);
+        if (blocked) return blocked;
       }
       if (isEngaged(attacker.result)) {
         return { valid: false, reason: 'Engaged units must fight instead of shooting' };
@@ -856,6 +926,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isSquadChargePayload(unit, legModels)) {
         return validateSquadChargeMove(state, unit, target, legModels, 'leg');
       }
+      if (livingModels(unit).length > 1) return { valid: false, reason: SQUAD_CHARGE_NEEDS_POSITIONS };
       if (!path || path.length < 2) return { valid: false, reason: 'Charge leg path is empty' };
       if (boardDistance(path[0], unit.position) > 0.01) {
         return { valid: false, reason: 'Charge leg must start at the unit position' };
@@ -936,6 +1007,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         }
         return { valid: true };
       }
+      if (livingModels(attacker.result).length > 1) return { valid: false, reason: SQUAD_CHARGE_NEEDS_POSITIONS };
       if (!path || path.length === 0) {
         return { valid: false, reason: 'Charge path is empty' };
       }
@@ -1110,10 +1182,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
-      const coherency = validateSquadCoherency(modelPositions!);
-      if (!coherency.coherent) {
-        return { valid: false, reason: coherency.reason ?? 'Squad models lose coherency' };
-      }
+      const coherency = squadEndCoherency(unit, modelPositions!);
+      if (!coherency.valid) return coherency;
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -1153,7 +1223,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         }
         const mDifficult = isPathDifficult(state, mPath, unit);
         const mCap = getEffectiveMaxMovement(unit, 'rush', mDifficult);
-        const mMax = Math.min(mCap, currentRushBudget);
+        const mMax = Math.min(mCap, modelRemainingMovement(unit, aliveModels[i], currentRushBudget));
         const mDist = pathMovementCost(state, mPath, unit);
         if (mDist > mMax + 0.05) {
           return {
@@ -1259,6 +1329,32 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: `Invalid reaction choice: ${choiceId}` };
       }
       return { valid: true };
+    }
+
+    case 'pick-casualties': {
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'pick-casualties') {
+        return { valid: false, reason: 'No pending casualty pick' };
+      }
+      const result = validatePickCasualties(state, pending, action.actorId, action.payload as PickCasualtiesPayload);
+      return result.valid ? { valid: true } : { valid: false, reason: result.reason };
+    }
+
+    case 'pile-in-move': {
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'pile-in') {
+        return { valid: false, reason: 'No pending pile-in' };
+      }
+      if (pending.promptingPlayerId !== action.actorId) {
+        return { valid: false, reason: 'Not your pile-in' };
+      }
+      const defender = getUnit(state, pending.targetUnitId);
+      const charger = getUnit(state, pending.sourceUnitId);
+      if (!defender || defender.isDestroyed || !charger || charger.isDestroyed) {
+        return { valid: false, reason: 'Pile-in units are destroyed or missing' };
+      }
+      const result = validatePileIn(state, pending, defender, charger, action.payload as PileInPayload);
+      return result.valid ? { valid: true } : { valid: false, reason: result.reason };
     }
 
     case 'consolidate-move': {
@@ -1385,9 +1481,12 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     return specs.length > 0 ? specs : null;
   }
 
+  if (action.type === 'pile-in-move') return pileInStrikeSpecs(state, action);
+
   if (action.type === 'respond-reaction') {
     const { choiceId } = action.payload as { reactionId: string; choiceId: string };
     const pending = state.turnState.pendingReaction;
+    if (pending?.type === 'pile-in') return choiceId === PILE_IN_AUTO_CHOICE ? pileInStrikeSpecs(state, action) : null;
     if (!pending || choiceId !== 'strike-back') {
       return null;
     }
@@ -1500,7 +1599,17 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         const simTarget = getUnit(sim, target.id)!;
         if (isSquadChargePayload(attacker, squadMoves)) placeSquadModels(simAttacker, squadMoves.modelPositions!);
         else moveChargerModels(simAttacker, chargeEnd!);
-        consolidateSquadToward(sim, simTarget, simAttacker.position, 3.0, { intoContact: true, contactWith: simAttacker });
+        // Defenders not touching a charger place their own models first: the strike dice are rolled with that
+        // pile-in (so a charge that has to wait only rolls its jump / hazard dice here)
+        if (pileInModelIds(simTarget, simAttacker).length > 0) {
+          const chargePayload = action.payload as { path?: Vector3[] } & SquadChargePayload;
+          const moveSpecs = isSquadChargePayload(attacker, chargePayload)
+            ? squadChargeTraversalSpecs(state, attacker, chargePayload)
+            : chargePayload.path && chargePayload.path.length > 0
+              ? pathTraversalSpecs(state, attacker, chargePayload.path)
+              : [];
+          return moveSpecs.length > 0 ? moveSpecs : null;
+        }
         strikingCount = strikers(simAttacker, simTarget);
       }
     } else {
@@ -1584,7 +1693,11 @@ function diceForModel(dice: DiceResult[] | undefined, index: number): DiceResult
   return [...own, ...dice.filter((d) => !/^m\d+_/.test((d.purpose ?? '')))];
 }
 
-/** Resolves each squad model's own path in order. */
+/**
+ * Resolves each squad model's own path in order. Walking models always finish their paths. Declared jumps
+ * resolve in model order; once one ends the activation (a failed jump or a fall), every later jumper stays at
+ * its take-off spot, its jump is not attempted and its pre-rolled dice are ignored.
+ */
 function applyModelPathTraversals(
   state: GameState,
   unit: Unit,
@@ -1593,9 +1706,19 @@ function applyModelPathTraversals(
   action: GameAction,
   dice?: DiceResult[]
 ): void {
+  const declared = (action.payload as { modelTraversals?: (DeclaredTraversal | null)[] }).modelTraversals;
+  let activationEnded = false;
+  let stoppedAny = false;
   for (let i = 0; i < modelPaths.length; i++) {
+    const declaration = declared?.[i] ?? null;
+    if (declaration && activationEnded && models[i]) {
+      stopJumperAtTakeoff(state, unit, models[i], modelPaths[i], declaration, i, action, dice);
+      stoppedAny = true;
+      continue;
+    }
     const before = traversalLog.get(action)?.events.length ?? 0;
-    applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
+    const result = applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
+    if (declaration && result.terminated) activationEnded = true;
     const entry = traversalLog.get(action);
     if (entry && dice) {
       entry.results = dice; // every roll stays on the log entry, tagged by model
@@ -1606,6 +1729,40 @@ function applyModelPathTraversals(
       }
     }
   }
+  if (stoppedAny) {
+    const living = (unit.models ?? []).filter((m) => !m.isDestroyed);
+    if (living.length > 0) unit.position = computeSquadCentroid(living.map((m) => m.position ?? unit.position));
+  }
+}
+
+/** A later jumper after a failed jump: placed at its take-off spot, its jump not attempted, its tally cut back. */
+function stopJumperAtTakeoff(
+  state: GameState,
+  unit: Unit,
+  model: Model,
+  path: Vector3[],
+  declaration: DeclaredTraversal,
+  index: number,
+  action: GameAction,
+  dice?: DiceResult[]
+): void {
+  model.position = { ...declaration.takeoff };
+  const takeoffIdx = path.findIndex((p) => distance3D(p, declaration.takeoff) <= 0.1);
+  if (takeoffIdx >= 1 && unit.modelMovementSpent && unit.modelMovementSpent[model.id] !== undefined) {
+    const walked = pathMovementCost(state, path.slice(0, takeoffIdx + 1), unit);
+    const full = pathMovementCost(state, path, unit);
+    const spent = { ...unit.modelMovementSpent };
+    spent[model.id] = Math.max(0, Math.round((spent[model.id] - full + walked) * 100) / 100);
+    unit.modelMovementSpent = spent;
+  }
+  recordTraversal(
+    action,
+    unit,
+    [{ type: 'jump-skipped', wounds: 0, text: `Model ${index + 1}: jump not attempted (activation ended)` }],
+    dice
+  );
+  const entry = traversalLog.get(action);
+  if (entry && dice) entry.results = dice;
 }
 
 /** Traversal hazards resolved per action, so the log entry can show the dice story (jumps, falls, hazards). */
@@ -1822,6 +1979,91 @@ export function createConsolidationReaction(
 }
 
 /**
+ * After a charge, the defender is asked to place the models that are not touching a charger. The charger's
+ * strike waits for it. The default (timeout) choice lets the host place them with `closestApproach`.
+ */
+function createPileInReaction(
+  actionId: string,
+  charger: Unit,
+  target: Unit,
+  weaponId: string,
+  modelIds: string[],
+  chargeDistance: number
+): PendingReaction {
+  return {
+    id: `${actionId}-pile-in`,
+    type: 'pile-in',
+    promptingPlayerId: target.ownerId,
+    sourceUnitId: charger.id,
+    targetUnitId: target.id,
+    title: 'Pile In',
+    description: `${charger.name} charged ${target.name}! Move the models that are not touching up to ${PILE_IN_DISTANCE}" toward the attackers.`,
+    options: [
+      {
+        id: PILE_IN_AUTO_CHOICE,
+        label: 'Auto place',
+        isDefault: true,
+        style: 'primary',
+      },
+    ],
+    expiresAt: Date.now() + PILE_IN_DURATION_MS,
+    durationMs: PILE_IN_DURATION_MS,
+    data: {
+      chargeActionId: actionId,
+      attackerId: charger.id,
+      targetId: target.id,
+      weaponId,
+      modelIds,
+      maxDistance: PILE_IN_DISTANCE,
+      chargeDistance,
+    },
+  };
+}
+
+/** The pile-in positions a `pile-in-move` carries, or the host's own when the defender chose 'auto place'. */
+function pileInPlacement(
+  state: GameState,
+  action: GameAction
+): { pending: PendingReaction; attacker: Unit; target: Unit; modelPositions: Vector3[]; modelPaths?: Vector3[][] } | null {
+  const pending = state.turnState.pendingReaction;
+  if (!pending || pending.type !== 'pile-in') return null;
+  const attacker = getUnit(state, pending.sourceUnitId);
+  const target = getUnit(state, pending.targetUnitId);
+  if (!attacker || !target) return null;
+  if (action.type === 'pile-in-move') {
+    const payload = action.payload as PileInPayload;
+    if (!payload.modelPositions) return null;
+    return { pending, attacker, target, modelPositions: payload.modelPositions, modelPaths: payload.modelPaths };
+  }
+  if (action.type === 'respond-reaction') {
+    const auto = autoPileIn(state, pending, target, attacker);
+    return { pending, attacker, target, ...auto };
+  }
+  return null;
+}
+
+/** The charger's strike dice, counted from where the defenders stand after the pile-in. */
+function pileInStrikeSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
+  const placed = pileInPlacement(state, action);
+  if (!placed) return null;
+  const { pending, attacker, target, modelPositions } = placed;
+  const weapon = getWeapon(attacker, pending.data?.weaponId);
+  if (!weapon || typeof weapon.profile.attacks !== 'number' || weapon.profile.attacks < 1) return null;
+  const movedTarget = withModelPositions(target, modelPositions);
+  const totalAttacks = weapon.profile.attacks * strikers(attacker, movedTarget);
+  return getAttackDiceSpecs(totalAttacks, {
+    attackerRules: attacker.specialRules,
+    weaponRules: weapon.profile.specialRules,
+    defenderRules: target.specialRules,
+    defenderModelCount: Math.max(1, livingModels(target).length),
+    isMelee: true,
+    isCharging: true,
+    distance: pending.data?.chargeDistance ?? 1,
+    includeTrauma: true,
+  });
+}
+
+/**
  * Validate and apply an action, returning the new state and log entry.
  * `dice` must contain the server-rolled results for shoot/fight (the host
  * requests them via getDiceSpecs between validation and this call).
@@ -1937,12 +2179,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
         });
-        const distanceMoved = Math.max(...modelDistances, 0);
         unit.hasMoved = true;
-        unit.remainingMovement = Math.max(
-          0,
-          Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
-        );
+        unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, modelDistances);
 
         if (modelPaths && modelPaths.length > 0) {
           applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
@@ -1993,6 +2231,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         0,
         Math.round((unit.remainingMovement - distanceMoved) * 100) / 100
       );
+      spendAllModels(unit, distanceMoved);
       const traversal = applyTraversalHazardsAndFalls(newState, unit, path ?? [], action, dice);
       if (traversal.terminated) {
         logEntry = acceptedEntry(action);
@@ -2023,6 +2262,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let totalWounds = 0;
       let primaryTargetDestroyed = false;
       let primaryTargetShaken = false;
+      const ledger: WoundLedger = new Map();
 
       // Turn attacker to face the primary target
       const primaryTarget = getUnit(newState, allocations[0].targetId);
@@ -2096,7 +2336,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         }
 
         const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-        const trauma = applyWounds(target, outcome.wounds, traumaRolls, 0, lethalValue);
+        const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, 0, lethalValue);
 
         totalAttackCount += outcome.attackCount;
         totalHitCount += outcome.hitCount;
@@ -2143,6 +2383,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             : {}),
         });
       }
+
+      // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
+      deferCasualties(newState, ledger, action.id, attacker, { kind: 'shoot', attackerId: attacker.id });
 
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
@@ -2284,13 +2527,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       const dreadBonus = isMelee ? (getTraitValue(attacker.specialRules, 'dread') ?? 0) : 0;
       const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-      const trauma = applyWounds(
-        target,
-        outcome.wounds,
-        traumaRolls,
-        dreadBonus,
-        lethalValue
-      );
+      const ledger: WoundLedger = new Map();
+      const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, dreadBonus, lethalValue);
+      deferCasualties(newState, ledger, action.id, attacker, {
+        kind: 'fight',
+        attackerId: attacker.id,
+        targetId: target.id,
+      });
       if (target.isDestroyed) {
         newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
       }
@@ -2385,15 +2628,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           const mStart = prevPositions[i] ?? unit.position;
           return boardDistance(mStart, pos);
         });
-        const distMoved = Math.max(...modelDistances, 0);
 
         unit.isRushing = true;
         unit.hasMoved = true;
         unit.hasAttacked = true;
-        unit.remainingMovement = Math.max(
-          0,
-          Math.round((currentBudget - distMoved) * 100) / 100
-        );
+        unit.remainingMovement = spendModelMovement(unit, currentBudget, modelDistances);
         refreshEngagements(newState);
 
         if (modelPaths && modelPaths.length > 0) {
@@ -2444,6 +2683,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         0,
         Math.round((currentBudget - distMoved) * 100) / 100
       );
+      spendAllModels(unit, distMoved);
       refreshEngagements(newState);
       const traversal = applyTraversalHazardsAndFalls(newState, unit, path ?? [], action, dice);
       if (traversal.terminated) {
@@ -2459,6 +2699,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const attacker = getUnit(newState, attackerId)!;
       // The one charge move is budgeted in remainingMovement; legs spend it
       attacker.remainingMovement = chargeBudget(attacker);
+      resetModelMovement(attacker);
       newState.turnState.charge = { unitId: attackerId, targetId, legs: 0 };
       logEntry = acceptedEntry(action);
       break;
@@ -2469,13 +2710,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const unit = getUnit(newState, attackerId)!;
       const legModels = action.payload as SquadChargePayload;
       if (isSquadChargePayload(unit, legModels)) {
-        // Each model walks its own path; the shared budget is spent by the longest one
+        // Each model walks its own path and spends its own distance
         const legPaths = squadChargePaths(unit, legModels);
-        const legCost = Math.max(...legPaths.map((p) => pathMovementCost(state, p, unit)), 0);
+        const legCosts = legPaths.map((p) => pathMovementCost(state, p, unit));
         const legAlive = livingModels(unit);
         placeSquadModels(unit, legModels.modelPositions!);
         unit.hasMoved = true;
-        unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - legCost) * 100) / 100);
+        unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, legCosts);
         if (newState.turnState.charge) newState.turnState.charge.legs += 1;
         // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
         applyModelPathTraversals(newState, unit, legPaths, legAlive, action, dice);
@@ -2496,6 +2737,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
       unit.hasMoved = true;
       unit.remainingMovement = Math.max(0, Math.round((unit.remainingMovement - cost) * 100) / 100);
+      spendAllModels(unit, cost);
       const charge = newState.turnState.charge;
       if (charge) charge.legs += 1;
       // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
@@ -2523,6 +2765,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       attacker.hasMoved = true;
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
+      resetModelMovement(attacker);
       const cdx = target.position.x - attacker.position.x;
       const cdz = target.position.z - attacker.position.z;
       if (Math.hypot(cdx, cdz) > 1e-4) {
@@ -2574,146 +2817,28 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
-      // Defending squad models consolidate up to 3" into contact with chargers
-      consolidateSquadToward(newState, target, attacker.position, 3.0, { intoContact: true, contactWith: attacker });
-
       const weapon = weaponId
         ? getWeapon(attacker, weaponId)
         : attacker.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
 
-      if (weapon && dice) {
-        const rolls = extractAttackRolls(dice);
-        const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
-        const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
-        const outcome = resolveAttack(
-          {
-            quality: attacker.quality,
-            specialRules: attacker.specialRules,
-            weaponRules: weapon.profile.specialRules,
-            isMelee: true,
-            isCharging: true,
-            hasMoved: true,
-            isFatigued: attacker.status.includes('fatigued') || attacker.status.includes('shaken'),
-            distance: Math.hypot(cdx, cdz),
-          },
-          {
-            defense: target.defense,
-            inCover: false,
-            specialRules: target.specialRules,
-            hasMoved: target.hasMoved,
-            modelCount: aliveModels,
-          },
-          totalAttacks,
-          rolls
-        );
-
-        const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
-        const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-        const trauma = applyWounds(
+      // Defenders not touching a charger place their own models first (up to 3"); the strike waits for that
+      const pileInIds = weapon ? pileInModelIds(target, attacker) : [];
+      if (weapon && pileInIds.length > 0) {
+        newState.turnState.pendingReaction = createPileInReaction(
+          action.id,
+          attacker,
           target,
-          outcome.wounds,
-          rolls.trauma,
-          dreadBonus,
-          lethalValue
+          weapon.id,
+          pileInIds,
+          Math.hypot(cdx, cdz)
         );
+        refreshEngagements(newState);
+        logEntry = acceptedEntry(action);
+        break;
+      }
 
-        if (!attacker.status.includes('fatigued')) {
-          attacker.status.push('fatigued');
-        }
-
-        const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-        let pushedBack = false;
-        let pushBackPos: Vector3 | undefined;
-
-        if (target.isDestroyed) {
-          // If defender is destroyed, victor may consolidate up to 3"
-          newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, target.name);
-          refreshEngagements(newState);
-        } else if (!defenderMelee) {
-          pushBackPos = pushBackChargerModels(newState, attacker, target);
-          pushedBack = true;
-          attacker.status = attacker.status.filter((s) => s !== 'engaged');
-          target.status = target.status.filter((s) => s !== 'engaged');
-          refreshEngagements(newState);
-        } else {
-          // Defer retaliation strike to defender's choice via pendingReaction
-          newState.turnState.pendingReaction = {
-            id: `${action.id}-retaliation`,
-            type: 'melee-retaliation',
-            promptingPlayerId: target.ownerId,
-            sourceUnitId: attacker.id,
-            targetUnitId: target.id,
-            title: 'Melee Retaliation',
-            description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
-            warning: target.status.includes('fatigued') || target.status.includes('shaken')
-              ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
-              : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
-            options: [
-              {
-                id: 'strike-back',
-                label: `Strike Back (${defenderMelee.name})`,
-                isDefault: true,
-                style: 'primary',
-              },
-              {
-                id: 'decline',
-                label: 'Decline (Avoid Fatigue)',
-                style: 'secondary',
-              },
-            ],
-            expiresAt: Date.now() + 15000,
-            durationMs: 15000,
-            data: {
-              chargeActionId: action.id,
-              attackerId: attacker.id,
-              targetId: target.id,
-              weaponId: defenderMelee.id,
-            },
-          };
-        }
-
-        diceResolution = {
-          rollId: action.id,
-          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
-          results: dice,
-          context: {
-            attackerId,
-            targetId,
-            weaponId: weapon.id,
-            retaliationWeaponId: defenderMelee?.id,
-            actionId: action.id,
-          },
-          outcome: {
-            attackCount: outcome.attackCount,
-            hitCount: outcome.hitCount,
-            ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
-            blockedCount: outcome.blockedCount,
-          blockedRolls: outcome.blockedRolls,
-            ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
-            wounds: outcome.wounds,
-            targetDestroyed: target.isDestroyed,
-            targetShaken: target.status.includes('shaken'),
-            baseQuality: attacker.quality,
-            effectiveQuality: outcome.effectiveQuality,
-            hitModifiers: outcome.hitModifiers,
-            baseDefense: target.defense,
-            effectiveDefense: outcome.effectiveDefense,
-            defenseModifiers: outcome.defenseModifiers,
-            coverApplied: false,
-            ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
-            ...(trauma
-              ? {
-                  traumaRoll: trauma.roll,
-                  traumaTokens: trauma.tokens,
-                  traumaDreadBonus: trauma.dreadBonus,
-                  traumaTotal: trauma.total,
-                  traumaOutcome: trauma.outcome,
-                }
-              : {}),
-            pushedBack,
-            ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
-          },
-        };
+      if (weapon && dice && pileInIds.length === 0) {
+        diceResolution = resolveChargeStrike(state, newState, action, attacker, target, weapon, dice, Math.hypot(cdx, cdz));
         logEntry = acceptedEntry(action, diceResolution);
       } else {
         logEntry = acceptedEntry(action);
@@ -2733,6 +2858,19 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         logEntry = acceptedEntry(action);
         break;
       }
+      if (pending.type === 'pile-in') {
+        const piled = applyPileIn(state, newState, action, dice);
+        if (!piled.ok) return piled;
+        logEntry = piled.logEntry;
+        break;
+      }
+      if (pending.type === 'pick-casualties') {
+        // The owner ran out of time (the only option is the host's own pick)
+        const pickData = pending.data as unknown as PickCasualtiesData;
+        const damaged = getUnit(newState, pickData.entry.unitId)!;
+        logEntry = applyPickCasualties(newState, action, autoPickCasualties(damaged, pickData.entry.count));
+        break;
+      }
       const defender = getUnit(newState, pending.targetUnitId)!;
       const charger = getUnit(newState, pending.sourceUnitId)!;
       const defenderMelee = pending.data?.weaponId
@@ -2741,6 +2879,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       let retCombat: ReturnType<typeof resolveAttack> | undefined;
       let trauma: ReturnType<typeof applyWounds> | undefined;
+      const ledger: WoundLedger = new Map();
 
       if (choiceId === 'strike-back' && defenderMelee && dice) {
         // Turn defender to face the charger
@@ -2792,39 +2931,23 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
         const retDreadBonus = getTraitValue(defender.specialRules, 'dread') ?? 0;
         const retLethalValue = getTraitValue(defenderMelee.profile.specialRules, 'lethal') ?? 1;
-        trauma = applyWounds(
-          charger,
-          retCombat.wounds,
-          retRolls.trauma,
-          retDreadBonus,
-          retLethalValue
-        );
+        trauma = applyTrackedWounds(ledger, charger, retCombat.wounds, retRolls.trauma, retDreadBonus, retLethalValue);
 
         if (!defender.status.includes('fatigued')) {
           defender.status.push('fatigued');
         }
       }
 
-      // Separation / 1" Push-Back (if both units survived)
-      let pushedBack = false;
-      let pushBackPos: Vector3 | undefined;
-      if (!charger.isDestroyed && !defender.isDestroyed) {
-        pushBackPos = pushBackChargerModels(newState, charger, defender);
-        pushedBack = true;
-        charger.status = charger.status.filter((s) => s !== 'engaged');
-        defender.status = defender.status.filter((s) => s !== 'engaged');
-      }
-
-      if (charger.isDestroyed && !defender.isDestroyed) {
-        // Defender consolidates up to 3" upon wiping out charger in melee retaliation
-        newState.turnState.pendingReaction = createConsolidationReaction(action.id, defender, charger.name);
-      } else if (!charger.isDestroyed && defender.isDestroyed) {
-        // Charger consolidates up to 3" upon wiping out defender in melee
-        newState.turnState.pendingReaction = createConsolidationReaction(action.id, charger, defender.name);
-      } else {
-        newState.turnState.pendingReaction = null;
-      }
-      refreshEngagements(newState);
+      const chargerShaken = charger.status.includes('shaken');
+      // A surviving charging squad that lost models: its owner picks who goes, then the step back follows
+      const deferred = deferCasualties(newState, ledger, action.id, defender, {
+        kind: 'strike-back',
+        attackerId: defender.id,
+        targetId: charger.id,
+      });
+      const { pushedBack, pushBackPos } = deferred
+        ? { pushedBack: false, pushBackPos: undefined }
+        : settleStrikeBack(newState, action.id, charger, defender);
 
       let diceResolution: DiceResolution | undefined;
       if (retCombat && dice && defenderMelee) {
@@ -2846,7 +2969,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             blockedRolls: retCombat.blockedRolls,
             wounds: retCombat.wounds,
             targetDestroyed: charger.isDestroyed,
-            targetShaken: charger.status.includes('shaken'),
+            targetShaken: chargerShaken,
             baseQuality: defender.quality,
             effectiveQuality: retCombat.effectiveQuality,
             hitModifiers: retCombat.hitModifiers,
@@ -2889,6 +3012,19 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       logEntry = acceptedEntry(action, diceResolution);
+      break;
+    }
+
+    case 'pick-casualties': {
+      const payload = action.payload as PickCasualtiesPayload;
+      logEntry = applyPickCasualties(newState, action, payload.modelIds ?? []);
+      break;
+    }
+
+    case 'pile-in-move': {
+      const piled = applyPileIn(state, newState, action, dice);
+      if (!piled.ok) return piled;
+      logEntry = piled.logEntry;
       break;
     }
 
@@ -2951,6 +3087,251 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 // --- internals ------------------------------------------------------------
 
 type RequireResult = { result: Unit } | { valid: false; reason: string };
+
+/**
+ * Puts the defender's models on their pile-in spots (their own, or the host's when the prompt timed out),
+ * clears the prompt, then resolves the charger's strike with the dice rolled for those positions.
+ */
+function applyPileIn(
+  state: GameState,
+  newState: GameState,
+  action: GameAction,
+  dice?: DiceResult[]
+): { ok: true; logEntry: ActionLogEntry } | { ok: false; reason: string } {
+  const placed = pileInPlacement(state, action);
+  if (!placed) return { ok: false, reason: 'No pending pile-in' };
+  const attacker = getUnit(newState, placed.attacker.id)!;
+  const target = getUnit(newState, placed.target.id)!;
+  const pending = placed.pending;
+  const alive = livingModels(target);
+  alive.forEach((m, i) => {
+    m.position = { ...placed.modelPositions[i] };
+    const dx = attacker.position.x - m.position.x;
+    const dz = attacker.position.z - m.position.z;
+    if (Math.hypot(dx, dz) > 1e-4) m.rotation = { x: 0, y: Math.atan2(dx, dz), z: 0 };
+  });
+  target.position = computeSquadCentroid(placed.modelPositions);
+  newState.turnState.pendingReaction = null;
+
+  const weapon = getWeapon(attacker, pending.data?.weaponId);
+  if (!weapon || !dice) {
+    refreshEngagements(newState);
+    return { ok: true, logEntry: acceptedEntry(action) };
+  }
+  let resolution: DiceResolution;
+  try {
+    resolution = resolveChargeStrike(state, newState, action, attacker, target, weapon, dice, pending.data?.chargeDistance ?? 1);
+  } catch (error) {
+    return { ok: false, reason: (error as Error).message };
+  }
+  return { ok: true, logEntry: acceptedEntry(action, resolution) };
+}
+
+/**
+ * The charger's strike once the defenders are in their final places: the pooled attack, wounds, then the
+ * defender's strike-back prompt, the step back, or the winner's consolidation. Shared by a charge with nothing
+ * to pile in and by the confirmed (or timed-out) pile-in.
+ */
+function resolveChargeStrike(
+  state: GameState,
+  newState: GameState,
+  action: GameAction,
+  attacker: Unit,
+  target: Unit,
+  weapon: Weapon,
+  dice: DiceResult[],
+  chargeDistance: number
+): DiceResolution {
+  const attackerId = attacker.id;
+  const targetId = target.id;
+  let diceResolution: DiceResolution;
+    const rolls = extractAttackRolls(dice);
+    const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
+    const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
+    const outcome = resolveAttack(
+      {
+        quality: attacker.quality,
+        specialRules: attacker.specialRules,
+        weaponRules: weapon.profile.specialRules,
+        isMelee: true,
+        isCharging: true,
+        hasMoved: true,
+        isFatigued: attacker.status.includes('fatigued') || attacker.status.includes('shaken'),
+        distance: chargeDistance,
+      },
+      {
+        defense: target.defense,
+        inCover: false,
+        specialRules: target.specialRules,
+        hasMoved: target.hasMoved,
+        modelCount: aliveModels,
+      },
+      totalAttacks,
+      rolls
+    );
+
+    const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
+    const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+    const ledger: WoundLedger = new Map();
+    const trauma = applyTrackedWounds(ledger, target, outcome.wounds, rolls.trauma, dreadBonus, lethalValue);
+    const targetShaken = target.status.includes('shaken');
+    // A surviving squad that lost models: its owner picks who goes, then the strike-back / push-back follows
+    const deferred = deferCasualties(newState, ledger, action.id, attacker, {
+      kind: 'charge-strike',
+      attackerId: attacker.id,
+      targetId: target.id,
+      weaponId: weapon.id,
+    });
+
+    if (!attacker.status.includes('fatigued')) {
+      attacker.status.push('fatigued');
+    }
+
+    const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+    const { pushedBack, pushBackPos } = deferred
+      ? { pushedBack: false, pushBackPos: undefined }
+      : settleChargeStrike(newState, action.id, attacker, target);
+
+    diceResolution = {
+      rollId: action.id,
+      specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
+      results: dice,
+      context: {
+        attackerId,
+        targetId,
+        weaponId: weapon.id,
+        retaliationWeaponId: defenderMelee?.id,
+        actionId: action.id,
+      },
+      outcome: {
+        attackCount: outcome.attackCount,
+        hitCount: outcome.hitCount,
+        ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
+        blockedCount: outcome.blockedCount,
+      blockedRolls: outcome.blockedRolls,
+        ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
+        wounds: outcome.wounds,
+        targetDestroyed: target.isDestroyed,
+        targetShaken,
+        baseQuality: attacker.quality,
+        effectiveQuality: outcome.effectiveQuality,
+        hitModifiers: outcome.hitModifiers,
+        baseDefense: target.defense,
+        effectiveDefense: outcome.effectiveDefense,
+        defenseModifiers: outcome.defenseModifiers,
+        coverApplied: false,
+        ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
+        ...(trauma
+          ? {
+              traumaRoll: trauma.roll,
+              traumaTokens: trauma.tokens,
+              traumaDreadBonus: trauma.dreadBonus,
+              traumaTotal: trauma.total,
+              traumaOutcome: trauma.outcome,
+            }
+          : {}),
+        pushedBack,
+        ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
+      },
+    };
+  return diceResolution;
+}
+
+/**
+ * What follows the charger's strike once its wounds are on the target: the winner's consolidation when the
+ * target is gone, the step back when it cannot strike back, otherwise the defender's strike-back prompt.
+ */
+function settleChargeStrike(
+  newState: GameState,
+  actionId: string,
+  attacker: Unit,
+  target: Unit
+): { pushedBack: boolean; pushBackPos?: Vector3 } {
+  const defenderMelee = target.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+  let pushedBack = false;
+  let pushBackPos: Vector3 | undefined;
+
+  if (target.isDestroyed) {
+    // If defender is destroyed, victor may consolidate up to 3"
+    newState.turnState.pendingReaction = createConsolidationReaction(actionId, attacker, target.name);
+    refreshEngagements(newState);
+  } else if (!defenderMelee) {
+    pushBackPos = pushBackChargerModels(newState, attacker, target);
+    pushedBack = true;
+    attacker.status = attacker.status.filter((s) => s !== 'engaged');
+    target.status = target.status.filter((s) => s !== 'engaged');
+    refreshEngagements(newState);
+  } else {
+    // Defer retaliation strike to defender's choice via pendingReaction
+    newState.turnState.pendingReaction = {
+      id: `${actionId}-retaliation`,
+      type: 'melee-retaliation',
+      promptingPlayerId: target.ownerId,
+      sourceUnitId: attacker.id,
+      targetUnitId: target.id,
+      title: 'Melee Retaliation',
+      description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
+      warning: target.status.includes('fatigued') || target.status.includes('shaken')
+        ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
+        : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
+      options: [
+        {
+          id: 'strike-back',
+          label: `Strike Back (${defenderMelee.name})`,
+          isDefault: true,
+          style: 'primary',
+        },
+        {
+          id: 'decline',
+          label: 'Decline (Avoid Fatigue)',
+          style: 'secondary',
+        },
+      ],
+      expiresAt: Date.now() + 15000,
+      durationMs: 15000,
+      data: {
+        chargeActionId: actionId,
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: defenderMelee.id,
+      },
+    };
+  }
+  return { pushedBack, pushBackPos };
+}
+
+/**
+ * What follows the defender's strike-back (or decline): both units step apart when both survive, and the
+ * survivor of a wipe-out consolidates.
+ */
+function settleStrikeBack(
+  newState: GameState,
+  actionId: string,
+  charger: Unit,
+  defender: Unit
+): { pushedBack: boolean; pushBackPos?: Vector3 } {
+  // Separation / 1" Push-Back (if both units survived)
+  let pushedBack = false;
+  let pushBackPos: Vector3 | undefined;
+  if (!charger.isDestroyed && !defender.isDestroyed) {
+    pushBackPos = pushBackChargerModels(newState, charger, defender);
+    pushedBack = true;
+    charger.status = charger.status.filter((s) => s !== 'engaged');
+    defender.status = defender.status.filter((s) => s !== 'engaged');
+  }
+
+  if (charger.isDestroyed && !defender.isDestroyed) {
+    // Defender consolidates up to 3" upon wiping out charger in melee retaliation
+    newState.turnState.pendingReaction = createConsolidationReaction(actionId, defender, charger.name);
+  } else if (!charger.isDestroyed && defender.isDestroyed) {
+    // Charger consolidates up to 3" upon wiping out defender in melee
+    newState.turnState.pendingReaction = createConsolidationReaction(actionId, charger, defender.name);
+  } else {
+    newState.turnState.pendingReaction = null;
+  }
+  refreshEngagements(newState);
+  return { pushedBack, pushBackPos };
+}
 
 function requireActiveUnit(state: GameState, actorId: string, unitId: string): RequireResult {
   const unit = getUnit(state, unitId);
@@ -3024,6 +3405,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.hasAttacked = false;
   unit.isRushing = false;
   unit.remainingMovement = unit.speed;
+  resetModelMovement(unit);
   unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
@@ -3062,7 +3444,8 @@ function applyWounds(
   wounds: number,
   traumaRolls?: number[],
   dreadBonus: number = 0,
-  lethalValue: number = 1
+  lethalValue: number = 1,
+  victimIds?: string[]
 ): TraumaOutcome | undefined {
   if (wounds <= 0) return undefined;
 
@@ -3075,7 +3458,9 @@ function applyWounds(
     while (remainingWounds > 0) {
       const alive = unit.models.filter((m) => !m.isDestroyed);
       if (alive.length <= 1) break;
-      const victim = alive[0];
+      // The owner's picks (consumed in order) decide who goes; without them it is the first living model
+      const wanted = victimIds?.shift();
+      const victim = (wanted ? alive.find((m) => m.id === wanted) : undefined) ?? alive[0];
       const applied = Math.min(remainingWounds, Math.max(victim.wounds, step));
       victim.wounds = 0;
       victim.isDestroyed = true;
@@ -3141,6 +3526,136 @@ function applyWounds(
     finalModel.isDestroyed = true;
   }
   return undefined;
+}
+
+/** Wounds taken by multi-model units during one action, so each damaged unit's owner can be asked who goes. */
+type WoundLedger = Map<string, { snapshot: Unit; livingBefore: number; applications: WoundApplication[] }>;
+
+/** `applyWounds`, remembering the unit as it was and each application so the casualties can be deferred. */
+function applyTrackedWounds(
+  ledger: WoundLedger,
+  unit: Unit,
+  wounds: number,
+  traumaRolls?: number[],
+  dreadBonus: number = 0,
+  lethalValue: number = 1
+): TraumaOutcome | undefined {
+  const alive = livingModels(unit).length;
+  if (wounds > 0 && alive >= 2) {
+    let record = ledger.get(unit.id);
+    if (!record) {
+      record = { snapshot: snapshotUnit(unit), livingBefore: alive, applications: [] };
+      ledger.set(unit.id, record);
+    }
+    record.applications.push({
+      wounds,
+      ...(traumaRolls ? { traumaRolls: [...traumaRolls] } : {}),
+      dreadBonus,
+      lethalValue,
+    });
+  }
+  return applyWounds(unit, wounds, traumaRolls, dreadBonus, lethalValue);
+}
+
+/**
+ * After an attack's wounds are applied: every tracked unit that lost models but survived is put back as it was
+ * and queued for its owner's pick (one prompt per unit, in resolution order). Units the attack wiped out keep
+ * the result they have. Returns the first prompt (now pending), or null when nobody needs to pick.
+ */
+function deferCasualties(
+  newState: GameState,
+  ledger: WoundLedger,
+  actionId: string,
+  sourceUnit: Unit,
+  after: CasualtyContinuation
+): PendingReaction | null {
+  const entries: CasualtyEntry[] = [];
+  for (const [unitId, record] of ledger) {
+    const unit = getUnit(newState, unitId);
+    if (!unit || unit.isDestroyed) continue;
+    const removed = record.livingBefore - livingModels(unit).length;
+    if (removed <= 0) continue;
+    const carried = Math.max(0, (unit.traumaTokens ?? 0) - (record.snapshot.traumaTokens ?? 0));
+    restoreUnit(unit, record.snapshot);
+    entries.push({ unitId, count: removed, remainingWounds: carried, applications: record.applications });
+  }
+  if (entries.length === 0) return null;
+  const [entry, ...rest] = entries;
+  const reaction = createPickCasualtiesReaction(actionId, 0, getUnit(newState, entry.unitId)!, sourceUnit, {
+    entry,
+    rest,
+    after,
+  });
+  newState.turnState.pendingReaction = reaction;
+  refreshEngagements(newState);
+  return reaction;
+}
+
+/** Remove the picked models from the damaged unit and put the rest of the wounds (and wound-effect roll) on the survivor. */
+function replayCasualties(unit: Unit, entry: CasualtyEntry, victims: string[]): void {
+  const ids = [...victims];
+  for (const app of entry.applications) {
+    applyWounds(unit, app.wounds, app.traumaRolls, app.dreadBonus, app.lethalValue, ids);
+  }
+}
+
+/** A pick-casualties action (the owner's, or the host's on timeout): apply it, then carry on with the interrupted flow. */
+function applyPickCasualties(newState: GameState, action: GameAction, victims: string[]): ActionLogEntry {
+  const pending = newState.turnState.pendingReaction!;
+  const data = pending.data as unknown as PickCasualtiesData;
+  const unit = getUnit(newState, data.entry.unitId)!;
+  replayCasualties(unit, data.entry, victims);
+  newState.turnState.pendingReaction = null;
+
+  // Another damaged unit of the same action is still waiting for its owner
+  if (data.rest.length > 0) {
+    const [entry, ...rest] = data.rest;
+    const next = getUnit(newState, entry.unitId)!;
+    const source = getUnit(newState, data.after.attackerId) ?? unit;
+    newState.turnState.pendingReaction = createPickCasualtiesReaction(data.actionId, data.index + 1, next, source, {
+      entry,
+      rest,
+      after: data.after,
+    });
+    refreshEngagements(newState);
+    return acceptedEntry(action);
+  }
+
+  const after = data.after;
+  let settled: { pushedBack: boolean; pushBackPos?: Vector3 } = { pushedBack: false };
+  if (after.kind === 'charge-strike') {
+    const attacker = getUnit(newState, after.attackerId)!;
+    settled = settleChargeStrike(newState, action.id, attacker, unit);
+  } else if (after.kind === 'strike-back') {
+    const defender = getUnit(newState, after.attackerId)!;
+    settled = settleStrikeBack(newState, action.id, unit, defender);
+  } else if (after.kind === 'fight' && unit.isDestroyed) {
+    const attacker = getUnit(newState, after.attackerId)!;
+    newState.turnState.pendingReaction = createConsolidationReaction(action.id, attacker, unit.name);
+  }
+  refreshEngagements(newState);
+
+  if (!settled.pushedBack) return acceptedEntry(action);
+  const dice: DiceResolution = {
+    rollId: action.id,
+    specs: [],
+    results: [],
+    context: {
+      attackerId: after.attackerId,
+      targetId: unit.id,
+      actionId: action.id,
+    },
+    outcome: {
+      attackCount: 0,
+      hitCount: 0,
+      blockedCount: 0,
+      wounds: 0,
+      targetDestroyed: false,
+      pushedBack: true,
+      pushBackPosition: settled.pushBackPos,
+    },
+  };
+  return acceptedEntry(action, dice);
 }
 
 /**

@@ -89,6 +89,7 @@ describe('squad shooting: who can fire', () => {
     // Shooter model at x=0 is walled off from the whole target; the one at x=10 sees it.
     const shooters = squad('a', HOST, [pt(0, 0), pt(10, 0)], pt(5, 0));
     const target = squad('t', GUEST, [pt(0, 10), pt(4, 10)], pt(2, 10));
+    shooters.hasMoved = true; // spread-out squad that has moved (an incoherent squad may not shoot in place)
     const state = makeState([shooters, target], [wall(-2, 4), wall(2, 4)]); // x -4..4 at z=4
     const fm = firingModels(state, shooters, target, shooters.weapons[0]);
     expect(fm.map((f) => f.position)).toEqual([pt(10, 0)]);
@@ -190,7 +191,15 @@ describe('squad shooting: cover by majority', () => {
     const run = (target: Unit) => {
       const res = applyAction(makeState([shooter, target], [barricade]), shootAction(), rolls);
       expect(res.ok).toBe(true);
-      return res.state!.units[1].models.filter((m) => m.isDestroyed).length;
+      // the target's owner picks the casualties (here the host does, as on timeout)
+      const pending = res.state!.turnState.pendingReaction;
+      const settled = pending
+        ? applyAction(
+            res.state!,
+            createAction(GUEST, 'respond-reaction', { type: 'respond-reaction', reactionId: pending.id, choiceId: 'auto-pick-casualties' })
+          ).state!
+        : res.state!;
+      return settled.units[1].models.filter((m) => m.isDestroyed).length;
     };
     expect(run(squad('t', GUEST, [pt(-1, 10), pt(0, 10), pt(1, 10), pt(6, 10)]))).toBe(0);
     expect(run(squad('t', GUEST, [pt(0, 10), pt(4, 10), pt(6, 10), pt(8, 10)]))).toBe(1);

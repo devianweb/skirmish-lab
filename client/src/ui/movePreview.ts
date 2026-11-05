@@ -10,6 +10,7 @@ import {
   classifySegment,
   collectWalkableSurfaces,
   findJumpOption,
+  findTooWideGap,
   findWalkableSurfaceIn,
   localToWorldXZ,
   worldToLocal,
@@ -168,6 +169,13 @@ export interface MoveTarget {
   target: Vector3;
   /** The declared jump the engine offers from `from` to `target`, or null (then plan the safe path). */
   jump: JumpOption | null;
+  /** Set when the cursor is across a gap from the edge that is too wide to jump (never alongside `jump`). */
+  tooWide: { distance: number } | null;
+}
+
+/** The one-line hint for a gap over the 6" jump limit. */
+export function tooWideText(distance: number): string {
+  return `Too far to jump (${distance.toFixed(1)}", max 6")`;
 }
 
 /**
@@ -183,5 +191,6 @@ export function resolveMoveTarget(
 ): MoveTarget {
   const target = snapCursorToEdge(state, cursor);
   const jump = allowJump ? findJumpOption(state, unit, from, target) : null;
-  return { target, jump };
+  const tooWide = allowJump && !jump ? findTooWideGap(state, unit, from, target) : null;
+  return { target, jump, tooWide };
 }

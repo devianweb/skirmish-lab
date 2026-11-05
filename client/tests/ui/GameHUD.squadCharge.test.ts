@@ -113,15 +113,15 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     const declared = declare(ctx);
     ctx.hud.handleBoardPick({ kind: 'unit', unitId: ctx.enemy.id });
     expect(Array.from(ctx.container.querySelectorAll('button')).some((b) => b.textContent?.includes('✓ Model 1'))).toBe(true);
-    ctx.hud.handleBoardPick({ kind: 'position', position: P(-1, 0, -3.2) });
-    ctx.hud.handleBoardPick({ kind: 'position', position: P(1, 0, -3.2) });
+    ctx.hud.handleBoardPick({ kind: 'position', position: P(-1, 0, -2.6) });
+    ctx.hud.handleBoardPick({ kind: 'position', position: P(1, 0, -2.6) });
     clickByText(ctx.container, 'Confirm');
     const action = ctx.controller.submitAction.mock.calls[0][0];
     expect(action.type).toBe('charge');
     expect(validateAction(declared, action).valid).toBe(true);
   });
 
-  it('when no placed model touches the target the confirmation is a leg and spends the shared budget', () => {
+  it('when no placed model touches the target the confirmation is a leg and spends each model own distance', () => {
     const ctx = setup();
     const declared = declare(ctx);
     ctx.hud.handleBoardPick({ kind: 'position', position: P(0, 0, -7) });
@@ -134,7 +134,8 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     expect(action.payload.modelPositions).toHaveLength(3);
     const res = applyAction(declared, action);
     expect(res.ok).toBe(true);
-    expect(res.state!.units.find((u) => u.id === action.payload.attackerId)!.remainingMovement).toBeCloseTo(8.84, 1);
+    // Per-model budgets: the unit figure is what the model that walked least (3") still has, not the longest walk's
+    expect(res.state!.units.find((u) => u.id === action.payload.attackerId)!.remainingMovement).toBeCloseTo(9, 1);
   });
 
   it('Confirm charge early keeps unplaced models where they stand when the squad is still coherent', () => {
@@ -147,6 +148,35 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     expect(action.type).toBe('charge-leg');
     expect(action.payload.modelPositions[1]).toEqual(P(0, 0, -10));
     expect(action.payload.modelPositions[2]).toEqual(P(1, 0, -10));
+  });
+
+  it('Confirm charge with one model touching the target moves the unplaced models up as close as they can', () => {
+    const ctx = setup();
+    const declared = declare(ctx);
+    ctx.hud.handleBoardPick({ kind: 'position', position: P(0, 0, -3) }); // model 1 in base contact
+    clickByText(ctx.container, 'Confirm charge');
+    expect(ctx.container.textContent).toContain('moved up as close as they can: Model 2, Model 3');
+    clickByText(ctx.container, 'Confirm');
+    const action = ctx.controller.submitAction.mock.calls[0][0];
+    expect(action.type).toBe('charge');
+    expect(action.payload.modelPositions[0]).toEqual(P(0, 0, -3));
+    // Models 2 and 3 left their rank and ended next to the target, not where they stood
+    for (const i of [1, 2]) {
+      const end = action.payload.modelPositions[i];
+      expect(end.z).toBeGreaterThan(-9);
+      expect(Math.hypot(end.x - 0, end.z + 2)).toBeLessThan(2.3);
+    }
+    expect(validateAction(declared, action).valid).toBe(true);
+  });
+
+  it('shows the host reason when a placed model holds back from the target', () => {
+    const ctx = setup();
+    declare(ctx);
+    ctx.hud.handleBoardPick({ kind: 'position', position: P(0, 0, -3) });
+    ctx.hud.handleBoardPick({ kind: 'position', position: P(-1, 0, -3.9) }); // 1.2" short with room to move up
+    ctx.hud.handleBoardPick({ kind: 'position', position: P(1, 0, -3) });
+    expect(ctx.controller.submitAction).not.toHaveBeenCalled();
+    expect(ctx.container.querySelector('.sl-hud-toast')?.textContent).toMatch(/Model 2 could get closer to the target/);
   });
 
   it('refuses a placement that would leave the squad out of coherency, with the host reason', () => {

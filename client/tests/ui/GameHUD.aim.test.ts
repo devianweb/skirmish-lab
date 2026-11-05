@@ -99,6 +99,7 @@ describe('GameHUD: shooting preview for squads', () => {
     const attacker = state.units.find((u) => u.ownerId === HOST && u.id === state.turnState.activeUnitId)!;
     // Rifle range 24": move the right-hand shooter well out of reach (centre gap 40").
     attacker.models![2].position = { x: 2, y: 0, z: -40 };
+    attacker.hasMoved = true; // the stray is out of coherency, so the squad must have moved to shoot
     const target = state.units.find((u) => u.ownerId === GUEST)!;
     const { hud, container } = setup(state);
     clickShoot(container);

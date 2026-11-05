@@ -7,6 +7,7 @@ import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/acti
 import { pushBackChargerModels, validateSquadCoherency } from '../../src/engine/spatial';
 import { findJumpOption } from '../../src/engine/traversal';
 import { livingModelPositions, modelGap } from '../../src/engine/unitGeometry';
+import { closestApproach } from '../../src/engine/closestApproach';
 
 const HOST = 'host1';
 const GUEST = 'guest1';
@@ -74,6 +75,13 @@ const meleeDice = (n = 40): DiceResult[] => [
 ];
 
 const startsOf = (state: GameState, id = 'h1') => livingModelPositions(state.units.find((u) => u.id === id)!);
+
+/** The defender lets the host place their models (what a timed-out pile-in prompt does). */
+const autoPileIn = (state: GameState) =>
+  createAction(GUEST, 'respond-reaction', {
+    reactionId: state.turnState.pendingReaction!.id,
+    choiceId: 'auto-pile-in',
+  });
 
 function chargeAction(
   positions: Vector3[],
@@ -148,7 +156,7 @@ describe('squad charge: each model moves', () => {
 
   it('rejects a model that ends farther from the target than it started', () => {
     const state = mkState([mkUnit('h1', HOST, [[0, 0], [1, 0]]), mkUnit('g1', GUEST, [[0, 2]])]);
-    const ok = [P(0, 1), P(1, 0.5)];
+    const ok = [P(0, 1), P(1, 1)];
     expect(validateAction(state, chargeAction(ok, straight(state, ok))).valid).toBe(true);
     const away = [P(0, 1), P(1, -0.5)];
     const res = validateAction(state, chargeAction(away, straight(state, away)));
@@ -221,10 +229,11 @@ describe('squad charge: each model moves', () => {
 describe('squad charge: who strikes, pile-in', () => {
   it('only models within 2" (base edge) of a target model roll attacks, pooled', () => {
     const state = mkState([
-      mkUnit('h1', HOST, [[0, -1.5], [0, -0.5], [0, 0.5], [0, 1.5]], { speed: 6 }),
-      mkUnit('g1', GUEST, [[0, 5]]),
+      mkUnit('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5]], { speed: 3 }),
+      mkUnit('g1', GUEST, [[0, 10]]),
     ]);
-    const ends = [P(0, 1), P(0, 2), P(0, 3), P(0, 4)]; // gaps to the target: 3", 2", 1", 0"
+    // Charge distance 6": the column closes up as far as each model's own walk allows
+    const ends = [P(0, 9), P(0, 8), P(0, 7), P(0, 6)]; // gaps to the target: 0", 1", 2", 3"
     const action = chargeAction(ends, straight(state, ends));
     expect(validateAction(state, action).valid).toBe(true);
     // 3 models within 2" x 2 blade attacks
@@ -234,10 +243,14 @@ describe('squad charge: who strikes, pile-in', () => {
     expect(out.logEntry?.dice?.outcome.attackCount).toBe(6);
   });
 
-  it('defenders not in contact pile in up to 3" toward the charger', () => {
+  it('defenders not in contact pile in up to 3" toward the charger (host places them when the prompt times out)', () => {
     const state = lineAbreast();
     const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
-    const out = applyAction(state, chargeAction(ends, straight(state, ends)), meleeDice());
+    const charged = applyAction(state, chargeAction(ends, straight(state, ends)), undefined);
+    expect(charged.ok).toBe(true);
+    const next = charged.state!;
+    expect(next.turnState.pendingReaction?.type).toBe('pile-in');
+    const out = applyAction(next, autoPileIn(next), meleeDice());
     expect(out.ok).toBe(true);
     const g1 = out.state!.units.find((u) => u.id === 'g1')!;
     const rear = g1.models[2].position!;
@@ -256,7 +269,9 @@ describe('squad charge: step back after melee', () => {
   it('moves each charging model back to at least 1" from every enemy model, staying coherent', () => {
     const state = lineAbreast();
     const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
-    const charged = applyAction(state, chargeAction(ends, straight(state, ends)), meleeDice());
+    const piling = applyAction(state, chargeAction(ends, straight(state, ends)), undefined);
+    expect(piling.ok).toBe(true);
+    const charged = applyAction(piling.state!, autoPileIn(piling.state!), meleeDice());
     expect(charged.ok).toBe(true);
     const next = charged.state!;
     const done = applyAction(next, decline(next));
@@ -395,6 +410,49 @@ describe('squad charge in legs', () => {
   });
 });
 
+describe('squad charges must place every model (no block charges)', () => {
+  const blockCharge = (type: 'charge' | 'charge-leg') =>
+    createAction(HOST, type, {
+      type,
+      attackerId: 'h1',
+      ...(type === 'charge' ? { targetId: 'g1', weaponId: 'blade' } : {}),
+      path: [P(0, 0), P(0, 7)],
+    } as any);
+
+  it('rejects a charge from a 2+ model unit without modelPositions', () => {
+    const res = validateAction(lineAbreast(), blockCharge('charge'));
+    expect(res.valid).toBe(false);
+    expect(res.reason).toMatch(/every model/);
+  });
+
+  it('rejects a charge-leg from a 2+ model unit without modelPositions', () => {
+    const declared = applyAction(
+      lineAbreast(),
+      createAction(HOST, 'begin-charge', { type: 'begin-charge', attackerId: 'h1', targetId: 'g1' })
+    ).state!;
+    const res = validateAction(declared, blockCharge('charge-leg'));
+    expect(res.valid).toBe(false);
+    expect(res.reason).toMatch(/every model/);
+  });
+
+  it('still accepts the same charge when every model is placed', () => {
+    const state = lineAbreast();
+    const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
+    expect(validateAction(state, chargeAction(ends, straight(state, ends))).valid).toBe(true);
+  });
+
+  it('a unit down to one living model may still send a plain path', () => {
+    const state = lineAbreast();
+    state.units[0].models.slice(1).forEach((m) => (m.isDestroyed = true));
+    state.units[0].speed = 6;
+    state.units[0].remainingMovement = 6;
+    const action = createAction(HOST, 'charge', {
+      type: 'charge', attackerId: 'h1', targetId: 'g1', path: [P(0, 0), P(0, 7.5)], weaponId: 'blade',
+    });
+    expect(validateAction(state, action).reason ?? '').not.toMatch(/every model/);
+  });
+});
+
 describe('single-model charges are unchanged', () => {
   it('a lone model charges with a plain path', () => {
     const state = mkState([mkUnit('h1', HOST, [[0, 0]], { speed: 6 }), mkUnit('g1', GUEST, [[0, 8]])]);
@@ -413,5 +471,77 @@ describe('single-model charges are unchanged', () => {
       type: 'charge', attackerId: 'h1', targetId: 'g1', path: [P(0, 0), P(0, 5)], weaponId: 'blade',
     });
     expect(validateAction(state, short).reason).toBe('Charge must end in engagement range');
+  });
+});
+
+describe('squad charge: as close as possible', () => {
+  // Two chargers (charge distance 8") facing one defender: model 0 makes contact at z = 7.5
+  const pair = () => mkState([mkUnit('h1', HOST, [[0, 0], [1, 0]]), mkUnit('g1', GUEST, [[0, 8.5]])]);
+
+  it('rejects a model that holds back when it could walk up to the target', () => {
+    const state = pair();
+    const ends = [P(0, 7.5), P(1, 6.5)]; // model 2 is 1.2" short with open ground ahead
+    const res = validateAction(state, chargeAction(ends, straight(state, ends)));
+    expect(res.valid).toBe(false);
+    expect(res.reason).toBe('Model 2 could get closer to the target');
+  });
+
+  it('accepts a model within 0.5" of its best spot (0.4" short is fine)', () => {
+    const state = pair();
+    const ends = [P(0, 7.5), P(1, 7.5)];
+    const best = closestApproach(state, state.units[0], 1, P(1, 0), 8, state.units[1], [ends[0]])!;
+    const mine = modelGap(ends[1], P(0, 8.5));
+    expect(mine - best.gap).toBeGreaterThan(0.2);
+    expect(mine - best.gap).toBeLessThanOrEqual(0.5);
+    expect(validateAction(state, chargeAction(ends, straight(state, ends)))).toEqual({ valid: true });
+  });
+
+  it('accepts a model standing exactly on its best spot', () => {
+    const state = pair();
+    const first = P(0, 7.5);
+    const best = closestApproach(state, state.units[0], 1, P(1, 0), 8, state.units[1], [first])!;
+    const ends = [first, best.position];
+    expect(validateAction(state, chargeAction(ends, [straight(state, ends)[0], best.path]))).toEqual({ valid: true });
+  });
+
+  it('never requires a jump: a model on a high deck may stay up there', () => {
+    const meta = TERRAIN_PALETTE_CATALOG['platform-small'];
+    const deck = {
+      id: 'deck-a',
+      terrainType: 'platform-small',
+      position: P(-2, 0),
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { ...meta.defaultScale, y: 4.5 },
+      blocksLineOfSight: meta.blocksLineOfSight,
+      providesCover: meta.providesCover,
+      isObstacle: meta.isObstacle,
+      isWalkable: true,
+    } as TerrainPiece;
+    const state = mkState(
+      [mkUnit('h1', HOST, [[1.5, 0], [-0.5, 0]], { speed: 6 }), mkUnit('g1', GUEST, [[3.5, 0]])],
+      [deck]
+    );
+    const h1 = state.units[0];
+    h1.models[1].position = P(-0.5, 0, 4.5);
+    // Model 2 could only get nearer by leaping off the deck edge: it stays, model 1 makes contact
+    const ends = [P(2.5, 0), P(-0.5, 0, 4.5)];
+    expect(validateAction(state, chargeAction(ends, straight(state, ends)))).toEqual({ valid: true });
+  });
+
+  it('strike dice follow the resolved positions', () => {
+    const state = pair();
+    const ends = [P(0, 7.5), P(1, 7.5)]; // both within 2" of the target
+    const action = chargeAction(ends, straight(state, ends));
+    expect(getDiceSpecs(state, action)?.find((s) => s.purpose === 'to-hit')?.count).toBe(4);
+    const out = applyAction(state, action, meleeDice());
+    expect(out.ok).toBe(true);
+    expect(out.logEntry?.dice?.outcome.attackCount).toBe(4);
+  });
+
+  it('charge legs have no closeness rule (only the final move does)', () => {
+    const state = pair();
+    const declared = applyAction(state, createAction(HOST, 'begin-charge', { type: 'begin-charge', attackerId: 'h1', targetId: 'g1' })).state!;
+    const leg = [P(0, 3), P(1, 3)];
+    expect(validateAction(declared, chargeAction(leg, straight(declared, leg), {}, 'charge-leg'))).toEqual({ valid: true });
   });
 });

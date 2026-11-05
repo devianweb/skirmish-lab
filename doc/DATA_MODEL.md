@@ -82,7 +82,7 @@ interface ChargeState {
 
 interface PendingReaction {
   id: string;
-  type: string;
+  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties'
   promptingPlayerId: string;   // The player who must choose (defender)
   sourceUnitId: string;        // The attacker/charger
   targetUnitId: string;        // The defender making the decision
@@ -94,6 +94,10 @@ interface PendingReaction {
   durationMs?: number;         // Relative duration (15000ms) for clock-skew independent timer
   data?: Record<string, any>;
 }
+
+// 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
+// CasualtyEntry = { unitId, count, remainingWounds, applications: { wounds, traumaRolls?, dreadBonus, lethalValue }[] }
+// CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
 
 interface ReactionOption {
   id: string;                  // e.g. 'strike-back' | 'decline'
@@ -156,6 +160,13 @@ interface Unit {
   // Movement/Action State
   hasMoved: boolean;
   remainingMovement: number;
+  /**
+   * Squads only (batch 1I PR 30): inches each living model has walked in the current move, rush or charge,
+   * keyed by model id. `remainingMovement` is the most any living model can still walk (the action's
+   * budget minus the smallest of these), so existing "out of movement" checks keep working. Absent until a
+   * squad leg is made; cleared when an activation, a declared charge begins, or the charge is made.
+   */
+  modelMovementSpent?: Record<string, number>;
 }
 
 interface Model {
@@ -291,6 +302,9 @@ type ActionType =
   | 'charge'
   | 'fight'
   | 'respond-reaction' // Reaction choice submitted by player
+  | 'consolidate-move' // Winner's 3" consolidation after wiping out a unit
+  | 'pile-in-move'     // Defender places the models that were not touching a charger (reaction type 'pile-in')
+  | 'pick-casualties'  // Owner names the models to remove from a damaged squad (reaction type 'pick-casualties')
   | 'use-ability'
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
@@ -320,6 +334,8 @@ interface DeclaredTraversal {
 }
 
 type ActionPayload =
+  | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living models of the damaged unit
+  | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
   | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model
@@ -337,7 +353,7 @@ type ActionPayload =
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
-  // Squad charges (more than one living model) send modelPositions (one per living model, model order),
+  // Squad charges (more than one living model) MUST send modelPositions (one per living model, model order); the host rejects them without it,
   // modelPaths (per model, from its current spot) and modelTraversals (a declared jump per model, or null);
   // `path` is then only a summary. Single-model units keep the plain `path` and `traversal`.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }

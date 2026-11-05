@@ -18,7 +18,7 @@ export interface ReactionOption {
 
 export interface PendingReaction {
   id: string;
-  type: 'melee-retaliation' | string;
+  type: 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | string;
   promptingPlayerId: string; // The player who must choose (defender)
   sourceUnitId: string;      // The attacker/charger
   targetUnitId: string;      // The defender making the decision
@@ -132,6 +132,12 @@ export interface Unit {
   hasAttacked?: boolean;
   isRushing?: boolean;
   remainingMovement: number;
+  /**
+   * Squads only: how far each living model has walked in the current move, rush or charge (model id to
+   * inches). `remainingMovement` is the budget minus the smallest of these. Absent until a squad leg is
+   * made; cleared when the activation or charge starts.
+   */
+  modelMovementSpent?: Record<string, number>;
 }
 
 /**
@@ -262,6 +268,8 @@ export type ActionType =
   | 'hold'
   | 'respond-reaction'
   | 'consolidate-move'
+  | 'pile-in-move'
+  | 'pick-casualties'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round';       // Finish the round (cleanup/morale)
 
@@ -285,6 +293,8 @@ export type ActionPayload =
   | { type: 'hold', unitId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3 }
+  | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] }
+  | { type: 'pick-casualties', unitId: string, modelIds: string[] }
   | { type: 'end-activation' }
   | { type: 'end-round' };
 
@@ -368,7 +378,7 @@ export interface WeaponAttackOutcome {
  */
 /** One traversal hazard resolved during a move: a jump, a fall or dangerous terrain (rolled with server dice). */
 export interface TraversalEvent {
-  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard';
+  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard' | 'jump-skipped';
   /** Human-readable result for the dice panel and log. */
   text: string;
   /** The dice rolled for this event (each d6). */

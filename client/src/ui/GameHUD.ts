@@ -36,6 +36,7 @@ import {
   Unit,
   validateDeploymentPosition,
   validateSquadCoherency,
+  isRegroupingMove,
   SQUAD_COHERENCY_SPREAD,
   SQUAD_COHERENCY_SPREAD_EDGE,
   baseRadius,
@@ -56,12 +57,21 @@ import {
   ENGAGEMENT_EDGE_GAP,
   Vector3,
   Weapon,
+  modelRemainingMovement,
+  closestApproach,
+  PILE_IN_DISTANCE,
+  PILE_IN_AUTO_CHOICE,
+  PICK_CASUALTIES_AUTO_CHOICE,
+  autoPickCasualties,
+  PendingReaction,
 } from '@skirmish-lab/shared';
 import {
   PreviewSegment,
   describePathSegments,
   jumpChip,
   resolveMoveTarget,
+  tooWideText,
+  type MoveTarget,
   segmentSummary,
 } from './movePreview';
 import { rushStopReason, rushStopText } from './rushStop';
@@ -116,11 +126,31 @@ export interface MarkerSnapshot {
   shootingDebugRay?: ShootingRayDebugInfo | null;
   deploymentZones?: DeploymentZoneMarker | null;
   squadCoherency?: { positions: Vector3[]; radius: number } | null;
+  /** Floor positions of the models picked as casualties (highlighted). */
+  casualtyPicks?: Vector3[] | null;
 }
 
 export type PickTarget =
   | { kind: 'unit'; unitId: string; modelId?: string }
   | { kind: 'position'; position: Vector3; terrainId?: string };
+
+/** What the pile-in prompt works from (see GameHUD.pileInContext). */
+interface PileInContext {
+  pending: PendingReaction;
+  defender: Unit;
+  charger: Unit;
+  alive: Model[];
+  modelIds: string[];
+  maxDistance: number;
+}
+
+/** What the casualty-pick prompt works from (see GameHUD.casualtyContext). */
+interface CasualtyContext {
+  pending: PendingReaction;
+  unit: Unit;
+  alive: Model[];
+  count: number;
+}
 
 type TargetingMode =
   | { mode: 'idle' }
@@ -170,6 +200,8 @@ export class GameHUD {
   private readonly rushStopTexts = (['height', 'budget', 'difficult'] as const).map(rushStopText);
   /** The declared jump/fall the engine offers for the previewed target (null: safe path preview). */
   private moveJump: JumpOption | null = null;
+  /** Set while hovering across a gap over the 6" jump limit (hint only; nothing is offered). */
+  private moveTooWide: { distance: number } | null = null;
   /** Engine classification of each leg of the previewed path (for styling and labels). */
   private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
@@ -188,6 +220,13 @@ export class GameHUD {
   private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
   /** ID of the squad model currently selected for placement */
   private selectedSquadModelId: string | null = null;
+  /** Defender pile-in staging: spots and walks chosen so far (model id -> value), for one pending reaction. */
+  private pileInStaged: Map<string, Vector3> = new Map();
+  private pileInPaths: Map<string, Vector3[]> = new Map();
+  private pileInSelectedId: string | null = null;
+  private pileInReactionId: string | null = null;
+  private casualtyPicked: string[] = [];
+  private casualtyReactionId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -445,6 +484,26 @@ export class GameHUD {
       return;
     }
 
+    const casualties = this.casualtyContext();
+    if (casualties) {
+      if (target.kind === 'unit' && target.unitId === casualties.unit.id && target.modelId) {
+        this.toggleCasualtyModel(target.modelId);
+      }
+      return;
+    }
+
+    const pileIn = this.pileInContext();
+    if (pileIn) {
+      if (target.kind === 'unit' && target.unitId === pileIn.defender.id && target.modelId) {
+        this.selectPileInModel(target.modelId);
+      } else if (target.kind === 'unit' && target.unitId === pileIn.charger.id) {
+        this.placePileInContact(target.modelId);
+      } else if (target.kind === 'position') {
+        this.placePileInModel(target.position);
+      }
+      return;
+    }
+
     if (this.isSquadChargeFlow && this.activeUnit && this.declaredCharge) {
       const declared = this.declaredCharge;
       if (target.kind === 'unit' && target.unitId === this.activeUnit.id && target.modelId) {
@@ -532,6 +591,7 @@ export class GameHUD {
   /** Board hover events from GameView (for live movement path preview, target hover & terrain debug). */
   handleBoardHover(target: PickTarget | null): void {
     if (!this.state || this.state.status === 'game-over') return;
+    this.moveTooWide = null;
 
     const nextTerrainId =
       target?.kind === 'position'
@@ -549,6 +609,25 @@ export class GameHUD {
         (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
+
+    const pileInHover = this.pileInContext();
+    if (pileInHover) {
+      const model = this.pileInSelectedModel(pileInHover);
+      if (model && target?.kind === 'position') {
+        const path = findNavPath(this.state, pileInHover.defender, target.position, pileInHover.maxDistance, {
+          keepAway: true,
+          startPosition: model.position ?? pileInHover.defender.position,
+          ignoreUnitId: pileInHover.charger.id,
+        });
+        this.movePathPreview = path.length >= 2 ? path : null;
+        this.movePreview = path.length >= 2 ? path[path.length - 1] : null;
+      } else {
+        this.movePathPreview = null;
+        this.movePreview = null;
+      }
+      this.emitMarkers();
+      return;
+    }
 
     const pendingReaction = this.state.turnState.pendingReaction;
     if (
@@ -584,11 +663,9 @@ export class GameHUD {
         const currentModel = alive.length > 1 ? this.selectedSquadModel : null;
         const startPos = currentModel ? (currentModel.position ?? active.position) : active.position;
         const isRush = this.flow.action === 'rush';
-        const remainingBudget = active.isRushing
-          ? active.remainingMovement
-          : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
+        const remainingBudget = this.distanceLeft(active, isRush ? 'rush' : 'move', currentModel);
         const nominalMax = remainingBudget;
-        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, alive.length <= 1);
+        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
         const cursor = resolved.target;
         let path = resolved.jump
           ? resolved.jump.path
@@ -641,6 +718,7 @@ export class GameHUD {
 
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
+        this.moveTooWide = this.tooWideHint(resolved, path);
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -692,17 +770,19 @@ export class GameHUD {
       const enemy = this.state.units.find((u) => u.id === declared.targetId);
       let cursor: Vector3 | null = null;
       let jump = null as JumpOption | null;
+      let tooWide: { distance: number } | null = null;
       if (target?.kind === 'position') {
         const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
         cursor = resolved.target;
         jump = resolved.jump;
+        tooWide = resolved.tooWide;
       } else if (target?.kind === 'unit' && target.unitId === declared.targetId && enemy) {
         cursor = this.contactSpotFor(startPos, enemy);
       }
       if (cursor && model) {
         const path = jump
           ? jump.path
-          : findNavPath(this.state, active, cursor, active.remainingMovement, {
+          : findNavPath(this.state, active, cursor, this.distanceLeft(active, 'charge', model), {
               ignoreUnitId: declared.targetId,
               keepAway: true,
               startPosition: startPos,
@@ -710,6 +790,7 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.moveJump = jump;
+        this.moveTooWide = tooWide && cursor ? this.tooWideHint({ target: cursor, jump, tooWide }, path) : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePreviewDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.hoveredEngagedTargetId = target?.kind === 'unit' ? declared.targetId : null;
@@ -762,6 +843,7 @@ export class GameHUD {
         const isDifficult = !resolved.jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
+        this.moveTooWide = this.tooWideHint(resolved, path);
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -900,6 +982,20 @@ export class GameHUD {
     };
   }
 
+  /**
+   * How far the unit can still walk in this action. For a squad, pass the model to get that model's own
+   * distance (what it has walked in earlier legs counts, a squad-mate's walk does not).
+   */
+  private distanceLeft(active: Unit, kind: 'move' | 'rush' | 'charge', model: Model | null = null): number {
+    const unitLeft =
+      kind === 'charge'
+        ? (this.declaredCharge ? active.remainingMovement : active.speed * 2)
+        : kind === 'rush'
+        ? (active.isRushing ? active.remainingMovement : active.speed * 2)
+        : (active.isRushing ? active.remainingMovement : Math.min(active.speed, active.remainingMovement ?? active.speed));
+    return model ? modelRemainingMovement(active, model, unitLeft) : unitLeft;
+  }
+
   private get selectedSquadModel(): Model | null {
     const alive = this.activeAliveSquadModels;
     if (alive.length === 0) return null;
@@ -1019,6 +1115,358 @@ export class GameHUD {
     this.render();
   }
 
+  // --- casualty picks -------------------------------------------------------
+
+  /** The pending casualty pick when the local player owns the damaged unit, else null. */
+  private casualtyContext(): CasualtyContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'pick-casualties' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const unit = this.state.units.find((u) => u.id === pending.data?.entry?.unitId);
+    if (!unit) return null;
+    if (this.casualtyReactionId !== pending.id) {
+      this.casualtyReactionId = pending.id;
+      this.casualtyPicked = [];
+    }
+    return {
+      pending,
+      unit,
+      alive: (unit.models ?? []).filter((m) => !m.isDestroyed),
+      count: pending.data?.entry?.count ?? 0,
+    };
+  }
+
+  private toggleCasualtyModel(modelId: string): void {
+    const ctx = this.casualtyContext();
+    if (!ctx || !ctx.alive.some((m) => m.id === modelId)) return;
+    if (this.casualtyPicked.includes(modelId)) {
+      this.casualtyPicked = this.casualtyPicked.filter((id) => id !== modelId);
+    } else if (this.casualtyPicked.length >= ctx.count) {
+      this.showToast(`Already ${ctx.count} chosen: unpick one first`);
+      return;
+    } else {
+      this.casualtyPicked = [...this.casualtyPicked, modelId];
+    }
+    this.render();
+    this.emitMarkers();
+  }
+
+  private autoPickCasualtyModels(): void {
+    const ctx = this.casualtyContext();
+    if (!ctx) return;
+    this.casualtyPicked = autoPickCasualties(ctx.unit, ctx.count);
+    this.render();
+    this.emitMarkers();
+  }
+
+  private confirmCasualties(): void {
+    const ctx = this.casualtyContext();
+    if (!ctx || !this.state) return;
+    const action = createAction(this.localPlayerId, 'pick-casualties', {
+      type: 'pick-casualties',
+      unitId: ctx.unit.id,
+      modelIds: [...this.casualtyPicked],
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'Those casualties are not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  /** True when taking `removed` out of a coherent unit would leave it broken (a note only, never blocks). */
+  private casualtySplits(ctx: CasualtyContext, removed: string[]): boolean {
+    const spot = (m: Model) => m.position ?? ctx.unit.position;
+    if (ctx.alive.length < 2 || !validateSquadCoherency(ctx.alive.map(spot)).coherent) return false;
+    const rest = ctx.alive.filter((m) => !removed.includes(m.id)).map(spot);
+    return rest.length > 1 && !validateSquadCoherency(rest).coherent;
+  }
+
+  private casualtyPromptHtml(ctx: CasualtyContext, remainingSec: number, dataCardSlot: string): string {
+    const chips = ctx.alive
+      .map((m, idx) => {
+        const picked = this.casualtyPicked.includes(m.id);
+        const removal = picked ? this.casualtyPicked : [...this.casualtyPicked, m.id];
+        const splits = this.casualtySplits(ctx, removal);
+        return `<button class="sl-hud-btn sl-hud-chip ${picked ? 'active' : ''}" data-action="toggle-casualty-model" data-model-id="${m.id}" style="${
+          picked ? 'background: #ff9800; color: #000; font-weight: bold;' : ''
+        }">${picked ? '✕ ' : ''}${m.name ?? `Model ${idx + 1}`} (${m.wounds}W)${
+          splits ? ' <span style="font-size: 10px; opacity: 0.8;">· splits the squad</span>' : ''
+        }</button>`;
+      })
+      .join('');
+    const autoOption = (ctx.pending.options ?? []).find((o) => o.id === PICK_CASUALTIES_AUTO_CHOICE);
+    const ready = this.casualtyPicked.length === ctx.count;
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">Remove ${ctx.count} model${ctx.count === 1 ? '' : 's'} from ${ctx.unit.name}</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          <div class="sl-hud-reaction-desc">Choose the casualties (${this.casualtyPicked.length}/${ctx.count}): click a model on the board or a button below. Any model may be picked, even one the enemy cannot see.</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">
+            ${chips}
+          </div>
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
+            <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
+            ${
+              autoOption
+                ? `<button class="sl-hud-btn" data-reaction-choice="${autoOption.id}" data-reaction-id="${ctx.pending.id}">Let the host pick</button>`
+                : ''
+            }
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // --- defender pile-in -----------------------------------------------------
+
+  /** The pending pile-in when the local player is the defender who has to place the models, else null. */
+  private pileInContext(): PileInContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'pile-in' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const defender = this.state.units.find((u) => u.id === pending.targetUnitId);
+    const charger = this.state.units.find((u) => u.id === pending.sourceUnitId);
+    if (!defender || !charger) return null;
+    if (this.pileInReactionId !== pending.id) {
+      this.pileInReactionId = pending.id;
+      this.pileInStaged.clear();
+      this.pileInPaths.clear();
+      this.pileInSelectedId = null;
+    }
+    return {
+      pending,
+      defender,
+      charger,
+      alive: (defender.models ?? []).filter((m) => !m.isDestroyed),
+      modelIds: pending.data?.modelIds ?? [],
+      maxDistance: pending.data?.maxDistance ?? PILE_IN_DISTANCE,
+    };
+  }
+
+  private pileInSelectedModel(ctx: PileInContext): Model | null {
+    const listed = ctx.alive.filter((m) => ctx.modelIds.includes(m.id));
+    return (
+      listed.find((m) => m.id === this.pileInSelectedId) ??
+      listed.find((m) => !this.pileInStaged.has(m.id)) ??
+      listed[0] ??
+      null
+    );
+  }
+
+  /** Where each living model stands now: its staged spot, else where it is. */
+  private pileInPositions(ctx: PileInContext): Vector3[] {
+    return ctx.alive.map((m) => this.pileInStaged.get(m.id) ?? m.position ?? ctx.defender.position);
+  }
+
+  private selectPileInModel(modelId: string): void {
+    const ctx = this.pileInContext();
+    if (!ctx) return;
+    if (!ctx.modelIds.includes(modelId)) {
+      if (ctx.alive.some((m) => m.id === modelId)) this.showToast('That model is already in contact and stays put');
+      return;
+    }
+    this.pileInSelectedId = modelId;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Click on a charging model (or the unit): walk the selected model into base contact with it, or say why not. */
+  private placePileInContact(chargerModelId?: string): void {
+    const ctx = this.pileInContext();
+    if (!ctx) return;
+    const model = this.pileInSelectedModel(ctx);
+    if (!model) return;
+    const from = model.position ?? ctx.defender.position;
+    const foeModel = chargerModelId ? (ctx.charger.models ?? []).find((m) => m.id === chargerModelId && !m.isDestroyed) : null;
+    let spot: Vector3;
+    if (foeModel) {
+      const fp = foeModel.position ?? ctx.charger.position;
+      const dx = from.x - fp.x;
+      const dz = from.z - fp.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const contact = edgeGapToCentre(0);
+      spot = { x: fp.x + (dx / len) * contact, y: fp.y ?? 0, z: fp.z + (dz / len) * contact };
+    } else {
+      spot = this.contactSpotFor(from, ctx.charger);
+    }
+    this.placePileInModel(spot, true);
+  }
+
+  private placePileInModel(rawDestination: Vector3, needExact = false): void {
+    const ctx = this.pileInContext();
+    if (!ctx || !this.state) return;
+    const model = this.pileInSelectedModel(ctx);
+    if (!model) return;
+    const start = model.position ?? ctx.defender.position;
+    const path = findNavPath(this.state, ctx.defender, rawDestination, ctx.maxDistance, {
+      keepAway: true,
+      startPosition: start,
+      ignoreUnitId: ctx.charger.id,
+    });
+    if (path.length < 2) {
+      this.showToast(
+        needExact
+          ? `Cannot reach base contact there: it is beyond ${ctx.maxDistance}" or the way is blocked`
+          : 'Pick a destination away from the model'
+      );
+      return;
+    }
+    const destination = path[path.length - 1];
+    if (needExact && boardDistance(destination, rawDestination) > 0.1) {
+      this.showToast(`Cannot reach base contact there: it is beyond ${ctx.maxDistance}" or the way is blocked`);
+      return;
+    }
+    const idx = ctx.alive.findIndex((m) => m.id === model.id);
+    const positions = this.pileInPositions(ctx);
+    for (let i = 0; i < positions.length; i++) {
+      if (i !== idx && boardDistance(positions[i], destination) < 0.9) {
+        this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
+        return;
+      }
+    }
+    if (livingModelPositions(ctx.charger).some((c) => boardDistance(c, destination) < 0.9)) {
+      this.showToast('Cannot place a model on top of an enemy model (bases would overlap)');
+      return;
+    }
+    this.pileInStaged.set(model.id, destination);
+    this.pileInPaths.set(model.id, path);
+    positions[idx] = destination;
+    const coherency = validateSquadCoherency(positions);
+    if (positions.length > 1 && !coherency.coherent) {
+      this.showToast(
+        (coherency.reason ?? 'Each model must be within 1" of another squad member') + ' (fix this before confirming)'
+      );
+    }
+    const next = ctx.alive.find((m) => ctx.modelIds.includes(m.id) && !this.pileInStaged.has(m.id));
+    if (next) this.pileInSelectedId = next.id;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Fill every listed model that has not been placed with its `closestApproach` spot (nearest the chargers first). */
+  private autoPlacePileIn(): void {
+    const ctx = this.pileInContext();
+    if (!ctx || !this.state) return;
+    const foes = livingModelPositions(ctx.charger);
+    const positions = this.pileInPositions(ctx);
+    const order = ctx.alive
+      .map((m, i) => ({ m, i, d: Math.min(...foes.map((f) => boardDistance(positions[i], f))) }))
+      .filter(({ m }) => ctx.modelIds.includes(m.id) && !this.pileInStaged.has(m.id))
+      .sort((a, b) => a.d - b.d || a.i - b.i);
+    let moved = 0;
+    for (const { m, i } of order) {
+      const best = closestApproach(
+        this.state,
+        ctx.defender,
+        i,
+        m.position ?? ctx.defender.position,
+        ctx.maxDistance,
+        ctx.charger,
+        positions.filter((_, j) => j !== i)
+      );
+      if (best && best.path.length >= 2) {
+        positions[i] = best.position;
+        this.pileInStaged.set(m.id, best.position);
+        this.pileInPaths.set(m.id, best.path);
+        moved++;
+      }
+    }
+    if (moved === 0) this.showToast('No model can get any closer');
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private resetPileIn(): void {
+    this.pileInStaged.clear();
+    this.pileInPaths.clear();
+    this.pileInSelectedId = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Run the host's check on the staged placement; show its refusal as a toast, or send `pile-in-move`. */
+  private confirmPileIn(): void {
+    const ctx = this.pileInContext();
+    if (!ctx || !this.state) return;
+    const positions = this.pileInPositions(ctx);
+    const action = createAction(this.localPlayerId, 'pile-in-move', {
+      type: 'pile-in-move',
+      modelPositions: positions,
+      modelPaths: ctx.alive.map((m, i) => this.pileInPaths.get(m.id) ?? [positions[i]]),
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'That pile-in is not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  private pileInPromptHtml(ctx: PileInContext, remainingSec: number, dataCardSlot: string): string {
+    const current = this.pileInSelectedModel(ctx);
+    const chips = ctx.alive
+      .map((m, idx) => ({ m, idx }))
+      .filter(({ m }) => ctx.modelIds.includes(m.id))
+      .map(({ m, idx }) => {
+        const placed = this.pileInStaged.has(m.id);
+        const selected = m.id === current?.id;
+        return `<button class="sl-hud-btn sl-hud-chip ${selected ? 'active' : ''}" data-action="select-pile-in-model" data-model-id="${m.id}" style="${
+          selected
+            ? 'background: #00bcd4; color: #000; font-weight: bold;'
+            : placed
+            ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
+            : ''
+        }">${placed ? '✓ ' : ''}Model ${idx + 1}</button>`;
+      })
+      .join('');
+    const autoOption = (ctx.pending.options ?? []).find((o) => o.id === PILE_IN_AUTO_CHOICE);
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">Pile in</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          <div class="sl-hud-reaction-desc">${ctx.charger.name} charged ${ctx.defender.name}. Move each model that is not touching up to ${ctx.maxDistance}" toward the attackers: pick a model, then click a spot. The attacks are rolled after you confirm.</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Select Model:</span>
+            ${chips}
+          </div>
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn" data-action="auto-pile-in">Auto place</button>
+            <button class="sl-hud-btn primary" data-action="confirm-pile-in">Confirm</button>
+            <button class="sl-hud-btn" data-action="reset-pile-in">Reset</button>
+            ${
+              autoOption
+                ? `<button class="sl-hud-btn" data-reaction-choice="${autoOption.id}" data-reaction-id="${ctx.pending.id}">Let the host place them</button>`
+                : ''
+            }
+          </div>
+        </div>
+      </div>`;
+  }
+
   private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush' | 'charge'): void {
     const active = this.activeUnit;
     if (!active || !this.state) return;
@@ -1040,13 +1488,9 @@ export class GameHUD {
     const chargeTargetId = isCharge ? this.declaredCharge?.targetId : undefined;
     const chargeTarget = chargeTargetId ? this.state.units.find((u) => u.id === chargeTargetId) : undefined;
     if (isCharge && !chargeTarget) return;
-    const remainingBudget = isCharge
-      ? active.remainingMovement
-      : active.isRushing
-      ? active.remainingMovement
-      : (isRush ? active.speed * 2 : (active.remainingMovement ?? active.speed));
-    // Charge legs share one budget: what earlier legs spent comes off the Difficult Terrain cap too
-    const chargeSpentSoFar = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - active.remainingMovement : 0;
+    const remainingBudget = this.distanceLeft(active, isCharge ? 'charge' : isRush ? 'rush' : 'move', currentModel);
+    // This model's earlier charge legs come off the Difficult Terrain cap too
+    const chargeSpentSoFar = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - remainingBudget : 0;
     let maxAllowance = remainingBudget;
     const navOptions = {
       keepAway: true,
@@ -1120,9 +1564,14 @@ export class GameHUD {
       }
     }
 
+    // A squad that started the action out of coherency may end it closer to coherent (regrouping)
+    const startPositions = alive.map((m) => m.position ?? active.position);
+    const startedIncoherent = !validateSquadCoherency(startPositions).coherent;
+
     if (otherPlaced.length > 0) {
       // 1. All models must remain within 6" (base edge to base edge) of all other placed models
-      for (const placed of otherPlaced) {
+      //    (a regrouping squad is judged as a whole when the last model is placed)
+      for (const placed of startedIncoherent ? [] : otherPlaced) {
         const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
         if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
           this.showToast(`Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`);
@@ -1136,11 +1585,18 @@ export class GameHUD {
         const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
         const coherency = validateSquadCoherency(candidatePositions);
         if (!coherency.coherent) {
-          this.showToast(
-            coherency.reason ??
-              'Each model must be within 1" of another squad member (3" if they are on different levels)'
-          );
-          return;
+          // Candidate positions are in placement order, not model order: compare as a set of positions
+          const regrouping = startedIncoherent && isRegroupingMove(startPositions, candidatePositions);
+          if (!regrouping) {
+            this.showToast(
+              (coherency.reason ??
+                'Each model must be within 1" of another squad member (3" if they are on different levels)') +
+                (startedIncoherent
+                  ? ' (the squad started out of coherency: it must end closer to coherent than it began)'
+                  : '')
+            );
+            return;
+          }
         }
       }
     }
@@ -1185,15 +1641,26 @@ export class GameHUD {
     const alive = this.activeAliveSquadModels;
     if (alive.length <= 1 || this.stagedSquadModelPositions.size === 0) return;
 
-    const orderedPositions = alive.map(
+    let orderedPositions = alive.map(
       (m) => this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position
     );
-    const orderedPaths = alive.map(
+    let orderedPaths = alive.map(
       (m, i) => this.stagedSquadModelPaths.get(m.id) ?? [orderedPositions[i]]
     );
-    if (this.stagedSquadModelPositions.size < alive.length) {
+    // A final charge moves the models the player did not place as close as they can get
+    let autoPlaced: number[] = [];
+    if (actionKind === 'charge' && this.stagedSquadModelPositions.size < alive.length) {
+      const filled = this.autoPlaceChargers(alive, orderedPositions, orderedPaths);
+      if (filled) {
+        orderedPositions = filled.positions;
+        orderedPaths = filled.paths;
+        autoPlaced = filled.autoPlaced;
+      }
+    }
+    if (this.stagedSquadModelPositions.size < alive.length && autoPlaced.length === 0) {
       const coherency = validateSquadCoherency(orderedPositions);
-      if (!coherency.coherent) {
+      const startPositions = alive.map((m) => m.position ?? active.position);
+      if (!coherency.coherent && !isRegroupingMove(startPositions, orderedPositions)) {
         this.showToast(
           `Unplaced models stay where they are: ${
             coherency.reason ?? 'the squad would not be in coherency'
@@ -1204,7 +1671,7 @@ export class GameHUD {
     }
     const finalCentroid = computeSquadCentroid(orderedPositions);
     if (actionKind === 'charge') {
-      this.finishSquadCharge(alive, orderedPositions, orderedPaths, finalCentroid);
+      this.finishSquadCharge(alive, orderedPositions, orderedPaths, finalCentroid, autoPlaced);
       return;
     }
     const isAnyModelDifficult = orderedPaths.some((p) =>
@@ -1261,6 +1728,61 @@ export class GameHUD {
   }
 
   /**
+   * On a final squad charge, fill in the models the player did not place: each (in model order) goes to its
+   * `closestApproach` spot given the others' positions so far. Only when a placed model already touches the
+   * target (otherwise the confirmation is a leg and unplaced models stay put). Returns null when nothing applies.
+   */
+  private autoPlaceChargers(
+    alive: Model[],
+    positions: Vector3[],
+    paths: Vector3[][]
+  ): { positions: Vector3[]; paths: Vector3[][]; autoPlaced: number[] } | null {
+    const active = this.activeUnit;
+    const declared = this.declaredCharge;
+    const state = this.state;
+    if (!active || !declared || !state) return null;
+    const target = state.units.find((u) => u.id === declared.targetId);
+    if (!target) return null;
+    const targetModels = livingModelPositions(target);
+    const touches = (pos: Vector3): boolean =>
+      targetModels.some(
+        (t) =>
+          modelGap(pos, t) <= CHARGE_END_EDGE_GAP + 0.001 &&
+          Math.abs((pos.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH
+      );
+    if (!alive.some((m, i) => this.stagedSquadModelPositions.has(m.id) && touches(positions[i]))) return null;
+
+    const outPositions = [...positions];
+    const outPaths = [...paths];
+    const autoPlaced: number[] = [];
+    // Models still waiting to be filled in have no final spot yet: they do not count as "the others"
+    const settled = alive.map((m) => this.stagedSquadModelPositions.has(m.id));
+    alive.forEach((m, i) => {
+      if (settled[i]) return;
+      const start = m.position ?? active.position;
+      const remaining = this.distanceLeft(active, 'charge', m);
+      const spent = getEffectiveMaxMovement(active, 'charge', false) - remaining;
+      const best = closestApproach(
+        state,
+        active,
+        i,
+        start,
+        remaining,
+        target,
+        outPositions.filter((_, j) => j !== i && settled[j]),
+        { difficultBudget: Math.max(0, getEffectiveMaxMovement(active, 'charge', true) - spent) }
+      );
+      if (best && best.cost > 0.05) {
+        outPositions[i] = best.position;
+        outPaths[i] = best.path;
+        autoPlaced.push(i);
+      }
+      settled[i] = true;
+    });
+    return { positions: outPositions, paths: outPaths, autoPlaced };
+  }
+
+  /**
    * Build the confirmation for a squad charge from the staged models: a final charge into contact when at least
    * one model ends touching the target, otherwise a leg (the rest of the budget stays). The host check runs first
    * so the player sees why a placement is refused.
@@ -1269,7 +1791,8 @@ export class GameHUD {
     alive: Model[],
     orderedPositions: Vector3[],
     orderedPaths: Vector3[][],
-    centroid: Vector3
+    centroid: Vector3,
+    autoPlaced: number[] = []
   ): void {
     const active = this.activeUnit;
     const declared = this.declaredCharge;
@@ -1321,10 +1844,17 @@ export class GameHUD {
     let summary: string;
     if (inContact) {
       const attacks = (weapon.profile.attacks as number) * Math.max(1, strikers);
-      summary = `${active.name} charges ${target.name} (${alive.length} models, longest move ${cost.toFixed(1)}") & strikes with ${weapon.name} · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (${attacks} attacks before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
+      summary = `${active.name} charges ${target.name} (${alive.length} models, furthest walk ${cost.toFixed(1)}") & strikes with ${weapon.name} · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (${attacks} attacks before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
     } else {
-      const left = Math.max(0, active.remainingMovement - cost);
-      summary = `Charge leg for ${active.name} (${alive.length} models) · longest move ${cost.toFixed(1)}" · ${left.toFixed(1)}" of the charge left after it (no melee yet; no model is in contact)`;
+      // Each model keeps its own distance: report the most any model has left after this leg
+      const left = Math.max(
+        0,
+        ...alive.map((m, i) => this.distanceLeft(active, 'charge', m) - pathMovementCost(state, orderedPaths[i]))
+      );
+      summary = `Charge leg for ${active.name} (${alive.length} models) · furthest walk ${cost.toFixed(1)}" · each model keeps its own distance (up to ${left.toFixed(1)}" left after this leg; no melee yet)`;
+    }
+    if (autoPlaced.length > 0) {
+      summary += ` · moved up as close as they can: ${autoPlaced.map((i) => `Model ${i + 1}`).join(', ')}`;
     }
     alive.forEach((m, i) => {
       const j = this.stagedSquadModelTraversals.get(m.id);
@@ -2377,6 +2907,22 @@ export class GameHUD {
       const hasRupture = hasTrait(allAttackerRules, 'rupture');
       const hasShred = hasTrait(allAttackerRules, 'shred');
 
+      // A casualty pick (the owner's, or the host's on timeout) that also ended the melee with the step back
+      if (
+        entry.action.type === 'pick-casualties' ||
+        (entry.action.type === 'respond-reaction' &&
+          (entry.action.payload as { choiceId?: string }).choiceId === 'auto-pick-casualties')
+      ) {
+        const stepBack = outcome.pushedBack
+          ? `<div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — both units Fatigued</div>`
+          : '';
+        return `
+          <div class="sl-hud-dice">
+            <div class="sl-hud-dice-title">Casualties removed: ${target?.name ?? 'unit'}</div>
+            ${stepBack}
+          </div>`;
+      }
+
       if (entry.action.type === 'respond-reaction') {
         const payload = entry.action.payload as { choiceId: string };
         if (payload.choiceId === 'decline') {
@@ -2606,7 +3152,8 @@ export class GameHUD {
       }
 
       const titleText =
-        entry.action.type === 'respond-reaction'
+        entry.action.type === 'respond-reaction' &&
+        (entry.action.payload as { choiceId?: string }).choiceId !== 'auto-pile-in'
           ? `Defender Retaliation: ${attacker?.name ?? 'Defender'} → ${target?.name ?? 'Charger'}`
           : `${attacker?.name ?? 'Attacker'} → ${target?.name ?? 'target'}`;
 
@@ -2666,8 +3213,14 @@ export class GameHUD {
         return `charged ${this.unitName((action.payload as any).targetId)}`;
       case 'fight':
         return `fought ${this.unitName((action.payload as any).targetId)}`;
+      case 'pile-in-move':
+        return 'piled in';
+      case 'pick-casualties':
+        return `removed casualties from ${this.unitName((action.payload as any).unitId)}`;
       case 'respond-reaction': {
         const p = action.payload as { choiceId: string };
+        if (p.choiceId === 'auto-pile-in') return 'piled in (auto)';
+        if (p.choiceId === 'auto-pick-casualties') return 'casualties picked (auto)';
         return p.choiceId === 'strike-back' ? 'struck back in retaliation' : 'declined retaliation';
       }
       case 'end-activation':
@@ -2832,6 +3385,30 @@ export class GameHUD {
     const pendingReaction = this.state.turnState.pendingReaction;
     if (pendingReaction) {
       const remainingSec = this.getReactionRemainingSec(pendingReaction);
+      const casualtyPrompt = this.casualtyContext();
+      if (casualtyPrompt) return this.casualtyPromptHtml(casualtyPrompt, remainingSec, dataCardSlot);
+      if (pendingReaction.type === 'pick-casualties' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
+        const ownerName = this.state.players.find((p) => p.id === pendingReaction.promptingPlayerId)?.name ?? 'opponent';
+        return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for ${ownerName} to remove casualties (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+      }
+      const pileInPrompt = this.pileInContext();
+      if (pileInPrompt) return this.pileInPromptHtml(pileInPrompt, remainingSec, dataCardSlot);
+      if (pendingReaction.type === 'pile-in' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
+        const defenderName = this.state.players.find((p) => p.id === pendingReaction.promptingPlayerId)?.name ?? 'opponent';
+        return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for ${defenderName} to pile in (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+      }
       if (pendingReaction.promptingPlayerId === this.localPlayerId) {
         const warningHtml = pendingReaction.warning
           ? `<div class="sl-hud-reaction-warning">${pendingReaction.warning}</div>`
@@ -2921,11 +3498,16 @@ export class GameHUD {
           </div>`;
       }
 
+      // After a first leg, say how much of the move or rush is left (a declared charge always does)
+      const splitLeft =
+        active && (this.flow.action === 'move' || this.flow.action === 'rush') && (active.hasMoved || active.isRushing)
+          ? ` — ${this.distanceLeft(active, this.flow.action).toFixed(1)}" left`
+          : '';
       let instruction =
         this.flow.action === 'move'
-          ? 'Click a destination on the board (auto-paths around obstacles)'
+          ? `Click a destination on the board (auto-paths around obstacles)${splitLeft}`
           : this.flow.action === 'rush'
-          ? 'Click a destination to Rush (double move, auto-paths around obstacles)'
+          ? `Click a destination to Rush (double move, auto-paths around obstacles)${splitLeft}`
           : this.flow.action === 'charge'
           ? this.declaredCharge && active
             ? `Charge declared on ${this.unitName(this.declaredCharge.targetId)}: ${active.remainingMovement.toFixed(1)}" left. Click a spot to walk a leg (at an edge, click across the gap to jump), or click the target to make contact`
@@ -2941,16 +3523,18 @@ export class GameHUD {
       let squadChipsHtml = '';
       if (isSquadMovement && active) {
         const alive = this.activeAliveSquadModels;
-        const allowance = this.flow.action === 'rush' ? active.speed * 2 : active.speed;
         const currentModel = this.selectedSquadModel;
+        // The selected model's own distance: it may differ from its squad-mates' after a split move
+        const allowance = this.distanceLeft(active, this.flow.action === 'rush' ? 'rush' : 'move', currentModel);
+        const allowanceText = Number.isInteger(allowance) ? String(allowance) : allowance.toFixed(1);
         const currentModelIndex = alive.findIndex((m) => m.id === currentModel?.id);
         const placedCount = this.stagedSquadModelPositions.size;
 
         if (isSquadChargePlacing && this.declaredCharge) {
           const modelNo = (currentModelIndex >= 0 ? currentModelIndex : 0) + 1;
-          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${active.remainingMovement.toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip stay put (Confirm charge)`;
+          instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${this.distanceLeft(active, 'charge', currentModel).toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip move up as close as they can once one of yours touches the target (Confirm charge)`;
         } else if (placedCount === 0) {
-          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowance}"`;
+          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowanceText}"`;
         } else {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
         }
@@ -3027,8 +3611,7 @@ export class GameHUD {
         ((!hasMoved && !hasAttacked) || (isRushing && hasMovementLeft));
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-      const canShoot = !active.isDestroyed && !engaged && !hasAttacked && !isRushing && !!rangedWeapon;
-      const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
+            const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -3040,6 +3623,9 @@ export class GameHUD {
         !active.status.includes('stunned') &&
         squadPositions.length > 1 &&
         !validateSquadCoherency(squadPositions).coherent;
+      // Shooting without moving is a Hold: an out-of-coherency squad must move first
+      const canShoot =
+        !active.isDestroyed && !engaged && !hasAttacked && !isRushing && !!rangedWeapon && !outOfCoherency;
       const finishBtn = !hasActed
         ? `<button class="sl-hud-btn" data-action="hold" ${outOfCoherency ? 'disabled' : ''}>Hold</button>`
         : `<button class="sl-hud-btn primary" data-action="end-activation">End Activation</button>`;
@@ -3530,10 +4116,28 @@ export class GameHUD {
     return legs ? ` · ${legs}` : '';
   }
 
+  /** The too-wide hint, unless ordinary movement still reaches the cursor (another way round). */
+  private tooWideHint(resolved: MoveTarget, path: Vector3[]): { distance: number } | null {
+    if (!resolved.tooWide || resolved.jump) return null;
+    const end = path.length > 0 ? path[path.length - 1] : null;
+    if (end && boardDistance(end, resolved.target) <= 0.5 && Math.abs((end.y ?? 0) - (resolved.target.y ?? 0)) <= 0.5) {
+      return null;
+    }
+    return resolved.tooWide;
+  }
+
   /** Hover chip for the previewed move: the declared jump / fall, or the labelled legs (climb, drop). */
   private showTraversalChip(): void {
     const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!el) return;
+    if (this.moveTooWide && !this.moveJump) {
+      el.textContent = tooWideText(this.moveTooWide.distance);
+      el.style.display = 'block';
+      el.style.background = 'rgba(244, 67, 54, 0.25)';
+      el.style.borderColor = '#f44336';
+      el.style.color = '#ff8a80';
+      return;
+    }
     if (this.moveJump) {
       const chip = jumpChip(this.moveJump);
       el.textContent = chip.text;
@@ -3660,6 +4264,27 @@ export class GameHUD {
             }
             break;
           }
+          case 'toggle-casualty-model':
+            if (el.dataset.modelId) this.toggleCasualtyModel(el.dataset.modelId);
+            break;
+          case 'auto-pick-casualties':
+            this.autoPickCasualtyModels();
+            break;
+          case 'confirm-casualties':
+            this.confirmCasualties();
+            break;
+          case 'select-pile-in-model':
+            if (el.dataset.modelId) this.selectPileInModel(el.dataset.modelId);
+            break;
+          case 'auto-pile-in':
+            this.autoPlacePileIn();
+            break;
+          case 'confirm-pile-in':
+            this.confirmPileIn();
+            break;
+          case 'reset-pile-in':
+            this.resetPileIn();
+            break;
           case 'confirm-squad-move':
             if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) {
               this.finishSquadMove(this.flow.action);
@@ -3962,7 +4587,27 @@ export class GameHUD {
       pendingConsolidation.type === 'melee-consolidation' &&
       pendingConsolidation.promptingPlayerId === this.localPlayerId;
 
-    if (isConsolidationMode && pendingConsolidation) {
+    const casualtyMarkers = this.casualtyContext();
+    if (casualtyMarkers) {
+      markers.selectedUnitId = casualtyMarkers.unit.id;
+      markers.casualtyPicks = casualtyMarkers.alive
+        .filter((m) => this.casualtyPicked.includes(m.id))
+        .map((m) => m.position ?? casualtyMarkers.unit.position);
+    }
+
+    const pileInMarkers = this.pileInContext();
+    if (pileInMarkers) {
+      const model = this.pileInSelectedModel(pileInMarkers);
+      markers.selectedUnitId = pileInMarkers.defender.id;
+      markers.movementRangeUnitId = pileInMarkers.defender.id;
+      markers.movementRangeRadius = pileInMarkers.maxDistance;
+      if (model) markers.movementRangePosition = model.position ?? pileInMarkers.defender.position;
+      markers.squadCoherency = { positions: this.pileInPositions(pileInMarkers), radius: 2.0 };
+      const path = this.movePathPreview ?? this.pileInPaths.get(model?.id ?? '') ?? null;
+      if (path && path.length >= 2) {
+        markers.movePath = { from: path[0], to: path[path.length - 1], waypoints: path };
+      }
+    } else if (isConsolidationMode && pendingConsolidation) {
       const victorId = pendingConsolidation.data?.unitId;
       const victor = this.state?.units.find((u) => u.id === victorId);
       if (victor) {
@@ -3979,14 +4624,17 @@ export class GameHUD {
       }
     } else if ((isMoveMode || isRushMode || this.isSquadChargeFlow) && this.activeUnit) {
       markers.movementRangeUnitId = this.activeUnit.id;
+      // While staging a squad the ring is the selected model's own distance, not the unit's best
+      const ringAlive = this.activeAliveSquadModels;
+      const ringModel = ringAlive.length > 1 ? this.selectedSquadModel : null;
       if (isRushMode) {
-        const remainingRush = this.activeUnit.isRushing
-          ? this.activeUnit.remainingMovement
-          : this.activeUnit.speed * 2 - (this.activeUnit.hasMoved ? (this.activeUnit.speed - this.activeUnit.remainingMovement) : 0);
-        markers.movementRangeRadius = Math.max(0, remainingRush);
+        markers.movementRangeRadius = Math.max(0, this.distanceLeft(this.activeUnit, 'rush', ringModel));
         markers.movementRangeColor = 0xffb74d; // Distinct gold/amber ring for Rush
+      } else if (this.isSquadChargeFlow) {
+        markers.movementRangeRadius = Math.max(0, this.distanceLeft(this.activeUnit, 'charge', ringModel));
+        markers.movementRangeColor = undefined;
       } else {
-        markers.movementRangeRadius = this.activeUnit.remainingMovement ?? this.activeUnit.speed;
+        markers.movementRangeRadius = Math.max(0, this.distanceLeft(this.activeUnit, 'move', ringModel));
         markers.movementRangeColor = undefined; // Default cyan for Advance move
       }
 

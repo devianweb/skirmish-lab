@@ -110,6 +110,7 @@ export interface DeploymentZoneMarker {
 
 const SELECTION_COLOR = 0x29b6f6;
 const TARGET_COLOR = 0xff5252;
+const CASUALTY_PICK_COLOR = 0xff9800;
 const REACHABLE_TARGET_COLOR = 0x8e2424;
 const RANGE_COLOR = 0xffd54f;
 const PATH_COLOR = 0x69f0ae;
@@ -144,6 +145,7 @@ export class MarkerRenderer {
   private deploymentZones: THREE.Object3D | null = null;
   private objectivesDebug: THREE.Object3D | null = null;
   private squadCoherency: THREE.Object3D | null = null;
+  private casualtyPicks: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -969,6 +971,28 @@ export class MarkerRenderer {
   }
 
   /**
+   * Highlight for the models the owner has picked to remove as casualties: a bold orange ring on the floor
+   * under each model plus a smaller ring at head height (so it reads from the side and on decks).
+   */
+  setCasualtyPicks(positions: Vector3[] | null): void {
+    this.removeMarker('casualtyPicks');
+    if (!positions || positions.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-casualty-picks';
+    for (const pos of positions) {
+      const floor = this.createFlatRing(CASUALTY_PICK_COLOR, 0.62, 0.03);
+      floor.position.set(pos.x, (pos.y ?? 0) + 0.03, pos.z);
+      group.add(floor);
+      const head = this.createFlatRing(CASUALTY_PICK_COLOR, 0.42, 0.03);
+      head.position.set(pos.x, (pos.y ?? 0) + 1.3, pos.z);
+      group.add(head);
+    }
+    this.markerGroup.add(group);
+    this.casualtyPicks = group;
+  }
+
+  /**
    * Floating wound-count token above a position (supports 0 wounds for clean
    * attack feedback), auto-cleared after a short delay.
    */
@@ -1015,6 +1039,7 @@ export class MarkerRenderer {
     this.removeMarker('deploymentZones');
     this.removeMarker('objectivesDebug');
     this.removeMarker('squadCoherency');
+    this.removeMarker('casualtyPicks');
     this.clearOutcome();
   }
 
@@ -1055,6 +1080,7 @@ export class MarkerRenderer {
       | 'deploymentZones'
       | 'objectivesDebug'
       | 'squadCoherency'
+      | 'casualtyPicks'
   ): void {
     const current = this[kind];
     if (current) {

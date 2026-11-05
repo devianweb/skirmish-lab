@@ -131,19 +131,21 @@ export function squadAim(
     return traceLineOfSight(state, modelAsUnit(attacker, from), modelAsUnit(target, to)).clear;
   };
 
+  const picked = aimedModelId ? target.models?.find((m) => m.id === aimedModelId && !m.isDestroyed) : undefined;
+  const pickedPos = picked ? picked.position ?? target.position : undefined;
+
   const aims: ModelAim[] = [];
   const firing: FiringModel[] = [];
   for (const shooter of livingModelPositions(attacker)) {
     const byDistance = [...targetModels].sort((a, b) => centreDistance(shooter, a) - centreDistance(shooter, b));
-    const visible = byDistance.find((to) => sees(shooter, to));
+    // Preview only: aim at the clicked model when this shooter sees it in range, else the nearest visible.
+    const visible = pickedPos && sees(shooter, pickedPos) ? pickedPos : byDistance.find((to) => sees(shooter, to));
     const targetModel = visible ?? byDistance[0];
     if (visible) firing.push({ position: shooter });
     aims.push({ shooter, targetModel, from: eye(shooter), to: eye(targetModel), fires: !!visible });
   }
 
   const coveredModelCount = coveredTargetModelCount(state, firing, attacker, target);
-  const picked = aimedModelId ? target.models?.find((m) => m.id === aimedModelId && !m.isDestroyed) : undefined;
-  const pickedPos = picked ? picked.position ?? target.position : undefined;
   const aimedModel = pickedPos && firing.some((f) => sees(f.position, pickedPos)) ? { ...pickedPos } : undefined;
 
   return {
