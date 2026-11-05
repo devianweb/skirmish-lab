@@ -18,6 +18,7 @@ export { modelRemainingMovement } from './engine/modelMovement';
 export * from './data/weapons';
 export * from './data/armies';
 export * from './data/scenario';
+export * from './data/builtinMaps';
 export * from './data/mapSchema';
 export * from './data/terrainStructures';
 export type { SignalingMessage } from './signaling';

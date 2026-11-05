@@ -216,6 +216,10 @@ interface WeaponProfile {
 
 Note: to-hit capability comes from the fighter's Quality stat and survival from the target's Defense stat — weapons vary by range, attacks, and special rules.
 
+## Built-in maps
+
+`shared/src/data/builtinMaps.ts` holds ready-made maps as code: `BUILTIN_MAPS` maps an id to a factory returning a fresh `CustomMapDefinition` (callers copy it; it is never edited in place). The only entry is `standard-battlefield` ("Standard Battlefield"): 48"x48", catalog pieces at their default scale and flags only, ids `std-<type>-<n>`, objectives from `createBalancedObjectives`. The layout is point-symmetric: a piece at `(x, z, yaw)` has a twin at `(-x, -z, yaw + pi)` (the central catwalk is its own twin). `shared/tests/data/builtinMaps.test.ts` guards the mix (sight blockers at least half, cover and difficult at least a third, 2 or more dangerous, footprint at least 18% of the table, ladders and stairs not counted), obstacle spacing (1.5"), objective clearance, symmetry, reachability and line-of-sight symmetry. The old off-catalog test layout lives in `shared/tests/fixtures/legacyScenarioTerrain.ts`, not in `src`.
+
 ## Terrain
 ```typescript
 interface TerrainPiece {

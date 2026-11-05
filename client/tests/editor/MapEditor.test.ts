@@ -3,9 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CustomMapDefinition,
   createBlankMap,
-  createDefaultScenarioTerrain,
   TERRAIN_PALETTE_CATALOG,
 } from '@skirmish-lab/shared';
+import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { MapEditor } from '../../src/editor/MapEditor';
 import { MapStore } from '../../src/storage/MapStore';
 
@@ -219,7 +219,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(badge.textContent).toContain('Notice');
 
     // Place a valid preset map with 0 warnings
-    editor.setMap({ ...createBlankMap(), terrain: createDefaultScenarioTerrain() });
+    editor.setMap({ ...createBlankMap(), terrain: legacyScenarioTerrain() });
     notices = editor.getValidationNotices();
     expect(notices).toHaveLength(0);
 
@@ -676,7 +676,7 @@ describe('MapEditor objective selection (13.6 playtest fix)', () => {
       const editor = new MapEditor(container);
       editor.show();
       const map = editor.getMap();
-      map.terrain = [{ ...createDefaultScenarioTerrain()[0], id: 'far', position: { x: 22, y: 0, z: 0 } }];
+      map.terrain = [{ ...legacyScenarioTerrain()[0], id: 'far', position: { x: 22, y: 0, z: 0 } }];
       editor.setMap(map);
       const outside = () =>
         editor.getValidationNotices().some((n) => n.message.includes('"far"') && n.message.includes('outside'));

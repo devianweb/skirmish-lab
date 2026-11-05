@@ -686,13 +686,15 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 *(13.6D gameplay is done: pieces, structures, collision and cover. Visual dressing — chamfered barriers, hazard stripes, round pipes, per-type colours — is deferred.)*
 
 ### Sub-phase 13.6E: Default Scenario & Map Preset Standardization (`shared/`, `client/` & `doc/`)
-- [ ] Update `createDefaultScenarioTerrain` in `shared/src/data/scenario.ts` (built-in map presets were removed; default is now an empty battlefield) to use standardized procedural dimensions ($1", 2", 3", 4", 6"$).
-- [ ] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts.
+- [x] Built-in **Standard Battlefield** (`shared/src/data/builtinMaps.ts`): a 48"x48" point-symmetric table of catalog pieces at their default sizes (the default selection stays the Empty Battlefield). The old off-catalog `createDefaultScenarioTerrain` moved to the test fixture `shared/tests/fixtures/legacyScenarioTerrain.ts`. (13.6E PR 4; lobby and editor entries follow in PR 5.)
+- [x] Verify 1:1 collision parity, LoS calculations, cover grants, and traversal waypoints across all battlefield layouts. (Catalog parity sweep in PR 2; `builtinMaps.test.ts` checks the Standard Battlefield's mix, spacing, symmetry, reachability and line-of-sight symmetry.)
 - [x] Update map editor palette to display the new procedural wargaming terrain catalog. (13.6E PR 3: "Area Terrain" category, Difficult/Dangerous inspector toggles.)
 
 - [x] 13.6E PR 1 (`doc/plans/13.6E-default-scenario.md`): area terrain in the engine. New catalog pieces `rubble-field` (difficult, cover) and `hazard-pool` (dangerous), `isDifficultPiece` / `isDangerousPiece` helpers with legacy type lists, difficult/dangerous detection per path segment at the piece's level, cover for models inside area pieces, and the activation hazard test. Engine only (meshes, editor and the Standard Battlefield follow in PRs 2-5).
 
 - [x] 13.6E PR 2: area terrain meshes. Procedural Rubble Field and Hazard Pool builders (flat, deterministic, within the unit box), F9 footprint outlines (yellow difficult, red dangerous), picks on area pieces resolve to the ground, a `crate` builder, and a parity sweep over every `TERRAIN_PALETTE_CATALOG` piece (procedural builder, mesh inside the unit box, mesh fills every collision solid).
+
+- [x] 13.6E PR 4: Standard Battlefield data (`createStandardBattlefieldMap`, `BUILTIN_MAPS`) and the legacy terrain fixture. Layout invariants (terrain mix, 18% footprint, 1.5" obstacle spacing, objective clearance, point symmetry), ladder/stairs access, objective and ledge reachability, and a line-of-sight symmetry sweep are tested. No UI yet.
 
 ### 13.6 playtest fixes (bugfix batch 1, see `doc/plans/bugfix-playtest-batch-1.md`)
 - [x] Fix: a declared squad charge drew two range rings after a leg (the unit-wide red charge disc around the squad's middle plus the selected model's own ring). It now draws only the selected model's ring (owner report, 2026-11-05).

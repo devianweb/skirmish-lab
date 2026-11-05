@@ -5,7 +5,6 @@ import {
   createBalancedObjectives,
   createBlankMap,
   createDefaultScenarioObjectives,
-  createDefaultScenarioTerrain,
   createDefaultScenarioUnits,
 } from '../../src/data/scenario';
 import {
@@ -19,6 +18,7 @@ import {
   validateMapDefinition,
 } from '../../src/index';
 import { WEAPONS } from '../../src/data/weapons';
+import { legacyScenarioTerrain } from '../fixtures/legacyScenarioTerrain';
 import { getActivatableUnits, isRoundComplete, getDeploymentZoneBounds } from '../../src/engine/activation';
 
 const HOST = 'host-player';
@@ -66,7 +66,7 @@ describe('scenario data pack', () => {
   });
 
   it('spawns terrain with cover and line-of-sight flags', () => {
-    const terrain = createDefaultScenarioTerrain();
+    const terrain = legacyScenarioTerrain();
     expect(terrain.length).toBeGreaterThanOrEqual(6);
     for (const piece of terrain) {
       expect(typeof piece.providesCover).toBe('boolean');

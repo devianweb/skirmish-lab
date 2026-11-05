@@ -9,9 +9,9 @@ import {
   createInitialGameState,
   applyDefaultScenario,
   hasLineOfSight,
-  createDefaultScenarioTerrain,
   createBlankMap,
 } from '@skirmish-lab/shared';
+import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
@@ -22,7 +22,7 @@ function scenarioState(): GameState {
     customMap: {
       ...createBlankMap(),
       id: 'test-terrain',
-      terrain: createDefaultScenarioTerrain(),
+      terrain: legacyScenarioTerrain(),
     },
   });
   return state;
