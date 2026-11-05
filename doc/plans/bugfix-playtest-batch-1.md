@@ -72,7 +72,7 @@ PR 6 reuses PR 5's stand-off and vertical-clearance machinery (a climb is a drop
 ## Sub-plans (hand one PR section at a time to the `implementer`)
 | Sub-plan | PRs | Theme |
 | :--- | :--- | :--- |
-| [batch-1i-squad-followups.md](batch-1i-squad-followups.md) (approved) | 27–36 | Quick wins (aim, no block charges, jump preview fixes), chain coherency, regrouping, per-model budgets + distance left, failed squad jumps, as close as possible for chargers, defender pile-in prompt, owner picks casualties (Decisions 26–39) |
+| [batch-1i-squad-followups.md](batch-1i-squad-followups.md) ✓ done | 27–36 | Quick wins (aim, no block charges, jump preview fixes), chain coherency, regrouping, per-model budgets + distance left, failed squad jumps, as close as possible for chargers, defender pile-in prompt, owner picks casualties (Decisions 26–39) |
 | [batch-1a-quick-fixes.md](batch-1a-quick-fixes.md) ✓ done | 4, 12, 13 | Stairs pick snapping, editor objectives, zero marker |
 | [batch-1b-ladders-drops-midair.md](batch-1b-ladders-drops-midair.md) ✓ done | 1 ✓, 5 ✓, 3b, 2 | Ladder spots + mid-air guard, drop clearance, top-face picking, end-overlap guard (PR 3a → 1E E1) |
 | [batch-1c-elevated-terrain-rules.md](batch-1c-elevated-terrain-rules.md) ✓ done | 7, 8 | Step over ≤ 1", split-level coherency (PR 6 → 1E E2/E4) |
@@ -125,3 +125,7 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 - **Answered (no change): out-of-sight models can still be casualties.** Hits and wounds go to the unit: 4 hits mean 4 Defense rolls, and each failed roll removes one model (until the last), wherever it stands. Line of sight only decides which models fire, whether the target is valid, and cover by majority.
 - **Answered (no change): 6 strike-back dice in a 4 v 4.** The TEST squad's Blade has 2 attacks, so 6 dice means 3 defending models were within 2" of a charger (`strikers`), as intended.
 - **Charge that ended with no melee** (log 2026-11-04): leg 1 + leg 2 used 23.97" of the 24" budget because each leg charges the longest model path and model 1 moved furthest both times, while models 2–4 had 3–5" of their own left → per-model budgets, **1I PR 30**. The next activation's declared charge that "cannot move any closer" is not explained yet: it needs a state snapshot with the target's model positions.
+
+## Follow-ups found during 1I (owner to decide; not planned yet)
+- **A stopped jumper's take-off spot isn't checked** (1I PR 31): after a failed squad jump, a later jumper is placed at its declared take-off spot without a fresh overlap check, so it could overlap a squad-mate that ended its own move on that spot. Rare. Option: place it at the nearest clear spot at that edge.
+- **Mixed-wound squads and casualty picks** (1I PR 35): the pre-rolled wound-effect result assumes the survivor's toughness; if a squad ever mixes models with different `maxWounds`, the pick could change the survivor. Not reachable with current data (all squad models have 1 wound).

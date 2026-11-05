@@ -1,5 +1,5 @@
 # Batch 1I: squad follow-ups after 1C/1D
-Status: approved (2026-11-04), not started
+Status: done (2026-11-04): PR 27 #220, PR 28 #221, PR 29 #222, PR 30 #223, PR 31 #224, PR 32 #225, PR 33 #226, PR 34 #227, PR 35 #228, PR 36 #229
 Index: [bugfix-playtest-batch-1.md](bugfix-playtest-batch-1.md). Read its **Decisions (agreed)** first (esp. 10–12, 15, 21–22). This batch answers that plan's open questions 10–17 (owner, 2026-11-04) as Decisions 26–33, plus Decisions 34–36 agreed in the same review and Decisions 37–39 from the 2026-11-04 manual pass.
 Roadmap: tick items under the existing `### 13.6 playtest fixes (bugfix batch 1, …)` heading in doc/ROADMAP.md. Don't create a new heading.
 
