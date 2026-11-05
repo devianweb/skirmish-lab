@@ -91,6 +91,16 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     expect(Array.from(ctx.container.querySelectorAll('button')).some((b) => b.textContent === 'End (no melee)')).toBe(true);
   });
 
+  it('a declared squad charge draws one ring, on the selected model, not a second unit-wide disc', () => {
+    const ctx = setup();
+    let last: any = null;
+    ctx.hud.onMarkers((m) => (last = m));
+    declare(ctx);
+    expect(last.attackRange ?? null).toBeNull();
+    expect(last.movementRangePosition).toEqual(P(-1, 0, -10));
+    expect(last.movementRangeRadius).toBeCloseTo(ctx.unit.speed * 2, 5);
+  });
+
   it('placing every model sends one charge with per-model positions and paths the host accepts', () => {
     const ctx = setup();
     const declared = declare(ctx);
