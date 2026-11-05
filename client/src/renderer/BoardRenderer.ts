@@ -18,6 +18,8 @@ const TERRAIN_COLORS: Record<string, number> = {
   stairs: 0x777777,
   pipe: 0x556677,
   'wall-low': 0x6e6a66,
+  'rubble-field': 0x7a7468,
+  'hazard-pool': 0x4c5a44,
 };
 const DEFAULT_TERRAIN_COLOR = 0x606058;
 

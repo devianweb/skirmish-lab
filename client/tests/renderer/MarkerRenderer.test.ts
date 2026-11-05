@@ -310,6 +310,57 @@ describe('MarkerRenderer', () => {
     expect(colors.filter((c) => c === 0x76ff03)).toHaveLength(1);
   });
 
+  describe('area terrain footprint outlines (F9)', () => {
+    const area = (id: string, terrainType: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      terrainType,
+      position: { x: 2, y: 0, z: 3 },
+      rotation: { x: 0, y: Math.PI / 2, z: 0 },
+      scale: { x: 6, y: 0.25, z: 4 },
+      blocksLineOfSight: false,
+      providesCover: true,
+      isObstacle: false,
+      ...extra,
+    });
+    const outlines = (id: string) =>
+      scene
+        .getObjectByName(`marker-terrain-${id}`)!
+        .children.filter((c) => c.name === 'area-outline') as THREE.Line[];
+    const hex = (l: THREE.Line) => (l.material as THREE.LineBasicMaterial).color.getHex();
+
+    it('outlines a difficult piece in yellow and covers the whole footprint', () => {
+      const renderer = makeRenderer();
+      renderer.setTerrainDebug(area('rub', 'rubble-field'));
+      const lines = outlines('rub');
+      expect(lines).toHaveLength(1);
+      expect(hex(lines[0])).toBe(0xffeb3b);
+      const b = new THREE.Box3().setFromObject(lines[0]);
+      // Local footprint 6 x 4 (rotation is on the parent group).
+      expect(b.max.x - b.min.x).toBeCloseTo(6);
+      expect(b.max.z - b.min.z).toBeCloseTo(4);
+    });
+
+    it('outlines a dangerous piece in red', () => {
+      const renderer = makeRenderer();
+      renderer.setTerrainDebug(area('pool', 'hazard-pool', { providesCover: false }));
+      const lines = outlines('pool');
+      expect(lines).toHaveLength(1);
+      expect(hex(lines[0])).toBe(0xff1744);
+    });
+
+    it('draws both outlines for a piece that is difficult and dangerous, and none for plain terrain', () => {
+      const renderer = makeRenderer();
+      renderer.setTerrainDebug([
+        area('both', 'crate', { isDifficult: true, isDangerous: true }),
+        area('plain', 'crate'),
+        area('off', 'rubble-field', { isDifficult: false }),
+      ]);
+      expect(outlines('both').map(hex).sort()).toEqual([0xff1744, 0xffeb3b].sort());
+      expect(outlines('plain')).toHaveLength(0);
+      expect(outlines('off')).toHaveLength(0);
+    });
+  });
+
   it('colours walkable floors purple in the F9 wireframes', () => {
     const renderer = makeRenderer();
     renderer.setTerrainDebug({
