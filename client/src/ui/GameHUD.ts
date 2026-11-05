@@ -4541,7 +4541,9 @@ export class GameHUD {
       const active = this.activeUnit;
       if (active) {
         const maxRange = this.actionMaxRange(active, attackAction);
-        if (maxRange > 0) {
+        // A declared squad charge shows only the selected model's own ring (below): the unit-wide disc, centred on
+        // the squad's middle with the most any model has left, would disagree with it after the first leg.
+        if (maxRange > 0 && !this.isSquadChargeFlow) {
           const concentricRanges =
             attackAction === 'shoot'
               ? Array.from(
