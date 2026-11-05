@@ -1,4 +1,5 @@
 import {
+  BUILTIN_MAPS,
   CustomMapDefinition,
   MapValidationNotice,
   Objective,
@@ -520,6 +521,14 @@ export class MapEditor {
 
   loadMap(idOrCustom: string): boolean {
     if (!idOrCustom) return false;
+    if (idOrCustom.startsWith('builtin:')) {
+      const factory = BUILTIN_MAPS[idOrCustom.replace('builtin:', '')];
+      if (!factory) return false;
+      const copy = factory();
+      // Built-in maps are never edited in place: work on a renamed copy with a fresh id.
+      this.setMap({ ...copy, id: `custom-${Date.now()}`, name: `${copy.name} (copy)` });
+      return true;
+    }
     const customId = idOrCustom.startsWith('custom:')
       ? idOrCustom.replace('custom:', '')
       : idOrCustom;
@@ -858,6 +867,15 @@ export class MapEditor {
         `
         : '';
 
+    const builtinMapsGroupHtml = `
+          <optgroup label="Built-in">
+            ${Object.entries(BUILTIN_MAPS).map(([id, create]) => {
+              const m = create();
+              return `<option value="builtin:${id}">${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`;
+            }).join('')}
+          </optgroup>
+    `;
+
     this.rootElement.innerHTML = `
       <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; pointer-events: none; font-family: Arial, sans-serif;">
         <!-- Top Toolbar -->
@@ -874,6 +892,7 @@ export class MapEditor {
             ${boardControlHtml}
             <select id="loadMapSelect" style="padding: 6px 8px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 12px;">
               <option value="">Load Map...</option>
+              ${builtinMapsGroupHtml}
               ${savedMapsGroupHtml}
             </select>
             <button id="validationBadgeBtn" style="padding: 5px 8px; font-size: 11px; font-weight: bold; background: ${warningBadgeColor}; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">

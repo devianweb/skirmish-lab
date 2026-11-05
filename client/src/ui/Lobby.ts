@@ -1,4 +1,4 @@
-import { CustomMapDefinition, createBlankMap, DEFAULT_BOARD_SIZE } from '@skirmish-lab/shared';
+import { BUILTIN_MAPS, CustomMapDefinition, createBlankMap, DEFAULT_BOARD_SIZE } from '@skirmish-lab/shared';
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
@@ -235,6 +235,10 @@ export class Lobby {
       const map = this.mapStore.getMap(customId);
       return map ? `Custom: ${map.name}` : 'Custom Map';
     }
+    if (selection.startsWith('builtin:')) {
+      const factory = BUILTIN_MAPS[selection.replace('builtin:', '')];
+      return factory ? factory().name : 'Built-in Map';
+    }
     return selection;
   }
 
@@ -252,6 +256,8 @@ export class Lobby {
     if (this.selectedMapSelection.startsWith('custom:')) {
       const customId = this.selectedMapSelection.replace('custom:', '');
       customMap = this.mapStore.getMap(customId) ?? undefined;
+    } else if (this.selectedMapSelection.startsWith('builtin:')) {
+      customMap = BUILTIN_MAPS[this.selectedMapSelection.replace('builtin:', '')]?.();
     }
 
     this.options.onPeerReady?.({
@@ -312,6 +318,15 @@ export class Lobby {
         `
         : '';
 
+      const builtinOptionsHtml = `
+          <optgroup label="Built-in maps">
+            ${Object.entries(BUILTIN_MAPS).map(([id, create]) => {
+              const m = create();
+              return `<option value="builtin:${id}" ${this.selectedMapSelection === `builtin:${id}` ? 'selected' : ''}>${m.name} (${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`;
+            }).join('')}
+          </optgroup>
+      `;
+
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
@@ -326,6 +341,7 @@ export class Lobby {
               <label style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Battlefield Map:</label>
               <select id="mapSelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="blank" ${this.selectedMapSelection === 'blank' ? 'selected' : ''}>Empty Battlefield (${createBlankMap().board?.width}"x${createBlankMap().board?.height}")</option>
+                ${builtinOptionsHtml}
                 ${customOptionsHtml}
               </select>
             </div>

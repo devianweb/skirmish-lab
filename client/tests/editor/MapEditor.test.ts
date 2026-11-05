@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CustomMapDefinition,
   createBlankMap,
+  createStandardBattlefieldMap,
   TERRAIN_PALETTE_CATALOG,
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
@@ -704,6 +705,65 @@ describe('MapEditor objective selection (13.6 playtest fix)', () => {
       const reopened = new MapEditor(document.createElement('div'), { mapStore });
       expect(reopened.loadMap(editor.getMap().id)).toBe(true);
       expect(reopened.getBoardSize()).toEqual({ width: 60, height: 30 });
+    });
+  });
+
+  describe('built-in maps', () => {
+    function memoryStore(): MapStore {
+      const mem = new Map<string, string>();
+      return new MapStore({
+        getItem: (k: string) => mem.get(k) ?? null,
+        setItem: (k: string, v: string) => void mem.set(k, v),
+        removeItem: (k: string) => void mem.delete(k),
+        clear: () => mem.clear(),
+        key: (i: number) => Array.from(mem.keys())[i] ?? null,
+        get length() { return mem.size; },
+      } as Storage);
+    }
+
+    it('Load list has a Built-in group with the Standard Battlefield', () => {
+      const editor = new MapEditor(container, { mapStore: memoryStore() });
+      editor.show();
+      const select = container.querySelector('#loadMapSelect') as HTMLSelectElement;
+      const group = Array.from(select.querySelectorAll('optgroup')).find((g) => g.label === 'Built-in');
+      expect(group).toBeTruthy();
+      expect((group!.querySelector('option') as HTMLOptionElement).value).toBe('builtin:standard-battlefield');
+    });
+
+    it('loading it gives a renamed deep copy with a fresh id', () => {
+      const editor = new MapEditor(container, { mapStore: memoryStore() });
+      editor.show();
+      expect(editor.loadMap('builtin:standard-battlefield')).toBe(true);
+      const map = editor.getMap();
+      const original = JSON.parse(JSON.stringify(createStandardBattlefieldMap())); // JSON drops -0
+      expect(map.id).toMatch(/^custom-\d+$/);
+      expect(map.name).toBe('Standard Battlefield (copy)');
+      expect(map.terrain).toEqual(original.terrain);
+      expect(map.objectives).toEqual(original.objectives);
+      expect(map.board).toEqual(original.board);
+      // Mutating the loaded copy does not leak into the next load
+      map.terrain!.length = 0;
+      editor.loadMap('builtin:standard-battlefield');
+      expect(editor.getMap().terrain?.length).toBe(original.terrain?.length);
+    });
+
+    it('loading via the select works and saving never stores the built-in id', () => {
+      const mapStore = memoryStore();
+      const editor = new MapEditor(container, { mapStore });
+      editor.show();
+      const select = container.querySelector('#loadMapSelect') as HTMLSelectElement;
+      select.value = 'builtin:standard-battlefield';
+      select.dispatchEvent(new Event('change'));
+      editor.saveToStore();
+      const saved = mapStore.getMaps();
+      expect(saved).toHaveLength(1);
+      expect(saved[0].name).toBe('Standard Battlefield (copy)');
+      expect(saved[0].id).not.toBe('standard-battlefield');
+    });
+
+    it('unknown built-in ids fail to load', () => {
+      const editor = new MapEditor(container, { mapStore: memoryStore() });
+      expect(editor.loadMap('builtin:nope')).toBe(false);
     });
   });
 });
