@@ -48,6 +48,7 @@ export class GameManager {
   private roomCode: string | undefined;
   /** Action currently being processed (guards concurrent host processing). */
   private pendingActionId: string | null = null;
+  private queuedConcedes: GameAction[] = [];
   /** Reaction countdown timer on host for auto-resolving timeouts / anti-griefing. */
   private reactionTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   /** Tracks whether the P2P data channel connection to the peer is currently active. */
@@ -272,6 +273,12 @@ export class GameManager {
     if (!this.gameState || !this.isHost) return;
 
     if (this.pendingActionId) {
+      if (action.type === 'concede') {
+        // Conceding must never be lost to a busy host: apply it right after
+        // the in-flight action finishes.
+        this.queuedConcedes.push(action);
+        return;
+      }
       // One action at a time — a dice request is in flight; the next action
       // must wait for the confirmed state update it produces.
       this.rejectAction(action.id, 'Another action is being processed');
@@ -322,6 +329,18 @@ export class GameManager {
     } finally {
       this.pendingActionId = null;
     }
+    this.drainQueuedConcedes();
+  }
+
+  private drainQueuedConcedes(): void {
+    const next = this.queuedConcedes.shift();
+    if (!next) return;
+    // If the in-flight action already ended the match, the concede is moot.
+    if (!this.gameState || this.gameState.status === 'game-over') {
+      this.queuedConcedes.length = 0;
+      return;
+    }
+    void this.processAction(next);
   }
 
   private syncReactionTimer(): void {

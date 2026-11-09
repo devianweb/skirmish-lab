@@ -62,6 +62,8 @@ import {
   PILE_IN_DISTANCE,
   autoPickCasualties,
   PendingReaction,
+  summarizeMatch,
+  MAX_ROUNDS,
 } from '@skirmish-lab/shared';
 import {
   PreviewSegment,
@@ -230,6 +232,11 @@ export class GameHUD {
   private lastSeenLogIndex = 0;
   private lastRoundNumber: number | null = null;
   private toast: string | null = null;
+  /** Concede confirmation dialog is open. */
+  private concedeConfirmOpen = false;
+  /** A concede was sent and we are waiting for the host's confirmed state. */
+  private concedePending = false;
+  private concedeTimer: ReturnType<typeof setTimeout> | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private reactionTimerInterval: ReturnType<typeof setInterval> | null = null;
   private prevCurrentPlayerId: string | null = null;
@@ -268,6 +275,7 @@ export class GameHUD {
       clearTimeout(this.toastTimer);
       this.toastTimer = null;
     }
+    this.clearConcedeTimer();
     window.removeEventListener('keydown', this.keydownHandler);
     if (this.root.parentElement) {
       this.root.parentElement.removeChild(this.root);
@@ -316,6 +324,11 @@ export class GameHUD {
     const prevRound = this.lastRoundNumber;
     this.lastRoundNumber = state.turnState.roundNumber;
     this.state = state;
+    if (state.status === 'game-over') {
+      this.concedeConfirmOpen = false;
+      this.concedePending = false;
+      this.clearConcedeTimer();
+    }
     if (this.flow.mode === 'waiting') {
       // Our action resolved into a new state — resume interacting.
       this.flow = { mode: 'idle' };
@@ -885,6 +898,10 @@ export class GameHUD {
 
   /** Surface an action rejection (from the host) to the player. */
   notifyRejected(reason: string): void {
+    if (this.concedePending) {
+      this.concedePending = false;
+      this.clearConcedeTimer();
+    }
     if (this.flow.mode === 'waiting') {
       this.flow = { mode: 'idle' };
     }
@@ -912,6 +929,7 @@ export class GameHUD {
   dispose(): void {
     window.removeEventListener('keydown', this.keydownHandler);
     if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.clearConcedeTimer();
     this.root.remove();
   }
 
@@ -2576,6 +2594,31 @@ export class GameHUD {
     this.render();
   }
 
+  private clearConcedeTimer(): void {
+    if (this.concedeTimer) {
+      clearTimeout(this.concedeTimer);
+      this.concedeTimer = null;
+    }
+  }
+
+  /** Send the concede. The host applies it locally; a guest waits up to 5 s for the host's confirmed state. */
+  private submitConcede(): void {
+    if (!this.state || this.state.status === 'game-over' || this.concedePending) return;
+    this.concedeConfirmOpen = false;
+    this.concedePending = true;
+    this.controller.submitAction(createAction(this.localPlayerId, 'concede', { type: 'concede' }));
+    const me = this.state.players.find((p) => p.id === this.localPlayerId);
+    if (me?.role !== 'host') {
+      this.concedeTimer = setTimeout(() => {
+        this.concedeTimer = null;
+        if (!this.concedePending) return;
+        this.concedePending = false;
+        this.showToast("Couldn't reach your opponent; the concede wasn't sent.");
+      }, 5000);
+    }
+    this.render();
+  }
+
   private showToast(message: string): void {
     this.toast = message;
     if (this.toastTimer) clearTimeout(this.toastTimer);
@@ -2619,7 +2662,7 @@ export class GameHUD {
     const guestScore = objectives.filter((o) => o.controllingPlayerId === state.guestId).length;
 
     const alerts: string[] = [];
-    if (this.peerState === 'disconnected') {
+    if (this.peerState === 'disconnected' && state.status !== 'game-over') {
       alerts.push('<div class="sl-hud-alert sl-hud-alert-error">⚠️ Opponent disconnected — waiting for peer to reconnect... (Grace period: 5m)</div>');
     } else if (this.signalingState === 'reconnecting') {
       alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling disconnected — reconnecting to room...</div>');
@@ -2653,7 +2696,26 @@ export class GameHUD {
         </span>
         <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${turnLabel}</span>
         ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : ''}
+        ${
+          state.status === 'game-over'
+            ? ''
+            : `<button class="sl-hud-btn sl-hud-concede" data-action="concede-open" ${
+                this.concedePending ? 'disabled' : ''
+              }>${this.concedePending ? 'Conceding…' : 'Concede'}</button>`
+        }
       </div>`;
+
+    const concedeDialog =
+      this.concedeConfirmOpen && state.status !== 'game-over'
+        ? `
+      <div class="sl-hud-concede-dialog">
+        <p>Concede the match? You lose and your opponent wins.</p>
+        <div class="sl-hud-gameover-actions">
+          <button class="sl-hud-btn sl-hud-concede-confirm" data-action="concede-confirm">Concede</button>
+          <button class="sl-hud-btn" data-action="concede-cancel">Cancel</button>
+        </div>
+      </div>`
+        : '';
 
     const units = `
       <div class="sl-hud-panel sl-hud-units">
@@ -2671,18 +2733,24 @@ export class GameHUD {
         <div class="sl-hud-log">${this.renderLog()}</div>
       </div>`;
 
-    const gameOverModal =
-      state.status === 'game-over'
-        ? `
+    const summary = state.status === 'game-over' ? summarizeMatch(state) : null;
+    const sideLine = (playerId: string, colour: string): string => {
+      const l = summary!.losses[playerId];
+      const name = state.players.find((p) => p.id === playerId)?.name ?? 'Player';
+      return `<div class="sl-hud-gameover-loss" style="color: ${colour};">${name} lost ${l.unitsLost} of ${l.unitsTotal} units (${l.modelsLost} of ${l.modelsTotal} models)</div>`;
+    };
+    const gameOverModal = summary
+      ? `
       <div class="sl-hud-gameover">
-        <h2>${this.gameOverText(opponentName)}</h2>
+        <h2>${this.resultTitle()}</h2>
         <p class="sl-hud-gameover-reason">${state.endReason ?? 'Game ended'}</p>
+        <div class="sl-hud-gameover-rounds" style="font-size: 12px; color: #b0bec5; margin-bottom: 8px;">Rounds played: ${summary.roundsPlayed} of ${MAX_ROUNDS}</div>
         <div class="sl-hud-gameover-score" style="margin: 14px 0 16px; font-size: 13px;">
           <div style="font-weight: 600; margin-bottom: 6px; color: #ffd54f;">Final Objective Score</div>
           <div style="display: flex; justify-content: center; gap: 16px; font-size: 15px; font-weight: 700;">
-            <span style="color: #29b6f6;">Host: ${hostScore}</span>
+            <span style="color: #29b6f6;">Host: ${summary.objectiveScore[state.hostId] ?? 0}</span>
             <span style="color: #888;">—</span>
-            <span style="color: #ef5350;">Guest: ${guestScore}</span>
+            <span style="color: #ef5350;">Guest: ${summary.objectiveScore[state.guestId] ?? 0}</span>
           </div>
           ${
             objectives.length > 0
@@ -2703,13 +2771,31 @@ export class GameHUD {
               : ''
           }
         </div>
-        <button class="sl-hud-btn primary" data-action="return-lobby">Return to Lobby</button>
+        <div class="sl-hud-gameover-losses" style="margin-bottom: 16px; font-size: 13px; display: flex; flex-direction: column; gap: 3px;">
+          ${sideLine(state.hostId, '#29b6f6')}
+          ${sideLine(state.guestId, '#ef5350')}
+        </div>
+        ${
+          this.peerState === 'disconnected'
+            ? `<div class="sl-hud-gameover-left" style="margin-bottom: 12px; font-size: 12px; color: #78909c;">${opponentName} has left.</div>`
+            : ''
+        }
+        <div class="sl-hud-gameover-actions">
+          <button class="sl-hud-btn primary" data-action="return-lobby">Return to Lobby</button>
+        </div>
       </div>`
-        : '';
+      : '';
 
-    return `${alertsHtml}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${
+    return `${alertsHtml}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
       this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : ''
     }`;
+  }
+
+  private resultTitle(): string {
+    const state = this.state!;
+    if (state.winner === this.localPlayerId) return 'Victory';
+    if (state.winner) return 'Defeat';
+    return 'Draw';
   }
 
   private gameOverText(opponentName: string): string {
@@ -4293,6 +4379,17 @@ export class GameHUD {
           case 'cancel':
             this.cancel();
             break;
+          case 'concede-open':
+            this.concedeConfirmOpen = true;
+            this.render();
+            break;
+          case 'concede-cancel':
+            this.concedeConfirmOpen = false;
+            this.render();
+            break;
+          case 'concede-confirm':
+            this.submitConcede();
+            break;
           case 'return-lobby':
             this.controller.onReturnToLobby?.();
             break;
@@ -4851,6 +4948,16 @@ export class GameHUD {
 .sl-hud-gameover { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   pointer-events: auto; background: rgba(10, 12, 16, 0.94); border: 2px solid #ffd54f;
   border-radius: 12px; padding: 24px 36px; text-align: center; box-shadow: 0 12px 32px rgba(0,0,0,0.6); }
+.sl-hud-concede { margin-left: 12px; pointer-events: auto; font-size: 12px; padding: 3px 10px;
+  background: transparent; color: #ef9a9a; border: 1px solid #7a3b3b; border-radius: 5px; cursor: pointer; }
+.sl-hud-concede:hover:not(:disabled) { background: #3a1d1d; }
+.sl-hud-concede:disabled { opacity: 0.6; cursor: default; }
+.sl-hud-concede-dialog { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  pointer-events: auto; background: rgba(10, 12, 16, 0.96); border: 2px solid #7a3b3b;
+  border-radius: 12px; padding: 20px 28px; text-align: center; z-index: 120; }
+.sl-hud-concede-dialog p { margin: 0 0 14px; color: #cfd8dc; }
+.sl-hud-concede-confirm { background: #c62828; color: #fff; border-color: #c62828; }
+.sl-hud-gameover-actions { display: flex; justify-content: center; gap: 10px; }
 .sl-hud-gameover h2 { margin: 0 0 8px; font-size: 28px; color: #ffd54f; }
 .sl-hud-gameover p { margin: 0 0 18px; color: #b0bec5; }
 .sl-hud-shoot-dock { display: flex; flex-direction: column; align-items: center; gap: 8px; }

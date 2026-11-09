@@ -318,7 +318,8 @@ type ActionType =
   | 'use-ability'
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
-  | 'end-round';      // Finish the round (cleanup/morale)
+  | 'end-round'       // Finish the round (cleanup/morale)
+  | 'concede';        // Forfeit the match; valid any time until game over, no dice
 ```
 
 ### Action Payloads
@@ -371,7 +372,21 @@ type ActionPayload =
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
   | { type: 'end-activation' }
-  | { type: 'end-round' };
+  | { type: 'end-round' }
+  | { type: 'concede' };   // actor = the conceding player; sets status/phase 'game-over', winner = the other player, endReason = "<name> conceded"
+```
+
+### Match Summary
+`summarizeMatch(state): MatchSummary` (`shared/src/engine/matchSummary.ts`) is a pure, JSON-serializable view for the results screen:
+```typescript
+interface MatchSummary {
+  winnerId?: string;      // absent for a draw or an unfinished match
+  endReason?: string;
+  roundsPlayed: number;   // 0 in setup/deployment, else the round number (max 4)
+  objectiveScore: Record<string, number>;  // by player id
+  losses: Record<string, { unitsLost: number; unitsTotal: number; modelsLost: number; modelsTotal: number }>;
+  // unitsLost = destroyed or routed units; modelsLost = destroyed models only
+}
 ```
 
 ## Action Log

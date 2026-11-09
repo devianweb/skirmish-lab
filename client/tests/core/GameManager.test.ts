@@ -421,6 +421,97 @@ describe('GameManager', () => {
     });
   });
 
+  describe('concede queueing (host busy with dice)', () => {
+    function busyHost() {
+      let releaseDice: (results: any[]) => void = () => {};
+      const diceProvider = {
+        requestRoll: vi.fn().mockImplementation(
+          () => new Promise((resolve) => (releaseDice = resolve))
+        ),
+      };
+      const manager = new GameManager(mockWebRTC, true, { diceProvider });
+      manager.startGame();
+      const state = manager.getGameState()!;
+      const attacker = state.units.find(
+        (u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.profile.type === 'ranged')
+      )!;
+      manager.sendAction(
+        createAction(HOST_PLAYER_ID, 'activate-unit', { type: 'activate-unit', unitId: attacker.id })
+      );
+      const target = manager.getGameState()!.units.find((u) => u.ownerId === GUEST_PLAYER_ID)!;
+      const live = (manager as any).gameState.units.find((u: any) => u.id === attacker.id);
+      live.position = { x: target.position.x, y: 0, z: target.position.z - 10 };
+      for (const m of live.models) m.position = { ...live.position };
+      const shoot = createAction(HOST_PLAYER_ID, 'shoot', {
+        type: 'shoot',
+        attackerId: attacker.id,
+        targetId: target.id,
+        weaponId: attacker.weapons.find((w) => w.profile.type === 'ranged')!.id,
+      });
+      manager.sendAction(shoot);
+      (mockWebRTC.send as any).mockClear();
+      return { manager, shoot, target, release: (r: any[]) => releaseDice(r) };
+    }
+    const dice = [
+      { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
+      { rolls: [1], total: 1, finalTotal: 1, purpose: 'defense' },
+    ];
+
+    it('queues a concede during an in-flight roll and applies it afterwards, in order', async () => {
+      const { manager, shoot, release } = busyHost();
+      const rejectionHandler = vi.fn();
+      manager.onActionRejected(rejectionHandler);
+      const concede = createAction(GUEST_PLAYER_ID, 'concede', { type: 'concede' });
+      manager.sendAction(concede);
+      expect(rejectionHandler).not.toHaveBeenCalled();
+      expect(manager.getGameState()!.status).not.toBe('game-over');
+
+      release(dice);
+      await new Promise((r) => setTimeout(r, 0));
+
+      const state = manager.getGameState()!;
+      expect(state.status).toBe('game-over');
+      expect(state.winner).toBe(HOST_PLAYER_ID);
+      expect(rejectionHandler).not.toHaveBeenCalled();
+      const updates = (mockWebRTC.send as any).mock.calls
+        .map((c: any[]) => c[0])
+        .filter((m: any) => m.type === 'state-update')
+        .map((m: any) => m.actionId);
+      expect(updates).toEqual([shoot.id, concede.id]);
+    });
+
+    it('drops a queued concede silently when the action already ended the game', async () => {
+      const { manager, target, release } = busyHost();
+      const rejectionHandler = vi.fn();
+      manager.onActionRejected(rejectionHandler);
+      const live = (manager as any).gameState;
+      for (const u of live.units) {
+        if (u.ownerId === GUEST_PLAYER_ID && u.id !== target.id) u.isDestroyed = true;
+      }
+      const t = live.units.find((u: any) => u.id === target.id);
+      // One single-wound model left, so any hit eliminates the side.
+      t.models = t.models.slice(0, 1);
+      t.models[0].wounds = 0;
+      t.models[0].maxWounds = 1;
+      t.wounds = 0;
+      t.maxWounds = 1;
+      t.specialRules = [];
+      manager.sendAction(createAction(GUEST_PLAYER_ID, 'concede', { type: 'concede' }));
+
+      release([
+        { rolls: [6, 6, 6, 6, 6, 6, 6, 6, 6, 6], total: 60, finalTotal: 60, purpose: 'to-hit' },
+        { rolls: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], total: 10, finalTotal: 10, purpose: 'defense' },
+      ]);
+      await new Promise((r) => setTimeout(r, 0));
+
+      const state = manager.getGameState()!;
+      expect(state.status).toBe('game-over');
+      expect(state.endReason).toBe('Opponent eliminated');
+      expect(state.actionLog.some((e) => e.action.type === 'concede')).toBe(false);
+      expect(rejectionHandler).not.toHaveBeenCalled();
+    });
+  });
+
   describe('host <-> guest integration over a fake data channel', () => {
     function makeChannelPair() {
       // Two WebRTCClient mocks wired so either side's send() delivers to the
