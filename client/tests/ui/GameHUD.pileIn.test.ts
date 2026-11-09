@@ -165,12 +165,10 @@ describe('GameHUD defender pile-in prompt (batch 1I PR 34)', () => {
     expect(sent?.payload.modelPositions[0]).toMatchObject({ x: 0, z: 9 });
   });
 
-  it('the host-places-for-me reaction option still submits the auto-pile-in choice', () => {
-    const { container, controller } = setup(GUEST);
-    expect(click(container, 'Let the host place them')).toBe(true);
-    const action = controller.submitAction.mock.calls[0][0];
-    expect(action.type).toBe('respond-reaction');
-    expect(action.payload.choiceId).toBe('auto-pile-in');
+  it('has no "Let the host place them" button (owner, 2026-11-09): Auto place then Confirm covers it', () => {
+    const { container } = setup(GUEST);
+    expect(click(container, 'Let the host place them')).toBe(false);
+    expect(container.querySelector('[data-reaction-choice="auto-pile-in"]')).toBeNull();
   });
 
   it('Reset clears the staged spots', () => {
