@@ -15,6 +15,7 @@ export * from './engine/traversal';
 export { worldToLocal, localToWorldXZ } from './engine/terrainStructure';
 export * from './engine/actions';
 export * from './engine/matchSummary';
+export * from './engine/rematch';
 export { modelRemainingMovement } from './engine/modelMovement';
 export * from './data/weapons';
 export * from './data/armies';

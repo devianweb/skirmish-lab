@@ -1,4 +1,4 @@
-import { GameState, Objective, TerrainPiece, Unit } from '../gameTypes';
+import { GameState, MatchSetup, Objective, TerrainPiece, Unit } from '../gameTypes';
 import {
   ARMY_FRONTIER_WARDENS,
   ARMY_RUST_RAIDERS,
@@ -153,6 +153,12 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     ? STARTER_ARMIES[options.guestArmyId as keyof typeof STARTER_ARMIES]
     : null;
 
+  const setup: MatchSetup = {};
+  if (options.hostArmyId !== undefined) setup.hostArmyId = options.hostArmyId;
+  if (options.guestArmyId !== undefined) setup.guestArmyId = options.guestArmyId;
+  if (options.useDeploymentPhase !== undefined) setup.useDeploymentPhase = options.useDeploymentPhase;
+  if (Object.keys(setup).length > 0) state.setup = setup;
+
   const selectedMap: CustomMapDefinition =
     options.customMap ??
     createBlankMap();
@@ -172,6 +178,8 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
   const mapObjectives = (selectedMap.objectives ?? createDefaultScenarioObjectives()).map((o) => ({
     ...o,
     position: { ...o.position },
+    controllingPlayerId: o.controllingPlayerId ?? null,
+    isContested: o.isContested ?? false,
   }));
 
   if (options.useDeploymentPhase) {

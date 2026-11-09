@@ -99,6 +99,8 @@ type GameMessage =
 - **Rejection:** Host can reject invalid actions with reason
 
 ### Concede
+`request-rematch` is an ordinary `action-request` (payload `{}`), accepted only once the game is over and only from the host or guest. The first request is recorded in `rematchRequestedBy` and the updated game-over state is broadcast; when both players have asked, the host broadcasts the fresh starting state (new `gameId`, empty log) in its place. No dice.
+
 `concede` is an ordinary `action-request` (payload `{}`). The host accepts it at any time until the game is over, ignoring the turn, reaction and charge-lock gates, and broadcasts the resulting `game-over` state to both peers; no dice are involved. Nobody is disconnected: both stay in the room on the results screen.
 
 ### Charge action types

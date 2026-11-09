@@ -45,8 +45,12 @@ interface GameState {
   status: GameStatus;
   winner?: string;           // Player ID of winner
   endReason?: string;
+  setup?: MatchSetup;        // { hostArmyId?, guestArmyId?, useDeploymentPhase? } as given to applyDefaultScenario; absent when none were given
+  rematchRequestedBy?: string[]; // player ids who pressed Play Again while status is 'game-over' (de-duplicated)
 }
 ```
+
+States saved before `setup` existed rebuild for a rematch as a non-deployment game with the default armies (no extra handling). `applyDefaultScenario` also normalizes map objectives to carry `controllingPlayerId: null` / `isContested: false`, so a rematch start is field-for-field equal to the original.
 
 ## Player
 ```typescript
@@ -319,7 +323,8 @@ type ActionType =
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round'       // Finish the round (cleanup/morale)
-  | 'concede';        // Forfeit the match; valid any time until game over, no dice
+  | 'concede'        // Forfeit the match; valid any time until game over, no dice
+  | 'request-rematch'; // Play Again; valid only at game over, host/guest only, no dice
 ```
 
 ### Action Payloads
@@ -373,7 +378,8 @@ type ActionPayload =
   | { type: 'hold', unitId: string }
   | { type: 'end-activation' }
   | { type: 'end-round' }
-  | { type: 'concede' };   // actor = the conceding player; sets status/phase 'game-over', winner = the other player, endReason = "<name> conceded"
+  | { type: 'concede' }   // actor = the conceding player; sets status/phase 'game-over', winner = the other player, endReason = "<name> conceded"
+  | { type: 'request-rematch' }; // actor = a player; the only action accepted at game over. Records the actor in rematchRequestedBy; once both players are in it, the result is the fresh starting state (createRematchState), empty log, no winner/endReason. No dice
 ```
 
 ### Match Summary
