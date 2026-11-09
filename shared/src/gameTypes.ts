@@ -276,7 +276,8 @@ export type ActionType =
   | 'pile-in-move'
   | 'pick-casualties'
   | 'end-activation'   // Finish current unit's activation
-  | 'end-round';       // Finish the round (cleanup/morale)
+  | 'end-round'        // Finish the round (cleanup/morale)
+  | 'concede';         // Forfeit the match (valid any time until game over)
 
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
@@ -301,7 +302,8 @@ export type ActionPayload =
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'pick-casualties', unitId: string, modelIds: string[] }
   | { type: 'end-activation' }
-  | { type: 'end-round' };
+  | { type: 'end-round' }
+  | { type: 'concede' };
 
 export interface GameAction {
   id: string;

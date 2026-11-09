@@ -557,6 +557,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
   if (state.status === 'game-over') {
     return { valid: false, reason: 'Game is over' };
   }
+  // Conceding is allowed at any moment (either player's turn, mid-reaction, mid-charge): skip the turn gates.
+  if (action.type === 'concede') {
+    if (action.actorId !== state.hostId && action.actorId !== state.guestId) {
+      return { valid: false, reason: 'Not a player in this match' };
+    }
+    return { valid: true };
+  }
   if (state.turnState.pendingReaction) {
     if (
       action.type !== 'respond-reaction' &&
@@ -3152,6 +3159,21 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'end-round': {
       runMoraleIfProvided(newState, dice);
       endRound(newState);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
+    case 'concede': {
+      const winnerId = action.actorId === newState.hostId ? newState.guestId : newState.hostId;
+      const fallback = action.actorId === newState.hostId ? 'Host' : 'Guest';
+      const name = newState.players.find((p) => p.id === action.actorId)?.name?.trim() || fallback;
+      newState.status = 'game-over';
+      newState.turnState.phase = 'game-over';
+      newState.turnState.activeUnitId = null;
+      newState.turnState.pendingReaction = null;
+      newState.turnState.charge = null;
+      newState.winner = winnerId;
+      newState.endReason = `${name} conceded`;
       logEntry = acceptedEntry(action);
       break;
     }
