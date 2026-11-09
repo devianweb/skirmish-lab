@@ -144,6 +144,9 @@ export function hasStructuredFloor(piece: TerrainPiece): boolean {
   return resolveTerrainStructure(piece).solids.some((solid) => solid.walkable);
 }
 
+/** Detection margin used by the difficult / dangerous path checks (see `segmentCrossesFootprintAtLevel`). */
+const AREA_DETECTION_MARGIN = 0.15;
+
 /** The height band in which a model counts as being "at the level" of a piece (same band as `findTerrainAtPosition`). */
 function pieceLevelBand(piece: TerrainPiece): { lo: number; hi: number } {
   const base = piece.position.y ?? 0;
@@ -161,7 +164,7 @@ export function segmentCrossesFootprintAtLevel(
   piece: TerrainPiece,
   a: Vector3,
   b: Vector3,
-  margin: number = 0.15
+  margin: number = AREA_DETECTION_MARGIN
 ): boolean {
   const len = Math.hypot(b.x - a.x, b.z - a.z);
   const hit =
@@ -2307,62 +2310,31 @@ export function addPlatformAscentPoints(
 }
 
 /**
- * Computes the point along the line segment from `p1` (outside piece) to `p2` (inside piece)
- * where the segment intersects the piece's perimeter, backed off by a safe margin so the
- * resulting point is strictly outside the difficult terrain boundary.
+ * Where the segment `p1` (outside the piece) -> `p2` first reaches the piece's footprint grown by the
+ * path-check margin, backed off a further 0.05" along the segment. The returned point is outside that
+ * margin, so a path that stops there is never itself counted as crossing the piece, whatever the
+ * approach angle or the piece's rotation. Null when the segment never reaches the grown footprint or
+ * `p1` already stands in it.
  */
 export function findDifficultTerrainEntry(
   p1: Vector3,
   p2: Vector3,
   piece: TerrainPiece
 ): Vector3 | null {
-  const { hx, hz } = terrainHalfExtents(piece);
-  const yaw = piece.rotation.y || 0;
-  const cos = Math.cos(-yaw);
-  const sin = Math.sin(-yaw);
-
-  const dx1 = p1.x - piece.position.x;
-  const dz1 = p1.z - piece.position.z;
-  const l1x = dx1 * cos - dz1 * sin;
-  const l1z = dx1 * sin + dz1 * cos;
-
-  const dx2 = p2.x - piece.position.x;
-  const dz2 = p2.z - piece.position.z;
-  const l2x = dx2 * cos - dz2 * sin;
-  const l2z = dx2 * sin + dz2 * cos;
-
-  const dlx = l2x - l1x;
-  const dlz = l2z - l1z;
   const segLen = Math.hypot(p2.x - p1.x, p2.z - p1.z);
   if (segLen < 1e-4) return null;
-
-  let tMin = 0;
-  let tMax = 1;
-
-  if (Math.abs(dlx) > 1e-6) {
-    const t1 = (-hx - l1x) / dlx;
-    const t2 = (hx - l1x) / dlx;
-    tMin = Math.max(tMin, Math.min(t1, t2));
-    tMax = Math.min(tMax, Math.max(t1, t2));
-  }
-  if (Math.abs(dlz) > 1e-6) {
-    const t1 = (-hz - l1z) / dlz;
-    const t2 = (hz - l1z) / dlz;
-    tMin = Math.max(tMin, Math.min(t1, t2));
-    tMax = Math.min(tMax, Math.max(t1, t2));
-  }
-
-  if (tMin > tMax || tMin <= 0 || tMin > 1) {
-    return null;
-  }
-
-  // Back off by 0.20" so the resulting point is strictly outside the terrain piece's 0.15" margin
-  const offset = 0.2 / segLen;
-  const entryT = Math.max(0, tMin - offset);
+  const margin = AREA_DETECTION_MARGIN + 0.01;
+  const hit = intersectRayTerrain(p1, (p2.x - p1.x) / segLen, (p2.z - p1.z) / segLen, segLen, piece, margin);
+  if (!hit || hit.tEntry <= 1e-6 || hit.tEntry > segLen) return null;
+  const entryT = Math.max(0, hit.tEntry - 0.05) / segLen;
+  const at = (a: number, b: number): number => a + (b - a) * entryT;
+  // Round toward p1 so rounding never pushes the point into the margin
+  const towardStart = (v: number, from: number): number =>
+    v >= from ? Math.floor(v * 100) / 100 : Math.ceil(v * 100) / 100;
   return {
-    x: Math.round((p1.x + (p2.x - p1.x) * entryT) * 100) / 100,
-    y: Math.round(((p1.y ?? 0) + ((p2.y ?? 0) - (p1.y ?? 0)) * entryT) * 100) / 100,
-    z: Math.round((p1.z + (p2.z - p1.z) * entryT) * 100) / 100,
+    x: towardStart(at(p1.x, p2.x), p1.x),
+    y: Math.round(at(p1.y ?? 0, p2.y ?? 0) * 100) / 100,
+    z: towardStart(at(p1.z, p2.z), p1.z),
   };
 }
 
