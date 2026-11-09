@@ -164,12 +164,10 @@ describe('GameHUD casualty pick prompt (batch 1I PR 36)', () => {
     expect([...controller.submitAction.mock.calls[0][0].payload.modelIds].sort()).toEqual([...expected].sort());
   });
 
-  it('the host-picks button still sends the original auto-pick-casualties choice at once', () => {
-    const { container, controller } = setup(GUEST);
-    expect(click(container, 'Let the host pick')).toBe(true);
-    const action = controller.submitAction.mock.calls[0][0];
-    expect(action.type).toBe('respond-reaction');
-    expect(action.payload.choiceId).toBe('auto-pick-casualties');
+  it('has no "Let the host pick" button (owner, 2026-11-09): Auto pick then Confirm covers it', () => {
+    const { container } = setup(GUEST);
+    expect(click(container, 'Let the host pick')).toBe(false);
+    expect(container.querySelector('[data-reaction-choice="auto-pick-casualties"]')).toBeNull();
   });
 
   it('a model whose removal splits the chain is noted but can still be picked', () => {
