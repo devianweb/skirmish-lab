@@ -98,6 +98,9 @@ type GameMessage =
 - **Confirmation:** Only host can produce `state-update` messages with confirmed state
 - **Rejection:** Host can reject invalid actions with reason
 
+### Concede
+`concede` is an ordinary `action-request` (payload `{}`). The host accepts it at any time until the game is over, ignoring the turn, reaction and charge-lock gates, and broadcasts the resulting `game-over` state to both peers; no dice are involved. Nobody is disconnected: both stay in the room on the results screen.
+
 ### Charge action types
 A split charge (batch 1D PR 16) uses three ordinary `action-request` actions, each validated and applied by the host like any other (no new message types): `begin-charge { attackerId, targetId }` (declares and locks the target; no dice), `charge-leg { attackerId, path, traversal? }` (one leg; jump/hazard/fall dice come from the server via the usual dice specs and are attached to the leg's log entry) and the final `charge` (melee dice). While `turnState.charge` is set the host rejects every other action except `end-activation`, which abandons the charge.
 

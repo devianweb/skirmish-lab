@@ -85,6 +85,14 @@ stateDiagram-v2
 1. **Round 1:** Player who won the pre-game deployment roll-off takes the first activation.
 2. **Subsequent Rounds (2–4):** The player who finished activating all of their units first in the preceding round takes the first activation.
 
+### 3.1.1 Match End
+The match ends in one of three ways:
+- **Objectives (end of round 4):** the player holding more objectives wins. **A tie is a draw**: there is no tie-break (no destruction points or other tournament scoring) for now.
+- **Elimination:** a player with no living units loses (mutual elimination has no winner).
+- **Concede:** either player may concede at any moment until the match is over (deployment, either player's turn, during a pending reaction or a declared charge). The conceding player loses and the opponent wins; the reason reads "<name> conceded". Concede needs no dice.
+
+The results screen is built from `summarizeMatch(state)`: winner, reason, rounds played, objectives held and per-side losses. A unit counts as lost when it is destroyed or routed; models count as lost only when destroyed.
+
 ### 3.2 Activation Maneuvers
 A player selects one ready unit that has not yet activated this round. The unit chooses exactly **one** of the following four maneuvers:
 
