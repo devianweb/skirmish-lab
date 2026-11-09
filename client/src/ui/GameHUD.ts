@@ -60,8 +60,6 @@ import {
   modelRemainingMovement,
   closestApproach,
   PILE_IN_DISTANCE,
-  PILE_IN_AUTO_CHOICE,
-  PICK_CASUALTIES_AUTO_CHOICE,
   autoPickCasualties,
   PendingReaction,
 } from '@skirmish-lab/shared';
@@ -1199,7 +1197,6 @@ export class GameHUD {
         }</button>`;
       })
       .join('');
-    const autoOption = (ctx.pending.options ?? []).find((o) => o.id === PICK_CASUALTIES_AUTO_CHOICE);
     const ready = this.casualtyPicked.length === ctx.count;
     return `
       <div class="sl-hud-bottom-dock">
@@ -1216,11 +1213,6 @@ export class GameHUD {
           <div class="sl-hud-reaction-actions">
             <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
             <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
-            ${
-              autoOption
-                ? `<button class="sl-hud-btn" data-reaction-choice="${autoOption.id}" data-reaction-id="${ctx.pending.id}">Let the host pick</button>`
-                : ''
-            }
           </div>
         </div>
       </div>`;
@@ -1439,7 +1431,6 @@ export class GameHUD {
         }">${placed ? '✓ ' : ''}Model ${idx + 1}</button>`;
       })
       .join('');
-    const autoOption = (ctx.pending.options ?? []).find((o) => o.id === PILE_IN_AUTO_CHOICE);
     return `
       <div class="sl-hud-bottom-dock">
         ${dataCardSlot}
@@ -1457,11 +1448,6 @@ export class GameHUD {
             <button class="sl-hud-btn" data-action="auto-pile-in">Auto place</button>
             <button class="sl-hud-btn primary" data-action="confirm-pile-in">Confirm</button>
             <button class="sl-hud-btn" data-action="reset-pile-in">Reset</button>
-            ${
-              autoOption
-                ? `<button class="sl-hud-btn" data-reaction-choice="${autoOption.id}" data-reaction-id="${ctx.pending.id}">Let the host place them</button>`
-                : ''
-            }
           </div>
         </div>
       </div>`;
