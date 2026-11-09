@@ -3,24 +3,6 @@
 ## Overview
 Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop skirmish engine, with verifiable acceptance criteria. Focus on incremental, testable milestones.
 
-## Phase 0: Project Setup & Documentation
-**Goal:** Establish project structure and tooling
-
-### Tasks
-- [x] Create document structure (GDD, ARCHITECTURE, NETWORKING, DATA_MODEL, SYSTEMS, ROADMAP)
-- [x] Write AGENTS.md with constraints
-- [x] Initialize TypeScript projects (frontend + backend)
-- [x] Set up build tools (Vite for frontend, tsx/nodemon for backend)
-- [x] Set up monorepo structure with workspaces (client, server, shared)
-- [x] Install dependencies (Node.js LTS via nvm, TypeScript 7, Vite, Three.js)
-- [ ] Configure linting/formatting
-
-### Acceptance Criteria
-- [x] `package.json` files for frontend and backend
-- [x] TypeScript compiles without errors
-- [x] Dev servers can start
-- [x] All documentation is in place and reviewed
-
 ## Phase 1: Signaling Server
 **Goal:** Build minimal WebSocket signaling server with room management
 
@@ -744,17 +726,16 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 
 ### Acceptance Criteria
 - [x] Zero Kenney terrain `.glb` files loaded or downloaded in the client. (`client/public/models` holds only the crate beacon, indicators and outcome digits; terrain is procedural.)
-- [ ] Visual terrain matches mathematical collision geometry and F9 debug wireframes down to the millimeter across all pieces.
+- [x] Visual terrain matches mathematical collision geometry and F9 debug wireframes down to the millimeter across all pieces. (Owner-confirmed in playtesting, 2026-11-09; the catalog parity sweep checks every mesh stays inside its collision box and fills its solids. Platform kick-plates are visual-only decor above the deck.)
 - [x] Standardized $1.0\text{ unit} = 1.0\text{ inch}$ wargaming dimensions across all platforms, ruins, barricades, and ramps. (Every catalog height, thickness and opening is a multiple of 0.25", test-guarded.)
 - [x] All unit, integration, and renderer tests pass across all workspaces.
 
-## Phase 14: Polish, Audio & Release Hardening
-**Goal:** Final UX polish, audio effects, rematch flow, and release deployment.
+## Phase 14: MVP Polish & Release Hardening
+**Goal:** Final UX polish, rematch flow, and the MVP release. Audio and other presentation work move to Phase 15, after the MVP.
 
-> **Recommended AI Model:** **3.8** *(Web Audio triggers, rematch UI resets, CSS polish, and release profiling)*
+> **Recommended AI Model:** **3.8** *(rematch UI resets, CSS polish, and release profiling)*
 
 ### Tasks
-- [ ] Audio & SFX: Dice rattle/roll sounds, laser/gunfire audio cues, melee impact clangs, and victory stingers.
 - [ ] "Play Again" / rematch flow on game-over screen (resets match over existing P2P channel).
 - [ ] End-to-end playtesting with two clients across varied terrain layouts.
 - [ ] Performance profiling: ensure 60fps on standard desktop browsers with full 3D terrain.
@@ -762,9 +743,19 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] Deployment to release branch (GitHub Pages client + Azure App Service server).
 
 ### Acceptance Criteria
-- [ ] Two players can complete full 4-round matches with audio, custom/pre-canned armies, and objectives.
+- [ ] Two players can complete full 4-round matches with custom/pre-canned armies and objectives.
 - [ ] Rematch resets the game smoothly without re-entering invite codes.
 - [ ] Production build passes all checks and deploys cleanly via GitHub Actions.
+
+## Phase 15: Presentation (post-MVP)
+**Goal:** Make the game look and sound finished once the MVP is out. Each item is its own sub-phase with its own plan in `doc/plans/`.
+
+### Sub-phases (to be planned)
+- [ ] 15A Audio & SFX: dice rattle/roll sounds, gunfire cues, melee impacts and victory stingers (procedural Web Audio, per AGENTS.md).
+- [ ] 15B Texturing: materials and textures for terrain, board and models (low-poly art style).
+- [ ] 15C Lighting: scene lighting, shadows and atmosphere.
+- [ ] 15D Animations: model movement, attacks, casualties and UI transitions.
+- [ ] 15E Terrain visual dressing deferred from 13.6D: chamfered barriers, hazard stripes, round pipes, per-type colours.
 
 ## Model Selection
 Planning and research use **Opus** in the main session; implementation uses **Sonnet** `implementer` agents, one per PR section of an approved plan in `doc/plans/`. See [AGENTS.md](../AGENTS.md#planning--implementation-workflow-opus-plans-sonnet-implements) and [doc/plans/README.md](plans/README.md). The per-phase "Recommended AI Model" notes above (4.0 / 3.8) date from the earlier toolchain and are historical.
