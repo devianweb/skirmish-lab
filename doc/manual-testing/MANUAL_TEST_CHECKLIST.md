@@ -1,6 +1,6 @@
 # Manual Test Checklist (consolidated)
 
-One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, batch 1A the same evening, batches 1B/1E, 1F, 1H and 1G on 2026-11-03/04, the 1C/1D pass on 2026-11-04, and the batch 1I pass on 2026-11-05; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
+One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, batch 1A the same evening, batches 1B/1E, 1F, 1H and 1G on 2026-11-03/04, the 1C/1D pass on 2026-11-04, the batch 1I pass on 2026-11-05, and the 13.6E pass (area terrain, Standard Battlefield) on 2026-11-09; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
 
 Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-batch-1.md`; retest them after that PR lands.
 
@@ -12,9 +12,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 1. Map builder & editor
 - All items verified.
-- [ ] 13.6E area terrain editor: the palette has an "Area Terrain" category with a Rubble Field and a Hazard Pool. Place both. Select a crate and tick Dangerous, select the rubble field and untick Difficult; the F9 outlines follow (red on the crate, yellow gone on the rubble). Save, reload the map: the flags are kept. In a game on that map, a unit rushing across a difficult piece is capped at 6", crossing a dangerous piece asks for hazard dice, and a model inside the rubble gets +1 Defense.
-
-- [ ] 13.6E built-in map in the editor: open the Load list, find the "Built-in" group with "Standard Battlefield", and load it. The name box reads "Standard Battlefield (copy)". Edit something, press Save Map, then reopen the Load list: the copy is listed under Saved Custom Maps, and the Built-in entry is still the untouched original.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified.
@@ -27,17 +24,16 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 5. Low cover & scatter
 - All items verified.
-- [ ] 13.6E area terrain meshes: place a Rubble Field and a Hazard Pool (map editor, Area Terrain palette category). Both lie flat on the ground; the rubble has low chunks and the pool a green glow with a darker rim. A model can be placed and stand inside either at ground level, and clicking one picks the ground point beneath it. F9 shows a yellow footprint outline on the rubble field and a red one on the pool.
 
 ## 6. Squads
 - All items verified.
 
 ## 7. Movement, rush and shooting
-- All items verified.
+- [ ] Rush past a rubble field (retest after the 6" cap fix): with a fast unit, start Rush and point at open ground well past a Rubble Field, approaching it at a slant (and again with the field rotated 45° in the editor). The preview runs the full Rush up to the field's edge and the banner reads "Rush stops at the edge of difficult terrain"; it no longer stops 6" out in open ground with the "capped at 6.0"" warning. Pointing inside the field gives the same edge stop.
+- [ ] Hazard test on activation: end a unit's move with a model standing in a Hazard Pool. Next round, activate it: the dice panel and log show "Hazard (activated in dangerous terrain)" with one die per model inside the pool, and each 1 is a wound (in a squad, the model that rolled it is the casualty). If it then moves across the pool in the same activation it does not roll the crossing hazard test again. A unit standing outside the pool rolls nothing on activation.
 
 ## 8. Melee & objectives
 - [ ] One ring in a squad charge (retest after the double-ring fix): declare a charge with a squad and walk a leg moving the models different distances. While placing the next leg only one range ring shows, centred on the selected model and sized to that model's own distance left (it moves and resizes when you pick another model); there is no second, larger red disc around the middle of the squad.
 
 ## 9. Multiplayer & custom maps
 - All items verified.
-- [ ] 13.6E Standard Battlefield in the lobby: the map list opens on "Empty Battlefield" and has a "Built-in maps" group with `Standard Battlefield (48"×48")`. Host a game with it selected; the waiting screen says "Map: Standard Battlefield". Both players see the same table (rotated for each side), the camera frames the whole board, and no objective sits in a deployment zone or on a piece.
