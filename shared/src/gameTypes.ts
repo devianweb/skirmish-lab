@@ -277,7 +277,8 @@ export type ActionType =
   | 'pick-casualties'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round'        // Finish the round (cleanup/morale)
-  | 'concede';         // Forfeit the match (valid any time until game over)
+  | 'concede'         // Forfeit the match (valid any time until game over)
+  | 'request-rematch'; // Ask to replay the same game (valid only once the match is over)
 
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
@@ -303,7 +304,8 @@ export type ActionPayload =
   | { type: 'pick-casualties', unitId: string, modelIds: string[] }
   | { type: 'end-activation' }
   | { type: 'end-round' }
-  | { type: 'concede' };
+  | { type: 'concede' }
+  | { type: 'request-rematch' };
 
 export interface GameAction {
   id: string;
@@ -449,6 +451,13 @@ export type GameStatus =
   | 'paused'
   | 'game-over';
 
+/** Scenario options a match was started with; lets the host rebuild the exact starting state for a rematch. */
+export interface MatchSetup {
+  hostArmyId?: string;
+  guestArmyId?: string;
+  useDeploymentPhase?: boolean;
+}
+
 export interface GameState {
   version: string;
   gameId: string;
@@ -467,4 +476,8 @@ export interface GameState {
   status: GameStatus;
   winner?: string;
   endReason?: string;
+  /** Options the scenario was started with (absent when none were given). */
+  setup?: MatchSetup;
+  /** Player ids who asked for a rematch while the game is over (de-duplicated). */
+  rematchRequestedBy?: string[];
 }
