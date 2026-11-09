@@ -1617,6 +1617,43 @@ describe('GameHUD', () => {
       expect(endPoint.z).toBeLessThanOrEqual(6.2);
     });
 
+    it('a Rush aimed past a rubble field at an angle runs to its edge instead of being capped at 6"', () => {
+      // Owner report 2026-11-09: the preview stopped 6" out in open ground with the difficult-terrain cap warning.
+      const state = scenarioState();
+      state.terrain = [
+        {
+          id: 'rubble',
+          terrainType: 'rubble-field',
+          position: { x: -6, y: 0, z: 4 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 6, y: 0.25, z: 4 },
+          blocksLineOfSight: false,
+          providesCover: true,
+          isObstacle: false,
+          isWalkable: false,
+          isDifficult: true,
+        },
+      ];
+      const unit = state.units.find((u) => u.ownerId === HOST)!;
+      unit.position = { x: 12, y: 0, z: -10 };
+      unit.speed = 12;
+      syncModels(unit);
+      activateUnit(state, HOST, unit.id);
+      const { hud, container } = setup(HOST, state);
+
+      clickByText(container, 'Rush');
+      hud.handleBoardHover({ kind: 'position', position: { x: -14, y: 0, z: 8 } });
+
+      const warningEl = container.querySelector('.sl-hud-move-warning') as HTMLElement;
+      expect(warningEl.textContent).toContain('Rush stops at the edge of difficult terrain');
+      expect(warningEl.textContent).not.toContain('capped at 6.0');
+      const preview = (hud as any).movePathPreview;
+      const end = preview[preview.length - 1];
+      // ~20" from the start, just outside the field's corner region (x -9..-3, z 2..6)
+      expect(Math.hypot(end.x - 12, end.z + 10)).toBeGreaterThan(15);
+      expect(end.z).toBeLessThan(2);
+    });
+
     it('stops rush destination at wall base and displays confirmation info badge when scaling sheer elevation', () => {
       const state = scenarioState();
       state.terrain = [

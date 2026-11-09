@@ -10,7 +10,7 @@ import {
 import { WEAPONS } from '../../src/data/weapons';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
 import { resolveTerrainStructure } from '../../src/engine/terrainStructure';
-import { findCoverSource, findEndOverlap, findNavPath } from '../../src/engine/spatial';
+import { findCoverSource, findEndOverlap, findNavPath, segmentCrossesFootprintAtLevel } from '../../src/engine/spatial';
 import { isPathDangerous, isPathDifficult } from '../../src/engine/traversal';
 
 const HOST = 'host-1';
@@ -225,6 +225,28 @@ describe('difficult terrain along the whole path', () => {
     const last = path[path.length - 1];
     expect(last.x).toBeLessThan(-3.15);
     expect(isPathDifficult(s, path, rusher)).toBe(false);
+  });
+
+  // Owner report 2026-11-09: a Rush aimed past a rubble field at an angle was capped at 6" in open ground,
+  // because the stop point sat inside the 0.15" detection margin, so the stopped path still counted as difficult.
+  it.each([
+    ['oblique approach to an axis-aligned field', 0, P(12, 0, -10), P(-14, 0, 8)],
+    ['diagonal approach', 0, P(14, 0, -14), P(-5, 0, 5)],
+    ['field rotated 45 degrees', Math.PI / 4, P(12, 0, 0), P(-12, 0, 6)],
+    ['field rotated 30 degrees, oblique', Math.PI / 6, P(12, 0, -10), P(-14, 0, 8)],
+  ])('the stopped Rush path is not difficult (%s)', (_label, yaw, from, to) => {
+    const rusher = makeUnit('u', from);
+    rusher.speed = 24;
+    rusher.remainingMovement = 24;
+    const field = piece('rubble-field', -6, 0, 4, { rotation: { x: 0, y: yaw, z: 0 } });
+    const s = makeState([rusher], [field]);
+    expect(isPathDifficult(s, [from, to], rusher)).toBe(true); // the straight line does cross it
+    const path = findNavPath(s, rusher, to, 48, { stopBeforeDifficult: true });
+    const last = path[path.length - 1];
+    expect(isPathDifficult(s, path, rusher)).toBe(false);
+    // it stops close to the field (within 0.5" of the detection margin), not somewhere short of it
+    expect(isPathDifficult(s, [last, to], rusher)).toBe(true);
+    expect(segmentCrossesFootprintAtLevel(field, last, last, 0.5)).toBe(true);
   });
 });
 
