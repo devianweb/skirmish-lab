@@ -89,6 +89,7 @@ stateDiagram-v2
 The match ends in one of three ways:
 - **Objectives (end of round 4):** the player holding more objectives wins. **A tie is a draw**: there is no tie-break (no destruction points or other tournament scoring) for now.
 - **Elimination:** a player with no living units loses (mutual elimination has no winner).
+- **Rematch:** once the match is over, either player may ask to play again; when both have asked, the same room restarts the exact same game (same board, terrain, objectives with control reset, armies, unit ids and starting positions, deployment mode, sides and starting player) with an empty log. Only the game id differs. The ask needs no dice and is the only action accepted after game over; there is no withdraw.
 - **Concede:** either player may concede at any moment until the match is over (deployment, either player's turn, during a pending reaction or a declared charge). The conceding player loses and the opponent wins; the reason reads "<name> conceded". Concede needs no dice.
 
 The results screen is built from `summarizeMatch(state)`: winner, reason, rounds played, objectives held and per-side losses. A unit counts as lost when it is destroyed or routed; models count as lost only when destroyed.

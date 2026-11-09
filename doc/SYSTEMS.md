@@ -360,6 +360,11 @@ Victory conditions are mission data. v1 ships a simple elimination mission; obje
 - The modal is built from `summarizeMatch(state)`: title (Victory / Defeat / Draw), the reason, "Rounds played: N of 4", the objective score and per-objective breakdown, one loss line per side ("<Name> lost U of T units (M of N models)", host first), and the Return to Lobby button in an actions row with room for a second button.
 - After game over the "Opponent disconnected" banner is suppressed (leaving through Return to Lobby is expected); a disconnected peer shows "<name> has left." on the modal instead.
 
+### Rematch flow (HUD and storage, 14B)
+- The modal's actions row has **Play Again** next to Return to Lobby, for both players after every ending. Pressing it sends one `request-rematch` and the button reads "Waiting for <opponent>…" (disabled). The opponent sees "<name> wants a rematch" and a primary **Accept rematch**. If the opponent has left (the "has left." line), the button is disabled and reads "Opponent has left".
+- When both have asked, the host's `applyAction` returns the fresh starting state (new `gameId`). On a different `gameId`, `GameHUD.syncFromState` clears all per-match local state (flow, staged squad placements, casualty and pile-in picks, concede state, last-round and log tracking, toast) and shows "Rematch started — same armies, same map"; `GameView.syncFromState` clears markers and outcome tokens. The camera keeps its role view.
+- Storage: game over clears the room snapshot and the active session. When a non-game-over state with a different `gameId` follows a game-over snapshot, `GameManager` resets its in-memory snapshot history to the new match, resumes saving snapshots, and calls the `onSessionResume` hook; `main.ts` uses it to write the same active-session record as `onPeerReady`, so a reload during the rematch resumes the rematch.
+
 ## Balance & Validation
 - Host enforces all rules strictly
 - No client-side shortcuts

@@ -1,4 +1,5 @@
 import { cloneGameState } from '../gameState';
+import { createRematchState } from './rematch';
 import { closestApproach } from './closestApproach';
 import {
   ActionLogEntry,
@@ -554,6 +555,16 @@ function chargeSpent(unit: Unit): number {
 }
 
 export function validateAction(state: GameState, action: GameAction): ValidationResult {
+  // request-rematch is the only action that means anything once the match is over (and nothing else is valid then).
+  if (action.type === 'request-rematch') {
+    if (state.status !== 'game-over') {
+      return { valid: false, reason: "The match isn't over" };
+    }
+    if (action.actorId !== state.hostId && action.actorId !== state.guestId) {
+      return { valid: false, reason: 'Not a player in this match' };
+    }
+    return { valid: true };
+  }
   if (state.status === 'game-over') {
     return { valid: false, reason: 'Game is over' };
   }
@@ -3174,6 +3185,18 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       newState.turnState.charge = null;
       newState.winner = winnerId;
       newState.endReason = `${name} conceded`;
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
+    case 'request-rematch': {
+      const requested = newState.rematchRequestedBy ?? [];
+      if (!requested.includes(action.actorId)) requested.push(action.actorId);
+      if (requested.includes(newState.hostId) && requested.includes(newState.guestId)) {
+        // Both agreed: the result is the fresh starting state, not a game-over state.
+        return { ok: true, state: createRematchState(newState), logEntry: acceptedEntry(action) };
+      }
+      newState.rematchRequestedBy = requested;
       logEntry = acceptedEntry(action);
       break;
     }

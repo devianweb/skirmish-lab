@@ -1,6 +1,6 @@
 # Manual Test Checklist (consolidated)
 
-One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, batch 1A the same evening, batches 1B/1E, 1F, 1H and 1G on 2026-11-03/04, the 1C/1D pass on 2026-11-04, the batch 1I pass on 2026-11-05, and the 13.6E pass (area terrain, Standard Battlefield) and the rush-past-rubble / activation hazard / squad charge ring retests on 2026-11-09; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
+One living checklist for things automated tests can't prove: feel, visuals, and two-player flows. It replaces the older per-phase checklists (Phase 13 map builder, Phase 13.5 playtest, terrain structure, elevation), which were audited against the current rules and folded in here. Verified items are removed once the owner ticks them (last passes: 2026-11-02, batch 1A the same evening, batches 1B/1E, 1F, 1H and 1G on 2026-11-03/04, the 1C/1D pass on 2026-11-04, the batch 1I pass on 2026-11-05, the 13.6E pass (area terrain, Standard Battlefield) and the rush-past-rubble / activation hazard / squad charge ring retests on 2026-11-09, and the 14A concede/results pass the same day; which retired the map builder/editor, terrain structure, elevation picking/LoS, squads, movement & shooting, melee & objectives, and multiplayer/custom-map checks). Earlier retirements: the terrain-structure checklist and the Phase 13.5 combat/squad/ramp/ladder checks. If a later change touches a retired area, add a fresh item here.
 
 Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-batch-1.md`; retest them after that PR lands.
 
@@ -32,10 +32,11 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 8. Melee & objectives
-- All items verified.
+- [ ] **Abandon charge button (squad charge):** declare a charge with a squad. While placing models, the highlighted button is **Confirm charge** (once a model is placed); abandoning is a plain, non-highlighted **Abandon charge** button. Placing models into contact and confirming resolves the melee; Abandon charge asks to confirm and then ends the activation with no melee.
 
 ## 9. Multiplayer & custom maps
-- [ ] **14A Concede (guest, mid-turn):** the guest clicks Concede in the header and confirms. The guest sees "Defeat" and "<guest> conceded"; the host sees "Victory" with the same reason. Both see the rounds played and a losses line per side. The guest presses Return to Lobby: the host sees "<guest> has left." and no "Opponent disconnected" banner.
-- [ ] **14A Concede (host, during a reaction):** the host concedes while the guest has a reaction prompt open. Same result, mirrored; the prompt disappears.
-- [ ] **14A Full game to round 4:** play to the end of round 4. The results screen shows the right winner or "Draw", the objective breakdown, rounds played and the losses lines.
-- [ ] **14A Concede with no connection:** as the guest, kill the host's tab, then concede. After about 5 s the Concede button comes back and the toast "Couldn't reach your opponent; the concede wasn't sent." shows.
+- [ ] **Toast under the banner (retest after the 14A feedback fix):** as the guest, kill the host's tab and concede. After about 5 s the "Couldn't reach your opponent" toast shows **below** the "Opponent disconnected" banner, fully readable.
+- [ ] **Rematch (14B):** play to the end or concede, then both press Play Again (try both orders). The same map, armies and starting positions come back at round 1 (or deployment) with the original starting player, a toast reads "Rematch started — same armies, same map", and there are no leftover markers, outcome tokens or log lines.
+- [ ] **Rematch request:** one player presses Play Again. They see "Waiting for <name>…" (disabled); the other sees "<name> wants a rematch" and a primary Accept rematch button.
+- [ ] **Rematch after leaving:** one player presses Return to Lobby. The other's button reads "Opponent has left" and is disabled.
+- [ ] **Reload during a rematch:** reload the host's tab during the rematch. It resumes the rematch, not the old match.
