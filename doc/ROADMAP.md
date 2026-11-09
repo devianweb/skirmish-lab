@@ -731,20 +731,25 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] All unit, integration, and renderer tests pass across all workspaces.
 
 ## Phase 14: MVP Polish & Release Hardening
-**Goal:** Final UX polish, rematch flow, and the MVP release. Audio and other presentation work move to Phase 15, after the MVP.
+**Goal:** Close out the MVP: clear match results, concede and rematch, a rules audit and a full code review, performance, a playtest-and-polish pass, synced docs and the MVP release. Audio and other presentation work move to Phase 15, after the MVP. Each sub-phase gets its own plan in `doc/plans/` and small PRs; fixes found in 14C–14F are collected into **bugfix batch 2**.
 
-> **Recommended AI Model:** **3.8** *(rematch UI resets, CSS polish, and release profiling)*
+**Owner decisions (2026-11-09):** a draw on objectives stays a draw (no tournament tie-break for now); Concede ends the match and returns the conceding player to the main menu; a rematch replays the exact same game (same map, armies and sides).
 
-### Tasks
-- [ ] "Play Again" / rematch flow on game-over screen (resets match over existing P2P channel).
-- [ ] End-to-end playtesting with two clients across varied terrain layouts.
-- [ ] Performance profiling: ensure 60fps on standard desktop browsers with full 3D terrain.
-- [ ] Documentation updates (sync all docs with final feature set).
-- [ ] Deployment to release branch (GitHub Pages client + Azure App Service server).
+### Sub-phases
+- [ ] **14A Match end, results and Concede.** A clearer game-over screen (who won and why, objectives held, units lost per side). A draw on objectives stays a draw. New **Concede** action: the match ends as a win for the opponent, the conceding player goes straight back to the main menu, and the opponent sees the result screen.
+- [ ] **14B Rematch ("Play Again").** Both players agree on the game-over screen; the host resets the match over the existing P2P channel with the exact same setup (map, armies, sides), no new invite code. Saved snapshots for the old match are cleared so a reconnect can't restore it.
+- [ ] **14C Rules audit.** Compare the engine, rule by rule, with the core rules and beginner's guide (clean-room: findings in our own words) and with `RULES_SPECIFICATION.md`. Output: a findings list (match / deviation / missing / house rule), each deviation an owner decision. Known item: hazard tests roll one die per model, not Tough-value dice.
+- [ ] **14D Full codebase review.** Review all workspaces for correctness bugs, architecture violations (game logic in scene/HUD, client-trusted values, hardcoded ruleset names), dead code, stale comments and test gaps. Output: a findings list, triaged into bugfix batch 2 or later. Known items: corner-graze line of sight is not symmetric on exact ties; stale crate-footprint comment in `terrainStructures.ts`.
+- [ ] **14E Performance.** Profile a full game on the Standard Battlefield with squads, move preview, LoS fan and F9 running; hold 60 fps on standard desktop browsers; add timing guards to the tests for hot paths.
+- [ ] **14F Playtest & UX polish.** Full 4-round two-player matches on the Standard Battlefield and custom maps, plus the owner's list of rough edges (HUD clutter, toasts, lobby flow, a short controls / how-to-play card). Findings go into bugfix batch 2.
+- [ ] **14G Docs sync.** Audit every doc in `doc/` against the code (known stale: the default-scenario table in `ASSETS.md`, the old doorway opening in `SYSTEMS.md`), record the 13.6E follow-ups, close `doc/plans/bugfix-playtest-batch-1.md`, and add a short player-facing README section.
+- [ ] **14H MVP release.** Release checklist, version tag, deploy on the owner's command (`master` → `release`), and tick the acceptance criteria below.
 
 ### Acceptance Criteria
 - [ ] Two players can complete full 4-round matches with custom/pre-canned armies and objectives.
+- [ ] Either player can concede; the match ends cleanly for both sides.
 - [ ] Rematch resets the game smoothly without re-entering invite codes.
+- [ ] The rules audit and code review findings are resolved or explicitly deferred by the owner.
 - [ ] Production build passes all checks and deploys cleanly via GitHub Actions.
 
 ## Phase 15: Presentation (post-MVP)
