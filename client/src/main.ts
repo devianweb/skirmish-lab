@@ -209,6 +209,16 @@ const lobby = new Lobby(lobbyContainer, {
       diceProvider: new SignalingDiceProvider(signalingClient),
       sessionStore: defaultSessionStore,
       roomCode,
+      // Game over clears the active session; a rematch must be resumable after a reload.
+      onSessionResume: () =>
+        defaultSessionStore.saveActiveSession({
+          roomCode,
+          role,
+          playerId: localPlayerId,
+          playerName: isHost ? 'Host' : 'Guest',
+          armyId: isHost ? hostArmyId : guestArmyId,
+          timestamp: Date.now(),
+        }),
     });
 
     hud?.dispose();

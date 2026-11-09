@@ -28,6 +28,11 @@ export interface GameManagerOptions {
   sessionStore?: SessionStore;
   /** Active room code for keyed snapshot persistence. */
   roomCode?: string;
+  /**
+   * Called when a new match begins after a game-over state (a rematch), so the
+   * caller can save the active session again (game over cleared it).
+   */
+  onSessionResume?: () => void;
 }
 
 export interface ActionRejection {
@@ -46,6 +51,7 @@ export class GameManager {
   private diceProvider: DiceProvider | undefined;
   private sessionStore: SessionStore | undefined;
   private roomCode: string | undefined;
+  private onSessionResume: (() => void) | undefined;
   /** Action currently being processed (guards concurrent host processing). */
   private pendingActionId: string | null = null;
   private queuedConcedes: GameAction[] = [];
@@ -62,6 +68,7 @@ export class GameManager {
     this.diceProvider = options.diceProvider;
     this.sessionStore = options.sessionStore;
     this.roomCode = options.roomCode;
+    this.onSessionResume = options.onSessionResume;
     this.setupHandlers();
   }
 
@@ -411,6 +418,11 @@ export class GameManager {
 
   private saveSnapshot(state: GameState): void {
     const copy = JSON.parse(JSON.stringify(state));
+    const previous = this.snapshots[this.snapshots.length - 1];
+    // A different match following a finished one is a rematch: history belongs to the new gameId only.
+    const rematchStarted =
+      !!previous && previous.status === 'game-over' && previous.gameId !== copy.gameId && copy.status !== 'game-over';
+    if (previous && previous.gameId !== copy.gameId) this.snapshots = [];
     this.snapshots.push(copy);
     if (this.snapshots.length > this.maxSnapshots) {
       this.snapshots.shift();
@@ -422,6 +434,7 @@ export class GameManager {
         this.sessionStore.clearActiveSession();
       }
     }
+    if (rematchStarted) this.onSessionResume?.();
   }
 
   setRoomCode(roomCode: string): void {

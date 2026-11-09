@@ -546,4 +546,21 @@ describe('GameView', () => {
     gameView.syncFromState({ ...base, board: { ...base.board, width: 24, height: 36 } });
     expect(calls.at(-1)).toEqual(['guest', { width: 24, height: 36 }]);
   });
+
+  it('clears outcome tokens and markers from the old match when the gameId changes (rematch)', () => {
+    const sceneManager = makeSceneManager();
+    const gameView = new GameView({ sceneManager });
+    const base = makeState({ units: [makeUnit({ id: 'a', position: { x: 3, y: 0, z: 3 } })] });
+    gameView.syncFromState(base);
+    gameView.showOutcomeToken({ x: 3, y: 0, z: 3 }, 2);
+    const outcome = () => sceneManager.getScene().getObjectByName('marker-outcome-2');
+    expect(outcome()).toBeDefined();
+
+    // Same match: tokens persist.
+    gameView.syncFromState({ ...base, lastActionId: 'next' });
+    expect(outcome()).toBeDefined();
+
+    gameView.syncFromState({ ...base, gameId: 'rematch-game' });
+    expect(outcome()).toBeUndefined();
+  });
 });
