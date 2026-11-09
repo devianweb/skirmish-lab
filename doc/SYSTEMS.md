@@ -352,6 +352,14 @@ When host applies a valid action:
 ## Win Conditions
 Victory conditions are mission data. v1 ships a simple elimination mission; objective-based missions come later as data packs.
 
+### Concede and the results screen (HUD, 14A)
+- The header carries a muted **Concede** button for both players until the match is over (deployment included). It opens a confirmation ("Concede the match? You lose and your opponent wins."); only the confirmed button sends a `concede` action. While waiting it reads "Conceding…" and is disabled.
+- A guest that gets no confirmed state within 5 s gets the button back and a toast ("Couldn't reach your opponent; the concede wasn't sent."); nothing is applied locally. The host applies its own concede locally, so it never times out. A rejection also restores the button.
+- `GameManager` queues a `concede` that arrives while another action's dice request is in flight and applies it right after that action; if that action already ended the game, the queued concede is dropped silently.
+- The conceder stays on the game-over modal ("Defeat", "<name> conceded") and the opponent sees "Victory". Conceding never calls `onReturnToLobby`.
+- The modal is built from `summarizeMatch(state)`: title (Victory / Defeat / Draw), the reason, "Rounds played: N of 4", the objective score and per-objective breakdown, one loss line per side ("<Name> lost U of T units (M of N models)", host first), and the Return to Lobby button in an actions row with room for a second button.
+- After game over the "Opponent disconnected" banner is suppressed (leaving through Return to Lobby is expected); a disconnected peer shows "<name> has left." on the modal instead.
+
 ## Balance & Validation
 - Host enforces all rules strictly
 - No client-side shortcuts

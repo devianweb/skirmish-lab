@@ -1,5 +1,5 @@
 # 14A: Match end, results and Concede
-Status: approved
+Status: done
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14A
 
 ## Goal
