@@ -107,7 +107,7 @@ describe('GameHUD split charges (batch 1D PR 16)', () => {
     expect(validateAction(state, action).valid).toBe(true);
   });
 
-  it('after declaring, the HUD stays in the charge flow with the budget and an End (no melee) button, and no Cancel', () => {
+  it('after declaring, the HUD stays in the charge flow with the budget and an Abandon charge button, and no Cancel', () => {
     const { hud, container, controller, state, enemy } = setup(P(-0.5, 3, 0), P(4.5, 3, 0), decks);
     clickByText(container, 'Charge');
     hud.handleBoardPick({ kind: 'unit', unitId: enemy.id });
@@ -117,7 +117,7 @@ describe('GameHUD split charges (batch 1D PR 16)', () => {
     hud.syncFromState(declared.state!);
     expect(container.textContent).toContain('Charge declared');
     expect(container.textContent).toContain('12.0" left');
-    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent === 'End (no melee)')).toBe(true);
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent === 'Abandon charge')).toBe(true);
     expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent === 'Cancel')).toBe(false);
 
     // from the ledge edge, hovering across the gap offers the jump chip like a move
@@ -160,7 +160,7 @@ describe('GameHUD split charges (batch 1D PR 16)', () => {
     expect(controller.submitAction).not.toHaveBeenCalled();
   });
 
-  it('End (no melee) abandons the charge through end-activation', () => {
+  it('Abandon charge ends the activation with no melee (end-activation)', () => {
     const { hud, container, controller, state, enemy } = setup(P(-0.5, 3, 0), P(4.5, 3, 0), decks);
     clickByText(container, 'Charge');
     hud.handleBoardPick({ kind: 'unit', unitId: enemy.id });
@@ -169,7 +169,7 @@ describe('GameHUD split charges (batch 1D PR 16)', () => {
     if (!declared.ok) throw new Error(declared.reason);
     hud.syncFromState(declared.state!);
     controller.submitAction.mockClear();
-    clickByText(container, 'End (no melee)');
+    clickByText(container, 'Abandon charge');
     expect(container.textContent).toContain('Abandon the charge');
     clickByText(container, 'Confirm');
     const action = controller.submitAction.mock.calls[0][0];

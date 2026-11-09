@@ -122,6 +122,20 @@ describe('GameHUD concede and results screen (14A)', () => {
     expect(container.querySelector('.sl-hud-gameover')).toBeNull();
   });
 
+  it('with the disconnect banner up, the toast stacks under the banner instead of behind it', () => {
+    // Owner feedback 2026-11-09 (checklist 9.4): the toast was hidden behind the "Opponent disconnected" banner.
+    const { container, hud } = setup(GUEST);
+    hud.setNetworkStatus({ peer: 'disconnected' });
+    q(container, 'concede-open')!.click();
+    q(container, 'concede-confirm')!.click();
+    vi.advanceTimersByTime(5100);
+    const stack = container.querySelector('.sl-hud-alerts')!;
+    expect(stack.textContent).toContain('Opponent disconnected');
+    const toast = stack.querySelector('.sl-hud-toast');
+    expect(toast?.textContent).toBe("Couldn't reach your opponent; the concede wasn't sent.");
+    expect(container.querySelectorAll('.sl-hud-toast').length).toBe(1);
+  });
+
   it('the host never times out waiting', () => {
     const { container } = setup(HOST);
     q(container, 'concede-open')!.click();

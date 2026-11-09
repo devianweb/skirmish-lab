@@ -2669,7 +2669,9 @@ export class GameHUD {
     } else if (this.signalingState === 'disconnected') {
       alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling offline</div>');
     }
-    const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}</div>` : '';
+    // A toast shown while a banner is up stacks underneath it instead of being hidden behind it.
+    const toastHtml = this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : '';
+    const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}${toastHtml}</div>` : '';
 
     const isDeployPhase = state.turnState.phase === 'deployment';
     const roundBadge = isDeployPhase
@@ -2787,7 +2789,7 @@ export class GameHUD {
       : '';
 
     return `${alertsHtml}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
-      this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : ''
+      alerts.length ? '' : toastHtml
     }`;
   }
 
@@ -3660,7 +3662,7 @@ export class GameHUD {
               }
               ${
                 this.flow.action === 'charge' && this.declaredCharge
-                  ? '<button class="sl-hud-btn primary" data-action="end-activation">End (no melee)</button>'
+                  ? '<button class="sl-hud-btn" data-action="end-activation" title="Abandon the charge and end the activation with no melee">Abandon charge</button>'
                   : '<button class="sl-hud-btn" data-action="cancel">Cancel</button>'
               }
             </div>
@@ -4945,6 +4947,7 @@ export class GameHUD {
 .sl-hud-toast { position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
   background: #263238; color: #ffd54f; border: 1px solid #4f5b62; border-radius: 8px;
   padding: 8px 16px; font-size: 13px; pointer-events: none; }
+.sl-hud-alerts .sl-hud-toast { position: static; transform: none; margin-top: 8px; }
 .sl-hud-gameover { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   pointer-events: auto; background: rgba(10, 12, 16, 0.94); border: 2px solid #ffd54f;
   border-radius: 12px; padding: 24px 36px; text-align: center; box-shadow: 0 12px 32px rgba(0,0,0,0.6); }
