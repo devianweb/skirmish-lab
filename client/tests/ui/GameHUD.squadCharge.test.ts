@@ -88,7 +88,11 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     const ctx = setup();
     declare(ctx);
     expect(ctx.container.textContent).toContain('place Model 1 of 3');
-    expect(Array.from(ctx.container.querySelectorAll('button')).some((b) => b.textContent === 'End (no melee)')).toBe(true);
+    // Owner feedback 2026-11-09: abandoning is a quiet secondary button, never the highlighted action
+    const abandon = Array.from(ctx.container.querySelectorAll('button')).find((b) => b.textContent === 'Abandon charge');
+    expect(abandon).toBeTruthy();
+    expect(abandon!.classList.contains('primary')).toBe(false);
+    expect(Array.from(ctx.container.querySelectorAll('button')).some((b) => b.textContent === 'End (no melee)')).toBe(false);
   });
 
   it('a declared squad charge draws one ring, on the selected model, not a second unit-wide disc', () => {
