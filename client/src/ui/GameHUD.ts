@@ -675,13 +675,13 @@ export class GameHUD {
               stopBeforeDifficult: isRush || !!active.isRushing,
             });
 
-        const targetTerrain = findTerrainAtPosition(this.state, cursor);
-        const isTargetDifficult =
-          targetTerrain &&
-          (targetTerrain.isDifficult ||
-            targetTerrain.terrainType === 'mud' ||
-            targetTerrain.terrainType === 'trench' ||
-            targetTerrain.terrainType === 'forest');
+        // The planner stops a Rush just outside difficult ground on the way to the cursor (inside it, or past it)
+        const pathEnd = path.length > 0 ? path[path.length - 1] : null;
+        const stoppedBeforeDifficult =
+          !!pathEnd &&
+          boardDistance(pathEnd, cursor) > 0.1 &&
+          isPathDifficult(this.state, [pathEnd, cursor], active) &&
+          !isPathDifficult(this.state, path, active);
 
         const isElevationObstacle =
           !resolved.jump &&
@@ -693,7 +693,7 @@ export class GameHUD {
           path.length > 0 &&
           !hasTrait(active.specialRules, 'airborne') &&
           (isElevationObstacle ||
-            (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], cursor) > 0.1));
+            stoppedBeforeDifficult);
 
         const isDifficult =
           !resolved.jump &&
@@ -1965,13 +1965,13 @@ export class GameHUD {
           stopBeforeDifficult: true,
         });
 
-    const targetTerrain = findTerrainAtPosition(this.state, rawDestination);
-    const isTargetDifficult =
-      targetTerrain &&
-      (targetTerrain.isDifficult ||
-        targetTerrain.terrainType === 'mud' ||
-        targetTerrain.terrainType === 'trench' ||
-        targetTerrain.terrainType === 'forest');
+    // The planner stops a Rush just outside difficult ground on the way to the cursor (inside it, or past it)
+    const pathEnd = path.length > 0 ? path[path.length - 1] : null;
+    const stoppedBeforeDifficult =
+      !!pathEnd &&
+      boardDistance(pathEnd, rawDestination) > 0.1 &&
+      isPathDifficult(this.state, [pathEnd, rawDestination], active) &&
+      !isPathDifficult(this.state, path, active);
 
     const isElevationObstacle =
       !jump &&
@@ -1982,7 +1982,7 @@ export class GameHUD {
       path.length > 0 &&
       !hasTrait(active.specialRules, 'airborne') &&
       (isElevationObstacle ||
-        (Boolean(isTargetDifficult) && boardDistance(path[path.length - 1], rawDestination) > 0.1));
+        stoppedBeforeDifficult);
 
     const isDifficult =
       !jump &&
