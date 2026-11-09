@@ -221,3 +221,8 @@ const RUIN: TerrainGroup = {
 };
 TERRAIN_STRUCTURES.ruin = RUIN;
 TERRAIN_STRUCTURES['ruin-l'] = RUIN;
+
+// Area terrain: a footprint only. No solids or apertures, so it never blocks movement or sight, and
+// (unlike an unknown type) it never falls back to a full-footprint body.
+TERRAIN_STRUCTURES['rubble-field'] = { id: 'rubble-field', solids: [] };
+TERRAIN_STRUCTURES['hazard-pool'] = { id: 'hazard-pool', solids: [] };

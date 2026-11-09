@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CustomMapDefinition,
   createBlankMap,
-  createDefaultScenarioTerrain,
+  createStandardBattlefieldMap,
   TERRAIN_PALETTE_CATALOG,
 } from '@skirmish-lab/shared';
+import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { MapEditor } from '../../src/editor/MapEditor';
 import { MapStore } from '../../src/storage/MapStore';
 
@@ -219,7 +220,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(badge.textContent).toContain('Notice');
 
     // Place a valid preset map with 0 warnings
-    editor.setMap({ ...createBlankMap(), terrain: createDefaultScenarioTerrain() });
+    editor.setMap({ ...createBlankMap(), terrain: legacyScenarioTerrain() });
     notices = editor.getValidationNotices();
     expect(notices).toHaveLength(0);
 
@@ -372,6 +373,88 @@ describe('MapEditor 3D Battlefield Builder', () => {
     const wall = editor.placePieceAt('wall', { x: 0, y: 0, z: 0 })!;
     editor.selectPiece(wall.id);
     expect(container.querySelector('#inspectClimbable')).toBeNull();
+  });
+
+  describe('area terrain palette and flags (13.6E)', () => {
+    const toggle = (selector: string, on: boolean) => {
+      const box = container.querySelector(selector) as HTMLInputElement;
+      box.checked = on;
+      box.dispatchEvent(new Event('change'));
+    };
+
+    it('the palette has an Area Terrain category listing both area pieces', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const btn = container.querySelector('button[data-category="area"]') as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      expect(btn.textContent).toContain('Area Terrain');
+      btn.click();
+      expect(container.textContent).toContain(TERRAIN_PALETTE_CATALOG['rubble-field'].displayName);
+      expect(container.textContent).toContain(TERRAIN_PALETTE_CATALOG['hazard-pool'].displayName);
+    });
+
+    it('placing area pieces copies the catalog flags and gives no elevation', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      const rubble = editor.placePieceAt('rubble-field', { x: 0, y: 0, z: 0 })!;
+      const pool = editor.placePieceAt('hazard-pool', { x: 8, y: 0, z: 0 })!;
+      expect(rubble.isDifficult).toBe(true);
+      expect(rubble.isDangerous).toBeUndefined();
+      expect(rubble.elevation).toBeUndefined();
+      expect(pool.isDangerous).toBe(true);
+      expect(pool.isDifficult).toBeUndefined();
+      expect(pool.elevation).toBeUndefined();
+      // Ordinary pieces carry no explicit flags
+      const crate = editor.placePieceAt('crate', { x: 0, y: 0, z: 8 })!;
+      expect('isDifficult' in crate).toBe(false);
+      expect('isDangerous' in crate).toBe(false);
+    });
+
+    it('the inspector shows the effective flags', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const rubble = editor.placePieceAt('rubble-field', { x: 0, y: 0, z: 0 })!;
+      editor.selectPiece(rubble.id);
+      expect((container.querySelector('#inspectDifficult') as HTMLInputElement).checked).toBe(true);
+      expect((container.querySelector('#inspectDangerous') as HTMLInputElement).checked).toBe(false);
+      const pool = editor.placePieceAt('hazard-pool', { x: 8, y: 0, z: 0 })!;
+      editor.selectPiece(pool.id);
+      expect((container.querySelector('#inspectDifficult') as HTMLInputElement).checked).toBe(false);
+      expect((container.querySelector('#inspectDangerous') as HTMLInputElement).checked).toBe(true);
+    });
+
+    it('unchecking Difficult stores an explicit false; checking Dangerous on a crate stores true; both survive save and load', () => {
+      const editor = new MapEditor(container);
+      editor.show();
+      const rubble = editor.placePieceAt('rubble-field', { x: 0, y: 0, z: 0 })!;
+      editor.selectPiece(rubble.id);
+      toggle('#inspectDifficult', false);
+      expect(editor.getMap().terrain.find((t) => t.id === rubble.id)?.isDifficult).toBe(false);
+
+      const crate = editor.placePieceAt('crate', { x: 0, y: 0, z: 8 })!;
+      editor.selectPiece(crate.id);
+      expect((container.querySelector('#inspectDangerous') as HTMLInputElement).checked).toBe(false);
+      toggle('#inspectDangerous', true);
+      expect(editor.getMap().terrain.find((t) => t.id === crate.id)?.isDangerous).toBe(true);
+
+      editor.importJson(editor.exportJson());
+      const terrain = editor.getMap().terrain;
+      expect(terrain.find((t) => t.id === rubble.id)?.isDifficult).toBe(false);
+      expect(terrain.find((t) => t.id === crate.id)?.isDangerous).toBe(true);
+      editor.selectPiece(rubble.id);
+      expect((container.querySelector('#inspectDifficult') as HTMLInputElement).checked).toBe(false);
+    });
+
+    it('area pieces follow the scatter stacking rule: ground stays ground, dropped on a deck sits on it', () => {
+      const editor = new MapEditor(container);
+      editor.clearBoard();
+      editor.placePieceAt('platform-small', { x: 0, y: 0, z: 0 });
+      const onGround = editor.placePieceAt('rubble-field', { x: 10, y: 0, z: 10 })!;
+      expect(onGround.position.y).toBe(0);
+      const onDeck = editor.placePieceAt('hazard-pool', { x: 0, y: 2.9, z: 0 }, 0, 2.9)!;
+      expect(onDeck.position.y).toBe(3.0);
+      expect(onDeck.elevation).toBeUndefined();
+    });
   });
 
   it('loadMap returns false for unknown ids', () => {
@@ -594,7 +677,7 @@ describe('MapEditor objective selection (13.6 playtest fix)', () => {
       const editor = new MapEditor(container);
       editor.show();
       const map = editor.getMap();
-      map.terrain = [{ ...createDefaultScenarioTerrain()[0], id: 'far', position: { x: 22, y: 0, z: 0 } }];
+      map.terrain = [{ ...legacyScenarioTerrain()[0], id: 'far', position: { x: 22, y: 0, z: 0 } }];
       editor.setMap(map);
       const outside = () =>
         editor.getValidationNotices().some((n) => n.message.includes('"far"') && n.message.includes('outside'));
@@ -622,6 +705,65 @@ describe('MapEditor objective selection (13.6 playtest fix)', () => {
       const reopened = new MapEditor(document.createElement('div'), { mapStore });
       expect(reopened.loadMap(editor.getMap().id)).toBe(true);
       expect(reopened.getBoardSize()).toEqual({ width: 60, height: 30 });
+    });
+  });
+
+  describe('built-in maps', () => {
+    function memoryStore(): MapStore {
+      const mem = new Map<string, string>();
+      return new MapStore({
+        getItem: (k: string) => mem.get(k) ?? null,
+        setItem: (k: string, v: string) => void mem.set(k, v),
+        removeItem: (k: string) => void mem.delete(k),
+        clear: () => mem.clear(),
+        key: (i: number) => Array.from(mem.keys())[i] ?? null,
+        get length() { return mem.size; },
+      } as Storage);
+    }
+
+    it('Load list has a Built-in group with the Standard Battlefield', () => {
+      const editor = new MapEditor(container, { mapStore: memoryStore() });
+      editor.show();
+      const select = container.querySelector('#loadMapSelect') as HTMLSelectElement;
+      const group = Array.from(select.querySelectorAll('optgroup')).find((g) => g.label === 'Built-in');
+      expect(group).toBeTruthy();
+      expect((group!.querySelector('option') as HTMLOptionElement).value).toBe('builtin:standard-battlefield');
+    });
+
+    it('loading it gives a renamed deep copy with a fresh id', () => {
+      const editor = new MapEditor(container, { mapStore: memoryStore() });
+      editor.show();
+      expect(editor.loadMap('builtin:standard-battlefield')).toBe(true);
+      const map = editor.getMap();
+      const original = JSON.parse(JSON.stringify(createStandardBattlefieldMap())); // JSON drops -0
+      expect(map.id).toMatch(/^custom-\d+$/);
+      expect(map.name).toBe('Standard Battlefield (copy)');
+      expect(map.terrain).toEqual(original.terrain);
+      expect(map.objectives).toEqual(original.objectives);
+      expect(map.board).toEqual(original.board);
+      // Mutating the loaded copy does not leak into the next load
+      map.terrain!.length = 0;
+      editor.loadMap('builtin:standard-battlefield');
+      expect(editor.getMap().terrain?.length).toBe(original.terrain?.length);
+    });
+
+    it('loading via the select works and saving never stores the built-in id', () => {
+      const mapStore = memoryStore();
+      const editor = new MapEditor(container, { mapStore });
+      editor.show();
+      const select = container.querySelector('#loadMapSelect') as HTMLSelectElement;
+      select.value = 'builtin:standard-battlefield';
+      select.dispatchEvent(new Event('change'));
+      editor.saveToStore();
+      const saved = mapStore.getMaps();
+      expect(saved).toHaveLength(1);
+      expect(saved[0].name).toBe('Standard Battlefield (copy)');
+      expect(saved[0].id).not.toBe('standard-battlefield');
+    });
+
+    it('unknown built-in ids fail to load', () => {
+      const editor = new MapEditor(container, { mapStore: memoryStore() });
+      expect(editor.loadMap('builtin:nope')).toBe(false);
     });
   });
 });

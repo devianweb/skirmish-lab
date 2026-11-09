@@ -13,6 +13,8 @@ import {
   isStairPiece,
   SegmentKind,
   isClimbable,
+  isDifficultPiece,
+  isDangerousPiece,
   getWalkableSurfaces,
 } from '@skirmish-lab/shared';
 import { ModelLoader } from './ModelLoader';
@@ -618,6 +620,31 @@ export class MarkerRenderer {
           line.name = 'climbable-outline';
           pieceGroup.add(line);
         }
+      }
+
+      // Footprint outline for ground that changes how models move: yellow = difficult, red = dangerous.
+      // A piece that is both draws both outlines (the red one slightly higher so neither hides the other).
+      const baseY = piece.position.y ?? 0;
+      const flags: Array<[boolean, number, number]> = [
+        [isDifficultPiece(piece), 0xffeb3b, 0.06],
+        [isDangerousPiece(piece), 0xff1744, 0.09],
+      ];
+      for (const [on, color, lift] of flags) {
+        if (!on) continue;
+        const y = baseY + lift;
+        const pts = [
+          new THREE.Vector3(-hx, y, -hz),
+          new THREE.Vector3(hx, y, -hz),
+          new THREE.Vector3(hx, y, hz),
+          new THREE.Vector3(-hx, y, hz),
+          new THREE.Vector3(-hx, y, -hz),
+        ];
+        const outline = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color })
+        );
+        outline.name = 'area-outline';
+        pieceGroup.add(outline);
       }
 
       group.add(pieceGroup);

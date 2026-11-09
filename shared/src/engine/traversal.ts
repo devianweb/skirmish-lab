@@ -1,13 +1,12 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { isClimbable } from '../data/mapSchema';
+import { isClimbable, isDangerousPiece, isDifficultPiece } from '../data/mapSchema';
 import {
   DROP_STANDOFF,
   computeSquadCentroid,
   findEndOverlap,
   findMoveBlocker,
-  findTerrainAtPosition,
   collectWalkableSurfaces,
   findWalkableSurfaceAt,
   findWalkableSurfaceIn,
@@ -17,6 +16,8 @@ import {
   isLadderStepSegment,
   isSegmentOnLadder,
   isSegmentOnRampOrStairs,
+  pointInsideFootprintAtLevel,
+  segmentCrossesFootprintAtLevel,
   worldToLocal,
 } from './spatial';
 
@@ -303,8 +304,30 @@ export function validateMeleeVerticalReach(a: Vector3, b: Vector3): boolean {
   return dy <= MELEE_MAX_VERTICAL_REACH;
 }
 
+/** Whether any segment of the path (or its single point) crosses a flagged piece's footprint at the piece's level. */
+function pathCrossesFlaggedPiece(
+  state: GameState,
+  path: Vector3[],
+  flagged: (piece: TerrainPiece) => boolean
+): boolean {
+  const pieces = state.terrain.filter(flagged);
+  if (pieces.length === 0 || path.length === 0) return false;
+  for (const piece of pieces) {
+    if (path.length === 1) {
+      if (segmentCrossesFootprintAtLevel(piece, path[0], path[0])) return true;
+      continue;
+    }
+    for (let i = 1; i < path.length; i++) {
+      if (segmentCrossesFootprintAtLevel(piece, path[i - 1], path[i])) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Checks whether a movement path encounters Difficult Terrain (climbing is ordinary movement, never difficult).
+ * Every segment is tested against every difficult piece's footprint at that piece's level, so a straight walk
+ * across a piece counts even when both ends are outside it.
  */
 export function isPathDifficult(
   state: GameState,
@@ -317,26 +340,12 @@ export function isPathDifficult(
   if (unit && hasTrait(unit.specialRules, 'airborne')) {
     return false; // Airborne ignores all terrain effects
   }
-
-  // Check difficult terrain pieces along the path
-  for (const point of path) {
-    const piece = findTerrainAtPosition(state, point);
-    if (
-      piece &&
-      (piece.isDifficult ||
-        piece.terrainType === 'trench' ||
-        piece.terrainType === 'forest' ||
-        piece.terrainType === 'mud')
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+  return pathCrossesFlaggedPiece(state, path, isDifficultPiece);
 }
 
 /**
- * Checks whether a movement path passes through Dangerous Terrain (toxic waste, fire, spikes).
+ * Checks whether a movement path passes through Dangerous Terrain (toxic waste, fire, spikes, hazard pools),
+ * segment by segment like `isPathDifficult`.
  */
 export function isPathDangerous(
   state: GameState,
@@ -346,21 +355,22 @@ export function isPathDangerous(
   if (unit && hasTrait(unit.specialRules, 'airborne')) {
     return false; // Airborne models fly over dangerous ground terrain
   }
+  return pathCrossesFlaggedPiece(state, path, isDangerousPiece);
+}
 
-  for (const point of path) {
-    const piece = findTerrainAtPosition(state, point);
-    if (
-      piece &&
-      (piece.isDangerous ||
-        piece.terrainType === 'toxic' ||
-        piece.terrainType === 'hazard' ||
-        piece.terrainType === 'fire')
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+/**
+ * Living models of `unit` standing (centre) inside a dangerous piece at its level, in unit model order.
+ * Each of them rolls the hazard test when the unit activates. Airborne units are exempt.
+ */
+export function modelsInDangerousTerrain(state: GameState, unit: Unit): Model[] {
+  if (hasTrait(unit.specialRules, 'airborne')) return [];
+  const pieces = state.terrain.filter(isDangerousPiece);
+  if (pieces.length === 0) return [];
+  return unit.models.filter((m) => {
+    if (m.isDestroyed) return false;
+    const pos = m.position ?? unit.position;
+    return pieces.some((piece) => pointInsideFootprintAtLevel(piece, pos));
+  });
 }
 
 /**

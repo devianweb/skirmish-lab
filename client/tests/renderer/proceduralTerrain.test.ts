@@ -14,7 +14,7 @@ import {
   createProceduralCatwalk,
   createProceduralLadder,
 } from '../../src/renderer/ModelLoader';
-import { resolveTerrainStructure } from '@skirmish-lab/shared';
+import { resolveTerrainStructure, TERRAIN_PALETTE_CATALOG, TERRAIN_STRUCTURES } from '@skirmish-lab/shared';
 
 function bounds(o: THREE.Object3D): THREE.Box3 {
   return new THREE.Box3().setFromObject(o);
@@ -30,27 +30,131 @@ function occupied(o: THREE.Object3D, region: THREE.Box3): boolean {
   return hit;
 }
 
-const builders = {
-  wall: createProceduralSolidWall,
-  window: createProceduralWindowWall,
-  doorway: createProceduralDoorwayWall,
-  column: createProceduralColumn,
-  ruin: createProceduralLCornerRuin,
-};
+/** Meshes that count as the piece's body: real meshes, not visual-only decor (kick-plates, tread ridges). */
+function bodyMeshes(o: THREE.Object3D): THREE.Box3[] {
+  o.updateMatrixWorld(true);
+  const out: THREE.Box3[] = [];
+  o.traverse((c) => {
+    const m = c as THREE.Mesh;
+    if (m.isMesh && m.userData.decor !== true) out.push(new THREE.Box3().setFromObject(c));
+  });
+  return out;
+}
 
-describe('procedural wargaming terrain', () => {
-  for (const [name, build] of Object.entries(builders)) {
-    it(`${name} stays inside the unit collision box with base at y=0`, () => {
-      const b = bounds(build());
-      expect(b.min.y).toBeCloseTo(0);
+const unitPieceOf = (type: string) => ({
+  id: 'u',
+  terrainType: type,
+  position: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+  scale: { x: 1, y: 1, z: 1 },
+  blocksLineOfSight: true,
+  providesCover: true,
+  isObstacle: true,
+});
+
+describe('catalog parity sweep: every palette piece', () => {
+  const loader = new ModelLoader(async () => new THREE.Group());
+  // Climbing fittings have custom shapes (wedge, rails) rather than one mesh per fallback solid.
+  const CUSTOM_SHAPE = new Set(['stairs', 'ladder']);
+
+  for (const type of Object.keys(TERRAIN_PALETTE_CATALOG)) {
+    it(`${type}: procedural builder (no fallback block), body inside the unit box`, () => {
+      const mesh = loader.createTerrainMesh(type);
+      let fallback = false;
+      mesh.traverse((c) => {
+        if (c.userData.fallbackBlock === true) fallback = true;
+      });
+      expect(fallback, `${type} renders the generic fallback block`).toBe(false);
+      const boxes = bodyMeshes(mesh);
+      expect(boxes.length, `${type} has no body meshes`).toBeGreaterThan(0);
+      const b = boxes.reduce((acc, x) => acc.union(x), new THREE.Box3());
+      expect(b.min.y).toBeGreaterThanOrEqual(-1e-6);
       expect(b.max.y).toBeLessThanOrEqual(1 + 1e-6);
       expect(b.min.x).toBeGreaterThanOrEqual(-0.5 - 1e-6);
       expect(b.max.x).toBeLessThanOrEqual(0.5 + 1e-6);
       expect(b.min.z).toBeGreaterThanOrEqual(-0.5 - 1e-6);
       expect(b.max.z).toBeLessThanOrEqual(0.5 + 1e-6);
     });
+
+    if (CUSTOM_SHAPE.has(type)) continue;
+    it(`${type}: every collision solid is built from meshes that fill its bounds`, () => {
+      const solids = resolveTerrainStructure(unitPieceOf(type)).solids;
+      const boxes = bodyMeshes(loader.createTerrainMesh(type));
+      const eps = 1e-6;
+      for (const s of solids) {
+        // A solid may be split into several meshes (body + coping, plinth + shaft + cap), but the
+        // meshes lying inside it must together span exactly its bounds, so mesh and collision agree.
+        const inside = boxes.filter(
+          (m) =>
+            m.min.x >= s.minX - eps && m.max.x <= s.maxX + eps &&
+            m.min.y >= s.minY - eps && m.max.y <= s.maxY + eps &&
+            m.min.z >= s.minZ - eps && m.max.z <= s.maxZ + eps
+        );
+        const u = inside.reduce((acc, x) => acc.union(x), new THREE.Box3());
+        const ok =
+          inside.length > 0 &&
+          Math.abs(u.min.x - s.minX) < eps && Math.abs(u.max.x - s.maxX) < eps &&
+          Math.abs(u.min.y - s.minY) < eps && Math.abs(u.max.y - s.maxY) < eps &&
+          Math.abs(u.min.z - s.minZ) < eps && Math.abs(u.max.z - s.maxZ) < eps;
+        expect(ok, `${type} solid ${s.id} has no mesh filling its bounds`).toBe(true);
+      }
+    });
   }
 
+  it('area pieces are structures with no solids (visual only)', () => {
+    expect(TERRAIN_STRUCTURES['rubble-field'].solids).toHaveLength(0);
+    expect(TERRAIN_STRUCTURES['hazard-pool'].solids).toHaveLength(0);
+  });
+});
+
+describe('area terrain meshes (13.6E)', () => {
+  const loader = new ModelLoader(async () => new THREE.Group());
+  const scaled = (type: 'rubble-field' | 'hazard-pool') => {
+    const mesh = loader.createTerrainMesh(type);
+    const { x, y, z } = TERRAIN_PALETTE_CATALOG[type].defaultScale;
+    mesh.scale.set(x, y, z);
+    return mesh;
+  };
+
+  it('rubble field: flat, chunks no taller than 0.25", base slab no thicker than 0.05"', () => {
+    const boxes = bodyMeshes(scaled('rubble-field'));
+    const top = Math.max(...boxes.map((b) => b.max.y));
+    expect(top).toBeLessThanOrEqual(0.25 + 1e-6);
+    expect(top).toBeGreaterThan(0.05); // chunks rise above the slab
+    const slab = boxes.find((b) => b.max.x - b.min.x > 5.9 && b.max.z - b.min.z > 3.9)!;
+    expect(slab, 'full-footprint base slab').toBeDefined();
+    expect(slab.min.y).toBeCloseTo(0);
+    expect(slab.max.y).toBeLessThanOrEqual(0.05 + 1e-6);
+    expect(boxes.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('rubble field is deterministic (identical geometry on every build)', () => {
+    const sig = () =>
+      bodyMeshes(loader.createTerrainMesh('rubble-field'))
+        .map((b) => b.min.toArray().concat(b.max.toArray()).join(','))
+        .join('|');
+    expect(sig()).toBe(sig());
+  });
+
+  it('hazard pool: flat slab no taller than 0.1" with an emissive top inset by 0.1"', () => {
+    const mesh = scaled('hazard-pool');
+    const boxes = bodyMeshes(mesh);
+    expect(Math.max(...boxes.map((b) => b.max.y))).toBeLessThanOrEqual(0.1 + 1e-6);
+    let glow: THREE.Mesh | null = null;
+    mesh.traverse((c) => {
+      const m = c as THREE.Mesh;
+      const mat = m.material as THREE.MeshStandardMaterial | undefined;
+      if (m.isMesh && mat && mat.emissiveIntensity > 0 && mat.emissive.getHex() !== 0) glow = m;
+    });
+    expect(glow).not.toBeNull();
+    const eb = new THREE.Box3().setFromObject(glow!);
+    expect(eb.max.x - eb.min.x).toBeCloseTo(3.8, 4);
+    expect(eb.max.z - eb.min.z).toBeCloseTo(3.8, 4);
+    expect(eb.max.y).toBeCloseTo(0.1, 4);
+  });
+});
+
+describe('procedural wargaming terrain', () => {
   it('doorway leaves a walkable central opening but is solid beside it', () => {
     const w = createProceduralDoorwayWall();
     expect(occupied(w, new THREE.Box3(new THREE.Vector3(-0.1, 0.01, -0.5), new THREE.Vector3(0.1, 0.8, 0.5)))).toBe(false);

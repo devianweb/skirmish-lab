@@ -16,7 +16,7 @@ import {
 } from './terrainStructure';
 
 import { classifySegment, CLIMB_MAX, FREE_DROP_MAX, pathMovementCost } from './traversal';
-import { isClimbable } from '../data/mapSchema';
+import { isAreaPiece, isClimbable, isDifficultPiece } from '../data/mapSchema';
 
 export * from './terrainStructure';
 
@@ -142,6 +142,53 @@ export function isStepOverPiece(piece: TerrainPiece): boolean {
 /** True if the piece's structure has at least one walkable solid (deck, catwalk, ledge, roof). */
 export function hasStructuredFloor(piece: TerrainPiece): boolean {
   return resolveTerrainStructure(piece).solids.some((solid) => solid.walkable);
+}
+
+/** The height band in which a model counts as being "at the level" of a piece (same band as `findTerrainAtPosition`). */
+function pieceLevelBand(piece: TerrainPiece): { lo: number; hi: number } {
+  const base = piece.position.y ?? 0;
+  const top = legacyElevation(piece) ?? base + (piece.scale.y ?? 1.0);
+  return { lo: base - 0.25, hi: top + 0.6 };
+}
+
+/**
+ * Whether the straight segment a -> b passes through the piece's footprint (plus `margin`) at the
+ * piece's own level: some part of the segment inside the footprint has a height within the piece's
+ * level band. A point (a === b) counts when it stands in the footprint at that level. Points without
+ * a height are taken to be at every level.
+ */
+export function segmentCrossesFootprintAtLevel(
+  piece: TerrainPiece,
+  a: Vector3,
+  b: Vector3,
+  margin: number = 0.15
+): boolean {
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const hit =
+    len < 1e-6
+      ? intersectRayTerrain(a, 1, 0, 0, piece, margin)
+      : intersectRayTerrain(a, (b.x - a.x) / len, (b.z - a.z) / len, len, piece, margin);
+  if (!hit) return false;
+  if (a.y === undefined || b.y === undefined) return true;
+  const t0 = len < 1e-6 ? 0 : hit.tEntry / len;
+  const t1 = len < 1e-6 ? 0 : hit.tExit / len;
+  const y0 = a.y + (b.y - a.y) * t0;
+  const y1 = a.y + (b.y - a.y) * t1;
+  const { lo, hi } = pieceLevelBand(piece);
+  return Math.max(y0, y1) >= lo && Math.min(y0, y1) <= hi;
+}
+
+/**
+ * Whether a point stands inside the piece's footprint at the piece's level. `inset` shrinks the footprint
+ * on every side (0.5 = a whole base of radius 0.5 fits inside).
+ */
+export function pointInsideFootprintAtLevel(piece: TerrainPiece, p: Vector3, inset: number = 0): boolean {
+  const { hx, hz } = terrainHalfExtents(piece);
+  const l = worldToLocal(piece, { x: p.x, y: 0, z: p.z });
+  if (Math.abs(l.x) > hx - inset + 1e-6 || Math.abs(l.z) > hz - inset + 1e-6) return false;
+  if (p.y === undefined) return true;
+  const { lo, hi } = pieceLevelBand(piece);
+  return p.y >= lo && p.y <= hi;
 }
 
 /**
@@ -1310,6 +1357,17 @@ export function findCoverSource(
   for (const piece of state.terrain) {
     if (!piece.providesCover) continue;
 
+    // Area terrain covers the models standing in it, whatever the line of fire (plunging fire included), and
+    // never the models behind it. Several living models: the whole base must be inside; a lone model: its centre.
+    if (isAreaPiece(piece)) {
+      const living = target.models ? target.models.filter((m) => !m.isDestroyed).length : 1;
+      const inset = living > 1 ? UNIT_BASE_RADIUS : 0;
+      if (pointInsideFootprintAtLevel(piece, target.position, inset)) {
+        return { pieceId: piece.id, reason: `Standing in area terrain (${piece.terrainType})` };
+      }
+      continue;
+    }
+
     // Plunging fire looks over ground-level low cover (crates, low barricades <= 1.5")
     if (
       isPlungingFire &&
@@ -1769,6 +1827,33 @@ export function computeLosVisibilityPolygon(
   }
 
   return polygon;
+}
+
+/**
+ * The first difficult piece that the segment p1 -> p2 enters from outside (a straight walk across it counts,
+ * the far end need not be inside), with the stop point just before its edge. Null when p1 already stands in
+ * (or at the edge of) a difficult piece, or the segment crosses none.
+ */
+function findEnteredDifficultPiece(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3
+): { piece: TerrainPiece; entry: Vector3 } | null {
+  let best: { piece: TerrainPiece; entry: Vector3 } | null = null;
+  let bestDist = Infinity;
+  for (const piece of state.terrain) {
+    if (!isDifficultPiece(piece)) continue;
+    if (segmentCrossesFootprintAtLevel(piece, p1, p1)) return null; // already in difficult ground
+    if (!segmentCrossesFootprintAtLevel(piece, p1, p2)) continue;
+    const entry = findDifficultTerrainEntry(p1, p2, piece);
+    if (!entry) continue;
+    const d = Math.hypot(entry.x - p1.x, entry.z - p1.z);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { piece, entry };
+    }
+  }
+  return best;
 }
 
 /**
@@ -2332,29 +2417,11 @@ export function findNavPath(
         !hasTrait(unit.specialRules, 'airborne') &&
         dist > 6.0
       ) {
-        const p2Piece = findTerrainAtPosition(state, target);
-        const isP2Difficult =
-          p2Piece &&
-          (p2Piece.isDifficult ||
-            p2Piece.terrainType === 'mud' ||
-            p2Piece.terrainType === 'trench' ||
-            p2Piece.terrainType === 'forest');
-
-        const p1Piece = findTerrainAtPosition(state, from);
-        const isP1Difficult =
-          p1Piece &&
-          (p1Piece.isDifficult ||
-            p1Piece.terrainType === 'mud' ||
-            p1Piece.terrainType === 'trench' ||
-            p1Piece.terrainType === 'forest');
-
-        if (isP2Difficult && !isP1Difficult) {
-          const entryPt = findDifficultTerrainEntry(from, target, p2Piece);
-          if (entryPt) {
-            const dEntry = Math.hypot(entryPt.x - from.x, (entryPt.y ?? 0) - startY, entryPt.z - from.z);
-            if (dEntry <= maxDistance + 1e-4) {
-              return [from, entryPt];
-            }
+        const entered = findEnteredDifficultPiece(state, from, target);
+        if (entered) {
+          const dEntry = Math.hypot(entered.entry.x - from.x, (entered.entry.y ?? 0) - startY, entered.entry.z - from.z);
+          if (dEntry <= maxDistance + 1e-4) {
+            return [from, entered.entry];
           }
         }
       }
@@ -2844,33 +2911,11 @@ export function findNavPath(
       !hasTrait(unit.specialRules, 'pathfinder') &&
       !hasTrait(unit.specialRules, 'airborne')
     ) {
-      const p2Piece = findTerrainAtPosition(state, p2);
-      const isP2Difficult =
-        p2Piece &&
-        (p2Piece.isDifficult ||
-          p2Piece.terrainType === 'mud' ||
-          p2Piece.terrainType === 'trench' ||
-          p2Piece.terrainType === 'forest');
-
-      const p1Piece = findTerrainAtPosition(state, p1);
-      const isP1Difficult =
-        p1Piece &&
-        (p1Piece.isDifficult ||
-          p1Piece.terrainType === 'mud' ||
-          p1Piece.terrainType === 'trench' ||
-          p1Piece.terrainType === 'forest');
-
-      const isEnteringDifficult = isP2Difficult && !isP1Difficult;
-
-      if (isEnteringDifficult && totalSmoothedLen > 6.0) {
-        if (p2Piece) {
-          const entryPt = findDifficultTerrainEntry(p1, p2, p2Piece);
-          if (entryPt) {
-            const dEntry = Math.hypot(entryPt.x - p1.x, (entryPt.y ?? 0) - (p1.y ?? 0), entryPt.z - p1.z);
-            if (dEntry <= distLeft + 1e-4) {
-              result.push(entryPt);
-            }
-          }
+      const entered = findEnteredDifficultPiece(state, p1, p2);
+      if (entered && totalSmoothedLen > 6.0) {
+        const dEntry = Math.hypot(entered.entry.x - p1.x, (entered.entry.y ?? 0) - (p1.y ?? 0), entered.entry.z - p1.z);
+        if (dEntry <= distLeft + 1e-4) {
+          result.push(entered.entry);
         }
         break;
       }

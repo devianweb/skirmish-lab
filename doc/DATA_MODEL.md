@@ -216,6 +216,10 @@ interface WeaponProfile {
 
 Note: to-hit capability comes from the fighter's Quality stat and survival from the target's Defense stat — weapons vary by range, attacks, and special rules.
 
+## Built-in maps
+
+`shared/src/data/builtinMaps.ts` holds ready-made maps as code: `BUILTIN_MAPS` maps an id to a factory returning a fresh `CustomMapDefinition` (callers copy it; it is never edited in place). The only entry is `standard-battlefield` ("Standard Battlefield"): 48"x48", catalog pieces at their default scale and flags only, ids `std-<type>-<n>`, objectives from `createBalancedObjectives`. The layout is point-symmetric: a piece at `(x, z, yaw)` has a twin at `(-x, -z, yaw + pi)` (the central catwalk is its own twin). `shared/tests/data/builtinMaps.test.ts` guards the mix (sight blockers at least half, cover and difficult at least a third, 2 or more dangerous, footprint at least 18% of the table, ladders and stairs not counted), obstacle spacing (1.5"), objective clearance, symmetry, reachability and line-of-sight symmetry. The old off-catalog test layout lives in `shared/tests/fixtures/legacyScenarioTerrain.ts`, not in `src`. The lobby lists it under "Built-in maps" (`builtin:<id>`, sent as `customMap`), and the editor Load list loads it as a copy with a new `custom-<timestamp>` id and the name "Standard Battlefield (copy)".
+
 ## Terrain
 ```typescript
 interface TerrainPiece {
@@ -229,9 +233,15 @@ interface TerrainPiece {
   isObstacle: boolean;
   structure?: TerrainGroup;  // Optional override of the catalog structure (see below)
   climbable?: boolean;       // Override of the type's catalog default: may models climb onto this piece's floor (rise <= 3") without a ladder? `isClimbable(piece)` = override ?? catalog default ?? false
+  isDifficult?: boolean;     // Override of the catalog default: movement through the piece is capped at 6". `isDifficultPiece(piece)` = override ?? catalog default ?? legacy type list (trench, forest, mud)
+  isDangerous?: boolean;     // Override of the catalog default: crossing or activating in the piece rolls the hazard test. `isDangerousPiece(piece)` = override ?? catalog default ?? legacy type list (toxic, hazard, fire)
   data?: Record<string, any>;
 }
 ```
+
+Catalog metadata (`TerrainTypeMetadata`) carries the defaults: `isDifficult`, `isDangerous` and `isArea` (area terrain, palette category `area`: `rubble-field` 6"x0.25"x4", difficult and cover; `hazard-pool` 4"x0.1"x4", dangerous, no cover). Area pieces have a structure with no solids and no apertures (`{ id, solids: [] }`), so they never block and never use the fallback body.
+
+`Unit.activationHazardModelIds?: string[]` lists the models that took the hazard test when the current activation began (they stood in dangerous terrain); it is cleared at the next activation and stops them rolling again for crossing dangerous ground that activation.
 
 ### Terrain Structure: Solids + Apertures
 Buildings are composed from two primitives, defined as data in `shared/src/data/terrainStructures.ts` and shared by the rules engine and the renderer (so meshes and collision cannot drift apart):

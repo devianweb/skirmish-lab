@@ -9,10 +9,10 @@ import {
   applyAction,
   applyDefaultScenario,
   createBlankMap,
-  createDefaultScenarioTerrain,
   createInitialGameState,
   validateAction,
 } from '@skirmish-lab/shared';
+import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { GameHUD } from '../../src/ui/GameHUD';
 
 const HOST = HOST_PLAYER_ID;
@@ -29,7 +29,7 @@ function clickByText(root: HTMLElement, text: string): HTMLElement | null {
 function setup() {
   const state: GameState = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   applyDefaultScenario(state, {
-    customMap: { ...createBlankMap(), id: 'fixture', terrain: createDefaultScenarioTerrain() },
+    customMap: { ...createBlankMap(), id: 'fixture', terrain: legacyScenarioTerrain() },
   });
   state.terrain = [];
   const unit = state.units.find((u) => u.ownerId === HOST)!;

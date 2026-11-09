@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionStore } from '../../src/storage/SessionStore';
 import { MapStore } from '../../src/storage/MapStore';
-import { createBlankMap } from '@skirmish-lab/shared';
+import { createBlankMap, createStandardBattlefieldMap, BUILTIN_MAPS } from '@skirmish-lab/shared';
 import { Lobby, PeerReadyContext } from '../../src/ui/Lobby';
 
 describe('Lobby UI', () => {
@@ -261,5 +261,48 @@ describe('Lobby UI', () => {
     expect(labels).toContain('Wide One (0 pieces, 44"×30")');
     expect(labels).toContain('Square One (0 pieces, 36"×36")');
     expect(labels.some((l) => l?.includes('Empty Battlefield (48"x48")'))).toBe(true);
+  });
+
+  it('lists the Standard Battlefield under Built-in maps and keeps Empty selected by default', () => {
+    const lobby = new Lobby(container, {});
+    (lobby as any).render();
+    const mapSelect = container.querySelector('#mapSelect') as HTMLSelectElement;
+    expect(mapSelect.value).toBe('blank');
+    const group = Array.from(mapSelect.querySelectorAll('optgroup')).find((g) => g.label === 'Built-in maps');
+    expect(group).toBeTruthy();
+    const opt = group!.querySelector('option') as HTMLOptionElement;
+    expect(opt.value).toBe('builtin:standard-battlefield');
+    expect(opt.textContent).toBe('Standard Battlefield (48"×48")');
+  });
+
+  it('choosing the built-in map sends a fresh copy as customMap and shows its name', () => {
+    let capturedContext: PeerReadyContext | null = null;
+    const lobby = new Lobby(container, { onPeerReady: (ctx) => { capturedContext = ctx; } });
+    (lobby as any).render();
+    const mapSelect = container.querySelector('#mapSelect') as HTMLSelectElement;
+    mapSelect.value = 'builtin:standard-battlefield';
+    mapSelect.dispatchEvent(new Event('change'));
+
+    (lobby as any).roomCode = 'STD-123';
+    (lobby as any).role = 'host';
+    (lobby as any).webrtcClient = { isConnected: () => true, close: vi.fn() };
+    (lobby as any).maybeFirePeerReady();
+
+    expect(capturedContext!.customMap).toEqual(createStandardBattlefieldMap());
+    expect(capturedContext!.customMap).not.toBe(BUILTIN_MAPS['standard-battlefield']());
+    expect((lobby as any).getMapDisplayName('builtin:standard-battlefield')).toBe('Standard Battlefield');
+    (lobby as any).render();
+    expect(container.textContent).toContain('Map: Standard Battlefield');
+  });
+
+  it('an unknown built-in id sends no customMap', () => {
+    let capturedContext: PeerReadyContext | null = null;
+    const lobby = new Lobby(container, { onPeerReady: (ctx) => { capturedContext = ctx; } });
+    (lobby as any).selectedMapSelection = 'builtin:nope';
+    (lobby as any).roomCode = 'X-1';
+    (lobby as any).role = 'host';
+    (lobby as any).webrtcClient = { isConnected: () => true, close: vi.fn() };
+    (lobby as any).maybeFirePeerReady();
+    expect(capturedContext!.customMap).toBeUndefined();
   });
 });

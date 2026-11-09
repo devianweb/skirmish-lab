@@ -12,6 +12,9 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 1. Map builder & editor
 - All items verified.
+- [ ] 13.6E area terrain editor: the palette has an "Area Terrain" category with a Rubble Field and a Hazard Pool. Place both. Select a crate and tick Dangerous, select the rubble field and untick Difficult; the F9 outlines follow (red on the crate, yellow gone on the rubble). Save, reload the map: the flags are kept. In a game on that map, a unit rushing across a difficult piece is capped at 6", crossing a dangerous piece asks for hazard dice, and a model inside the rubble gets +1 Defense.
+
+- [ ] 13.6E built-in map in the editor: open the Load list, find the "Built-in" group with "Standard Battlefield", and load it. The name box reads "Standard Battlefield (copy)". Edit something, press Save Map, then reopen the Load list: the copy is listed under Saved Custom Maps, and the Built-in entry is still the untouched original.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified.
@@ -24,6 +27,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 5. Low cover & scatter
 - All items verified.
+- [ ] 13.6E area terrain meshes: place a Rubble Field and a Hazard Pool (map editor, Area Terrain palette category). Both lie flat on the ground; the rubble has low chunks and the pool a green glow with a darker rim. A model can be placed and stand inside either at ground level, and clicking one picks the ground point beneath it. F9 shows a yellow footprint outline on the rubble field and a red one on the pool.
 
 ## 6. Squads
 - All items verified.
@@ -36,3 +40,4 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - All items verified.
+- [ ] 13.6E Standard Battlefield in the lobby: the map list opens on "Empty Battlefield" and has a "Built-in maps" group with `Standard Battlefield (48"×48")`. Host a game with it selected; the waiting screen says "Map: Standard Battlefield". Both players see the same table (rotated for each side), the camera frames the whole board, and no objective sits in a deployment zone or on a piece.

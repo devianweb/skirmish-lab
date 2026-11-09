@@ -5,7 +5,6 @@ import {
   createBalancedObjectives,
   createBlankMap,
   createDefaultScenarioObjectives,
-  createDefaultScenarioTerrain,
   createDefaultScenarioUnits,
 } from '../../src/data/scenario';
 import {
@@ -19,6 +18,7 @@ import {
   validateMapDefinition,
 } from '../../src/index';
 import { WEAPONS } from '../../src/data/weapons';
+import { legacyScenarioTerrain } from '../fixtures/legacyScenarioTerrain';
 import { getActivatableUnits, isRoundComplete, getDeploymentZoneBounds } from '../../src/engine/activation';
 
 const HOST = 'host-player';
@@ -66,7 +66,7 @@ describe('scenario data pack', () => {
   });
 
   it('spawns terrain with cover and line-of-sight flags', () => {
-    const terrain = createDefaultScenarioTerrain();
+    const terrain = legacyScenarioTerrain();
     expect(terrain.length).toBeGreaterThanOrEqual(6);
     for (const piece of terrain) {
       expect(typeof piece.providesCover).toBe('boolean');
@@ -260,7 +260,7 @@ describe('scenario data pack', () => {
       for (const [key, meta] of Object.entries(TERRAIN_PALETTE_CATALOG)) {
         expect(meta.type).toBe(key);
         expect(meta.displayName.length).toBeGreaterThan(0);
-        expect(['structures', 'walls', 'platforms', 'stairs-ladders', 'scatter']).toContain(meta.category);
+        expect(['structures', 'walls', 'platforms', 'stairs-ladders', 'scatter', 'area']).toContain(meta.category);
         expect(meta.defaultScale.x).toBeGreaterThan(0);
         expect(meta.defaultScale.y).toBeGreaterThan(0);
         expect(meta.defaultScale.z).toBeGreaterThan(0);

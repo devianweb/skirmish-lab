@@ -1,4 +1,5 @@
 import {
+  BUILTIN_MAPS,
   CustomMapDefinition,
   MapValidationNotice,
   Objective,
@@ -12,6 +13,8 @@ import {
   findWalkableSurfaceAt,
   getWalkableSurfaces,
   isClimbable,
+  isDifficultPiece,
+  isDangerousPiece,
   localToWorldXZ,
   worldToLocal,
   TERRAIN_PALETTE_CATALOG,
@@ -231,6 +234,9 @@ export class MapEditor {
           : undefined,
       climbType: meta?.climbType,
     };
+    // Area-terrain flags come from the catalog; only write them when the catalog defines them.
+    if (meta?.isDifficult !== undefined) newPiece.isDifficult = meta.isDifficult;
+    if (meta?.isDangerous !== undefined) newPiece.isDangerous = meta.isDangerous;
 
     if (type === 'ladder') this.snapLadderToFace(newPiece);
     else if (type === 'stairs') this.snapStairsToFace(newPiece);
@@ -515,6 +521,14 @@ export class MapEditor {
 
   loadMap(idOrCustom: string): boolean {
     if (!idOrCustom) return false;
+    if (idOrCustom.startsWith('builtin:')) {
+      const factory = BUILTIN_MAPS[idOrCustom.replace('builtin:', '')];
+      if (!factory) return false;
+      const copy = factory();
+      // Built-in maps are never edited in place: work on a renamed copy with a fresh id.
+      this.setMap({ ...copy, id: `custom-${Date.now()}`, name: `${copy.name} (copy)` });
+      return true;
+    }
     const customId = idOrCustom.startsWith('custom:')
       ? idOrCustom.replace('custom:', '')
       : idOrCustom;
@@ -693,6 +707,7 @@ export class MapEditor {
       { id: 'platforms', label: 'Platforms & Decks', icon: '🔲' },
       { id: 'stairs-ladders', label: 'Stairs & Ladders', icon: '🪜' },
       { id: 'scatter', label: 'Cover & Pipes', icon: '📦' },
+      { id: 'area', label: 'Area Terrain', icon: '🟫' },
       { id: 'objectives', label: 'Objectives', icon: '🎯' },
     ];
 
@@ -804,6 +819,8 @@ export class MapEditor {
             <label><input type="checkbox" id="inspectLos" ${selectedPiece.blocksLineOfSight ? 'checked' : ''} /> Blocks Line of Sight</label>
             <label><input type="checkbox" id="inspectObstacle" ${selectedPiece.isObstacle ? 'checked' : ''} /> Impassable Obstacle</label>
             <label><input type="checkbox" id="inspectWalkable" ${selectedPiece.isWalkable ? 'checked' : ''} /> Walkable Surface</label>
+            <label title="Moving through this piece is capped at 6 inches. Shown with a yellow outline in the debug view."><input type="checkbox" id="inspectDifficult" ${isDifficultPiece(selectedPiece) ? 'checked' : ''} /> Difficult (6" move cap)</label>
+            <label title="Moving through this piece, or activating inside it, risks wounds. Shown with a red outline in the debug view."><input type="checkbox" id="inspectDangerous" ${isDangerousPiece(selectedPiece) ? 'checked' : ''} /> Dangerous (hazard test)</label>
             ${canClimb ? `<label title="Models may climb onto this piece's floor (up to 3 inches) without a ladder. Shown with an orange outline."><input type="checkbox" id="inspectClimbable" ${isClimbable(selectedPiece) ? 'checked' : ''} /> Climbable (up to 3")</label>` : ''}
           </div>
 
@@ -850,6 +867,15 @@ export class MapEditor {
         `
         : '';
 
+    const builtinMapsGroupHtml = `
+          <optgroup label="Built-in">
+            ${Object.entries(BUILTIN_MAPS).map(([id, create]) => {
+              const m = create();
+              return `<option value="builtin:${id}">${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`;
+            }).join('')}
+          </optgroup>
+    `;
+
     this.rootElement.innerHTML = `
       <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; pointer-events: none; font-family: Arial, sans-serif;">
         <!-- Top Toolbar -->
@@ -866,6 +892,7 @@ export class MapEditor {
             ${boardControlHtml}
             <select id="loadMapSelect" style="padding: 6px 8px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 12px;">
               <option value="">Load Map...</option>
+              ${builtinMapsGroupHtml}
               ${savedMapsGroupHtml}
             </select>
             <button id="validationBadgeBtn" style="padding: 5px 8px; font-size: 11px; font-weight: bold; background: ${warningBadgeColor}; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
@@ -1086,6 +1113,28 @@ export class MapEditor {
         : undefined;
       if (piece) {
         piece.climbable = climbableCheck.checked;
+        this.syncGameView();
+      }
+    });
+
+    const difficultCheck = this.rootElement.querySelector<HTMLInputElement>('#inspectDifficult');
+    difficultCheck?.addEventListener('change', () => {
+      const piece = this.selectedPieceId
+        ? this.currentMap.terrain.find((t) => t.id === this.selectedPieceId)
+        : undefined;
+      if (piece) {
+        piece.isDifficult = difficultCheck.checked;
+        this.syncGameView();
+      }
+    });
+
+    const dangerousCheck = this.rootElement.querySelector<HTMLInputElement>('#inspectDangerous');
+    dangerousCheck?.addEventListener('change', () => {
+      const piece = this.selectedPieceId
+        ? this.currentMap.terrain.find((t) => t.id === this.selectedPieceId)
+        : undefined;
+      if (piece) {
+        piece.isDangerous = dangerousCheck.checked;
         this.syncGameView();
       }
     });
