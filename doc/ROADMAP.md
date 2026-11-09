@@ -731,19 +731,20 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] All unit, integration, and renderer tests pass across all workspaces.
 
 ## Phase 14: MVP Polish & Release Hardening
-**Goal:** Close out the MVP: clear match results, concede and rematch, a rules audit and a full code review, performance, a playtest-and-polish pass, synced docs and the MVP release. Audio and other presentation work move to Phase 15, after the MVP. Each sub-phase gets its own plan in `doc/plans/` and small PRs; fixes found in 14C–14F are collected into **bugfix batch 2**.
+**Goal:** Close out the MVP: clear match results, concede and rematch, alignment with One Page Rules, a rules audit and a full code review, performance, a playtest-and-polish pass, synced docs and the MVP release. Audio and other presentation work move to Phase 15, after the MVP. Each sub-phase gets its own plan in `doc/plans/` and small PRs; fixes found in 14D–14G are collected into **bugfix batch 2**.
 
 **Owner decisions (2026-11-09):** a draw on objectives stays a draw (no tournament tie-break for now); Concede ends the match as a loss for the conceding player, who stays on the results screen (rematch offered there in 14B); a rematch replays the exact same game (same map, armies and sides).
 
 ### Sub-phases
 - [ ] **14A Match end, results and Concede.** *(PR 1 engine done: `concede` action and `summarizeMatch`; HUD in PR 2.)* A clearer game-over screen (who won and why, objectives held, units lost per side). A draw on objectives stays a draw. New **Concede** action: the match ends as a loss for the conceding player; both players see the results screen (Defeat / Victory) and stay in the room, so 14B's rematch can be offered there.
 - [ ] **14B Rematch ("Play Again").** Both players agree on the game-over screen; the host resets the match over the existing P2P channel with the exact same setup (map, armies, sides), no new invite code. Saved snapshots for the old match are cleared so a reconnect can't restore it.
-- [ ] **14C Rules audit.** Compare the engine, rule by rule, with the core rules and beginner's guide (clean-room: findings in our own words) and with `RULES_SPECIFICATION.md`. Output: a findings list (match / deviation / missing / house rule), each deviation an owner decision. Known item: hazard tests roll one die per model, not Tough-value dice.
-- [ ] **14D Full codebase review.** Review all workspaces for correctness bugs, architecture violations (game logic in scene/HUD, client-trusted values, hardcoded ruleset names), dead code, stale comments and test gaps. Output: a findings list, triaged into bugfix batch 2 or later. Known items: corner-graze line of sight is not symmetric on exact ties; stale crate-footprint comment in `terrainStructures.ts`.
-- [ ] **14E Performance.** Profile a full game on the Standard Battlefield with squads, move preview, LoS fan and F9 running; hold 60 fps on standard desktop browsers; add timing guards to the tests for hot paths.
-- [ ] **14F Playtest & UX polish.** Full 4-round two-player matches on the Standard Battlefield and custom maps, plus the owner's list of rough edges (HUD clutter, toasts, lobby flow, a short controls / how-to-play card). Findings go into bugfix batch 2.
-- [ ] **14G Docs sync.** Audit every doc in `doc/` against the code (known stale: the default-scenario table in `ASSETS.md`, the old doorway opening in `SYSTEMS.md`), record the 13.6E follow-ups, close `doc/plans/bugfix-playtest-batch-1.md`, and add a short player-facing README section.
-- [ ] **14H MVP release.** Release checklist, version tag, deploy on the owner's command (`master` → `release`), and tick the acceptance criteria below.
+- [ ] **14C OPR alignment.** Owner (2026-11-09): drop the clean-room distinctness and line up with One Page Rules entirely; it is a non-commercial fan project. Keep the **SkirmishLab** name. Rename rules, stats, statuses, actions, weapons, units and armies to OPR's own names and match the mechanics one to one (the local term mapping is the rename list). Ship **4 pre-canned armies** matching the official stats (which four: owner's call in the plan). Keep the cheap safeguards: a one-line "Unofficial fan project, not affiliated with or endorsed by One Page Rules" disclaimer, no OPR logos or artwork, no copied rulebook text (short summaries in our own words plus a link to OPR's free rules), nothing from Patreon-only files. Rewrite AGENTS.md's IP section, the implementer agent's clean-room rule and the README to match; handle old saved sessions (compat mapping or a clean break, decided in the plan).
+- [ ] **14D Rules audit.** Compare the engine, rule by rule, with the core rules and beginner's guide (findings in our own words, no copied rule text) and with `RULES_SPECIFICATION.md`; after 14C the names match one to one. Output: a findings list (match / deviation / missing / house rule), each deviation an owner decision. Known item: hazard tests roll one die per model, not Tough-value dice.
+- [ ] **14E Full codebase review.** Review all workspaces for correctness bugs, architecture violations (game logic in scene/HUD, client-trusted values, hardcoded ruleset names), dead code, stale comments and test gaps. Output: a findings list, triaged into bugfix batch 2 or later. Known items: corner-graze line of sight is not symmetric on exact ties; stale crate-footprint comment in `terrainStructures.ts`.
+- [ ] **14F Performance.** Profile a full game on the Standard Battlefield with squads, move preview, LoS fan and F9 running; hold 60 fps on standard desktop browsers; add timing guards to the tests for hot paths.
+- [ ] **14G Playtest & UX polish.** Full 4-round two-player matches on the Standard Battlefield and custom maps, plus the owner's list of rough edges (HUD clutter, toasts, lobby flow, a short controls / how-to-play card). Findings go into bugfix batch 2.
+- [ ] **14H Docs sync.** Audit every doc in `doc/` against the code (known stale: the default-scenario table in `ASSETS.md`, the old doorway opening in `SYSTEMS.md`), record the 13.6E follow-ups, close `doc/plans/bugfix-playtest-batch-1.md`, and add a short player-facing README section.
+- [ ] **14I MVP release.** Release checklist, version tag, deploy on the owner's command (`master` → `release`), and tick the acceptance criteria below.
 
 ### Acceptance Criteria
 - [ ] Two players can complete full 4-round matches with custom/pre-canned armies and objectives.
@@ -762,12 +763,19 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] 15D Animations: model movement, attacks, casualties and UI transitions.
 - [ ] 15E Terrain visual dressing deferred from 13.6D: chamfered barriers, hazard stripes, round pipes, per-type colours.
 
+## Phase 16: Army Forge Support (post-MVP)
+**Goal:** Players bring their own lists from Army Forge instead of only the 4 pre-canned armies. To be planned after the MVP.
+
+### Sub-phases (to be planned)
+- [ ] 16A Army Forge roster import (players' own lists), mapped onto the engine's data model.
+- [ ] 16B Points budget validation and a simple list check in the lobby.
+- [ ] 16C Import/export of rosters as JSON for sharing between players.
+
 ## Model Selection
 Planning and research use **Opus** in the main session; implementation uses **Sonnet** `implementer` agents, one per PR section of an approved plan in `doc/plans/`. See [AGENTS.md](../AGENTS.md#planning--implementation-workflow-opus-plans-sonnet-implements) and [doc/plans/README.md](plans/README.md). The per-phase "Recommended AI Model" notes above (4.0 / 3.8) date from the earlier toolchain and are historical.
 
 ## Future Considerations (Post-v1)
 - Optional "smart snap" for movement targets, with a toggle: destinations snap to a 0.5" grid, but rule spots win (edge and ladder stand-off spots, base contact for charges, in-cover positions, objective rings); movement is still measured as a straight line (no grid pathfinding), plus a ghost base showing exactly where the model will stand. Off by default, or user-selectable.
-- Custom army roster importer & builder (clean-room JSON import/export, points budget validation, and Army Forge plain-text roster parsing)
 - Full host migration if needed
 - Additional terrain types
 - More special rules
