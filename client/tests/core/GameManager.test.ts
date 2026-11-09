@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GameManager } from '../../src/core/GameManager';
+import { SessionStore } from '../../src/storage/SessionStore';
 import { WebRTCClient } from '../../src/network/WebRTCClient';
 import {
   HOST_PLAYER_ID,
@@ -1466,6 +1467,99 @@ describe('GameManager', () => {
       gameManagerHost.sendAction(createAction('host1', 'end-round', { type: 'end-round' }));
 
       expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rematch persistence (14B)', () => {
+    function memoryStorage(): Storage {
+      const data = new Map<string, string>();
+      return {
+        get length() { return data.size; },
+        clear: () => data.clear(),
+        getItem: (k: string) => data.get(k) ?? null,
+        key: (i: number) => Array.from(data.keys())[i] ?? null,
+        removeItem: (k: string) => { data.delete(k); },
+        setItem: (k: string, v: string) => { data.set(k, String(v)); },
+      } as Storage;
+    }
+    function pair() {
+      const hostH = new Map<string, Function[]>();
+      const guestH = new Map<string, Function[]>();
+      const mk = (mine: Map<string, Function[]>, theirs: Map<string, Function[]>) =>
+        ({
+          on: vi.fn((t: string, h: Function) => mine.set(t, [...(mine.get(t) ?? []), h])),
+          onConnectionState: vi.fn(),
+          send: vi.fn((m: any) => { for (const h of theirs.get(m.type) ?? []) h(m); }),
+        }) as any;
+      return { hostWebRTC: mk(hostH, guestH), guestWebRTC: mk(guestH, hostH) };
+    }
+    function setup() {
+      const hostStore = new SessionStore(memoryStorage());
+      const guestStore = new SessionStore(memoryStorage());
+      const hostResume = vi.fn();
+      const guestResume = vi.fn();
+      const { hostWebRTC, guestWebRTC } = pair();
+      const host = new GameManager(hostWebRTC, true, {
+        sessionStore: hostStore, roomCode: 'ABC-123', onSessionResume: hostResume,
+      });
+      const guest = new GameManager(guestWebRTC, false, {
+        sessionStore: guestStore, roomCode: 'ABC-123', onSessionResume: guestResume,
+      });
+      host.startGame('Host', 'Guest', { hostArmyId: 'a', guestArmyId: 'b' } as any);
+      return { host, guest, hostStore, guestStore, hostResume, guestResume };
+    }
+    const act = (m: GameManager, who: string, type: any) => m.sendAction(createAction(who, type, { type } as any));
+
+    it('passes the lobby options through so the setup is recorded on the state', () => {
+      const { host } = setup();
+      expect(host.getGameState()!.setup).toMatchObject({ hostArmyId: 'a', guestArmyId: 'b' });
+    });
+
+    it('a rematch re-saves snapshots and the active session on both peers and resets the history', () => {
+      const { host, guest, hostStore, guestStore, hostResume, guestResume } = setup();
+      const oldId = host.getGameState()!.gameId;
+      act(host, HOST_PLAYER_ID, 'concede');
+      expect(host.getGameState()!.status).toBe('game-over');
+      expect(hostStore.getSnapshot('ABC-123')).toBeNull();
+      expect(hostResume).not.toHaveBeenCalled();
+
+      act(guest, GUEST_PLAYER_ID, 'request-rematch');
+      expect(hostResume).not.toHaveBeenCalled();
+      act(host, HOST_PLAYER_ID, 'request-rematch');
+
+      for (const [m, store, resume] of [
+        [host, hostStore, hostResume],
+        [guest, guestStore, guestResume],
+      ] as const) {
+        const s = m.getGameState()!;
+        expect(s.gameId).not.toBe(oldId);
+        expect(s.status).not.toBe('game-over');
+        expect(resume).toHaveBeenCalledTimes(1);
+        expect(store.getSnapshot('ABC-123')!.gameId).toBe(s.gameId);
+        expect(m.getSnapshots().every((x) => x.gameId === s.gameId)).toBe(true);
+        expect(m.getSnapshots().length).toBe(1);
+      }
+    });
+
+    it('a reload during the rematch restores the rematch, not the old match', () => {
+      const { host, guest, hostStore } = setup();
+      act(host, HOST_PLAYER_ID, 'concede');
+      act(guest, GUEST_PLAYER_ID, 'request-rematch');
+      act(host, HOST_PLAYER_ID, 'request-rematch');
+      const rematchId = host.getGameState()!.gameId;
+      const cached = hostStore.getSnapshot('ABC-123')!;
+      const { hostWebRTC } = pair();
+      const reloaded = new GameManager(hostWebRTC, true, { sessionStore: hostStore, roomCode: 'ABC-123' });
+      reloaded.restoreFromSnapshot(cached);
+      expect(reloaded.getGameState()!.gameId).toBe(rematchId);
+      expect(reloaded.getGameState()!.status).not.toBe('game-over');
+    });
+
+    it('does not fire the session hook for ordinary updates or restores', () => {
+      const { host, hostResume } = setup();
+      act(host, HOST_PLAYER_ID, 'end-round');
+      host.restoreFromSnapshot(host.getGameState()!);
+      expect(hostResume).not.toHaveBeenCalled();
     });
   });
 });

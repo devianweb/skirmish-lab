@@ -83,6 +83,7 @@ export class GameView {
   private markerRenderer: MarkerRenderer;
   private objectiveRenderer: ObjectiveRenderer;
   private boardSignature: string | null = null;
+  private lastGameId: string | null = null;
 
   private camera: THREE.Camera | null;
   private inputElement: HTMLElement | null;
@@ -131,6 +132,11 @@ export class GameView {
    * confirmed state changes (e.g. from GameManager.onStateUpdate).
    */
   syncFromState(state: GameState): void {
+    // A new gameId is a rematch: drop markers and outcome tokens left from the old match.
+    if (this.lastGameId !== null && this.lastGameId !== state.gameId) {
+      this.markerRenderer.clearAll();
+    }
+    this.lastGameId = state.gameId;
     this.reframeCameraIfBoardChanged(state);
     const signature = this.computeBoardSignature(state);
     if (signature !== this.boardSignature) {
@@ -275,6 +281,7 @@ export class GameView {
     this.markerRenderer.clearAll();
     this.objectiveRenderer.clear();
     this.boardSignature = null;
+    this.lastGameId = null;
   }
 
   getObjectiveRenderer(): ObjectiveRenderer {

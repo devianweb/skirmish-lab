@@ -36,3 +36,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - [ ] **Toast under the banner (retest after the 14A feedback fix):** as the guest, kill the host's tab and concede. After about 5 s the "Couldn't reach your opponent" toast shows **below** the "Opponent disconnected" banner, fully readable.
+- [ ] **Rematch (14B):** play to the end or concede, then both press Play Again (try both orders). The same map, armies and starting positions come back at round 1 (or deployment) with the original starting player, a toast reads "Rematch started — same armies, same map", and there are no leftover markers, outcome tokens or log lines.
+- [ ] **Rematch request:** one player presses Play Again. They see "Waiting for <name>…" (disabled); the other sees "<name> wants a rematch" and a primary Accept rematch button.
+- [ ] **Rematch after leaving:** one player presses Return to Lobby. The other's button reads "Opponent has left" and is disabled.
+- [ ] **Reload during a rematch:** reload the host's tab during the rematch. It resumes the rematch, not the old match.

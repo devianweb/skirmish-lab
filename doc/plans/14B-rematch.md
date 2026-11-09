@@ -1,5 +1,5 @@
 # 14B: Rematch ("Play Again")
-Status: approved
+Status: done
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14B
 
 ## Goal

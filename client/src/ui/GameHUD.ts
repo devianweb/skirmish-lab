@@ -236,6 +236,8 @@ export class GameHUD {
   private concedeConfirmOpen = false;
   /** A concede was sent and we are waiting for the host's confirmed state. */
   private concedePending = false;
+  /** Play Again was pressed and the host has not confirmed it yet. */
+  private rematchPending = false;
   private concedeTimer: ReturnType<typeof setTimeout> | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private reactionTimerInterval: ReturnType<typeof setInterval> | null = null;
@@ -321,9 +323,12 @@ export class GameHUD {
 
   /** Re-render everything from the confirmed state (single source of truth). */
   syncFromState(state: GameState): void {
+    const newMatch = this.state !== null && this.state.gameId !== state.gameId;
+    if (newMatch) this.resetForNewMatch();
     const prevRound = this.lastRoundNumber;
     this.lastRoundNumber = state.turnState.roundNumber;
     this.state = state;
+    if (newMatch) this.showToast('Rematch started — same armies, same map');
     if (state.status === 'game-over') {
       this.concedeConfirmOpen = false;
       this.concedePending = false;
@@ -394,6 +399,52 @@ export class GameHUD {
     }
 
     this.render();
+  }
+
+  /** A different gameId means a rematch: drop every piece of per-match local state. */
+  private resetForNewMatch(): void {
+    this.flow = { mode: 'idle' };
+    this.selectedUnitId = null;
+    this.selectedDeployUnitId = null;
+    this.hoveredUnitId = null;
+    this.hoveredModelId = null;
+    this.lastHoveredObjectiveId = null;
+    this.hoveredGroundPosition = null;
+    this.hoveredAction = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.movePreviewDifficult = false;
+    this.moveJump = null;
+    this.moveTooWide = null;
+    this.moveSegments = null;
+    this.hoveredEngagedTargetId = null;
+    this.selectedCasualtyModelId = null;
+    this.shootAllocations.clear();
+    this.selectedShootWeaponId = null;
+    this.stagedSquadModelPositions.clear();
+    this.stagedSquadModelPaths.clear();
+    this.stagedSquadModelTraversals.clear();
+    this.selectedSquadModelId = null;
+    this.pileInStaged.clear();
+    this.pileInPaths.clear();
+    this.pileInSelectedId = null;
+    this.pileInReactionId = null;
+    this.casualtyPicked = [];
+    this.casualtyReactionId = null;
+    this.lastSeenLogIndex = 0;
+    this.lastRoundNumber = null;
+    this.prevCurrentPlayerId = null;
+    this.prevPendingReactionId = null;
+    this.reactionReceivedAt = null;
+    this.concedeConfirmOpen = false;
+    this.concedePending = false;
+    this.clearConcedeTimer();
+    this.rematchPending = false;
+    this.toast = null;
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
   }
 
   private getReactionRemainingSec(pending: any): number {
@@ -2594,6 +2645,16 @@ export class GameHUD {
     this.render();
   }
 
+  private requestRematch(): void {
+    const state = this.state;
+    if (!state || state.status !== 'game-over' || this.rematchPending) return;
+    if (this.peerState === 'disconnected') return;
+    if (state.rematchRequestedBy?.includes(this.localPlayerId)) return;
+    this.rematchPending = true;
+    this.controller.submitAction(createAction(this.localPlayerId, 'request-rematch', { type: 'request-rematch' }));
+    this.render();
+  }
+
   private clearConcedeTimer(): void {
     if (this.concedeTimer) {
       clearTimeout(this.concedeTimer);
@@ -2741,6 +2802,23 @@ export class GameHUD {
       const name = state.players.find((p) => p.id === playerId)?.name ?? 'Player';
       return `<div class="sl-hud-gameover-loss" style="color: ${colour};">${name} lost ${l.unitsLost} of ${l.unitsTotal} units (${l.modelsLost} of ${l.modelsTotal} models)</div>`;
     };
+    const opponentAsked = !!state.rematchRequestedBy?.includes(opponent?.id ?? '');
+    const iAsked = this.rematchPending || !!state.rematchRequestedBy?.includes(this.localPlayerId);
+    const opponentLeft = this.peerState === 'disconnected';
+    let rematchButton = '';
+    let rematchNote = '';
+    if (summary) {
+      if (opponentLeft) {
+        rematchButton = '<button class="sl-hud-btn" data-action="play-again" disabled>Opponent has left</button>';
+      } else if (iAsked) {
+        rematchButton = `<button class="sl-hud-btn" data-action="play-again" disabled>Waiting for ${opponentName}…</button>`;
+      } else if (opponentAsked) {
+        rematchNote = `<div class="sl-hud-gameover-rematch" style="margin-bottom: 12px; font-size: 13px; color: #ffd54f;">${opponentName} wants a rematch</div>`;
+        rematchButton = '<button class="sl-hud-btn primary" data-action="play-again">Accept rematch</button>';
+      } else {
+        rematchButton = '<button class="sl-hud-btn primary" data-action="play-again">Play Again</button>';
+      }
+    }
     const gameOverModal = summary
       ? `
       <div class="sl-hud-gameover">
@@ -2782,8 +2860,10 @@ export class GameHUD {
             ? `<div class="sl-hud-gameover-left" style="margin-bottom: 12px; font-size: 12px; color: #78909c;">${opponentName} has left.</div>`
             : ''
         }
+        ${rematchNote}
         <div class="sl-hud-gameover-actions">
-          <button class="sl-hud-btn primary" data-action="return-lobby">Return to Lobby</button>
+          ${rematchButton}
+          <button class="sl-hud-btn" data-action="return-lobby">Return to Lobby</button>
         </div>
       </div>`
       : '';
@@ -4391,6 +4471,9 @@ export class GameHUD {
             break;
           case 'concede-confirm':
             this.submitConcede();
+            break;
+          case 'play-again':
+            this.requestRematch();
             break;
           case 'return-lobby':
             this.controller.onReturnToLobby?.();
