@@ -12,10 +12,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 1. Map builder & editor
 - All items verified.
-- [ ] **14A Concede (guest, mid-turn):** the guest clicks Concede in the header and confirms. The guest sees "Defeat" and "<guest> conceded"; the host sees "Victory" with the same reason. Both see the rounds played and a losses line per side. The guest presses Return to Lobby: the host sees "<guest> has left." and no "Opponent disconnected" banner.
-- [ ] **14A Concede (host, during a reaction):** the host concedes while the guest has a reaction prompt open. Same result, mirrored; the prompt disappears.
-- [ ] **14A Full game to round 4:** play to the end of round 4. The results screen shows the right winner or "Draw", the objective breakdown, rounds played and the losses lines.
-- [ ] **14A Concede with no connection:** as the guest, kill the host's tab, then concede. After about 5 s the Concede button comes back and the toast "Couldn't reach your opponent; the concede wasn't sent." shows.
 
 ## 2. Terrain structure (walls, windows, doors, ruin)
 - All items verified.
@@ -39,4 +35,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 9. Multiplayer & custom maps
-- All items verified.
+- [ ] **14A Concede (guest, mid-turn):** the guest clicks Concede in the header and confirms. The guest sees "Defeat" and "<guest> conceded"; the host sees "Victory" with the same reason. Both see the rounds played and a losses line per side. The guest presses Return to Lobby: the host sees "<guest> has left." and no "Opponent disconnected" banner.
+- [ ] **14A Concede (host, during a reaction):** the host concedes while the guest has a reaction prompt open. Same result, mirrored; the prompt disappears.
+- [ ] **14A Full game to round 4:** play to the end of round 4. The results screen shows the right winner or "Draw", the objective breakdown, rounds played and the losses lines.
+- [ ] **14A Concede with no connection:** as the guest, kill the host's tab, then concede. After about 5 s the Concede button comes back and the toast "Couldn't reach your opponent; the concede wasn't sent." shows.
