@@ -286,8 +286,8 @@ describe('push: the Auto choice', () => {
     const events = out.logEntry.dice!.outcome.traversal!;
     expect(events.map((e) => e.type)).toEqual(['push', 'fall']);
     expect(events[1]).toMatchObject({ wounds: 2, rolls: [1, 5, 2] });
-    // the faller took the first wound as its casualty; the second wound follows the usual order (the next model)
-    expect(g.models.filter((m) => m.isDestroyed)).toHaveLength(4);
+    // fall wounds belong to the model that fell: it dies (3 casualties with the 2 already gone), the excess wound is lost
+    expect(g.models.filter((m) => m.isDestroyed)).toHaveLength(3);
     expect(g.models.find((m) => m.id === 'g1-m2')!.isDestroyed).toBe(true);
     expect(g.models.find((m) => m.id === 'g1-m2')!.position!.y).toBe(0);
     expect(out.state!.turnState.activeUnitId ?? null).toBeNull();
@@ -456,8 +456,9 @@ describe('push: declining and falling', () => {
     const g = unitOf(out.state!, 'g1');
     const fallen = g.models.find((m) => m.id === 'g1-m3')!;
     expect(fallen.position!.y).toBe(0);
+    // three wounds, but only the fallen model (Tough 1) takes them: it dies and the others are untouched
     const alive = g.models.filter((m) => !m.isDestroyed);
-    expect(alive.length).toBe(1);
+    expect(alive.length).toBe(3);
     for (const m of alive) {
       expect(m.position!.y).toBe(0);
       expect(Math.hypot(m.position!.x - fallen.position!.x, m.position!.z - fallen.position!.z)).toBeLessThanOrEqual(2.0 + 1e-6);

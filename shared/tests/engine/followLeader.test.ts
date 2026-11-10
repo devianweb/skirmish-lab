@@ -196,6 +196,17 @@ describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
     expect(texts.filter((t) => /jump not attempted/.test(t))).toHaveLength(3);
   });
 
+  it('fall wounds belong to the faller: three wounds on a Tough 1 model kill only that model', () => {
+    const state = makeState(makeSquad());
+    state.units[0].modelMovementSpent = { 'u-m0': 0, 'u-m1': 0, 'u-m2': 0, 'u-m3': 0 };
+    const r = routeSquad(state, leaderJump, leaderLanding);
+    const out = applyAction(state, moveAction('advance', r), [roll('jump', [1, 6, 6, 6]), roll('fall', [1, 2, 3])]);
+    if (!out.ok) throw new Error(out.reason);
+    const u = out.state.units[0];
+    expect(u.models.map((m) => m.isDestroyed)).toEqual([true, false, false, false]);
+    expect(u.isDestroyed).toBe(false);
+  });
+
   it('rush legs follow the leader the same way', () => {
     const state = makeState(makeSquad());
     const r = routeSquad(state, leaderJump, leaderLanding);
