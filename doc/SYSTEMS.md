@@ -1,7 +1,7 @@
 # Systems Document
 
 ## Overview
-This document specifies the concrete implementation details for the rules engine, game systems, combat math, validation, and mechanics. The engine implements OPR-style skirmish rules (Quality/Defense d6 resolution, alternating activations, wound/stun tracking) **from first principles**. No rulebook text is copied; all descriptions here are original.
+This document specifies the concrete implementation details for the rules engine, game systems, combat math, validation, and mechanics. The engine implements OPR-style skirmish rules (Quality/Defense d6 resolution, alternating activations, wound/stun tracking) following Firefight v3.6. No rulebook text is copied; all descriptions here are in our own words.
 
 ## Turn Structure: Alternating Activations
 
@@ -389,6 +389,6 @@ Victory conditions are mission data. v1 ships a simple elimination mission; obje
 - Action log grows over game length but remains reasonable
 
 ## Rules Reference
-This document defines the engine's mechanics as implemented. Where OPR mechanics are the target, they are re-derived from first principles — never copied from published text.
+This document defines the engine's mechanics as implemented. Where OPR mechanics are the target, they follow Firefight v3.6 and are described here in our own words, never copied from published text.
 
 For the exhaustive mathematical and procedural specification of the tabletop skirmish engine (including full trait schemas, activation maneuvers, trauma/casualty tables, and dynamic terrain rules), see **[RULES_SPECIFICATION.md](./RULES_SPECIFICATION.md)**.
