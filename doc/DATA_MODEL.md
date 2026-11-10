@@ -76,6 +76,7 @@ interface TurnState {
   pendingReaction?: PendingReaction | null; // Active reaction prompt awaiting player decision
   charge?: ChargeState | null; // Declared split charge in progress (batch 1D PR 16); cleared by the final charge, a fall or the end of the activation
   woundBaseline?: Record<string, number>; // 14C-2: wounds each living unit had when the active unit's activation began (unit id -> total wounds across living models); the end-of-activation Morale Test trigger compares against it; cleared when the activation ends
+  meleePairs?: [string, string][]; // 14C-2 PR 2: the pairs that fought this activation (their melee result is compared at its end)
   meleeUnitIds?: string[];     // 14C-2: units that fought in melee during this activation (they skip the wound-based Morale Test); cleared when the activation ends
 }
 
@@ -106,6 +107,9 @@ interface PendingReaction {
 // CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
 
 // MoraleTestRecord = { unitId, unitName, roll?: number /* absent when already Shaken */, effectiveQuality, fearlessRoll?, passed, outcome: 'passed' | 'shaken' | 'routed' }
+
+// MeleeResultRecord = { sides: [MeleeResultSide, MeleeResultSide], loserId?: string /* absent on a tie */ }  (logged as dice.outcome.meleeResults)
+// MeleeResultSide = { unitId, unitName, wounds, fearBonus?: number /* extra wounds from the enemy's Fear */ }
 
 interface ReactionOption {
   id: string;                  // e.g. 'strike-back' | 'decline'

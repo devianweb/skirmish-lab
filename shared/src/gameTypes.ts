@@ -57,6 +57,8 @@ export interface TurnState {
   woundBaseline?: Record<string, number>;
   /** Units that were in melee during the current activation (they skip the wound-based Morale Test). */
   meleeUnitIds?: string[];
+  /** Pairs of units that fought each other during the current activation (their melee result is compared at its end). */
+  meleePairs?: [string, string][];
 }
 
 /** A charge declared on a target and made in legs. Plain data: it is part of the game state. */
@@ -407,6 +409,23 @@ export interface MoraleTestRecord {
   outcome: 'passed' | 'shaken' | 'routed';
 }
 
+/** One side of a melee result. */
+export interface MeleeResultSide {
+  unitId: string;
+  unitName: string;
+  /** Wounds this unit took during the activation. */
+  wounds: number;
+  /** Extra wounds counted against this unit because the enemy has Fear(X). */
+  fearBonus?: number;
+}
+
+/** The outcome of a melee, compared at the end of the activation: the side with more wounds loses. */
+export interface MeleeResultRecord {
+  sides: [MeleeResultSide, MeleeResultSide];
+  /** The unit that lost; absent on a tie (nobody tests). */
+  loserId?: string;
+}
+
 export interface DiceResolution {
   rollId: string;
   specs: DiceSpec[];
@@ -440,6 +459,8 @@ export interface DiceResolution {
     defenseModifiers?: string[];
     /** Morale Tests taken at the end of an activation (one per unit that took wounds and is at half or less). */
     moraleTests?: MoraleTestRecord[];
+    /** Melee results compared at the end of an activation (the loser tests Morale; see `moraleTests`). */
+    meleeResults?: MeleeResultRecord[];
     retaliation?: RetaliationOutcome;
     allocations?: WeaponAttackOutcome[];
     pushedBack?: boolean;

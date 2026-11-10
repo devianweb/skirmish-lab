@@ -626,6 +626,42 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Shaken');
   });
 
+  it('shows the melee result of an activation end, with Fear and the loser, from state', () => {
+    const state = scenarioState();
+    const [a] = state.units.filter((u) => u.ownerId === GUEST);
+    const h = state.units.find((u) => u.ownerId === HOST)!;
+    const action = createAction(HOST, 'end-activation', { type: 'end-activation' });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [],
+        results: [],
+        context: { attackerId: h.id, targetId: h.id, actionId: action.id },
+        outcome: {
+          attackCount: 0,
+          hitCount: 0,
+          blockedCount: 0,
+          wounds: 0,
+          targetDestroyed: false,
+          meleeResults: [
+            {
+              sides: [
+                { unitId: a.id, unitName: 'Alpha', wounds: 3 },
+                { unitId: h.id, unitName: 'Bravo', wounds: 1, fearBonus: 1 },
+              ],
+              loserId: a.id,
+            },
+          ],
+        },
+      },
+    });
+    const { container } = setup(GUEST, state);
+    expect(container.textContent).toContain('Alpha took 3 wounds, Bravo took 1 wound (+1 Fear): Alpha loses');
+  });
+
   it('surfaces host rejections and stops waiting', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;

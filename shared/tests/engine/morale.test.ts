@@ -275,9 +275,9 @@ describe('melee', () => {
     const out = applyAction(state, fight, dice);
     expect(out.ok).toBe(true);
     const after = out.state!;
-    // Whatever the blade did, melee units are not wound-tested at the end of the activation
+    // Melee units skip the wound test; only the melee loser (the unit that took the wounds) can test
     expect(after.turnState.meleeUnitIds).toEqual(expect.arrayContaining(['h1', 'g1']));
-    expect(getUnitsRequiringMorale(after)).toEqual([]);
+    expect(getUnitsRequiringMorale(after).map((u) => u.id)).not.toContain('h1');
   });
 });
 

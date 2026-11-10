@@ -65,10 +65,10 @@ describe('unitGeometry: engagement and melee reach', () => {
     expect(unitsInContact(a, squadAt([5, 5], [0, 11.2, 3]))).toBe(false); // other floor
   });
 
-  it('strikers are the models within 2" (edge) and 4" height of an enemy model', () => {
+  it('strikers are the models within 3" (edge) and 4" height of an enemy model', () => {
     const foe = squadAt([0, 0]);
-    const striker = squadAt([0, 1], [0, 3], [0, 3.1], [0, 8], [1, 1, 5]);
-    // gaps 0, 2.0 (counts), 2.1 (no), 7 (no), height 5 (no)
+    const striker = squadAt([0, 1], [0, 4], [0, 4.1], [0, 8], [1, 1, 5]);
+    // gaps 0, 3.0 (counts), 3.1 (no), 7 (no), height 5 (no)
     expect(strikingModelCount(striker, foe)).toBe(2);
   });
 
