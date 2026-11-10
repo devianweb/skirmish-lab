@@ -146,11 +146,15 @@ export function getAttackDiceSpecs(
 
   const blastVal = getTraitValue(allAttackerRules, 'blast');
   const modelCap = Math.max(1, options.defenderModelCount ?? 1);
-  const blastMultiplier = blastVal !== undefined ? Math.min(blastVal, modelCap) : 1;
 
-  const maxHits = attackCount * (1 + bonusPerSix) * blastMultiplier;
+  const maxHits = attackCount * (1 + bonusPerSix) * (blastVal ?? 1);
+  // A unit takes at most one Blast hit per living model, so that caps what its defense batch can need.
+  const unitMaxHits = blastVal !== undefined ? Math.min(maxHits, modelCap) : maxHits;
   const baneMultiplier = hasTrait(allAttackerRules, 'bane') ? 2 : 1;
-  const defenseDiceCount = Math.max(attackCount, maxHits * baneMultiplier);
+  const defenseDiceCount =
+    blastVal !== undefined
+      ? Math.max(1, unitMaxHits * baneMultiplier)
+      : Math.max(attackCount, maxHits * baneMultiplier);
 
   const specs: DiceSpec[] = [
     { count: attackCount, sides: 6, purpose: 'to-hit' },
@@ -164,7 +168,7 @@ export function getAttackDiceSpecs(
 
   if (hasTrait(defenderRules, 'regeneration') && !ignoresRegeneration) {
     const deadlyMult = getTraitValue(allAttackerRules, 'deadly') ?? 1;
-    specs.push({ count: maxHits * deadlyMult, sides: 6, purpose: 'regeneration' });
+    specs.push({ count: unitMaxHits * deadlyMult, sides: 6, purpose: 'regeneration' });
   }
 
   return specs;
@@ -217,10 +221,6 @@ export function computeCombatModifiers(
     if (hasTrait(defenderRules, 'entrenched') && !defender.hasMoved && distance > 9) {
       hitMod -= 1;
       hitModifiers.push('-1 Entrenched (>9")');
-    }
-    if (hasTrait(allAttackerRules, 'indirect') && attacker.hasMoved) {
-      hitMod -= 1;
-      hitModifiers.push('-1 Indirect (moved)');
     }
   } else {
     if (hasTrait(allAttackerRules, 'thrust') && isCharging) {
@@ -280,15 +280,89 @@ export function computeCombatModifiers(
 }
 
 /**
+ * One unit's share of a Blast shot. `offset`/`count` pick which of the shot's hits (in roll order, after
+ * every other special rule) this unit takes; `aimedAt` is the unit the shot was aimed at, whose rules decide
+ * the to-hit modifiers for the whole shot.
+ */
+export interface BlastShare {
+  offset: number;
+  count: number;
+  aimedAt?: DefenseStats;
+}
+
+/**
+ * How many hits a shot produces before a Blast is split between units: every hit (bonus hits included)
+ * becomes X hits. For a weapon without Blast this is the plain hit count.
+ */
+export function countShotHits(
+  attacker: CombatStats,
+  defender: DefenseStats,
+  attackCount: number,
+  toHit: number[]
+): number {
+  const allAttackerRules = [...(attacker.specialRules ?? []), ...(attacker.weaponRules ?? [])];
+  const isMelee = !!attacker.isMelee;
+  const distance = attacker.distance ?? (isMelee ? 1 : 12);
+  const { baseQuality, effectiveQuality } = computeCombatModifiers(attacker, defender);
+  const hitMod = baseQuality - effectiveQuality;
+  const fatigued = isMelee && !!attacker.isFatigued;
+  const bonusPerSix =
+    (hasTrait(allAttackerRules, 'surge') ? 1 : 0) +
+    (!isMelee && distance > 9 && hasTrait(allAttackerRules, 'relentless') ? 1 : 0) +
+    (isMelee && !!attacker.isCharging && hasTrait(allAttackerRules, 'furious') ? 1 : 0);
+  const multiplier = getTraitValue(allAttackerRules, 'blast') ?? 1;
+  let hits = 0;
+  for (const roll of toHit.slice(0, attackCount)) {
+    const hit = roll <= 1 ? false : roll >= 6 ? true : fatigued ? false : roll + hitMod >= baseQuality;
+    if (hit) hits += (1 + (roll >= 6 ? bonusPerSix : 0)) * multiplier;
+  }
+  return hits;
+}
+
+export interface BlastCandidate {
+  unitId: string;
+  /** Living models: the most hits this unit can take. */
+  cap: number;
+}
+
+/**
+ * Auto split of a Blast shot's hits. `candidates` are in priority order: the target first, then the other
+ * eligible units from nearest to farthest. Hits are dealt as evenly as possible, the odd hits going to the
+ * earliest units; a unit never takes more than its cap and the hits it cannot take are re-spread over the
+ * units still below theirs. Hits above every cap are lost. Returns each candidate's share, same order.
+ */
+export function autoSplitBlastHits(totalHits: number, candidates: BlastCandidate[]): number[] {
+  const shares = candidates.map(() => 0);
+  let remaining = Math.max(0, Math.floor(totalHits));
+  while (remaining > 0) {
+    const open = candidates.map((_, i) => i).filter((i) => shares[i] < candidates[i].cap);
+    if (open.length === 0) break;
+    const base = Math.floor(remaining / open.length);
+    const extra = remaining % open.length;
+    let dealt = 0;
+    open.forEach((i, rank) => {
+      const give = Math.min(candidates[i].cap - shares[i], base + (rank < extra ? 1 : 0));
+      shares[i] += give;
+      dealt += give;
+    });
+    if (dealt === 0) break;
+    remaining -= dealt;
+  }
+  return shares;
+}
+
+/**
  * Resolve one attack deterministically from pre-rolled server dice.
  */
 export function resolveAttack(
   attacker: CombatStats,
   defender: DefenseStats,
   attackCount: number,
-  rolls: AttackRolls
+  rolls: AttackRolls,
+  blast?: BlastShare
 ): CombatOutcome {
-  if (rolls.toHit.length < attackCount || rolls.defense.length < attackCount) {
+  // A Blast share only rolls defense for the hits it takes, which can be fewer than the attack count.
+  if (rolls.toHit.length < attackCount || (!blast && rolls.defense.length < attackCount)) {
     throw new Error(
       `Incomplete dice results: need ${attackCount} to-hit and ${attackCount} defense rolls`
     );
@@ -303,17 +377,11 @@ export function resolveAttack(
   const isCharging = !!attacker.isCharging;
   const distance = attacker.distance ?? (isMelee ? 1 : 12);
 
+  // The shot is aimed at the primary target, so hit modifiers (Stealth etc.) follow it even when this call
+  // resolves the share of a Blast that landed on another unit.
   const modifiers = computeCombatModifiers(attacker, defender);
-  const {
-    baseQuality,
-    hitModifiers,
-    effectiveQuality,
-    baseDefense,
-    defenseModifiers,
-    effectiveDefense,
-    baseAp,
-    coverApplied,
-  } = modifiers;
+  const { baseQuality, hitModifiers, effectiveQuality } = computeCombatModifiers(attacker, blast?.aimedAt ?? defender);
+  const { baseDefense, defenseModifiers, effectiveDefense, baseAp, coverApplied } = modifiers;
 
   const isFatiguedMelee = isMelee && !!attacker.isFatigued;
   const hitMod = baseQuality - effectiveQuality;
@@ -339,9 +407,9 @@ export function resolveAttack(
 
   const blastVal = getTraitValue(allAttackerRules, 'blast');
   const modelCap = Math.max(1, defender.modelCount ?? 1);
-  const blastMultiplier = blastVal !== undefined ? Math.min(blastVal, modelCap) : 1;
+  const blastMultiplier = blastVal ?? 1;
 
-  const expandedHits: Array<{ ap: number; ignoresRegeneration: boolean }> = [];
+  let expandedHits: Array<{ ap: number; ignoresRegeneration: boolean }> = [];
   let bonusHits = 0;
 
   for (let i = 0; i < attackCount; i++) {
@@ -361,6 +429,13 @@ export function resolveAttack(
     for (let c = 0; c < copies; c++) {
       expandedHits.push({ ap: hitAp, ignoresRegeneration: baseIgnoresRegeneration });
     }
+  }
+
+  // Blast: a unit takes at most one hit per living model; with a split, this unit takes its own share.
+  if (blastVal !== undefined) {
+    expandedHits = blast
+      ? expandedHits.slice(blast.offset, blast.offset + Math.min(blast.count, modelCap))
+      : expandedHits.slice(0, modelCap);
   }
 
   const hitCount = expandedHits.length;
@@ -551,6 +626,24 @@ export function extractAllocationRolls(results: DiceResult[], index: number = 0)
     defense: defense.rolls,
     ...(regeneration ? { regeneration: regeneration.rolls } : {}),
   };
+}
+
+/** Dice purpose of one defending unit's Blast batch (`alloc_<i>_` is added when the shot has several weapons). */
+export function blastPurpose(unitId: string, kind: 'defense' | 'regeneration', allocationIndex?: number): string {
+  return `${allocationIndex === undefined ? '' : `alloc_${allocationIndex}_`}blast_${unitId}_${kind}`;
+}
+
+/** Extract the defense (and regeneration) rolls of a Blast share that landed on another unit. */
+export function extractBlastRolls(
+  results: DiceResult[],
+  unitId: string,
+  toHit: number[],
+  allocationIndex?: number
+): AttackRolls {
+  const defense = results.find((r) => r.purpose === blastPurpose(unitId, 'defense', allocationIndex));
+  const regeneration = results.find((r) => r.purpose === blastPurpose(unitId, 'regeneration', allocationIndex));
+  if (!defense) throw new Error(`Dice results must include a Blast defense batch for ${unitId}`);
+  return { toHit, defense: defense.rolls, ...(regeneration ? { regeneration: regeneration.rolls } : {}) };
 }
 
 /** Extract the to-hit, defense, and regeneration roll values from server-rolled results. */

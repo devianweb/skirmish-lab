@@ -12,6 +12,7 @@ import {
   describeTrait,
   MeleeResultRecord,
   MoraleTestRecord,
+  BlastSplashOutcome,
   classifySegment,
   findNavPath,
   JumpOption,
@@ -55,6 +56,7 @@ import {
   livingModelPositions,
   MELEE_MAX_VERTICAL_REACH,
   firingModels,
+  ignoresSight,
   targetCoverByMajority,
   ENGAGEMENT_EDGE_GAP,
   Vector3,
@@ -2280,17 +2282,24 @@ export class GameHUD {
         return;
       }
 
-      const otherTargets = new Set<string>();
-      for (const [wid, tid] of this.shootAllocations.entries()) {
-        if (wid !== currentWeapon.id && tid) otherTargets.add(tid);
+      // Weapons with the same name are one group: they follow each other onto the new target
+      const group = rangedWeapons.filter((w) => w.name === currentWeapon.name);
+      for (const mate of group) {
+        if (mate.id !== currentWeapon.id && !canFire(mate)) {
+          this.showToast(`${mate.name} cannot reach ${target.name}, and all ${mate.name} weapons must share a target`);
+          return;
+        }
       }
-      otherTargets.add(target.id);
-      if (otherTargets.size > 2) {
+      const resultingTargets = new Set<string>([target.id]);
+      for (const [wid, tid] of this.shootAllocations.entries()) {
+        if (tid && !group.some((w) => w.id === wid)) resultingTargets.add(tid);
+      }
+      if (resultingTargets.size > 2) {
         this.showToast('Cannot split fire across more than 2 distinct targets');
         return;
       }
 
-      this.shootAllocations.set(currentWeapon.id, target.id);
+      for (const mate of group) this.shootAllocations.set(mate.id, target.id);
 
       const nextUnassigned = rangedWeapons.find(
         (w) => w.id !== currentWeapon.id && this.shootAllocations.get(w.id) === null
@@ -2530,12 +2539,13 @@ export class GameHUD {
         );
         return;
       }
-      const isIndirect = hasTrait(weapon.profile.specialRules, 'indirect');
+      // Indirect fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
+      const sightless = ignoresSight(active, weapon);
 
       const inCover =
         !hasTrait(weapon.profile.specialRules, 'blast') &&
         (target.status.includes('in-cover') ||
-          (!isIndirect && targetCoverByMajority(this.state, firing, active, target)));
+          (!sightless && targetCoverByMajority(this.state, firing, active, target)));
       const attacks = (weapon.profile.attacks as number) * firing.length;
       const mods = computeCombatModifiers(
         {
@@ -2565,6 +2575,13 @@ export class GameHUD {
     }
 
     const uniqueTargets = new Set(allocations.map((a) => a.target.id));
+    const sameNameSplit = allocations.find((a) =>
+      allocations.some((b) => b.weapon.name === a.weapon.name && b.target.id !== a.target.id)
+    );
+    if (sameNameSplit) {
+      this.showToast(`All ${sameNameSplit.weapon.name} weapons must shoot the same target`);
+      return;
+    }
     if (uniqueTargets.size > 2) {
       this.showToast('Cannot split fire across more than 2 distinct targets');
       return;
@@ -3049,6 +3066,22 @@ export class GameHUD {
       .join('');
   }
 
+  /** Blast hits that spilled onto other units: one line per unit with its own Defense result. */
+  private blastSplashHtml(splash: BlastSplashOutcome[] | undefined): string {
+    if (!splash || splash.length === 0) return '';
+    const lines = splash
+      .map((b) => {
+        const status = b.targetDestroyed ? ' · down' : b.targetShaken ? ' · shaken' : '';
+        return `<div class="sl-hud-dice-summary" style="font-size: 11px;">Blast spill: ${b.targetName ?? b.targetId} · ${b.hitCount} hit${
+          b.hitCount === 1 ? '' : 's'
+        } (D${b.effectiveDefense ?? '?'}+) · ${b.blockedCount} blocked · <strong>${b.wounds} wound${
+          b.wounds === 1 ? '' : 's'
+        }</strong>${status}</div>`;
+      })
+      .join('');
+    return `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.2);">${lines}</div>`;
+  }
+
   private renderDice(): string {
     const state = this.state!;
     for (let i = state.actionLog.length - 1; i >= 0; i--) {
@@ -3190,6 +3223,7 @@ export class GameHUD {
             <div class="sl-hud-dice-summary" style="margin-top: 6px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 4px;">
               Total: ${outcome.hitCount} hits · ${outcome.blockedCount} blocked · ${outcome.wounds} unsaved wounds
             </div>
+            ${this.blastSplashHtml(outcome.blastSplash)}
           </div>`;
       }
 
@@ -3330,6 +3364,7 @@ export class GameHUD {
             ${outcome.blockedCount} blocked ·
             ${summaryWounds}
           </div>
+          ${this.blastSplashHtml(outcome.blastSplash)}
           ${retaliationHtml}
           ${pushBackHtml}
         </div>`;

@@ -304,6 +304,11 @@ Shooting, the charge strike, strike-back and `fight` apply wounds through `apply
 ### Squad Targeting (per model, `engine/unitGeometry.ts`, `engine/squadTargeting.ts`)
 `unit.position` is only an anchor (the centroid for squads). `livingModelPositions`, `closestModelPair` and `unitDistance` measure between the closest living models (base edge); `unitGap` (anchor to anchor) is no longer used by any rule. `firingModels(state, attacker, target, weapon)` runs `traceLineOfSight` from each attacker model's eye to each living target model and keeps the models that see one within range (same pair, base-edge gap; indirect skips sight). `validateAction` (shoot) requires at least one firing model per weapon allocation, `getDiceSpecs` and the resolution multiply the weapon's attacks by the number of firing models, and the `> 9"` rules read `unitDistance`. `unitBlockingSegment` skips the shooter's unit and the target's unit, so squad-mates never block while other units' models do. `targetCoverByMajority` judges each living target model with `findCoverSource` against its nearest firing model and gives cover only for a strict majority (a single-model target is judged alone). The HUD pre-checks call these same functions.
 
+### Shooting: two targets, Blast spread, Indirect
+- **Targets:** a `shoot` names weapon allocations for at most two distinct target units; weapons with the same `name` must all use the same target (host rejects otherwise; the HUD moves same-name weapons together).
+- **Blast(X):** `engine/blast.ts` `getBlastParticipants` lists the target, then every other enemy unit with a model within `BLAST_SPREAD_RANGE` (3", base edge) of any target model, nearest first. `countShotHits` gives the shot's hits (each becomes X, after all other rules) and `autoSplitBlastHits` / `autoSplitForParticipants` split them as evenly as possible (odd hit to the target first, then nearest units), capped at each unit's living models, re-spreading what a capped unit cannot take; hits above every cap are lost. Each unit resolves its slice (`resolveAttack`'s `BlastShare`: `offset`, `count`, `aimedAt`) with its own Defense and rules; cover is ignored for all. Hit modifiers (Stealth etc.) follow the aimed-at target. Neighbours' defense dice are extra specs in `getDiceSpecs`, purpose `blast_<unitId>_defense` / `_regeneration` (prefixed `alloc_<i>_` when the shot has several weapons), sized for the most hits that unit could take, since the split is only known once the to-hit dice are rolled. The log's dice outcome keeps the target's totals and lists neighbours in `blastSplash`. Neighbour wounds go through the same casualty ledger and the wound baseline, so they count for end-of-activation morale.
+- **Indirect:** `ignoresSight(attacker, weapon)` is true for an Indirect weapon while the unit has not moved (`hasMoved` false, i.e. a Hold); `firingModels`/`squadAim` then skip line of sight and the shoot code skips cover from sight blockers. After moving it behaves like any weapon. The "-1 to hit after moving" penalty is removed.
+
 ### Cover Determination
 - **In-Cover Status:** Targets with `in-cover` status always receive +1 Defense.
 - **Low Cover Proximity Rule:** Intervening low cover (crates, low barricades) only grants +1 Defense if the line of fire crosses the piece and the defending target's base edge is within **1.0"** of it (`lowCoverEdgeGap`, measured base edge to piece; and the terrain is not adjacent to the shooter, i.e. `projDist > 1.0"`). Distant low crates in the middle of no-man's-land do not grant cover to targets standing in the open downrange, matching tabletop True-Line-of-Sight conventions.
@@ -311,7 +316,7 @@ Shooting, the charge strike, strike-back and `fight` apply wounds through `apply
 
 ### Targeting Restrictions
 - Must be in range
-- Must have LOS (for shooting; ignored by weapons with `indirect`)
+- Must have LOS (for shooting; ignored by `indirect` weapons while their unit holds)
 - Engagement restrictions apply (engaged fighters typically fight rather than shoot)
 
 ### LoS & Cover Debugger (F9)

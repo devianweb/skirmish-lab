@@ -231,7 +231,7 @@ describe('combat: special rules & weapon traits', () => {
     expect(surge.hitCount).toBe(2);
   });
 
-  it('Marksman (+1), Stealth (-1 >9"), Indirect (-1 if moved), and Unstoppable (ignores negative mods)', () => {
+  it('Marksman (+1), Stealth (-1 >9"), and Unstoppable (ignores negative mods)', () => {
     // Q5+ with Marksman (+1) hits on 4+.
     const marksman = resolveAttack(
       { quality: 5, specialRules: ['marksman'], distance: 12 },

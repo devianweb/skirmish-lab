@@ -35,6 +35,9 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] **14C-2 Shaken:** a Shaken unit, when you activate it, offers only *End Activation (idle)* (Advance, Rush, Shoot, Charge greyed out); ending it removes the SHAKEN tag. A second wound to a Shaken unit at half still re-tests (it fails automatically, no die). A Fearless unit gets a Fearless die.
 - [ ] **14C-2 Hero:** a squad at half within 6" of a living non-Shaken Hero tests with the Hero's better Quality; at more than 6" it uses its own.
 - [ ] **14C-2 round end:** ending a round with half your army dead triggers no morale tests.
+- [ ] **14C-2 two targets:** give a unit two weapons with different names plus a third: the HUD lets you send the weapons to two enemy units but toasts "Cannot split fire across more than 2 distinct targets" for a third. Two weapons with the same name always move to a new target together.
+- [ ] **14C-2 Blast spread:** fire a Blast weapon (Frag Launcher / Trench Mortar) at a squad with another enemy squad within 3" of it: the dice panel shows the target's hits plus a "Blast spill" line for the neighbour (its own Defense); both squads owe morale at the end of the activation if they dropped to half. A neighbour more than 3" away takes nothing.
+- [ ] **14C-2 Indirect:** a Trench Mortar that held (did not move) can target a unit behind a wall; after an Advance it reports "No line of sight" on the same target. No -1 to hit appears after moving.
 
 ## 8. Melee & objectives
 - All earlier items verified.

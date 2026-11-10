@@ -15,6 +15,11 @@ import { baseRadius, centreDistance, closestModelPair, livingModelPositions, mod
  * cover from `spatial`, which itself imports `unitGeometry` (pure measuring stays a leaf module).
  */
 
+/** True when `weapon` may be fired without line of sight: it is Indirect and its unit held (did not move). */
+export function ignoresSight(attacker: Unit, weapon: Weapon): boolean {
+  return hasTrait(weapon.profile.specialRules, 'indirect') && !attacker.hasMoved;
+}
+
 /** A single model standing in for its unit when tracing sight lines (same id, status and rules). */
 function modelAsUnit(unit: Unit, position: Vector3): Unit {
   return { ...unit, position };
@@ -27,12 +32,13 @@ export interface FiringModel {
 /**
  * Attacker models that can fire `weapon` at `target`: the model sees at least one living target model
  * (3D line of sight from its eye; own squad-mates never block, other units' models do) and that same
- * target model is within the weapon's range by base-edge gap. Indirect weapons need range only.
+ * target model is within the weapon's range by base-edge gap. An Indirect weapon needs range only while its
+ * unit has not moved (a Hold); after moving it needs line of sight like any other weapon.
  * A target is valid when this list is non-empty; its length is the number of models whose attacks count.
  */
 export function firingModels(state: GameState, attacker: Unit, target: Unit, weapon: Weapon): FiringModel[] {
   const range = weapon.profile.range;
-  const indirect = hasTrait(weapon.profile.specialRules, 'indirect');
+  const indirect = ignoresSight(attacker, weapon);
   const rA = baseRadius(attacker);
   const rT = baseRadius(target);
   const targetModels = livingModelPositions(target);
@@ -121,7 +127,7 @@ export function squadAim(
   aimedModelId?: string
 ): SquadAim {
   const range = weapon.profile.range;
-  const indirect = hasTrait(weapon.profile.specialRules, 'indirect');
+  const indirect = ignoresSight(attacker, weapon);
   const rA = baseRadius(attacker);
   const rT = baseRadius(target);
   const targetModels = livingModelPositions(target);

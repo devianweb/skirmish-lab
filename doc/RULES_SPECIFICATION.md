@@ -131,7 +131,7 @@ sequenceDiagram
 ```
 
 1. **Targeting & Split Fire:**
-   - Shooting is per model. A target unit is valid for a weapon when at least one attacking model has line of sight (traced from that model's eye) to **some** living model of the target **and** that same target model is within the weapon's range, measured base edge to base edge. Indirect weapons need range only.
+   - Shooting is per model. A target unit is valid for a weapon when at least one attacking model has line of sight (traced from that model's eye) to **some** living model of the target **and** that same target model is within the weapon's range, measured base edge to base edge. An Indirect weapon needs range only while its unit has held (not moved this activation); after moving it needs line of sight like any weapon.
    - **Who fires:** only the attacking models that meet that test fire; the weapon's attack count is its attacks times the number of firing models (the other models neither see nor reach the target). Split-fire allocations apply the same test per weapon group.
    - **Blocking:** an attacker's own squad-mates never block its sight; models of any other unit (friend or foe) do. The target unit's own models do not block sight to each other.
    - **Distance rules:** the `> 9"` rule checks and the distance shown to the player use the closest pair of models. `unit.position` is only an anchor for a squad and is never used to measure between units.
@@ -227,7 +227,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`ambush`** | **Ambush** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
 | **`ap(X)`** | **AP(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
 | **`bane`** | **Bane** | Ignores target's `regeneration`. Target must re-roll unmodified saving throw results of 6. |
-| **`blast(X)`** | **Blast(X)** | Ignores cover. Multiplies hits by $X$ (up to maximum number of models in target / enemy models within $3"$). |
+| **`blast(X)`** | **Blast(X)** | Ignores cover. After all other special rules each hit becomes $X$ hits, split between the target and every other enemy unit with a model within $3"$ of it. A unit takes at most one hit per living model; the rest are lost. The engine's Auto split deals hits as evenly as possible (odd hit to the target first, then nearest neighbours) and re-spreads hits a unit cannot take. Each unit defends its share with its own Defense batch. |
 | **`caster(X)`** | **Caster(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to power cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy casters within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
 | **`counter`** | **Counter** | Strikes first in melee when charged. Attacking charger suffers $-1$ Impact hit per model with Counter. *(Reworked in 14C-2 PR 7.)* |
 | **`deadly(X)`** | **Deadly(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
@@ -239,7 +239,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`hero`** | **Hero** | Friendly units within 6" (base edge to base edge) may use the Hero's Quality for Morale Tests while the Hero is not Shaken. |
 | **`immobile`** | **Immobile** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
 | **`impact(X)`** | **Impact(X)** | On charging, rolls $X$ dice before normal attacks (unless fatigued). Each roll of 2+ inflicts 1 immediate hit. |
-| **`indirect`** | **Indirect** | Fires without requiring line of sight and ignores cover from sight blockers. Suffers $-1$ to hit if firing after moving. |
+| **`indirect`** | **Indirect** | If the unit held (did not move) this activation, fires without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon. No to-hit penalty. |
 | **`limited`** | **Limited** | Weapon profile or ability may only be used **once per match**. |
 | **`regeneration`** | **Regeneration** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
 | **`relentless`** | **Relentless** | When shooting at targets $>9"$ away, unmodified hit rolls of 6 generate 1 additional hit. |
