@@ -18,6 +18,7 @@ import {
   AimLinesMarker,
   DeploymentZoneMarker,
   MarkerRenderer,
+  KeepAwayZoneMarker,
   MarkerUnit,
   MovePathMarker,
 } from './MarkerRenderer';
@@ -260,6 +261,10 @@ export class GameView {
 
   setSquadCoherencyMarker(positions: Vector3[] | null, radius?: number): void {
     this.markerRenderer.setSquadCoherency(positions, radius);
+  }
+
+  setKeepAwayZonesMarker(zones: KeepAwayZoneMarker[] | null): void {
+    this.markerRenderer.setKeepAwayZones(zones);
   }
 
   setCasualtyPicksMarker(positions: Vector3[] | null): void {

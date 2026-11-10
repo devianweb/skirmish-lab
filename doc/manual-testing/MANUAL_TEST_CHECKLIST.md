@@ -42,6 +42,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 7. Movement, rush and shooting
+- [ ] **Keep-away zones:** click Advance (then Rush, a declared Charge incl. later legs, a squad model pick after the leader's jump, a push and a pile-in): red translucent discs with a ring appear round every model of other units near you (friends too), the legend "Red rings: 1" zone around other units..." shows, and they vanish on Confirm/Cancel. A destination just outside a disc is accepted, just inside is refused/stops short; the disc edge matches where the path detours. During a charge the target's discs are green, not red. A model on another deck/tier more than ~1.8" away in height shows a very faint disc. No visible lag while moving the mouse.
 - All items verified.
 
 ## 8. Melee & objectives

@@ -224,6 +224,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
   - [x] Melee consolidation: fold Fight directly into Charge (charge resolves melee strike automatically).
   - [x] Melee engagement visual contact highlights (highlight opposing model in bright contact ring/indicator when in 1" engagement range).
   - [x] **Low Cover Proximity Check (The 1" Intervening Rule):** Defending targets must be within 1.0" of low cover (crates, barricades) along the line of fire to receive the +1 Defense bonus, aligning with physical tabletop True-Line-of-Sight and preventing distant mid-field crates from granting cover to open targets downrange.
+  - [x] **Keep-away zones overlay (UI):** red 1" no-go discs round other units' models while a move, rush, charge, push or pile-in is planned (charge target green, other tiers faint) so detours and refused spots are explainable.
   - [x] **Terrain Apertures (Windows & Doorways):**
     - [x] **Doorways (`wall-doorway`):** Central 1.0" aperture is open to both model movement (passable) and unobstructed Line of Sight.
     - [x] **Windows (`wall-window`):** Central 1.0" aperture allows Line of Sight when at least one model (shooter or target) is within 1.0" of the window ("manning the firing port"); models within 1.0" receiving fire through the window gain +1 Defense (Cover), while movement through the window remains blocked.
