@@ -12,7 +12,7 @@ import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { getTraitValue, hasTrait } from '../rules/traits';
 import { resolveMoraleTest } from './combat';
-import { createSquadPositions, findTerrainAtPosition } from './spatial';
+import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
 import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
@@ -529,10 +529,22 @@ export function validateDeploymentPosition(
     return { valid: false, reason: 'Unit is not currently eligible for deployment (scout units deploy after standard units)' };
   }
 
-  const isScout = hasTrait(unit.specialRules, 'scout');
-  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
+  const problem = deploymentFootprintProblem(state, unit, position, hasTrait(unit.specialRules, 'scout'));
+  return problem ? { valid: false, reason: problem } : { valid: true };
+}
 
-  // Every model must fit: a squad is laid out around the anchor exactly as the deploy action will place it.
+/**
+ * Why `unit` could not stand with its anchor at `position` (laid out exactly as `deploy-unit` places it), or
+ * null when it can: every model inside the deployment zone, clear of terrain (obstacle pieces, structure solids
+ * such as deck legs, stairs and ladders) and more than 1" from every model of any other deployed unit.
+ */
+export function deploymentFootprintProblem(
+  state: GameState,
+  unit: Unit,
+  position: Vector3,
+  isScout: boolean = false
+): string | null {
+  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
   const modelCount = unit.models && unit.models.length > 0 ? unit.models.length : 1;
   const footprint = modelCount > 1 ? createSquadPositions(position, modelCount) : [position];
 
@@ -543,20 +555,20 @@ export function validateDeploymentPosition(
       point.z < bounds.minZ - 0.01 ||
       point.z > bounds.maxZ + 0.01
     ) {
-      return {
-        valid: false,
-        reason: isScout
-          ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
-          : 'Position outside friendly 12" deployment zone',
-      };
+      return isScout
+        ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
+        : 'Position outside friendly 12" deployment zone';
     }
   }
 
-  // Check obstacle collision
   for (const point of footprint) {
     const piece = findTerrainAtPosition(state, point);
-    if (piece && piece.isObstacle) {
-      return { valid: false, reason: 'Cannot deploy inside a terrain obstacle' };
+    if (piece && (piece.isObstacle || isStairPiece(piece) || isLadderPiece(piece))) {
+      return 'Cannot deploy inside a terrain obstacle';
+    }
+    // Structure solids (deck legs, walls of a ruin...) that the piece-level flag doesn't cover
+    if (findEndOverlap(state, unit.id, point)?.kind === 'terrain') {
+      return 'Cannot deploy inside a terrain obstacle';
     }
   }
 
@@ -567,16 +579,45 @@ export function validateDeploymentPosition(
     }
     for (const point of footprint) {
       if (gapToUnit(point, other) <= ENEMY_KEEP_AWAY_GAP) {
-        return {
-          valid: false,
-          reason:
-            other.ownerId === unit.ownerId
-              ? 'Cannot deploy within 1" of another friendly unit'
-              : 'Cannot deploy within 1" of enemy models',
-        };
+        return other.ownerId === unit.ownerId
+          ? 'Cannot deploy within 1" of another friendly unit'
+          : 'Cannot deploy within 1" of enemy models';
       }
     }
   }
+  return null;
+}
 
-  return { valid: true };
+/**
+ * Settle pre-placed units (deployment phase off) onto legal spots: each unit, in order, keeps its spawn anchor
+ * if its whole footprint is legal there, otherwise moves to the nearest legal anchor (rings of 0.5" out to 12").
+ * Mutates the units' anchors and model positions; units that can't be placed anywhere stay where they were.
+ */
+export function settleSpawnPositions(state: GameState, units: Unit[]): void {
+  for (const u of units) u.isDeployed = false;
+  for (const unit of units) {
+    const origin = unit.position;
+    let chosen: Vector3 | null = null;
+    if (!deploymentFootprintProblem(state, unit, origin)) chosen = origin;
+    for (let r = 0.5; !chosen && r <= 12.001; r += 0.5) {
+      const steps = Math.max(8, Math.round((2 * Math.PI * r) / 0.75));
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * 2 * Math.PI;
+        const candidate = { x: Math.round((origin.x + Math.cos(a) * r) * 100) / 100, y: origin.y ?? 0, z: Math.round((origin.z + Math.sin(a) * r) * 100) / 100 };
+        if (!deploymentFootprintProblem(state, unit, candidate)) {
+          chosen = candidate;
+          break;
+        }
+      }
+    }
+    if (chosen && chosen !== origin) {
+      unit.position = { ...chosen };
+      const count = unit.models?.length ?? 0;
+      if (count > 0) {
+        const positions = createSquadPositions(chosen, count);
+        unit.models.forEach((m, i) => (m.position = { ...positions[i] }));
+      }
+    }
+    unit.isDeployed = true;
+  }
 }
