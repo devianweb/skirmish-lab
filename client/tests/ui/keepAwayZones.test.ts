@@ -56,15 +56,29 @@ describe('computeKeepAwayZones', () => {
     expect(zones.find((z) => z.unitId === 'other')!.exempt).toBe(false);
   });
 
-  it('flags models on another tier (1.8" or more apart in height) as non-blocking, 1.7" apart still blocks', () => {
+  it('uses 3D: a model 1" or more above/below the mover blocks nothing from there (faint), a closer one blocks a smaller disc', () => {
     const mover = mk('mover', HOST_PLAYER_ID, [[0, 0, 0]]);
     const high = mk('high', GUEST_PLAYER_ID, [[2, 0, 3]]);
-    const step = mk('step', GUEST_PLAYER_ID, [[0, 2, 1.7]]);
-    const edge = mk('edge', GUEST_PLAYER_ID, [[-2, 0, 1.8]]);
+    const step = mk('step', GUEST_PLAYER_ID, [[0, 2, 0.6]]);
+    const edge = mk('edge', GUEST_PLAYER_ID, [[-2, 0, 1]]);
     const zones = computeKeepAwayZones(stateWith(mover, high, step, edge), mover, { reach: 6 });
     expect(zones.find((z) => z.unitId === 'high')!.otherTier).toBe(true);
-    expect(zones.find((z) => z.unitId === 'step')!.otherTier).toBe(false);
     expect(zones.find((z) => z.unitId === 'edge')!.otherTier).toBe(true);
+    const s = zones.find((z) => z.unitId === 'step')!;
+    expect(s.otherTier).toBe(false);
+    expect(s.radius).toBeCloseTo(1 + Math.sqrt(1 - 0.36), 9);
+    expect(s.radius).toBeLessThan(KEEP_AWAY_CENTRE_DISTANCE);
+  });
+
+  it('under-deck models are faint when the mover stands on a 3" deck, and vice versa', () => {
+    const onDeck = mk('deck', HOST_PLAYER_ID, [[0, 0, 3]]);
+    const under = mk('under', GUEST_PLAYER_ID, [[0, 1, 0]]);
+    const z1 = computeKeepAwayZones(stateWith(onDeck, under), onDeck, { reach: 6 });
+    expect(z1.find((z) => z.unitId === 'under')!.otherTier).toBe(true);
+    const ground = mk('ground', HOST_PLAYER_ID, [[0, 0, 0]]);
+    const above = mk('above', GUEST_PLAYER_ID, [[0, 1, 3]]);
+    const z2 = computeKeepAwayZones(stateWith(ground, above), ground, { reach: 6 });
+    expect(z2.find((z) => z.unitId === 'above')!.otherTier).toBe(true);
   });
 
   it('measures reach from every living model of a squad mover, or explicit origins', () => {
