@@ -316,7 +316,6 @@ describe('GameManager', () => {
       expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
         { count: 1, sides: 6, purpose: 'to-hit' },
         { count: 1, sides: 6, purpose: 'defense' },
-        { count: 1, sides: 6, purpose: 'trauma' },
       ]);
 
       const after = manager.getGameState()!;
@@ -734,7 +733,6 @@ describe('GameManager', () => {
         requestRoll: vi.fn().mockResolvedValue([
           { rolls: [6, 5], total: 11, finalTotal: 11, purpose: 'to-hit' },
           { rolls: [1, 2], total: 3, finalTotal: 3, purpose: 'defense' },
-          { rolls: [1], total: 1, finalTotal: 1, purpose: 'trauma' }, // Defender survives, becomes shaken
           { rolls: [6, 4], total: 10, finalTotal: 10, purpose: 'retaliation-to-hit' },
           { rolls: [5, 6], total: 11, finalTotal: 11, purpose: 'retaliation-defense' },
         ]),
@@ -846,8 +844,8 @@ describe('GameManager', () => {
         z: targetInGuest.position.z,
       };
       guest.sendAction(
-        createAction(GUEST_PLAYER_ID, 'move-unit', {
-          type: 'move-unit',
+        createAction(GUEST_PLAYER_ID, 'advance', {
+          type: 'advance',
           unitId: guestTarget.id,
           path: [targetInGuest.position, moveDest],
         })

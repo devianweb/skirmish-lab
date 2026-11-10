@@ -85,7 +85,6 @@ const roll = (purpose: string, rolls: number[]): DiceResult => ({
 const meleeDice = (n = 40): DiceResult[] => [
   roll('to-hit', Array(n).fill(1)),
   roll('defense', Array(n).fill(6)),
-  roll('trauma', [1]),
 ];
 
 const startsOf = (state: GameState, id = 'h1') => livingModelPositions(state.units.find((u) => u.id === id)!);
@@ -191,12 +190,12 @@ describe('pile-in: the charge waits for the defender', () => {
 
   it('counts strikers after the pile-in, not before (more chargers reach once a defender steps up)', () => {
     // A column charging a two-model squad: the second defender steps up beside the column and brings
-    // the fourth charger within reach
+    // the fifth charger within reach
     const state = mkState([
-      mkUnit('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5]], { speed: 3 }),
+      mkUnit('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5], [0, -0.5]], { speed: 3 }),
       mkUnit('g1', GUEST, [[0, 10], [1, 10.8]]),
     ]);
-    const ends = [P(0, 9), P(0, 8), P(0, 7), P(0, 6)];
+    const ends = [P(0, 9), P(0, 8), P(0, 7), P(0, 6), P(0, 5)];
     const charge = chargeAction(state, ends);
     expect(validateAction(state, charge)).toEqual({ valid: true });
     const next = applyAction(state, charge, undefined).state!;

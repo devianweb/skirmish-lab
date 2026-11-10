@@ -40,7 +40,7 @@ const block = (): GameState =>
 const home = (state: GameState) => state.units[0].models.map((m) => ({ ...m.position! }));
 
 /** One model walks `out` inches away and straight back (costs 2*out, ends where it started); the rest stay. */
-function wander(state: GameState, index: number, out: number, type: 'move-unit' | 'rush' = 'move-unit', dz = -1) {
+function wander(state: GameState, index: number, out: number, type: 'advance' | 'rush' = 'advance', dz = -1) {
   const positions = home(state);
   const start = positions[index];
   const paths = positions.map((p) => [p]);
@@ -77,9 +77,9 @@ describe('per-model movement budget: split move', () => {
 
   it('adds up legs per model (4" then 2" is fine, 4" then 2.5" is not)', () => {
     const s0 = block();
-    const s1 = applyAction(s0, wander(s0, 2, 2, 'move-unit', 1)).state!;
-    expect(validateAction(s1, wander(s1, 2, 1, 'move-unit', 1))).toEqual({ valid: true });
-    expect(validateAction(s1, wander(s1, 2, 1.25, 'move-unit', 1)).valid).toBe(false);
+    const s1 = applyAction(s0, wander(s0, 2, 2, 'advance', 1)).state!;
+    expect(validateAction(s1, wander(s1, 2, 1, 'advance', 1))).toEqual({ valid: true });
+    expect(validateAction(s1, wander(s1, 2, 1.25, 'advance', 1)).valid).toBe(false);
   });
 
   it('unit remainingMovement is the budget minus the smallest spend', () => {
@@ -150,7 +150,6 @@ describe('per-model movement budget: split squad charge', () => {
   const dice = (): DiceResult[] => [
     { rolls: Array(40).fill(1), total: 40, finalTotal: 40, purpose: 'to-hit' },
     { rolls: Array(40).fill(6), total: 240, finalTotal: 240, purpose: 'defense' },
-    { rolls: [1], total: 1, finalTotal: 1, purpose: 'trauma' },
   ];
 
   it('regression: the furthest mover in each leg does not cost a squad-mate its distance', () => {
@@ -192,8 +191,8 @@ describe('per-model movement budget: split squad charge', () => {
 describe('single-model units are unchanged', () => {
   it('never get a per-model tally', () => {
     const s0 = mkState([mkUnit('h1', HOST, [[0, 0]]), mkUnit('g1', GUEST, [[0, 40]])]);
-    const move = createAction(HOST, 'move-unit', {
-      type: 'move-unit', unitId: 'h1', path: [P(0, 0), P(0, 4)], finalPosition: P(0, 4),
+    const move = createAction(HOST, 'advance', {
+      type: 'advance', unitId: 'h1', path: [P(0, 0), P(0, 4)], finalPosition: P(0, 4),
     });
     const s1 = applyAction(s0, move).state!;
     expect(s1.units[0].remainingMovement).toBe(2);

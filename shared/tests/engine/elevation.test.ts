@@ -315,8 +315,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
     state.turnState.activeUnitId = 'u';
     state.turnState.currentPlayerId = HOST;
     unit.isActivated = true;
-    const hanging = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const hanging = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: -0.05 }, { x: 0, y: 1.5, z: -0.05 }],
       finalPosition: { x: 0, y: 1.5, z: -0.05 },
@@ -324,8 +324,8 @@ describe('elevation: climbing down (no hanging in mid-air)', () => {
     const res = validateAction(state, hanging);
     expect(res.valid).toBe(false);
     expect(res.reason).toMatch(/suspended in mid-air/i);
-    const landed = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const landed = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path: [{ x: 0, y: 3, z: 1.2 }, { x: 0, y: 3, z: -0.05 }, { x: 0, y: 0, z: -0.05 }],
       finalPosition: { x: 0, y: 0, z: -0.05 },

@@ -154,8 +154,9 @@ export function classifySegment(
   const dy = (b.y ?? 0) - (a.y ?? 0);
   const horizontal = distanceHorizontal(a, b);
   const length = Math.hypot(horizontal, dy);
-  const airborne = !!unit && hasTrait(unit.specialRules, 'airborne');
-  const target = unit && hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
+  const flying = !!unit && hasTrait(unit.specialRules, 'flying');
+  const target = JUMP_TARGET;
+  const strider = !!unit && hasTrait(unit.specialRules, 'strider');
   const make = (kind: SegmentKind, cost: number, extra: Partial<SegmentClass> = {}): SegmentClass => ({
     kind,
     cost,
@@ -174,7 +175,7 @@ export function classifySegment(
     const onLadder = onSlope && isSegmentOnLadder(state, a, b);
     if (dy > 0) {
       if (onSlope) return make(onLadder ? 'ladder' : 'stairs', length);
-      if (airborne) return make('walk', length);
+      if (flying) return make('walk', length);
       return canClimbBetween(state, a, b) ? make('climb', length) : make('blocked', length);
     }
     const height = -dy;
@@ -186,24 +187,24 @@ export function classifySegment(
       }
       return make(onLadder ? 'ladder' : 'stairs', length);
     }
-    if (airborne) return make('drop', horizontal, { distance: height });
+    if (flying) return make('drop', horizontal, { distance: height });
     const kind = classifyDropHeight(height);
     // A hop that also crosses more than 1" of open air is a gap jump, whatever its height change. A jump is
     // measured like a tape: the straight line from take-off to landing (`length`), and a hop longer than 6"
     // cannot be jumped (it is not a fall either)
     if (measureElevatedGap(state, [a, b]) > FREE_GAP_MAX) {
       if (length > JUMP_GAP_MAX) return make('blocked', length, { distance: length });
-      return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length), target });
+      return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
     }
     if (kind === 'drop') return make('drop', horizontal, { distance: height });
     if (kind === 'jump-drop') {
-      return make('jump-drop', 0, { distance: length, dice: calculateJumpDice(length), target });
+      return make('jump-drop', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
     }
     return make('fall', horizontal, { distance: height });
   }
 
   // Level movement: open air beneath an elevated stretch is a gap
-  if (airborne) return make('walk', length);
+  if (flying) return make('walk', length);
   if (isSegmentOnRampOrStairs(state, a, b) && !isSegmentOnLadder(state, a, b)) return make('stairs', length);
   const gap = measureElevatedGap(state, [a, b]);
   if (gap <= 0) return make('walk', length);
@@ -216,7 +217,7 @@ export function classifySegment(
     return make('gap', length, { distance: gap });
   }
   if (length <= JUMP_GAP_MAX) {
-    return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length), target });
+    return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
   }
   return make('blocked', length, { distance: length });
 }
@@ -234,9 +235,16 @@ export function pathMovementCost(state: GameState, path: Vector3[], unit?: Unit)
   return total;
 }
 
-/** Jump test dice for a drop (or gap) of `distance` inches: one die per full 3", plus one. */
-export function calculateJumpDice(distance: number): number {
-  return Math.floor((distance + 0.05) / 3.0) + 1;
+/** Every jump die needs this or better. */
+export const JUMP_TARGET = 2;
+
+/**
+ * Jump test dice for a drop (or gap) of `distance` inches: one per started inch (a hair of tolerance so a
+ * measured 5.0" is 5 dice, not 6). A Strider rolls half as many, rounding up.
+ */
+export function calculateJumpDice(distance: number, strider: boolean = false): number {
+  const dice = Math.max(1, Math.ceil(distance - 0.05));
+  return strider ? Math.ceil(dice / 2) : dice;
 }
 
 interface JumpResult {
@@ -248,8 +256,8 @@ interface JumpResult {
 }
 
 /**
- * The jump test: roll one die per full 3" plus one, each needing 3+ (2+ with Pathfinder; Airborne
- * auto-passes). All dice must succeed. Distances up to `freeMax` are regular movement (no test);
+ * The jump test: one die per started inch (half as many for a Strider), each needing 2+; Flying
+ * auto-passes. All dice must succeed. Distances up to `freeMax` are regular movement (no test);
  * distances above `jumpMax` cannot be jumped.
  */
 function resolveJump(
@@ -263,14 +271,14 @@ function resolveJump(
   if (distance <= freeMax) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
-  if (hasTrait(unit.specialRules, 'airborne')) {
+  if (hasTrait(unit.specialRules, 'flying')) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
-  const target = hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
+  const target = JUMP_TARGET;
   if (distance > jumpMax) {
     return { requiresTest: false, canJump: false, dice: 0, target, passed: false };
   }
-  const dice = calculateJumpDice(diceDistance);
+  const dice = calculateJumpDice(diceDistance, hasTrait(unit.specialRules, 'strider'));
   const passed = !!rolls && rolls.length >= dice && rolls.slice(0, dice).every((r) => r >= target);
   return { requiresTest: true, canJump: true, dice, target, passed };
 }
@@ -284,12 +292,12 @@ export function resolveDropJump(unit: Unit, drop: number, rolls?: number[], hopL
 /** Human-readable warning for the highest drop on a path (empty when it is regular movement). */
 export function describeDrop(drop: number, unit: Unit): string {
   const kind = classifyDropHeight(drop);
-  if (kind === 'drop' || hasTrait(unit.specialRules, 'airborne')) return '';
+  if (kind === 'drop' || hasTrait(unit.specialRules, 'flying')) return '';
   if (kind === 'fall') {
-    return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls, Falling damage and ends activation!`;
+    return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls (${fallDiceCount(drop)} dice, 1-3 wounds) and ends activation!`;
   }
   const res = resolveDropJump(unit, drop);
-  return `⚠️ JUMP DOWN (${drop.toFixed(1)}"): roll ${res.dice} dice, all must be ${res.target}+ or fall (Falling damage, ends activation)`;
+  return `⚠️ JUMP DOWN (${drop.toFixed(1)}"): roll ${res.dice} dice, all must be ${res.target}+ or fall (ends activation)`;
 }
 
 /**
@@ -334,11 +342,11 @@ export function isPathDifficult(
   path: Vector3[],
   unit?: Unit
 ): boolean {
-  if (unit && hasTrait(unit.specialRules, 'pathfinder')) {
-    return false; // Pathfinder ignores difficult terrain
+  if (unit && hasTrait(unit.specialRules, 'strider')) {
+    return false; // Strider ignores difficult terrain
   }
-  if (unit && hasTrait(unit.specialRules, 'airborne')) {
-    return false; // Airborne ignores all terrain effects
+  if (unit && hasTrait(unit.specialRules, 'flying')) {
+    return false; // Flying ignores all terrain effects
   }
   return pathCrossesFlaggedPiece(state, path, isDifficultPiece);
 }
@@ -352,18 +360,18 @@ export function isPathDangerous(
   path: Vector3[],
   unit?: Unit
 ): boolean {
-  if (unit && hasTrait(unit.specialRules, 'airborne')) {
-    return false; // Airborne models fly over dangerous ground terrain
+  if (unit && hasTrait(unit.specialRules, 'flying')) {
+    return false; // Flying models fly over dangerous ground terrain
   }
   return pathCrossesFlaggedPiece(state, path, isDangerousPiece);
 }
 
 /**
  * Living models of `unit` standing (centre) inside a dangerous piece at its level, in unit model order.
- * Each of them rolls the hazard test when the unit activates. Airborne units are exempt.
+ * Each of them rolls the hazard test when the unit activates. Flying units are exempt.
  */
 export function modelsInDangerousTerrain(state: GameState, unit: Unit): Model[] {
-  if (hasTrait(unit.specialRules, 'airborne')) return [];
+  if (hasTrait(unit.specialRules, 'flying')) return [];
   const pieces = state.terrain.filter(isDangerousPiece);
   if (pieces.length === 0) return [];
   return unit.models.filter((m) => {
@@ -414,7 +422,7 @@ export function detectPathFall(
 
 /**
  * Returns the effective maximum movement allowed for an action, considering speed, action type,
- * special rules (Pathfinder, Airborne), and Difficult Terrain capping.
+ * special rules (Strider, Flying), and Difficult Terrain capping.
  */
 export function getEffectiveMaxMovement(
   unit: Unit,
@@ -423,8 +431,8 @@ export function getEffectiveMaxMovement(
 ): number {
   if (
     isDifficult &&
-    !hasTrait(unit.specialRules, 'pathfinder') &&
-    !hasTrait(unit.specialRules, 'airborne')
+    !hasTrait(unit.specialRules, 'strider') &&
+    !hasTrait(unit.specialRules, 'flying')
   ) {
     // Difficult Terrain caps total activation movement at 6.0" maximum.
     // Negates speed bonuses for Rush and Charge.
@@ -441,97 +449,17 @@ export function getEffectiveMaxMovement(
 }
 
 /**
- * Drops <= 3.0" are safe. Drops > 3.0" inflict Falling Damage: 1 hit with AP(1) per full 3.0" fallen.
+ * Dice a fall of `height` inches rolls: none under 2", otherwise one per started inch fallen. Each die
+ * showing 1-3 is one wound (no Defense roll).
  */
-export function calculateFallingDamage(
-  verticalDrop: number,
-  forcedFall: boolean = false
-): {
-  isDangerous: boolean;
-  damageHits: number;
-  armorPiercing: number;
-} {
-  // A voluntary drop of up to 3" is safe movement; a model that actually falls (failed jump) is hurt from 2" up.
-  const threshold = forcedFall ? FALL_DAMAGE_MIN - 0.05 : FREE_DROP_MAX;
-  if (forcedFall ? verticalDrop < threshold : verticalDrop <= threshold) {
-    return { isDangerous: false, damageHits: 0, armorPiercing: 0 };
-  }
-  const full3Inches = Math.floor((verticalDrop + 0.05) / 3.0);
-  const ap = full3Inches; // AP(1) per FULL 3" fallen: a 2-2.99" fall is an AP(0) hit
-  return {
-    isDangerous: true,
-    damageHits: 1,
-    armorPiercing: ap,
-  };
+export function fallDiceCount(height: number): number {
+  if (height < FALL_DAMAGE_MIN - 0.05) return 0;
+  return Math.max(1, Math.ceil(height - 0.05));
 }
 
-/**
- * Resolves falling damage defense roll and trauma for a unit that plummeted.
- */
-export function resolveFallingDamage(
-  unit: Unit,
-  verticalDrop: number,
-  defenseRoll?: number,
-  forcedFall: boolean = false
-): {
-  isDangerous: boolean;
-  damageHits: number;
-  armorPiercing: number;
-  saved: boolean;
-  wounds: number;
-} {
-  const calc = calculateFallingDamage(verticalDrop, forcedFall);
-  if (!calc.isDangerous) {
-    return {
-      isDangerous: false,
-      damageHits: 0,
-      armorPiercing: 0,
-      saved: true,
-      wounds: 0,
-    };
-  }
-
-  if (defenseRoll === undefined) {
-    // Unchecked or guaranteed hit if no roll supplied
-    return {
-      isDangerous: true,
-      damageHits: calc.damageHits,
-      armorPiercing: calc.armorPiercing,
-      saved: false,
-      wounds: 1,
-    };
-  }
-
-  // Natural 1 always fails; natural 6 always saves.
-  // Defense test: roll - AP >= unit.defense
-  if (defenseRoll === 6) {
-    return {
-      isDangerous: true,
-      damageHits: calc.damageHits,
-      armorPiercing: calc.armorPiercing,
-      saved: true,
-      wounds: 0,
-    };
-  }
-  if (defenseRoll === 1) {
-    return {
-      isDangerous: true,
-      damageHits: calc.damageHits,
-      armorPiercing: calc.armorPiercing,
-      saved: false,
-      wounds: 1,
-    };
-  }
-
-  const effectiveDefense = Math.max(2, Math.min(6, unit.defense + calc.armorPiercing));
-  const saved = defenseRoll >= effectiveDefense;
-  return {
-    isDangerous: true,
-    damageHits: calc.damageHits,
-    armorPiercing: calc.armorPiercing,
-    saved,
-    wounds: saved ? 0 : 1,
-  };
+/** Wounds a fall inflicts from its dice: each 1-3 is one wound. */
+export function countFallWounds(rolls: number[]): number {
+  return rolls.filter((r) => r <= 3).length;
 }
 
 /** Gaps up to this width (inches) are regular movement: no test. */
@@ -593,7 +521,7 @@ export function detectPathGapJump(
   target: number;
 } {
   const none = { isGapJump: false, gapDistance: 0, tooWide: false, dice: 0, target: 0 };
-  if (path.length < 2 || hasTrait(unit.specialRules, 'airborne')) return none;
+  if (path.length < 2 || hasTrait(unit.specialRules, 'flying')) return none;
   const pathRun = measureElevatedGap(state, path);
   if (pathRun <= FREE_GAP_MAX) return none;
   // Jump distance is the straight line of the hop (take-off to landing), like a tape; a run chained over
@@ -613,7 +541,7 @@ export function detectPathGapJump(
   };
 }
 
-/** Jump test for crossing a horizontal gap (same dice as a drop: X+1 dice, all 3+). */
+/** Jump test for crossing a horizontal gap (same dice as a drop: one per started inch, each 2+). */
 export function resolveGapJump(gapDistance: number, unit: Unit, rolls?: number[]): JumpResult {
   return resolveJump(unit, gapDistance, FREE_GAP_MAX, JUMP_GAP_MAX, rolls);
 }
@@ -690,7 +618,7 @@ export function findJumpOption(
   from: Vector3,
   target: Vector3
 ): JumpOption | null {
-  if (hasTrait(unit.specialRules, 'airborne')) return null;
+  if (hasTrait(unit.specialRules, 'flying')) return null;
   const fromY = from.y ?? 0;
   const targetY = target.y ?? 0;
   if (fromY < 1.0 || targetY - fromY > 0.5) return null;
@@ -730,7 +658,7 @@ export function findTooWideGap(
   from: Vector3,
   target: Vector3
 ): { distance: number } | null {
-  if (hasTrait(unit.specialRules, 'airborne')) return null;
+  if (hasTrait(unit.specialRules, 'flying')) return null;
   const fromY = from.y ?? 0;
   const targetY = target.y ?? 0;
   if (fromY < 1.0 || targetY < 1.0 || Math.abs(targetY - fromY) > 0.5) return null;
@@ -797,7 +725,7 @@ export function resolveDangerousTerrain(
   woundsInflicted: number;
   failedCount: number;
 } {
-  if (hasTrait(unit.specialRules, 'airborne')) {
+  if (hasTrait(unit.specialRules, 'flying')) {
     return { woundsInflicted: 0, failedCount: 0 };
   }
 
@@ -809,39 +737,6 @@ export function resolveDangerousTerrain(
   }
 
   return { woundsInflicted: wounds, failedCount: wounds };
-}
-
-/**
- * Calculates knockback displacement when a unit is shoved near a high ledge.
- * If pushed over an edge where elevation drops > 3.0", the model plummets to the ground.
- */
-export function calculateLedgeKnockback(
-  currentPos: Vector3,
-  pushOffset: { x: number; z: number },
-  groundElevation: number = 0
-): {
-  destination: Vector3;
-  didPlummet: boolean;
-  fallHeight: number;
-} {
-  const currentY = currentPos.y ?? 0;
-  const targetX = currentPos.x + pushOffset.x;
-  const targetZ = currentPos.z + pushOffset.z;
-
-  if (currentY > 3.0) {
-    // If elevated > 3" and pushed over edge, model plummets to ground level
-    return {
-      destination: { x: targetX, y: groundElevation, z: targetZ },
-      didPlummet: true,
-      fallHeight: currentY - groundElevation,
-    };
-  }
-
-  return {
-    destination: { x: targetX, y: currentY, z: targetZ },
-    didPlummet: false,
-    fallHeight: 0,
-  };
 }
 
 /**
@@ -884,7 +779,7 @@ export function allocateSquadCasualties(
     const alive = unit.models.filter((m) => !m.isDestroyed);
     if (alive.length <= 1) {
       // Last surviving model is not auto-destroyed by multi-model loop;
-      // it takes damage via normal unit trauma/tough logic
+      // it takes the rest as ordinary wounds
       break;
     }
     const victim = alive[0];
@@ -906,6 +801,22 @@ export function allocateSquadCasualties(
 }
 
 
+/** Height of the highest walkable floor under (`x`, `z`) that lies below `startY` (at least 0.5" lower); 0 for the ground. */
+export function floorHeightBelow(
+  surfaces: ReturnType<typeof collectWalkableSurfaces>,
+  x: number,
+  z: number,
+  startY: number
+): number {
+  let best = 0;
+  for (const s of surfaces) {
+    if (s.topY > startY - 0.5 || s.topY <= best) continue;
+    const l = worldToLocal(s.piece, { x, y: 0, z });
+    if (l.x >= s.minX && l.x <= s.maxX && l.z >= s.minZ && l.z <= s.maxZ) best = s.topY;
+  }
+  return best;
+}
+
 /**
  * Where a model that fell from `startY` at (`from.x`, `from.z`) comes to rest: the highest floor below the start
  * floor (a lower deck, or the ground) at a spot with the whole base supported and clear of terrain and other
@@ -919,15 +830,7 @@ export function findFallLanding(
   startY: number
 ): { position: Vector3; height: number } {
   const surfaces = collectWalkableSurfaces(state);
-  const floorAt = (x: number, z: number): number => {
-    let best = 0;
-    for (const s of surfaces) {
-      if (s.topY > startY - 0.5 || s.topY <= best) continue;
-      const l = worldToLocal(s.piece, { x, y: 0, z });
-      if (l.x >= s.minX && l.x <= s.maxX && l.z >= s.minZ && l.z <= s.maxZ) best = s.topY;
-    }
-    return best;
-  };
+  const floorAt = (x: number, z: number): number => floorHeightBelow(surfaces, x, z, startY);
   const candidates: Array<{ x: number; z: number }> = [{ x: from.x, z: from.z }];
   for (let r = 0.25; r <= FALL_LANDING_RADIUS + 1e-6; r += 0.25) {
     const n = Math.max(8, Math.round(r * 16));

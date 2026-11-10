@@ -17,7 +17,7 @@ You cannot ask the owner questions. If something blocks you, stop and say so in 
 ## 1. Hard rules (stop and report rather than break them)
 - **No rule changes beyond the plan.** If a test, a bug, or an edge case means gameplay rules would have to differ from the plan (LoS, cover, movement cost, dice, distances, thresholds), don't decide it yourself. Stop, describe the choice, and report.
 - **Never** open, push to, or merge anything targeting the `release` branch. **Never** merge your own PR. Never push to `master` directly.
-- **Clean-room.** The rule PDFs (core rules, army book, tournament guidelines) are reference only. Never copy or closely paraphrase their text into code, comments, docs, or test names. Describe mechanics in your own words. No OPR trademarks in identifiers. When you add or rename traits, rules, units, or weapons, update the term mapping (see §5).
+- **OPR names, own words.** Use One Page Rules' own names for rules, traits, units and weapons, and match v3.6 mechanics (as the plan says). The rule PDFs are reference only: never paste rulebook or army book text into code, comments, docs, or test names; describe mechanics in your own words. No OPR logos or art, and nothing from Patreon-only files.
 - **Don't delete manual test items** in `doc/manual-testing/MANUAL_TEST_CHECKLIST.md` that the owner hasn't ticked. Add or adjust items instead.
 - **Don't discard user changes.** Never run `git checkout -- <file>`, `git reset --hard`, or `git clean` on files you didn't create. If a pull conflicts with local edits, use `git pull --autostash`.
 - **Stay in scope.** Do only your PR section. Note other bugs you notice in the report. Don't fix them silently. Visual polish is deferred unless the plan asks for it.
@@ -58,7 +58,7 @@ You cannot ask the owner questions. If something blocks you, stop and say so in 
 - `doc/ROADMAP.md`: tick the tasks your section completes.
 - `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`: add or adjust items for anything a human must verify (feel, visuals, two-player flows), in the matching section. One checklist only. Never create per-phase files.
 - `doc/SYSTEMS.md` / `RULES_SPECIFICATION.md` / `DATA_MODEL.md`: update when mechanics or schema change. `doc/ASSETS.md`: update when terrain pieces, models, or markers change. `NETWORKING.md` / `ARCHITECTURE.md`: protocol or structural changes.
-- `assets-src/OPR_TERM_MAPPING.md` is **gitignored and lives only in the main checkout**: `/home/webst/dev-stuff/trench-heresy/assets-src/OPR_TERM_MAPPING.md`. The rule PDFs are in the same folder. A worktree won't have them, so use the absolute path. Edits to the mapping aren't part of the PR, so mention them in your report.
+- The rule PDFs live in the gitignored `assets-src/` of the main checkout (`/home/webst/dev-stuff/trench-heresy/assets-src/`); a worktree won't have them, so use absolute paths. `OPR_TERM_MAPPING.md` there is historical and needs no updates.
 - If you discover a new constraint or pattern, propose an AGENTS.md change in the report. Don't edit AGENTS.md unless the plan says so.
 
 ## 6. Commit and PR

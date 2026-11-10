@@ -181,7 +181,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] GLB models render at sensible sizes (Kenney figurines/terrain/markers — visual scale check; adjust `assetManifest` scales if needed)
 
 ## Phase 6: OPR Skirmish Rules Engine
-**Goal:** Implement OPR-style skirmish mechanics from first principles
+**Goal:** Implement OPR-style skirmish mechanics
 
 > **Specification:** See **[RULES_SPECIFICATION.md](./RULES_SPECIFICATION.md)** for the complete mathematical definition, action maneuvers, casualty/trauma tables, and the 29-trait special rules engine matrix.
 >
@@ -739,7 +739,13 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 ### Sub-phases
 - [x] **14A Match end, results and Concede.** *(PR 1 engine and PR 2 HUD done: `concede` action, `summarizeMatch`, Concede button, results screen.)* A clearer game-over screen (who won and why, objectives held, units lost per side). A draw on objectives stays a draw. New **Concede** action: the match ends as a loss for the conceding player; both players see the results screen (Defeat / Victory) and stay in the room, so 14B's rematch can be offered there.
 - [x] **14B Rematch ("Play Again").** *(PR 2 done: Play Again button states on the results screen, per-match reset on a new `gameId`, session and snapshot re-save. PR 1 engine done: `request-rematch` action, `GameState.setup` / `rematchRequestedBy`, `createRematchState`.)* Both players agree on the game-over screen; the host resets the match over the existing P2P channel with the exact same setup (map, armies, sides), no new invite code. Saved snapshots for the old match are cleared so a reconnect can't restore it.
-- [ ] **14C OPR alignment.** Owner (2026-11-09): drop the clean-room distinctness and line up with One Page Rules entirely; it is a non-commercial fan project. Keep the **SkirmishLab** name. Rename rules, stats, statuses, actions, weapons, units and armies to OPR's own names and match the mechanics one to one (the local term mapping is the rename list). Ship **4 pre-canned armies** matching the official stats (which four: owner's call in the plan). Keep the cheap safeguards: a one-line "Unofficial fan project, not affiliated with or endorsed by One Page Rules" disclaimer, no OPR logos or artwork, no copied rulebook text (short summaries in our own words plus a link to OPR's free rules), nothing from Patreon-only files. Rewrite AGENTS.md's IP section, the implementer agent's clean-room rule and the README to match; handle old saved sessions (compat mapping or a clean break, decided in the plan).
+- [ ] **14C OPR alignment (v3.6).** Plan: `doc/plans/14C-opr-v3.6-alignment.md` (umbrella; sub-plans 14C-1 renames & housekeeping, 14C-2 core rules to v3.6, 14C-3 armies at 400 pts with strict Force Org). Owner (2026-11-09): drop the clean-room distinctness and line up with One Page Rules entirely; it is a non-commercial fan project. Keep the **SkirmishLab** name. Rename rules, stats, statuses, actions, weapons, units and armies to OPR's own names and match the mechanics one to one (the local term mapping is the rename list). Ship **4 pre-canned armies** matching the official v3.6 stats: Human Defense Force, Orc Marauders, Prime Brothers, Alien Hives. Keep the cheap safeguards: a one-line "Unofficial fan project, not affiliated with or endorsed by One Page Rules" disclaimer, no OPR logos or artwork, no copied rulebook text (short summaries in our own words plus a link to OPR's free rules), nothing from Patreon-only files. Rewrite AGENTS.md's IP section, the implementer agent's clean-room rule and the README to match; handle old saved sessions (compat mapping or a clean break, decided in the plan).
+  - [x] 14C-1 PR 1: core special rules and the move action renamed to OPR terms (AP, Tough, Rending, Hero, Advance and so on; no aliases, faction traits unchanged). Older entries above keep the old names as history; `shared/tests/rules/renames.test.ts` lists the old-to-new mapping.
+  - [x] 14C-1 PR 2: lobby footer disclaimer and "Full rules: onepagerules.com (free)" link, README section, data card "Tough" column, "KILLED" in trauma dice summaries, developer mode (F9 in the lobby; TEST armies hidden by default).
+  - [x] 14C-2 PR 1: casualties, Tough and morale (plan `doc/plans/14C-2-core-rules-v3.6.md`). No wound-effect table, trauma roll or `stunned`: a model dies when its wounds reach Tough. Morale is a Quality test at the end of every activation for each unit that took a wound, was not in melee and is at half strength or less (Hero within 6" lends its Quality, Fearless 4+); a failure makes the unit Shaken, which may only end its activation idle. The round-end army morale is gone.
+  - [x] 14C-2 PR 2: melee reaches 3" and melee results. A model strikes with its melee weapons when its base edge is within 3" of an enemy model. At the end of an activation the wounds each side took in the melee are compared (Fear adds X once per unit); the loser takes a Morale Test, a tie tests nobody, and a loser that fails at half strength or less Routs (removed) instead of becoming Shaken. The HUD log shows the result line.
+  - [x] 14C-2 PR 3: shooting. Weapons with the same name must all shoot the same target (two distinct targets max, the HUD enforces both). Blast hits are split between the target and enemy units within 3" of it (even split, odd hit to the target, per-unit cap at living models, each unit rolling its own Defense; every wounded unit counts for end-of-activation morale). Indirect needs a Hold to fire without line of sight; the "-1 after moving" penalty is gone.
+  - [x] 14C-2 PR 4: jumps, falls and pushing (engine). Jump dice are one per started inch (2+ each, Strider rolls half rounded up, Flying passes). A unit makes one `jump` roll per leg sized by its longest declared jump; on a failure that model falls from its take-off and the other declared jumpers stay at theirs (replaces "later jumpers stop"). A fall of 2" or more rolls one die per started inch, each 1-3 a wound (no Defense roll). Pushing replaces the ledge knockback: a unit made Shaken by an attacker's activation is pushed on a push die of 4+ (`push` reaction with an Auto button; the host applies Auto on timeout; the Confirm HUD is PR 5).
 - [ ] **14D Rules audit.** Compare the engine, rule by rule, with the core rules and beginner's guide (findings in our own words, no copied rule text) and with `RULES_SPECIFICATION.md`; after 14C the names match one to one. Output: a findings list (match / deviation / missing / house rule), each deviation an owner decision. Known item: hazard tests roll one die per model, not Tough-value dice.
 - [ ] **14E Full codebase review.** Review all workspaces for correctness bugs, architecture violations (game logic in scene/HUD, client-trusted values, hardcoded ruleset names), dead code, stale comments and test gaps. Output: a findings list, triaged into bugfix batch 2 or later. Known items: corner-graze line of sight is not symmetric on exact ties; stale crate-footprint comment in `terrainStructures.ts`.
 - [ ] **14F Performance.** Profile a full game on the Standard Battlefield with squads, move preview, LoS fan and F9 running; hold 60 fps on standard desktop browsers; add timing guards to the tests for hot paths.
@@ -772,6 +778,14 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [ ] 16B Points budget validation and a simple list check in the lobby.
 - [ ] 16C Import/export of rosters as JSON for sharing between players.
 
+## Phase 17: Casters & Spells (post-MVP)
+**Goal:** Caster(X), spell tokens, Spell Amplifier and each army's spells, so caster units can join the pre-canned and imported lists. Left out of the MVP (owner, 2026-11-10).
+
+### Sub-phases (to be planned)
+- [ ] 17A Spell tokens, casting rolls and the helper +1/-1 tokens within 18".
+- [ ] 17B Spells for the four MVP armies, as data.
+- [ ] 17C HUD: casting prompt, targeting and the dice log.
+
 ## Model Selection
 Planning and research use **Opus** in the main session; implementation uses **Sonnet** `implementer` agents, one per PR section of an approved plan in `doc/plans/`. See [AGENTS.md](../AGENTS.md#planning--implementation-workflow-opus-plans-sonnet-implements) and [doc/plans/README.md](plans/README.md). The per-phase "Recommended AI Model" notes above (4.0 / 3.8) date from the earlier toolchain and are historical.
 
@@ -786,7 +800,7 @@ Planning and research use **Opus** in the main session; implementation uses **So
 - Additional unit types
 
 ## Success Metrics
-- **Compatibility:** OPR-style skirmish mechanics implemented faithfully from first principles
+- **Compatibility:** OPR-style skirmish mechanics implemented faithfully (Firefight v3.6 target)
 - **Stability:** No desyncs in normal play
 - **Usability:** Easy to connect via invite code
 - **Performance:** Runs well on desktop browsers

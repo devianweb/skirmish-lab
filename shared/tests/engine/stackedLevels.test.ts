@@ -106,13 +106,13 @@ describe('stacked levels: climb and drop between a deck and a piece stacked on i
     expect(r.cost).toBeCloseTo(horizontal(r.path), 1);
   });
 
-  it('from the upper deck edge over open ground a drop of 6" is a jump-drop with 3 dice', () => {
+  it('from the upper deck edge over open ground a drop of 6" is a jump-drop with 7 dice (a 6.9" hop)', () => {
     const from = P(7, 6, 1.75);
     const unit = makeUnit(from);
     const state = makeState(unit, terrain.filter((p) => p.id !== 'container-top'));
     const opt = findJumpOption(state, unit, from, P(7, 0, 3.5));
     expect(opt?.kind).toBe('jump-drop');
-    expect(opt?.dice).toBe(3);
+    expect(opt?.dice).toBe(7);
   });
 
   it('from the stacked container roof, a leap down to open ground (8.25") is a fall', () => {

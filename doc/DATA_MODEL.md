@@ -75,6 +75,9 @@ interface TurnState {
   roundStartTime?: number;
   pendingReaction?: PendingReaction | null; // Active reaction prompt awaiting player decision
   charge?: ChargeState | null; // Declared split charge in progress (batch 1D PR 16); cleared by the final charge, a fall or the end of the activation
+  woundBaseline?: Record<string, number>; // 14C-2: wounds each living unit had when the active unit's activation began (unit id -> total wounds across living models); the end-of-activation Morale Test trigger compares against it; cleared when the activation ends
+  meleePairs?: [string, string][]; // 14C-2 PR 2: the pairs that fought this activation (their melee result is compared at its end)
+  meleeUnitIds?: string[];     // 14C-2: units that fought in melee during this activation (they skip the wound-based Morale Test); cleared when the activation ends
 }
 
 /** A charge declared on a target and made in legs. The budget is the unit's remainingMovement. */
@@ -100,8 +103,13 @@ interface PendingReaction {
 }
 
 // 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
-// CasualtyEntry = { unitId, count, remainingWounds, applications: { wounds, traumaRolls?, dreadBonus, lethalValue }[] }
+// CasualtyEntry = { unitId, count, applications: { wounds, deadlyValue }[] }
 // CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
+
+// MoraleTestRecord = { unitId, unitName, roll?: number /* absent when already Shaken */, effectiveQuality, fearlessRoll?, passed, outcome: 'passed' | 'shaken' | 'routed' }
+
+// MeleeResultRecord = { sides: [MeleeResultSide, MeleeResultSide], loserId?: string /* absent on a tie */ }  (logged as dice.outcome.meleeResults)
+// MeleeResultSide = { unitId, unitName, wounds, fearBonus?: number /* extra wounds from the enemy's Fear */ }
 
 interface ReactionOption {
   id: string;                  // e.g. 'strike-back' | 'decline'
@@ -154,7 +162,7 @@ interface Unit {
   maxWounds: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
-  isDeployed?: boolean;      // Deployed to board (false during placement / drop-reserves)
+  isDeployed?: boolean;      // Deployed to board (false during placement / ambush)
   
   // Game State
   models: Model[];
@@ -192,9 +200,8 @@ interface Vector3 {
 ## Unit Status
 ```typescript
 type UnitStatus = 
-  | 'stunned'         // Cannot act on next activation; clears at activation start
-  | 'shaken'          // Morale failure state (restrictions per ruleset data)
-  | 'routed'          // Fleeing / forced move state
+  | 'shaken'          // Failed a Morale Test: may only end its activation idle (then recovers), always fails Morale Tests, strikes back as Fatigued, cannot seize or contest objectives
+  | 'routed'          // Removed as destroyed by a failed melee Morale Test
   | 'engaged'         // In melee engagement range
   | 'in-cover'        // Benefit from cover (defense modifier)
   | { type: 'custom', name: string, data?: any };
@@ -308,7 +315,7 @@ interface GameAction {
 ```typescript
 type ActionType =
   | 'activate-unit'
-  | 'move-unit'
+  | 'advance'
   | 'rush'
   | 'shoot'
   | 'begin-charge'   // Declare a charge on a target (split charge)
@@ -338,9 +345,9 @@ interface WeaponAllocation {
  * A jump or fall the player chose to make, sent with the move that contains it. The pathfinder never plans one.
  * The host recomputes everything: the path must contain exactly one segment from `takeoff` to `landing` whose
  * classification matches `kind`, and `takeoff` must be at the edge of a floor (within 0.5", heading out).
- * - 'jump-gap': landing across 1-6" of open air at the same height (X+1 dice, 3+ each; 2+ Pathfinder)
+ * - 'jump-gap': landing across 1-6" of open air at the same height (one die per started inch, 2+ each; half for Strider)
  * - 'jump-drop': landing 3-6" below
- * - 'fall': landing more than 6" below (no jump dice; Falling damage, activation ends)
+ * - 'fall': landing more than 6" below (no jump dice; fall wounds, activation ends)
  * A path with a jump/fall but no matching declaration (or a declaration with no jump) is rejected.
  */
 interface DeclaredTraversal {
@@ -353,7 +360,7 @@ type ActionPayload =
   | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living models of the damaged unit
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
+  | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model
   | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
@@ -425,8 +432,8 @@ interface DiceResolution {
     hitCount: number;
     bonusHits?: number;
     blockedCount: number;
-    blockedRolls?: boolean[];  // Authoritative per-hit block result (preserves Rupture/Shred AP)
-    wardSavedCount?: number;
+    blockedRolls?: boolean[];  // Authoritative per-hit block result (preserves Rupture/Rending AP)
+    regenerationSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
     targetShaken?: boolean;
@@ -438,11 +445,7 @@ interface DiceResolution {
     hitModifiers?: string[];
     baseDefense?: number;
     defenseModifiers?: string[];
-    traumaRoll?: number;
-    traumaTokens?: number;
-    traumaDreadBonus?: number;
-    traumaTotal?: number;
-    traumaOutcome?: 'shaken' | 'knocked-out';
+    moraleTests?: MoraleTestRecord[]; // 14C-2: Morale Tests taken at the end of an activation (attached to the end-activation / hold / fall log entry)
     retaliation?: RetaliationOutcome;
     pushedBack?: boolean;
     pushBackPosition?: Vector3;

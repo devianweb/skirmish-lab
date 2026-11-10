@@ -351,7 +351,7 @@ describe('activation', () => {
       expect(guest.minZ - host.maxZ).toBeGreaterThanOrEqual(24);
     });
 
-    it('calculates standard and vanguard deployment zone boundaries (zones stay 24" apart)', () => {
+    it('calculates standard and scout deployment zone boundaries (zones stay 24" apart)', () => {
       const state = makeState([]);
       state.board.width = 36; // the default board is 48x48 now; this case pins the 36-deep behaviour
       state.board.height = 36;
@@ -360,36 +360,36 @@ describe('activation', () => {
       expect(hostStandard.minZ).toBe(-18);
       expect(hostStandard.maxZ).toBe(-12);
 
-      const hostVanguard = getDeploymentZoneBounds(state, HOST, true);
-      expect(hostVanguard.minZ).toBe(-18);
-      expect(hostVanguard.maxZ).toBe(0);
+      const hostScout = getDeploymentZoneBounds(state, HOST, true);
+      expect(hostScout.minZ).toBe(-18);
+      expect(hostScout.maxZ).toBe(0);
 
       const guestStandard = getDeploymentZoneBounds(state, GUEST, false);
       expect(guestStandard.minZ).toBe(12);
       expect(guestStandard.maxZ).toBe(18);
 
-      const guestVanguard = getDeploymentZoneBounds(state, GUEST, true);
-      expect(guestVanguard.minZ).toBe(0);
-      expect(guestVanguard.maxZ).toBe(18);
+      const guestScout = getDeploymentZoneBounds(state, GUEST, true);
+      expect(guestScout.minZ).toBe(0);
+      expect(guestScout.maxZ).toBe(18);
     });
 
-    it('enforces deployment sequencing: standard units before vanguard, drop-reserves held', () => {
+    it('enforces deployment sequencing: standard units before scout, ambush held', () => {
       const state = makeState([
         makeUnit('h-std', HOST, { isDeployed: false }),
-        makeUnit('h-van', HOST, { isDeployed: false, specialRules: ['vanguard'] }),
-        makeUnit('h-drop', HOST, { isDeployed: false, specialRules: ['drop-reserve'] }),
+        makeUnit('h-van', HOST, { isDeployed: false, specialRules: ['scout'] }),
+        makeUnit('h-drop', HOST, { isDeployed: false, specialRules: ['ambush'] }),
       ]);
 
       // Standard unit must be deployed first
       const eligible1 = getDeployableUnits(state, HOST);
       expect(eligible1.map((u) => u.id)).toEqual(['h-std']);
 
-      // Once standard is deployed, vanguard becomes eligible
+      // Once standard is deployed, scout becomes eligible
       state.units[0].isDeployed = true;
       const eligible2 = getDeployableUnits(state, HOST);
       expect(eligible2.map((u) => u.id)).toEqual(['h-van']);
 
-      // Once vanguard is deployed, no units remain for pre-match deployment (drop-reserve is held)
+      // Once scout is deployed, no units remain for pre-match deployment (ambush is held)
       state.units[1].isDeployed = true;
       const eligible3 = getDeployableUnits(state, HOST);
       expect(eligible3).toHaveLength(0);

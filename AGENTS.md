@@ -5,10 +5,10 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 
 ## IP & Legal Constraints
 - **Unofficial project:** Not affiliated with, endorsed by, or sponsored by One Page Rules. Never imply official status.
-- **Neutral branding:** No third-party trademarks in product/repo/package names. Reference OPR only as compatibility ("for One Page Rules games").
-- **First principles only:** All rules mechanics implemented from first principles. Never copy or closely paraphrase rulebook text, lore prose, or artwork from any publisher.
-- **Original data:** Ship original/generic faction names and fighter data. No proprietary army catalogs.
-- **Terminology mapping:** Maintain `assets-src/OPR_TERM_MAPPING.md` (local, gitignored) with a complete 1:1 mapping between OPR rules/units/weapons and SkirmishLab's clean-room IDs and display names so the codebase can be easily refactored if official licensing/endorsement is obtained.
+- **Naming:** The product is named SkirmishLab and uses no OPR logos in its name or branding. Rules, units, weapons and traits use One Page Rules' own names, and mechanics follow the current Firefight rules (v3.6), so the game plays as OPR players expect.
+- **No pasted text, no art:** Never paste rulebook or army book text, lore prose, or artwork. Describe mechanics in your own words (short own-words summaries in docs are fine). Don't use OPR logos or art. Don't use anything from Patreon-only files.
+- **Disclaimer:** Keep the visible disclaimer (README, in-app): SkirmishLab is a fan project, not affiliated with, endorsed by, or sponsored by One Page Rules.
+- **Reference material:** The v3.6 rule PDFs in the gitignored `assets-src/` are for reference only. `assets-src/OPR_TERM_MAPPING.md` is historical (from before the move to OPR's own names) and no longer needs updating.
 - **Monetisation:** Out of scope until after MVP and any endorsement discussion with OPR.
 
 ## Tech Stack Constraints
@@ -18,7 +18,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Target:** Desktop browsers only
 - **Art Style:** Low poly (will need to convert .STL models to low poly in future)
 - **Players:** Human vs Human only (no AI opponent)
-- **Rules:** Implement OPR-style skirmish mechanics (Quality/Defense d6 rolls, alternating activations, wound/stun tracking, range brackets) from first principles
+- **Rules:** Implement OPR Firefight skirmish mechanics as of v3.6 (Quality/Defense d6 rolls, alternating activations, wound/stun tracking, range brackets), using OPR's own terminology
 
 ## Core Architecture Rules
 
@@ -69,7 +69,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - Don't use third-party WebRTC signaling services
 - Don't allow real-time drag synchronization
 - Don't hardcode ruleset-specific logic into the engine (rulesets are data packs)
-- Don't bundle third-party rulebook text, lore, artwork, or proprietary army data
+- Don't bundle rulebook or army book text, lore prose, or artwork, and don't use Patreon-only content
 - Don't attempt monolithic PRs across complex subsystems (schema + UI + 3D rendering all in one go); split them logically
 - Don't open or merge a pull request targeting the `release` branch unless explicitly commanded by the user
 
@@ -77,7 +77,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Plan (Opus, main session):** research the docs, code and rule references, settle rules questions with the owner, and write the plan to `doc/plans/<phase>-<slug>.md` using the template in [doc/plans/README.md](doc/plans/README.md). Anything agreed in chat must end up in the plan file. Implementation doesn't start until the owner approves.
 - **Implement (Sonnet):** one `implementer` agent ([.claude/agents/implementer.md](.claude/agents/implementer.md)) per PR section, ideally in an isolated worktree. It writes tests first, runs all workspaces, updates docs and the manual checklist, opens a PR to `master`, and never merges or touches `release`. On a rules ambiguity it stops and reports instead of guessing.
 - **Review & merge (Opus):** check each PR against the plan and the rules, send fixes back to the same agent, squash-merge to `master`, then remove that agent's worktree and delete its local branch (`git worktree remove <path>`, `git branch -D <branch>`; check it has no uncommitted or unmerged work first), then start the next section. Releases still require the owner's explicit command.
-- **Rule references** (core rules, army book and tournament guidelines PDFs, term mapping) live in the gitignored `assets-src/`. Worktrees don't have them, so use the absolute paths listed in `doc/plans/README.md`.
+- **Rule references** (the v3.6 core rules, Beginner's Guide, Tournament Guidelines, army book PDFs) live in the gitignored `assets-src/`. Worktrees don't have them, so use the absolute paths listed in `doc/plans/README.md`.
 
 ## Git Workflow
 - Always work on feature branches, never commit directly to master/main
@@ -113,7 +113,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 ## Documentation Requirements
 - **Always read relevant docs first.** Before implementing features, read GDD.md, ARCHITECTURE.md, NETWORKING.md, DATA_MODEL.md, SYSTEMS.md, RULES_SPECIFICATION.md, and ASSETS.md as they apply.
 - **Keep docs updated.** When making architectural changes, update the relevant docs in doc/.
-- **Keep `assets-src/OPR_TERM_MAPPING.md` updated.** Whenever adding or renaming traits, special rules, factions, units, or weapons, update the local `assets-src/OPR_TERM_MAPPING.md` lookup table.
+- **Use OPR's names.** New traits, special rules, units and weapons use One Page Rules' own names and v3.6 behaviour. No separate term-mapping file is maintained.
 - **Keep `doc/ASSETS.md` updated.** Whenever adding or changing 3D models, fighter roles, terrain pieces, or UI markers, update the asset mapping table in [`doc/ASSETS.md`](doc/ASSETS.md).
 - **Follow the patterns.** All implementations must follow the architecture and patterns documented.
 - **Update ROADMAP.** Mark tasks complete when finished.

@@ -2,43 +2,40 @@
  * Data-driven trait & special rules registry for SkirmishLab.
  *
  * Trait strings in fighter and weapon definitions use the format:
- *   - `'steadfast'`, `'shred'`, `'calibrated'` (boolean traits)
- *   - `'pierce(2)'`, `'blast(3)'`, `'resilient(3)'` (parameterized traits)
- *
- * All identifiers and descriptions are original, first-principles clean-room
- * definitions.
+ *   - `'steadfast'`, `'rending'`, `'reliable'` (boolean traits)
+ *   - `'ap(2)'`, `'blast(3)'`, `'tough(3)'` (parameterized traits)
  */
 
 export type CoreTraitId =
-  | 'drop-reserve'
-  | 'pierce'
-  | 'hexed'
+  | 'ambush'
+  | 'ap'
+  | 'bane'
   | 'blast'
-  | 'channeler'
-  | 'brace'
-  | 'lethal'
-  | 'swift'
-  | 'dread'
-  | 'stoic'
-  | 'airborne'
-  | 'frenzy'
-  | 'commander'
-  | 'stationary'
-  | 'shock'
-  | 'lobbed'
-  | 'expendable'
-  | 'ward'
-  | 'sustained'
-  | 'calibrated'
-  | 'shred'
-  | 'vanguard'
-  | 'ponderous'
-  | 'camouflaged'
-  | 'pathfinder'
-  | 'overload'
-  | 'impale'
-  | 'resilient'
-  | 'unerring';
+  | 'caster'
+  | 'counter'
+  | 'deadly'
+  | 'fast'
+  | 'fear'
+  | 'fearless'
+  | 'flying'
+  | 'furious'
+  | 'hero'
+  | 'immobile'
+  | 'impact'
+  | 'indirect'
+  | 'limited'
+  | 'regeneration'
+  | 'relentless'
+  | 'reliable'
+  | 'rending'
+  | 'scout'
+  | 'slow'
+  | 'stealth'
+  | 'strider'
+  | 'surge'
+  | 'thrust'
+  | 'tough'
+  | 'unstoppable';
 
 export type FactionTraitId =
   | 'steadfast'
@@ -76,121 +73,121 @@ export interface TraitMetadata {
 }
 
 export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
-  'drop-reserve': {
-    displayName: 'Drop Reserve',
-    description: 'Deploys in Round 2+ anywhere >9" from enemy units.',
+  ambush: {
+    displayName: 'Ambush',
+    description: 'Held back at the start and deployed in Round 2 or later, anywhere >9" from enemy units.',
   },
-  pierce: {
-    displayName: 'Pierce',
-    description: 'Subtracts X from the defender Defense roll.',
+  ap: {
+    displayName: 'AP',
+    description: 'Lowers the target defense roll by X.',
   },
-  hexed: {
-    displayName: 'Hexed',
-    description: 'Ignores Ward; defender must re-roll unmodified Defense rolls of 6.',
+  bane: {
+    displayName: 'Bane',
+    description: 'Bypasses Regeneration, and the defender re-rolls unmodified defense rolls of 6.',
   },
   blast: {
     displayName: 'Blast',
-    description: 'Ignores Cover and multiplies each hit by up to X models in the target unit.',
+    description: 'Ignores cover. Each hit becomes X hits, shared out between the target and enemy units close to it; no unit takes more hits than it has models.',
   },
-  channeler: {
-    displayName: 'Channeler',
-    description: 'Generates X power tokens per round (max 6) to cast faction powers on 4+.',
+  caster: {
+    displayName: 'Caster',
+    description: 'Gains X power tokens per round (max 6) to cast faction powers on a 4+.',
   },
-  brace: {
-    displayName: 'Brace',
-    description: 'Strikes first when charged; charger suffers -1 Shock hit per Braced model.',
+  counter: {
+    displayName: 'Counter',
+    description: 'Strikes first when charged, and the charger loses one Impact hit per Counter model.',
   },
-  lethal: {
-    displayName: 'Lethal',
-    description: 'Each unsaved wound multiplies into X wounds against a single model.',
+  deadly: {
+    displayName: 'Deadly',
+    description: 'Each unsaved wound counts as X wounds against a single model.',
   },
-  swift: {
-    displayName: 'Swift',
+  fast: {
+    displayName: 'Fast',
     description: 'Moves +2" on Advance (8") and +4" on Rush/Charge (16").',
   },
-  dread: {
-    displayName: 'Dread',
-    description: 'Adds +X to melee trauma rolls when dealing at least 1 wound.',
+  fear: {
+    displayName: 'Fear',
+    description: 'When melee results are compared, the enemy counts as having taken X extra wounds (once per unit, using the highest Fear among its living models).',
   },
-  stoic: {
-    displayName: 'Stoic',
-    description: 'When failing a morale test, rolls 1d6: on 4+ the test counts as passed.',
+  fearless: {
+    displayName: 'Fearless',
+    description: 'After failing a Morale Test (even an automatic failure while Shaken), rolls 1d6: on a 4+ the test counts as passed.',
   },
-  airborne: {
-    displayName: 'Airborne',
+  flying: {
+    displayName: 'Flying',
     description: 'Ignores terrain and other units while moving.',
   },
-  frenzy: {
-    displayName: 'Frenzy',
-    description: 'When charging, unmodified melee hit rolls of 6 generate +1 bonus hit.',
+  furious: {
+    displayName: 'Furious',
+    description: 'When charging, unmodified melee hit rolls of 6 add 1 bonus hit.',
   },
-  commander: {
-    displayName: 'Commander',
-    description: 'Friendly units within 12" may use this unit Quality for Morale tests.',
+  hero: {
+    displayName: 'Hero',
+    description: 'Friendly units within 6" may use this unit\'s Quality for Morale Tests while it is not Shaken.',
   },
-  stationary: {
-    displayName: 'Stationary',
-    description: 'May only execute Hold actions; cannot move or charge.',
+  immobile: {
+    displayName: 'Immobile',
+    description: 'May only take Hold actions; cannot advance, rush or charge.',
   },
-  shock: {
-    displayName: 'Shock',
-    description: 'On Charge, rolls X dice before melee strikes; each 2+ deals 1 immediate hit.',
+  impact: {
+    displayName: 'Impact',
+    description: 'On a charge, rolls X dice before melee strikes; each 2+ deals 1 immediate hit.',
   },
-  lobbed: {
-    displayName: 'Lobbed',
-    description: 'Fires without Line of Sight and ignores sight-blocker cover (-1 to hit if moved).',
+  indirect: {
+    displayName: 'Indirect',
+    description: 'If the unit held (did not move), this weapon can fire without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon.',
   },
-  expendable: {
-    displayName: 'Expendable',
-    description: 'Weapon or equipment may only be used once per match.',
+  limited: {
+    displayName: 'Limited',
+    description: 'The weapon or equipment can only be used once per match.',
   },
-  ward: {
-    displayName: 'Ward',
-    description: 'Rolls 1d6 per wound suffered; on 5+ the wound is ignored.',
+  regeneration: {
+    displayName: 'Regeneration',
+    description: 'Rolls 1d6 per wound suffered; on a 5+ the wound is ignored.',
   },
-  sustained: {
-    displayName: 'Sustained',
-    description: 'When shooting at targets >9" away, unmodified hit rolls of 6 generate +1 bonus hit.',
+  relentless: {
+    displayName: 'Relentless',
+    description: 'When shooting at targets >9" away, unmodified hit rolls of 6 add 1 bonus hit.',
   },
-  calibrated: {
-    displayName: 'Calibrated',
+  reliable: {
+    displayName: 'Reliable',
     description: 'Always hits on a base Quality roll of 2+.',
   },
-  shred: {
-    displayName: 'Shred',
-    description: 'Ignores Ward; unmodified hit rolls of 6 gain Pierce(4).',
+  rending: {
+    displayName: 'Rending',
+    description: 'Bypasses Regeneration, and unmodified hit rolls of 6 gain AP(4).',
   },
-  vanguard: {
-    displayName: 'Vanguard',
+  scout: {
+    displayName: 'Scout',
     description: 'May deploy up to 12" ahead of the friendly deployment zone.',
   },
-  ponderous: {
-    displayName: 'Ponderous',
+  slow: {
+    displayName: 'Slow',
     description: 'Moves -2" on Advance (4") and -4" on Rush/Charge (8").',
   },
-  camouflaged: {
-    displayName: 'Camouflaged',
+  stealth: {
+    displayName: 'Stealth',
     description: 'Enemy ranged attacks from >9" away suffer -1 to hit.',
   },
-  pathfinder: {
-    displayName: 'Pathfinder',
-    description: 'Ignores Difficult Terrain movement penalties.',
+  strider: {
+    displayName: 'Strider',
+    description: 'Ignores difficult terrain movement penalties and rolls only half the dice (rounded up) when jumping.',
   },
-  overload: {
-    displayName: 'Overload',
-    description: 'Unmodified hit rolls of 6 generate +1 bonus hit.',
+  surge: {
+    displayName: 'Surge',
+    description: 'Unmodified hit rolls of 6 add 1 bonus hit.',
   },
-  impale: {
-    displayName: 'Impale',
-    description: 'When charging, melee attacks gain +1 to hit and Pierce(+1).',
+  thrust: {
+    displayName: 'Thrust',
+    description: 'When charging, melee attacks gain +1 to hit and AP(+1).',
   },
-  resilient: {
-    displayName: 'Resilient',
-    description: 'Accumulates wounds up to X before rolling trauma; eliminated on 5+X.',
+  tough: {
+    displayName: 'Tough',
+    description: 'A model is removed once it has taken X wounds.',
   },
-  unerring: {
-    displayName: 'Unerring',
-    description: 'Ignores Ward and ignores all negative hit modifiers.',
+  unstoppable: {
+    displayName: 'Unstoppable',
+    description: 'Bypasses Regeneration and ignores all negative hit modifiers.',
   },
   steadfast: {
     displayName: 'Steadfast',
@@ -206,7 +203,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   rupture: {
     displayName: 'Rupture',
-    description: 'Unmodified hit rolls of 6 gain Pierce(+2).',
+    description: 'Unmodified hit rolls of 6 gain AP(+2).',
   },
   marksman: {
     displayName: 'Marksman',
@@ -222,7 +219,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   'perimeter-watch': {
     displayName: 'Perimeter Watch',
-    description: 'Enemy Drop Reserve units must deploy >12" away.',
+    description: 'Enemy Ambush units must deploy >12" away.',
   },
   'riot-shield': {
     displayName: 'Riot Shield',
@@ -230,7 +227,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   'signal-relay': {
     displayName: 'Signal Relay',
-    description: 'Extends friendly Commander order range up to 24" between relays.',
+    description: 'Extends friendly Hero order range up to 24" between relays.',
   },
   entrenched: {
     displayName: 'Entrenched',
@@ -241,8 +238,8 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     description: '-1 to next morale test roll.',
   },
   'order-hex-blade': {
-    displayName: 'Order: Hexed Strikes',
-    description: 'Grants friendly units within 12" Hexed in melee once.',
+    displayName: 'Order: Bane Strikes',
+    description: 'Grants friendly units within 12" Bane in melee once.',
   },
   'order-coordinate': {
     displayName: 'Order: Coordinate',
@@ -274,13 +271,13 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   'aura-ward': {
     displayName: 'Field Medic Rig',
-    description: 'Friendly units gain Ward (5+ wound ignore) while bearer lives.',
+    description: 'Friendly units gain Regeneration (5+ wound ignore) while bearer lives.',
   },
 };
 
 const TRAIT_PATTERN = /^([a-z0-9-]+)(?:\((-?\d+)\))?$/i;
 
-/** Parse a trait string like `'pierce(2)'` or `'steadfast'` into `{ id, value }`. */
+/** Parse a trait string like `'ap(2)'` or `'steadfast'` into `{ id, value }`. */
 export function parseTrait(raw: string): ParsedTrait {
   const trimmed = raw.trim().toLowerCase();
   const match = TRAIT_PATTERN.exec(trimmed);
@@ -330,7 +327,7 @@ export function sumTraitValue(rules: readonly string[], traitId: TraitId | strin
   return total;
 }
 
-/** Human-readable display label for a trait string (e.g. `'pierce(2)'` -> `'Pierce(2)'`). */
+/** Human-readable display label for a trait string (e.g. `'ap(2)'` -> `'AP(2)'`). */
 export function formatTraitLabel(raw: string): string {
   const { id, value } = parseTrait(raw);
   const meta = TRAIT_REGISTRY[id as TraitId];

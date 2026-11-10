@@ -10,6 +10,8 @@ import {
   applyDefaultScenario,
   hasLineOfSight,
   createBlankMap,
+  createPushReaction,
+  PUSH_AUTO_CHOICE,
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 
@@ -32,7 +34,6 @@ function scenarioState(): GameState {
 function activateUnit(state: GameState, playerId: string, unitId: string): void {
   const unit = state.units.find((u) => u.id === unitId)!;
   unit.isActivated = true;
-  unit.status = unit.status.filter((s) => s !== 'stunned');
   state.turnState.activeUnitId = unitId;
   state.turnState.unitsActivatedThisRound.push(unitId);
   state.turnState.currentPlayerId = playerId;
@@ -137,7 +138,7 @@ describe('GameHUD', () => {
     const { container } = setup(HOST, state);
 
     expect(container.textContent).toContain(unit.name);
-    const move = clickByText(container, 'Move') as HTMLButtonElement;
+    const move = clickByText(container, 'Advance') as HTMLButtonElement;
     const shoot = container.querySelectorAll('button')[0];
     expect(move).toBeTruthy();
     expect(shoot.disabled).toBe(false);
@@ -154,7 +155,7 @@ describe('GameHUD', () => {
 
     const buttons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[];
     const byLabel = (label: string) => buttons.find((b) => b.textContent?.startsWith(label))!;
-    expect(byLabel('Move').disabled).toBe(true);
+    expect(byLabel('Advance').disabled).toBe(true);
     expect(byLabel('Rush').disabled).toBe(true);
     expect(byLabel('Shoot').disabled).toBe(true);
     expect(byLabel('Charge').disabled).toBe(true);
@@ -168,7 +169,7 @@ describe('GameHUD', () => {
     activateUnit(state, HOST, unit.id);
     const { hud, container, controller } = setup(HOST, state);
 
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     expect(container.textContent).toContain('Click a destination on the board');
 
     const destination = { x: start.x + 3, y: 0, z: start.z + 4 }; // 5" away
@@ -180,7 +181,7 @@ describe('GameHUD', () => {
     clickByText(container, 'Confirm');
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
     const action = controller.submitAction.mock.calls[0][0];
-    expect(action.type).toBe('move-unit');
+    expect(action.type).toBe('advance');
     expect(action.payload.path).toEqual([start, destination]);
   });
 
@@ -191,14 +192,14 @@ describe('GameHUD', () => {
     activateUnit(state, HOST, unit.id);
     const { hud, container, controller } = setup(HOST, state);
 
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) clamps movement 1" (base edge) short of it
     hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
     expect(container.textContent).toContain('2.0" (max 6") · can shoot after moving');
     clickByText(container, 'Cancel');
 
     // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     hud.handleBoardPick({ kind: 'position', position: { x: start.x, y: 0, z: start.z + 20 } });
 
     expect(container.textContent).toContain('6.0" (max 6") · can shoot after moving');
@@ -516,14 +517,14 @@ describe('GameHUD', () => {
     expect(container.textContent).not.toContain('Confirm');
   });
 
-  it('prompts a stunned unit with a one-step Hold (clears stun) instead of normal activation', () => {
+  it('prompts a Shaken unit with a one-step idle end of activation (clears Shaken) instead of normal activation', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
-    unit.status = ['stunned'];
+    unit.status = ['shaken'];
     const { hud, container, controller } = setup(HOST, state);
 
     hud.handleBoardPick({ kind: 'unit', unitId: unit.id });
-    expect(container.textContent).toContain('clears stun');
+    expect(container.textContent).toContain('clears Shaken');
     clickByText(container, 'Confirm');
 
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
@@ -575,6 +576,92 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('1 hit');
     expect(container.textContent).toContain('0 blocked');
     expect(container.textContent).toContain('1 unsaved wound');
+  });
+
+  it('an active Shaken unit can only end its activation idle', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    activateUnit(state, HOST, unit.id);
+    unit.status = ['shaken'];
+    const { container } = setup(HOST, state);
+
+    expect(container.textContent).toContain('End Activation (idle)');
+    const disabled = (action: string) =>
+      (container.querySelector(`[data-action="${action}"]`) as HTMLButtonElement).disabled;
+    expect(disabled('move')).toBe(true);
+    expect(disabled('rush')).toBe(true);
+    expect(disabled('shoot')).toBe(true);
+    expect(disabled('charge')).toBe(true);
+    expect(container.querySelector('[data-action="hold"]')).toBeNull();
+  });
+
+  it('shows the Morale Tests of an activation end (rolls, Fearless die, result) from state', () => {
+    const state = scenarioState();
+    const [a, b] = state.units.filter((u) => u.ownerId === GUEST);
+    const action = createAction(HOST, 'end-activation', { type: 'end-activation' });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [{ count: 1, sides: 6, purpose: 'morale' }],
+        results: [{ rolls: [2], total: 2, finalTotal: 2, purpose: 'morale' }],
+        context: { attackerId: a.id, targetId: a.id, actionId: action.id },
+        outcome: {
+          attackCount: 0,
+          hitCount: 0,
+          blockedCount: 0,
+          wounds: 0,
+          targetDestroyed: false,
+          moraleTests: [
+            { unitId: a.id, unitName: a.name, roll: 2, effectiveQuality: 4, passed: false, outcome: 'shaken' },
+            { unitId: b?.id ?? a.id, unitName: 'Second Squad', effectiveQuality: 5, passed: false, outcome: 'shaken' },
+          ],
+        },
+      },
+    });
+    const { container } = setup(GUEST, state);
+    expect(container.textContent).toContain('Morale');
+    expect(container.textContent).toContain(`${a.name} Morale (need Q4+)`);
+    expect(container.textContent).toContain('Second Squad Morale (need Q5+) (already Shaken: fails without a roll)');
+    expect(container.textContent).toContain('Shaken');
+  });
+
+  it('shows the melee result of an activation end, with Fear and the loser, from state', () => {
+    const state = scenarioState();
+    const [a] = state.units.filter((u) => u.ownerId === GUEST);
+    const h = state.units.find((u) => u.ownerId === HOST)!;
+    const action = createAction(HOST, 'end-activation', { type: 'end-activation' });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [],
+        results: [],
+        context: { attackerId: h.id, targetId: h.id, actionId: action.id },
+        outcome: {
+          attackCount: 0,
+          hitCount: 0,
+          blockedCount: 0,
+          wounds: 0,
+          targetDestroyed: false,
+          meleeResults: [
+            {
+              sides: [
+                { unitId: a.id, unitName: 'Alpha', wounds: 3 },
+                { unitId: h.id, unitName: 'Bravo', wounds: 1, fearBonus: 1 },
+              ],
+              loserId: a.id,
+            },
+          ],
+        },
+      },
+    });
+    const { container } = setup(GUEST, state);
+    expect(container.textContent).toContain('Alpha took 3 wounds, Bravo took 1 wound (+1 Fear): Alpha loses');
   });
 
   it('surfaces host rejections and stops waiting', () => {
@@ -660,7 +747,7 @@ describe('GameHUD', () => {
     expect(withActive.selectedUnitId).toBe(active.id);
     expect(withActive.movementRangeUnitId).toBeNull();
 
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     expect(snapshots[snapshots.length - 1].movementRangeUnitId).toBe(active.id);
     expect(snapshots[snapshots.length - 1].movementRangeRadius).toBe(6);
     expect(snapshots[snapshots.length - 1].movementRangeColor).toBeUndefined();
@@ -981,6 +1068,23 @@ describe('GameHUD', () => {
     expect(submitted.payload.choiceId).toBe('strike-back');
   });
 
+  it('push prompt (engine only until the push HUD): the attacker gets one Auto button that answers with the Auto choice', () => {
+    const state = scenarioState();
+    const attacker = state.units.find((u) => u.ownerId === HOST)!;
+    const shaken = state.units.find((u) => u.ownerId === GUEST)!;
+    state.turnState.pendingReaction = createPushReaction('end-1', shaken, attacker, []);
+    const { controller, container } = setup(HOST, state);
+    const buttons = container.querySelectorAll('button[data-reaction-choice]');
+    expect(buttons).toHaveLength(1);
+    (buttons[0] as HTMLElement).click();
+    const submitted = controller.submitAction.mock.calls[0][0];
+    expect(submitted.type).toBe('respond-reaction');
+    expect(submitted.payload.choiceId).toBe(PUSH_AUTO_CHOICE);
+    // the other player just waits
+    const other = setup(GUEST, state);
+    expect(other.container.querySelector('.sl-hud-reaction-waiting')?.textContent).toContain('Push');
+  });
+
   it('renders waiting banner for opponent during reaction', () => {
     const state = scenarioState();
     const charger = state.units.find((u) => u.ownerId === HOST)!;
@@ -1235,15 +1339,15 @@ describe('GameHUD', () => {
   it('escapes trait descriptions with quotes and angle brackets in HTML attributes', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
-    unit.weapons[0].profile.specialRules = ['sustained'];
-    unit.specialRules = ['camouflaged'];
+    unit.weapons[0].profile.specialRules = ['relentless'];
+    unit.specialRules = ['stealth'];
     activateUnit(state, HOST, unit.id);
     const { container } = setup(HOST, state);
 
     const badges = container.querySelectorAll('.sl-trait-badge');
     const titles = Array.from(badges).map((b) => b.getAttribute('title') ?? '');
-    const sustainedTitle = titles.find((t) => t.includes('>9"'));
-    expect(sustainedTitle).toBeDefined();
+    const relentlessTitle = titles.find((t) => t.includes('>9"'));
+    expect(relentlessTitle).toBeDefined();
     expect(container.innerHTML).toContain('>9&quot;');
   });
 
@@ -1289,29 +1393,31 @@ describe('GameHUD', () => {
     expect(alertsEl).not.toBeNull();
   });
 
-  it('renders data card with Toughness, Move, and Charge (double speed) columns without remaining movement', () => {
+  it('renders data card with Tough, Move, and Charge (double speed) columns without remaining movement', () => {
     const state = scenarioState();
-    const leader = state.units.find((u) => u.ownerId === HOST && u.specialRules.some((r) => r.startsWith('resilient')))!;
+    const leader = state.units.find((u) => u.ownerId === HOST && u.specialRules.some((r) => r.startsWith('tough')))!;
     activateUnit(state, HOST, leader.id);
     const { container } = setup(HOST, state);
 
     const datacard = container.querySelector('.sl-hud-datacard');
     expect(datacard).toBeTruthy();
-    expect(datacard?.textContent).toContain('Toughness');
+    const headers = Array.from(datacard!.querySelectorAll('th')).map((th) => th.textContent);
+    expect(headers).toContain('Tough');
+    expect(datacard?.textContent).not.toContain('Toughness');
     expect(datacard?.textContent).not.toContain('6.0" / 6"');
     // Leader speed is 6, charge is 12"
     expect(datacard?.textContent).toContain('6"');
     expect(datacard?.textContent).toContain('12"');
   });
 
-  it('renders wound progress badge (e.g. 1/3 WT) for multi-wound units with damage below threshold', () => {
+  it('renders wound progress badge (e.g. 1/3 W) for a Tough model with damage below Tough', () => {
     const state = scenarioState();
-    const boss = state.units.find((u) => u.specialRules.includes('resilient(3)'))!;
-    boss.traumaTokens = 1;
+    const boss = state.units.find((u) => u.specialRules.includes('tough(3)'))!;
+    boss.models[0].wounds = 2;
+    boss.wounds = 2;
     const { container } = setup(HOST, state);
 
-    expect(container.textContent).toContain('1/3 WT');
-    expect(container.textContent).not.toContain('+1W');
+    expect(container.textContent).toContain('1/3 W');
   });
 
   it('renders Rupture badge and reflects blockedRolls accurately in dice resolution log', () => {
@@ -1400,11 +1506,11 @@ describe('GameHUD', () => {
       const hostRows = Array.from(container.querySelectorAll('.sl-hud-unit.team-blue'));
       expect(hostRows.length).toBe(4);
 
-      // Patrol squad has drop-reserve
+      // Patrol squad has ambush
       const dropReserveRow = hostRows.find((r) => r.textContent?.includes('DROP RESERVE'));
       expect(dropReserveRow).toBeTruthy();
 
-      // Standard and vanguard units show UNDEPLOYED or VANGUARD
+      // Standard and scout units show UNDEPLOYED or SCOUT
       const deployableRow = hostRows.find((r) => r.classList.contains('deployable'));
       expect(deployableRow).toBeTruthy();
     });
@@ -1482,7 +1588,7 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, unit.id);
       const { hud, container } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
 
       expect(container.textContent).not.toContain('JUMP DOWN');
@@ -1499,7 +1605,7 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, unit.id);
       const { hud, container } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: 0 } });
 
       expect(container.textContent).not.toContain('HIGH DROP');
@@ -1524,7 +1630,7 @@ describe('GameHUD', () => {
       // toxic sludge is at (0, 0, 0)
       const { hud, container, controller } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 0 } });
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: 0 } });
 
@@ -1570,7 +1676,7 @@ describe('GameHUD', () => {
       // toxic sludge at (0, 0, 0) is isDifficult: true
       const { hud, container } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: -0.5, y: 0, z: -0.5 } });
 
       expect(container.textContent).toContain('Difficult Terrain: 6.0" speed cap');
@@ -1760,7 +1866,7 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, unit.id);
       const { hud, container, controller } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: 2, y: 2.5, z: 0 } });
 
       // Batch 1E: platforms span x -3..-1 and 1..3, a 2" gap (a 1-die jump). The pathfinder never plans a jump,
@@ -1775,13 +1881,13 @@ describe('GameHUD', () => {
       const state = scenarioState();
       const unit = state.units.find((u) => u.ownerId === HOST)!;
       state.actionLog.push({
-        action: { id: 'a1', timestamp: 0, actorId: HOST, type: 'move-unit', payload: { type: 'move-unit', unitId: unit.id } } as any,
+        action: { id: 'a1', timestamp: 0, actorId: HOST, type: 'advance', payload: { type: 'advance', unitId: unit.id } } as any,
         result: 'accepted',
         appliedAt: 0,
         dice: {
           rollId: 'a1',
-          specs: [{ count: 2, sides: 6, purpose: 'drop_jump' }],
-          results: [{ rolls: [3, 2], total: 5, finalTotal: 5, purpose: 'drop_jump' }],
+          specs: [{ count: 4, sides: 6, purpose: 'jump' }, { count: 4, sides: 6, purpose: 'fall' }],
+          results: [{ rolls: [3, 2, 1, 6], total: 12, finalTotal: 12, purpose: 'jump' }, { rolls: [1, 5, 6, 4], total: 16, finalTotal: 16, purpose: 'fall' }],
           context: { attackerId: unit.id, targetId: unit.id, actionId: 'a1' },
           outcome: {
             attackCount: 0,
@@ -1790,15 +1896,15 @@ describe('GameHUD', () => {
             wounds: 1,
             targetDestroyed: false,
             traversal: [
-              { type: 'drop-jump', rolls: [3, 2], target: 3, passed: false, text: 'Jump down 4.0" (2 dice, all 3+): rolled 3, 2 → failed, falls' },
-              { type: 'fall', wounds: 1, rolls: [1], text: 'Fell 4.0": Falling damage (AP 1), save roll 1 → 1 wound' },
+              { type: 'drop-jump', rolls: [3, 2, 1, 6], target: 2, passed: false, text: 'Jump down 4.0" (4 dice, each 2+): rolled 3, 2, 1, 6 → failed, falls' },
+              { type: 'fall', wounds: 1, rolls: [1, 5, 6, 4], text: 'Fell 4.0" (4 dice, 1-3 wounds): rolled 1, 5, 6, 4 → 1 wound' },
             ],
           },
         },
       });
       const { container } = setup(HOST, state);
       expect(container.textContent).toContain('Movement hazards');
-      expect(container.textContent).toContain('Jump down 4.0" (2 dice, all 3+)');
+      expect(container.textContent).toContain('Jump down 4.0" (4 dice, each 2+)');
       expect(container.textContent).toContain('Fell 4.0"');
     });
 
@@ -1936,7 +2042,7 @@ describe('GameHUD', () => {
         lastMarkers = m;
       });
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       // Model 2 can walk 3.5", model 1 nothing: the unit-level figure is the best of them
       container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m2"]')!.click();
       expect(container.textContent).toContain('Place Model 2 of 2 (Warden Patrol Squad) within 3.5"');
@@ -1954,7 +2060,7 @@ describe('GameHUD', () => {
       unit.hasMoved = true;
       unit.remainingMovement = 2.5;
       const { container } = setup(HOST, state);
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       expect(container.textContent).toContain('2.5" left');
     });
 
@@ -1979,7 +2085,7 @@ describe('GameHUD', () => {
       });
 
       // 1. Click Move -> activates Model 1 placement
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       expect(container.textContent).toContain('Place Model 1 of 2 (Warden Patrol Squad) within 6"');
 
       // 2. Click to place Model 1 at (0, 0, -1) [3.0" move]
@@ -2002,13 +2108,13 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -1 } });
 
       // Both models placed -> enters confirmation
-      expect(container.textContent).toContain('Move Warden Patrol Squad (2 models)');
+      expect(container.textContent).toContain('Advance Warden Patrol Squad (2 models)');
       expect(container.textContent).toContain('Confirm');
 
       clickByText(container, 'Confirm');
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
       const action = controller.submitAction.mock.calls[0][0];
-      expect(action.type).toBe('move-unit');
+      expect(action.type).toBe('advance');
       expect(action.payload.modelPositions).toHaveLength(2);
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -1 });
       expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -1 });
@@ -2034,7 +2140,7 @@ describe('GameHUD', () => {
         lastMarkers = m;
       });
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -1 } });
 
       expect(container.textContent).toContain('Place Model 2 of 2');
@@ -2068,7 +2174,7 @@ describe('GameHUD', () => {
       it('offers Confirm move after the first staged model and keeps unplaced models in place', () => {
         const { state } = fourModelSquad();
         const { hud, container, controller } = setup(HOST, state);
-        clickByText(container, 'Move');
+        clickByText(container, 'Advance');
         expect(container.querySelector('[data-action="confirm-squad-move"]')).toBeNull();
 
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -6 } });
@@ -2076,11 +2182,11 @@ describe('GameHUD', () => {
         expect(btn).toBeTruthy();
 
         btn!.click();
-      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).toContain('Advance Warden Patrol Squad (4 models)');
         clickByText(container, 'Confirm');
         expect(controller.submitAction).toHaveBeenCalledTimes(1);
         const action = controller.submitAction.mock.calls[0][0];
-        expect(action.type).toBe('move-unit');
+        expect(action.type).toBe('advance');
         expect(action.payload.modelPositions).toHaveLength(4);
         expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -6 });
         expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -5 });
@@ -2091,11 +2197,11 @@ describe('GameHUD', () => {
       it('refuses to confirm early when the unmoved models would leave the squad incoherent', () => {
         const { state } = fourModelSquad();
         const { hud, container, controller } = setup(HOST, state);
-        clickByText(container, 'Move');
+        clickByText(container, 'Advance');
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -9 } });
         container.querySelector<HTMLButtonElement>('[data-action="confirm-squad-move"]')!.click();
         expect(container.querySelector('.sl-hud-toast')?.textContent).toMatch(/1"|coherency/i);
-        expect(container.textContent).not.toContain('Move Warden Patrol Squad (4 models)');
+        expect(container.textContent).not.toContain('Advance Warden Patrol Squad (4 models)');
         expect(controller.submitAction).not.toHaveBeenCalled();
       });
 
@@ -2120,13 +2226,13 @@ describe('GameHUD', () => {
         const { state, squad } = fourModelSquad();
         squad.models[3].position = { x: 12, y: 0, z: -4 };
         const { hud, container, controller } = setup(HOST, state);
-        clickByText(container, 'Move');
+        clickByText(container, 'Advance');
         // models 1-3 stay near, the stray comes 6" closer but is still apart
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -5.5 } });
         hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -5.5 } });
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -4.5 } });
         hud.handleBoardPick({ kind: 'position', position: { x: 6, y: 0, z: -4 } });
-        expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+        expect(container.textContent).toContain('Advance Warden Patrol Squad (4 models)');
         clickByText(container, 'Confirm');
         expect(controller.submitAction).toHaveBeenCalledTimes(1);
       });
@@ -2135,7 +2241,7 @@ describe('GameHUD', () => {
         const { state, squad } = fourModelSquad();
         squad.models[3].position = { x: 12, y: 0, z: -4 };
         const { hud, container, controller } = setup(HOST, state);
-        clickByText(container, 'Move');
+        clickByText(container, 'Advance');
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -5.5 } });
         hud.handleBoardPick({ kind: 'position', position: { x: 1, y: 0, z: -5.5 } });
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -4.5 } });
@@ -2186,7 +2292,7 @@ describe('GameHUD', () => {
 
       const { hud, container, controller } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       expect(container.textContent).toContain('Place Model 1 of 4');
 
       // Model 1 placed at (0, 0, -2) [Pair 1 leader]
@@ -2205,13 +2311,13 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 2.0, y: 0, z: -3 } });
 
       // Should enter Move Confirmation successfully!
-      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).toContain('Advance Warden Patrol Squad (4 models)');
       expect(container.textContent).toContain('Confirm');
 
       clickByText(container, 'Confirm');
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
       const action = controller.submitAction.mock.calls[0][0];
-      expect(action.type).toBe('move-unit');
+      expect(action.type).toBe('advance');
       expect(action.payload.modelPositions).toHaveLength(4);
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -2 });
       expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -2 });
@@ -2234,12 +2340,12 @@ describe('GameHUD', () => {
       ];
       activateUnit(state, HOST, squad.id);
       const { hud, container } = setup(HOST, state);
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -2 } });
       hud.handleBoardPick({ kind: 'position', position: { x: 4.0, y: 0, z: -4.5 } });
       hud.handleBoardPick({ kind: 'position', position: { x: 5.0, y: 0, z: -4.5 } });
-      expect(container.textContent).not.toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).not.toContain('Advance Warden Patrol Squad (4 models)');
       expect(container.querySelector('.sl-hud-toast')?.textContent).toContain('split into 2 groups');
     });
 
@@ -2260,7 +2366,7 @@ describe('GameHUD', () => {
 
       const { hud, container, controller } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
 
       // 1. Player chooses to move Model 3 FIRST by clicking its HUD chip
       const m3Chip = container.querySelector<HTMLButtonElement>('[data-action="select-squad-model"][data-model-id="m3"]');
@@ -2289,12 +2395,12 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: -3 } });
 
       // All 4 models placed in arbitrary order (M3 -> M4 -> M1 -> M2)!
-      expect(container.textContent).toContain('Move Warden Patrol Squad (4 models)');
+      expect(container.textContent).toContain('Advance Warden Patrol Squad (4 models)');
       clickByText(container, 'Confirm');
 
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
       const action = controller.submitAction.mock.calls[0][0];
-      expect(action.type).toBe('move-unit');
+      expect(action.type).toBe('advance');
       // Payload positions must be indexed according to living model order [m1, m2, m3, m4]
       expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -3 }); // m1
       expect(action.payload.modelPositions[1]).toEqual({ x: 1.0, y: 0, z: -3 }); // m2
@@ -2316,7 +2422,7 @@ describe('GameHUD', () => {
       activateUnit(state, HOST, squad.id);
 
       const { hud, container, controller } = setup(HOST, state);
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
 
       // Place M1 at (0, 0, -2)
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -2 } });
@@ -2356,7 +2462,7 @@ describe('GameHUD', () => {
 
       const { hud, container, controller } = setup(HOST, state);
 
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       // Pick a spot at z = -0.6 (0" from the enemy's base edge, deep inside melee contact): the planned move
       // stops short at the 1" keep-away distance (centre z = -2.0) instead
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -0.6 } });

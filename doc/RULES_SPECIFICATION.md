@@ -1,7 +1,7 @@
 # SkirmishLab Rules Engine Specification
 
-> **Clean-Room Mechanical Specification**
-> This document specifies the complete first-principles mathematical model, state machine, and trait resolution engine for SkirmishLab tabletop skirmish simulation. It aligns 1:1 mechanically with standard 3.5 skirmish rules (Grimdark Future: Firefight compatible) using distinct, independent terminology and schemas.
+> **Mechanical Specification**
+> This document specifies the complete mathematical model, state machine, and trait resolution engine for SkirmishLab tabletop skirmish simulation. It targets the Grimdark Future: Firefight rules and uses their terminology; sections not yet updated for v3.6 still describe the engine as built (14C-2 brings the mechanics in line).
 
 ---
 
@@ -31,7 +31,7 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
   - **One unbroken chain (batch 1I PR 28):** two models are *linked* by the distances below; the links must join every living model into a single connected group. Two separate pairs a few inches apart are not coherent, even inside the 6" spread. The host and the HUD both refuse a move, rush, charge or deployment that ends split ("Squad is split into N groups ..."). Casualties can break a chain; regrouping is a separate rule.
   - Every model in a squad must remain within **1" horizontal** (base edge to base edge) of at least one other squad member. When the two models are on different levels (heights differ by more than 0.5"), the allowance is **3"** instead. Simplification: this applies whenever the models are on different levels; the game does not check whether they would all fit on one level.
   - Every model in a squad must remain within **6" horizontal** (base edge to base edge, 7.0" centre to centre) of all squad members.
-  - **Coherency at the start of an activation:** a squad that begins its activation out of coherency must spend it getting back together. It may not Hold, or end its activation without having moved. Shooting without having moved counts as holding, so it is refused too; an Advance first and then shooting is allowed. The host rejects `hold` / `end-activation` / `shoot` for such a squad before it has moved or attacked; the HUD disables Hold and Shoot and shows a hint. Stunned units are exempt (their Hold only clears the stun) and a lone surviving model is always coherent.
+  - **Coherency at the start of an activation:** a squad that begins its activation out of coherency must spend it getting back together. It may not Hold, or end its activation without having moved. Shooting without having moved counts as holding, so it is refused too; an Advance first and then shooting is allowed. The host rejects `hold` / `end-activation` / `shoot` for such a squad before it has moved or attacked; the HUD disables Hold and Shoot and shows a hint. Shaken units are exempt (they cannot move; their idle activation only clears Shaken) and a lone surviving model is always coherent.
   - **Regrouping, closer counts (batch 1I PR 29):** a squad that started a move, rush, charge or charge leg out of coherency may end it still out of coherency if it ends measurably closer to coherent ("or as close as possible"). Closeness is the *coherency shortfall*: the total length missing from the chain (the gap between separate groups included, each link measured against its level-aware limit) plus how far the widest pair exceeds the 6" spread. The end must lower the shortfall by more than 0.05" compared with the positions before that action or leg; a squad that started coherent must still end coherent. A split move or charge compares each leg with the positions before that leg.
   - **Partial squad moves:** each model moves *up to* the allowance, so a model may stay put. A move/rush may be confirmed before every model has been placed; unplaced models keep their position (a one-point path, 0" of movement) and the final positions must still be coherent, off other models and not mid-air. A rush with unmoved models is still a rush.
 - **Proximity Exclusion Zone (the 1" rule):** a model may not come within **1"** (base edge to base edge) of any living model of **another unit, friendly or enemy**, unless it is charging, and then only toward the declared charge target. It applies to the whole move or rush path, not just the end: the host rejects a path that brushes closer, and the pathfinder stops short or routes around. A model that already starts closer than 1" (for example next to a friendly squad) may move away but not get any closer than it began. Exactly 1.0" is allowed. Deployment uses the same gap (an enemy must be more than 1" away, measured to the closest enemy model). A move or rush that would end with its base edge within **0.5"** of an enemy is reported as melee contact (use a charge). Models also never move **through** other models: every living model of every other unit is an obstacle along the whole path (a charge may touch its target's models, never pass through one).
@@ -127,11 +127,11 @@ sequenceDiagram
     Server-->>Defender: Hits Scored (Passes to defender)
     Defender->>Server: Roll Defense Dice (1d6 >= Defense - AP + Cover)
     Server->>Server: Calculate Unblocked Wounds
-    Server-->>Defender: Apply Wounds & Roll Wound Effects Table
+    Server-->>Defender: Apply Wounds (a model dies at its Tough value)
 ```
 
 1. **Targeting & Split Fire:**
-   - Shooting is per model. A target unit is valid for a weapon when at least one attacking model has line of sight (traced from that model's eye) to **some** living model of the target **and** that same target model is within the weapon's range, measured base edge to base edge. Lobbed weapons need range only.
+   - Shooting is per model. A target unit is valid for a weapon when at least one attacking model has line of sight (traced from that model's eye) to **some** living model of the target **and** that same target model is within the weapon's range, measured base edge to base edge. An Indirect weapon needs range only while its unit has held (not moved this activation); after moving it needs line of sight like any weapon.
    - **Who fires:** only the attacking models that meet that test fire; the weapon's attack count is its attacks times the number of firing models (the other models neither see nor reach the target). Split-fire allocations apply the same test per weapon group.
    - **Blocking:** an attacker's own squad-mates never block its sight; models of any other unit (friend or foe) do. The target unit's own models do not block sight to each other.
    - **Distance rules:** the `> 9"` rule checks and the distance shown to the player use the closest pair of models. `unit.position` is only an anchor for a squad and is never used to measure between units.
@@ -149,7 +149,7 @@ sequenceDiagram
    - **Squad targets:** each living target model is judged individually against the nearest firing model. The unit has cover only if a strict majority of its living models are in cover (3 of 4 yes; 2 of 4 or 1 of 4 no). A single-model target is judged on its own, as before.
    - **Armor Piercing (AP):** Subtracts $X$ from defender's roll.
 4. **Wound Infliction:**
-   - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Casualty & Wound Effects Table)**.
+   - Each failed defense die inflicts 1 wound marker on the target. Proceed immediately to **Section 6 (Wounds, Tough & Casualties)**.
 
 ---
 
@@ -161,7 +161,7 @@ sequenceDiagram
    - The 1" rule is waived toward the charge target only; other units still keep a 1" edge gap.
    - A charge that no single safe path can reach is declared first and made in legs (section 3.3); the final leg into contact then resolves exactly like a one-click charge. Abandoning a declared charge (ending the activation) means no melee. Squads use the same flow with per-model legs: each leg moves the models, every model adds its own path to its own running total, and the final charge needs at least one model in contact. A model that walked further than its squad-mates in an earlier leg has less left; the others keep their full remaining distance.
 2. **Striking Reach:**
-   - Only the models within **2" horizontal** (base edge) and **4" vertical** of some model of the enemy unit strike; their attacks are pooled (the weapon's attacks times the number of striking models, always at least one). This holds for the charge strike, a fight and the defenders' strike-back, and it is counted after the charger has moved in and the defenders have piled in (`strikingModelCount`; `getDiceSpecs` simulates the move so the dice count matches). Before this rule every living model of the striking unit rolled.
+   - Only the models within **3" horizontal** (base edge) and **4" vertical** of some model of the enemy unit strike; their attacks are pooled (the weapon's attacks times the number of striking models, always at least one). This holds for the charge strike, a fight and the defenders' strike-back, and it is counted after the charger has moved in and the defenders have piled in (`strikingModelCount`; `getDiceSpecs` simulates the move so the dice count matches). Before this rule every living model of the striking unit rolled.
 3. **Simultaneous Melee Resolution:**
    - Attackers roll hits (Quality test) and defenders roll saves (Defense test) following standard combat rules.
 4. **Retaliatory Strike:**
@@ -175,46 +175,33 @@ sequenceDiagram
 
 ---
 
-## 6. Casualty, Wound Effects & Squad Allocation
+## 6. Wounds, Tough & Casualties
 
-Whenever a model suffers wounds, place **1 wound token (WT)** per unsaved wound next to the model.
+Every unblocked hit is one wound (before Deadly, Regeneration or other rules change the count). There is no wound-effect table and no trauma roll.
 
-### 6.1 Multi-Model Squads
-- For units containing multiple models, **each wound immediately eliminates one model** until only the final surviving model remains.
-- Only the **final surviving model** in a squad accumulates wound tokens and rolls on the Wound Effects Table.
+### 6.1 Tough(X)
+- A model is killed (removed from play) when its wounds reach its **Tough** value. A model without `tough(X)` has Tough 1, so one wound kills it. Models store their remaining wounds (`Model.wounds`, starting at `Model.maxWounds`); a unit's `wounds` is the total left across its living models.
+- A wounded model keeps taking wounds until it dies before another model takes any. Deadly(X) wounds from one hit arrive as a chunk of X: what is left of the chunk after the model it kills does not carry over to another model.
+- While a single Tough model is hurt, the HUD shows the wounds it has taken (for example `2/3 W`).
+
+### 6.2 Multi-Model Squads
 - **The owner chooses who goes (batch 1I, Decision 37).** When an attack's wounds would remove models from a squad that survives the attack, the squad's owner picks which living models are removed (30 s; on timeout the host picks, preferring models whose removal keeps the squad one connected chain, then list order). Any living models may be picked: sight and coherency do not limit the choice, since hits and wounds go to the unit; a pick that breaks the chain is allowed and the squad regroups next activation. Each damaged squad gets its own prompt, in resolution order (split fire at two units: one prompt per unit). If the wounds destroy the whole squad, or the unit has a single model, nothing is asked. In melee the order is: charge strike, the defender's pick, the strike-back (counted from the surviving models within reach), the charger's owner's pick, then the step back or consolidation. Hazard (fall / jump) casualties keep their own picker.
-
-### 6.2 Resilient(X) (Toughness) Progression
-- Standard models (Toughness 1) check wound effects immediately upon suffering their 1st wound ($1\text{d}6 + 1$ token; KO on 6+).
-- Multi-wound models with **`resilient(X)`** accumulate wound tokens without rolling wound effects until they have accumulated at least $X$ wounds.
-- While below threshold ($< X$), status badges display progress (e.g. `1/3 WT`, `2/3 WT`).
-- Once reaching $X$ wounds or more, the model makes a Wound Effect Roll. To reflect toughness, the Knockout threshold scales to **$5 + X$**.
-  - Example for `resilient(3)`: Upon taking its 3rd wound, rolls $1\text{d}6 + 3$ tokens; Knocked Out only on **8+** ($5 + 3$).
-
-### 6.3 Wound Effects Table (1d6 + Wound Tokens)
-The defender rolls 1d6 and adds the model's total accumulated wound tokens:
-
-$$\text{Wound Effect Score} = \text{1d6 Roll} + \text{Total Accumulated Wound Tokens}$$
-
-| Wound Effect Score | Status Effect | Gameplay Consequences |
-| :---: | :--- | :--- |
-| **$< 5 + X$** *(1 – 5 for Tough 1)* | **Shaken** | • Model remains in play.<br>• Must spend its entire next activation idle/recovering to clear suppression.<br>• May strike back in melee, but always counts as **Fatigued** (hits only on 6s).<br>• Automatically fails all morale checks.<br>• Cannot contest or seize objective markers. |
-| **$\ge 5 + X$** *(6+ for Tough 1)* | **Knocked Out (Destroyed)** | • Model is eliminated and removed from play. |
+- The wounds replayed after a pick go to the picked models first (each takes wounds until it dies), then to an already-wounded model, then to the first living model.
+- When the last model dies the unit is destroyed.
 
 ---
 
-## 7. Morale & Army Breaking
+## 7. Morale & Shaken
 
-At the **end of each round**, evaluate total army strength:
+Morale is tested per unit at the end of an activation, not at the end of the round. There is no army-breaking test.
 
-1. **Threshold Check:**
-   - If an army is reduced to **$\le 50\%$** of its initial starting unit count, the army enters a Broken state.
-2. **Morale Test:**
-   - Every surviving unit in the broken army must take a Morale Test: roll 1d6 $\ge$ Quality.
-3. **Outcomes:**
-   - **Pass ($\ge Q$):** Unit maintains composure and continues fighting.
-   - **Fail ($< Q$):** Unit becomes **Shaken**.
-   - **Critical Fail (Already Shaken):** If a unit is *already* Shaken when it fails a Morale Test, it immediately **Panics / Routs** and is removed from play as destroyed.
+1. **Trigger (14C-2 PR 1).** At the end of every activation, each unit of either side (including the active unit) that took at least one wound **during that activation** and was **not in melee during it** tests Morale if it is now at **half strength or less**: for several models, living models x 2 <= the unit's starting models; for a single model, remaining wounds x 2 <= Tough. A unit tests at most once per activation. Units in melee skip this test (melee results decide who tests; see the melee rules). The host keeps this in `turnState.woundBaseline` (each living unit's wounds when the activation began) and `turnState.meleeUnitIds`, both cleared when the activation ends.
+2. **The test** is a Quality test: roll 1d6, passes on a result of at least Quality; a 1 always fails, a 6 always passes. Faction morale traits (`steadfast`, `dauntless`, `iron-will`, the one-shot morale debuff) still modify the roll until 14C-3 retires them. A failure makes the unit **Shaken**. A unit that is already Shaken always fails, with no roll.
+3. **Hero.** A unit within **6"** (horizontal, base edge to base edge) of a friendly, living, non-Shaken unit with `hero` may use the better of its own Quality and the Hero's for the test. The Hero may be the unit itself or any friendly unit.
+4. **Fearless.** When a unit with Fearless fails a Morale Test (including the automatic failure while Shaken), the host also rolls one die; on a 4+ the test counts as passed (the unit is not made Shaken, and an already-Shaken unit simply stays as it is).
+5. **Dice.** All morale dice are server dice requested with the `end-activation` action (`purpose: 'morale'` for each unit that is not already Shaken, `purpose: 'fearless'` for each Fearless unit). A move that can end in a fall or a hold in dangerous terrain also requests a spare `morale` die (and a `fearless` die for a Fearless mover) because the wounded mover's activation ends inside that action. Each test is attached to the action's log entry (`dice.outcome.moraleTests`: unit, roll, Quality needed, Fearless die, passed, outcome) so both peers render it from state.
+6. **Shaken units.** A Shaken unit may be activated, but may do nothing except end its activation idle (the host rejects every other action; the HUD offers only *End Activation (idle)*). At the end of that activation Shaken is removed. It may strike back in melee, as **Fatigued** (hits only on unmodified 6s). It can neither seize nor contest objectives. It always fails Morale Tests.
+7. **Melee results (14C-2 PR 2).** A unit in melee skips the wound test above. At the end of the activation the host compares, for each pair of units that fought during it, the wounds each took **during that activation** (charge strike, fight, strike-back; wounds stopped by Regeneration or defense do not count). Fear(X): a unit with Fear counts its enemy as having taken X extra wounds, **once per unit** however many melees it fought (X is the unit's own Fear value, and only while it has living models). The side with the higher total loses and takes a Morale Test (a unit already Shaken fails without a die); a tie means nobody tests. A loser that fails **while at half strength or less** (same test as rule 1, judged before the test) **Routs**: all its models are removed and it gets the `routed` status. Otherwise it is Shaken. A loser wiped out by the fighting owes nothing. Fearless can still turn a failure into a pass. The result is logged on the end-activation entry (`dice.outcome.meleeResults`) so the HUD can show "X took 3 wounds, Y took 1 (+1 Fear): X loses".
 
 ---
 
@@ -225,8 +212,8 @@ At the **end of each round**, evaluate total army strength:
 | **Cover Terrain** | Light foliage, low barricades, crates, visual obscuration, window sills. | Low pieces (solids no more than 1.0" above the floor they stand on: barricade, crate, pipe) can be stepped over: movement goes straight across at no extra cost (not a climb, not difficult), but a model may not end its move on or overlapping one. Taller pieces still block movement. Defenders receive **$+1$ to Defense rolls** against shooting attacks when positioned within cover, within 1.0" of intervening low cover along the line of fire, or within 1.0" of a window aperture being fired through. |
 | **Aperture Walls** | Doorway passages and window firing ports. | Doorways are open air: movement and Line of Sight pass freely, with no cover from the gap itself. Windows allow Line of Sight through the port only while a model is manning it (base edge within 1.0"), grant that model +1 Defense, and block movement. |
 | **Elevated Floors** | Platforms, catwalks and the ruin ledge at the 3.0" floor tier. | Decks are solid slabs: models walk beneath them and stand on top. Sight is traced in 3D, so a deck blocks sight from below at close range while low cover stacked on it (barricades, crates) is seen over and a wall hides a model. Ladders and stairs are the way up onto decks; a piece marked climbable (container, ruin ledge by default) can also be climbed straight up, 3" or less (see 2.3). |
-| **Difficult Terrain** | Mud, dense trenches, steep inclines, deep water, rubble. | Maximum movement distance across the entire activation is **capped at 6"** (negates speed bonuses for Rush and Charge). A path is difficult when any **segment** of it passes through a difficult piece's footprint (plus the 0.15" margin) at that piece's level, so a straight walk across a rubble field counts even though both ends are outside it; a model on a deck above the piece, or beside it, is not slowed. Which pieces are difficult is data: the piece's own `isDifficult`, else the catalog default, else a legacy type list (`trench`, `forest`, `mud`) for old saved maps (`isDifficultPiece`). Pathfinder and Airborne units are exempt. |
-| **Dangerous Terrain** | Minefields, acid pools, barbed wire, electrified wire, hazard pools. | Detected exactly like difficult terrain (segment by segment, at the piece's level; `isDangerousPiece`, legacy types `toxic`, `hazard`, `fire`). When a path crosses dangerous terrain, roll 1d6 per living model. **Activating inside it:** when a unit activates, each living model whose centre stands in a dangerous piece (at its level) rolls one die before the unit acts (purpose `activation_hazard`, `m<index>_activation_hazard` in a squad; the model that rolled the 1 is the casualty). A model tested at activation does not roll again for dangerous ground it crosses later in the same activation. Every **roll of 1 inflicts 1 wound**. Airborne units are exempt. The single-model test rolls one die (not Tough-value dice), as the crossing test always has. |
+| **Difficult Terrain** | Mud, dense trenches, steep inclines, deep water, rubble. | Maximum movement distance across the entire activation is **capped at 6"** (negates speed bonuses for Rush and Charge). A path is difficult when any **segment** of it passes through a difficult piece's footprint (plus the 0.15" margin) at that piece's level, so a straight walk across a rubble field counts even though both ends are outside it; a model on a deck above the piece, or beside it, is not slowed. Which pieces are difficult is data: the piece's own `isDifficult`, else the catalog default, else a legacy type list (`trench`, `forest`, `mud`) for old saved maps (`isDifficultPiece`). Strider and Flying units are exempt. |
+| **Dangerous Terrain** | Minefields, acid pools, barbed wire, electrified wire, hazard pools. | Detected exactly like difficult terrain (segment by segment, at the piece's level; `isDangerousPiece`, legacy types `toxic`, `hazard`, `fire`). When a path crosses dangerous terrain, roll 1d6 per living model. **Activating inside it:** when a unit activates, each living model whose centre stands in a dangerous piece (at its level) rolls one die before the unit acts (purpose `activation_hazard`, `m<index>_activation_hazard` in a squad; the model that rolled the 1 is the casualty). A model tested at activation does not roll again for dangerous ground it crosses later in the same activation. Every **roll of 1 inflicts 1 wound**. Flying units are exempt. The single-model test rolls one die (not Tough-value dice), as the crossing test always has. |
 | **Area Terrain** | Rubble fields and hazard pools: a flat footprint with no walls. | Never blocks movement or sight and is not a floor: a model in or crossing it stays on the ground, and ending a move inside it is legal. Cover is for models **inside**, not behind: where the piece gives cover (rubble field yes, hazard pool no), a unit of several living models counts a model only when its whole base is inside the footprint, a single-model unit (or a squad down to one living model) when its centre is inside. This holds against every line of fire, plunging fire included, and area pieces never give the 1.0" intervening low-cover bonus. A squad still gets cover when more than half its living models are individually covered. |
 
 ---
@@ -237,71 +224,73 @@ Every special rule is modeled as a declarative modifier or state machine interce
 
 | Trait ID | Display Name | Mechanical Specification |
 | :--- | :--- | :--- |
-| **`drop-reserve`** | **Drop Reserve** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
-| **`pierce(X)`** | **Pierce(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
-| **`hexed`** | **Hexed** | Ignores target's `ward`. Target must re-roll unmodified saving throw results of 6. |
-| **`blast(X)`** | **Blast(X)** | Ignores cover. Multiplies hits by $X$ (up to maximum number of models in target / enemy models within $3"$). |
-| **`channeler(X)`** | **Channeler(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to power cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy channelers within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
-| **`brace`** | **Brace** | Strikes first in melee when charged. Attacking charger suffers $-1$ Shock hit per model with Brace. |
-| **`lethal(X)`** | **Lethal(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
-| **`swift`** | **Swift** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
-| **`dread(X)`** | **Dread(X)** | Model counts as having dealt $+X$ additional wounds when calculating Wound Effects roll in melee (requires at least 1 actual wound dealt). |
-| **`stoic`** | **Stoic** | When failing a morale test, roll 1d6. On a 4+, the test is treated as passed. |
-| **`airborne`** | **Airborne** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. Must still end its move fully supported on a floor or the ground (no overhanging or mid-air endings). |
-| **`frenzy`** | **Frenzy** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
-| **`commander`** | **Commander** | Friendly units within 12" may test Morale using the Commander's Quality score (provided Commander is not Suppressed). |
-| **`stationary`** | **Stationary** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
-| **`shock(X)`** | **Shock(X)** | On charging, rolls $X$ dice before normal attacks (unless fatigued). Each roll of 2+ inflicts 1 immediate hit. |
-| **`lobbed`** | **Lobbed** | Fires without requiring line of sight and ignores cover from sight blockers. Suffers $-1$ to hit if firing after moving. |
-| **`expendable`** | **Expendable** | Weapon profile or ability may only be used **once per match**. |
-| **`ward`** | **Ward** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
-| **`sustained`** | **Sustained** | When shooting at targets $>9"$ away, unmodified hit rolls of 6 generate 1 additional hit. |
-| **`calibrated`** | **Calibrated** | Attacks made with this weapon always hit on a Quality test of **2+**, regardless of unit's base Quality. |
-| **`shred`** | **Shred** | Ignores `ward`. Unmodified hit rolls of 6 gain **`pierce(4)`**. |
-| **`vanguard`** | **Vanguard** | Infiltrates during deployment. Deployed after all standard units, placed anywhere fully within 12" of friendly deployment zone. |
-| **`ponderous`** | **Ponderous** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
-| **`camouflaged`** | **Camouflaged** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
-| **`pathfinder`** | **Pathfinder** | Ignores Difficult Terrain speed cap. Automatically passes jump checks on 2+. |
-| **`overload`** | **Overload** | Unmodified hit rolls of 6 deal 1 additional hit. |
-| **`impale`** | **Impale** | When charging, attacks gain **$+1$ to hit** and **`pierce(+1)`** in melee. |
-| **`resilient(X)`** | **Resilient(X)** | Accumulates wounds without rolling wound effects until reaching $X$ wounds. Only knocked out on wound effect rolls $\ge 5 + X$. |
-| **`unerring`** | **Unerring** | Ignores target's `ward`, and ignores all negative modifiers applied to this weapon. |
+| **`ambush`** | **Ambush** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
+| **`ap(X)`** | **AP(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
+| **`bane`** | **Bane** | Ignores target's `regeneration`. Target must re-roll unmodified saving throw results of 6. |
+| **`blast(X)`** | **Blast(X)** | Ignores cover. After all other special rules each hit becomes $X$ hits, split between the target and every other enemy unit with a model within $3"$ of it. A unit takes at most one hit per living model; the rest are lost. The engine's Auto split deals hits as evenly as possible (odd hit to the target first, then nearest neighbours) and re-spreads hits a unit cannot take. Each unit defends its share with its own Defense batch. |
+| **`caster(X)`** | **Caster(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to power cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy casters within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
+| **`counter`** | **Counter** | Strikes first in melee when charged. Attacking charger suffers $-1$ Impact hit per model with Counter. *(Reworked in 14C-2 PR 7.)* |
+| **`deadly(X)`** | **Deadly(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
+| **`fast`** | **Fast** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
+| **`fear(X)`** | **Fear(X)** | Counts as $+X$ extra wounds dealt to its enemy when melee results are compared (once per unit). *Counted once per unit (the highest value among its living models); see section 7.* |
+| **`fearless`** | **Fearless** | When failing a Morale Test (even the automatic failure while Shaken), roll 1d6. On a 4+, the test is treated as passed. |
+| **`flying`** | **Flying** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. Must still end its move fully supported on a floor or the ground (no overhanging or mid-air endings). |
+| **`furious`** | **Furious** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
+| **`hero`** | **Hero** | Friendly units within 6" (base edge to base edge) may use the Hero's Quality for Morale Tests while the Hero is not Shaken. |
+| **`immobile`** | **Immobile** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
+| **`impact(X)`** | **Impact(X)** | On charging, rolls $X$ dice before normal attacks (unless fatigued). Each roll of 2+ inflicts 1 immediate hit. |
+| **`indirect`** | **Indirect** | If the unit held (did not move) this activation, fires without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon. No to-hit penalty. |
+| **`limited`** | **Limited** | Weapon profile or ability may only be used **once per match**. |
+| **`regeneration`** | **Regeneration** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
+| **`relentless`** | **Relentless** | When shooting at targets $>9"$ away, unmodified hit rolls of 6 generate 1 additional hit. |
+| **`reliable`** | **Reliable** | Attacks made with this weapon always hit on a Quality test of **2+**, regardless of unit's base Quality. |
+| **`rending`** | **Rending** | Ignores `regeneration`. Unmodified hit rolls of 6 gain **`ap(4)`**. |
+| **`scout`** | **Scout** | Infiltrates during deployment. Deployed after all standard units, placed anywhere fully within 12" of friendly deployment zone. |
+| **`slow`** | **Slow** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
+| **`stealth`** | **Stealth** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
+| **`pathfinder`** | **Strider** | Ignores Difficult Terrain speed cap. Rolls half the jump dice (rounding up). |
+| **`surge`** | **Surge** | Unmodified hit rolls of 6 deal 1 additional hit. |
+| **`thrust`** | **Thrust** | When charging, attacks gain **$+1$ to hit** and **`ap(+1)`** in melee. |
+| **`tough(X)`** | **Tough(X)** | A model is removed once it has taken $X$ wounds. |
+| **`unstoppable`** | **Unstoppable** | Ignores target's `regeneration`, and ignores all negative modifiers applied to this weapon. |
 | **`steadfast`** | **Steadfast** | Units where all models have this rule gain **$+1$ to morale test rolls** ($+2$ with `steadfast-boost`). |
 | **`marksman`** | **Marksman** | Grants **$+1$ to hit rolls** when shooting. |
-| **`rupture`** | **Rupture** | Unmodified hit rolls of 6 gain **`pierce(+2)`**. |
+| **`rupture`** | **Rupture** | Unmodified hit rolls of 6 gain **`ap(+2)`**. |
 | **`riot-shield`** | **Riot Shield** | Grants **$+1$ to Defense rolls** against hits that are not from powers. |
-| **`iron-will`** | **Iron Will** | Failed morale tests count as passed; roll dice equal to Tough/wounds needed for wound effects (min 1) and take 1 unignorable wound per roll of 1–3. |
+| **`iron-will`** | **Iron Will** | Failed Morale Tests count as passed; roll dice equal to the wounds needed to destroy the unit (min 1) and take 1 unignorable wound per roll of 1–3. *(Faction trait; retired in 14C-3.)* |
 | **`double-time`** | **Double Time** | Moves **$+4"$** when using Advance actions. |
 
 ---
 
 ## 10. Advanced Dynamic Traversal Rules
 
-### 10.1 Knockback / Pushing
-Whenever a target model receives a **Suppressed (Shaken)** result from an attack, the attacking player may roll 1d6. On a **4+**, the attacker displaces the target model by up to **2"** in any horizontal direction.
+### 10.1 Pushing
+Whenever an enemy unit **becomes Shaken** after being attacked (shooting or melee, including the Morale Test at the end of that activation), the attacking unit's player rolls one die (server dice). A **Routed** unit is gone, so there is no push; a unit that was already Shaken is not pushed again. On a **4+** the attacker may move **one model** of the Shaken unit up to **2"** horizontally in any direction to a legal spot (on the board, not overlapping terrain or another model). The unit's other models then step in only as far as needed to keep the unit together (each model cut off from the pushed one moves to the closest legal spot that links it back; a digital stand-in for the opponent placing them). A model pushed over an edge falls like any other (see 10.3), but nobody's activation ends.
+- The attacker is the active unit when the Shaken unit is an enemy of it; a Shaken *active* unit is pushed only if it fought in melee this activation, and then by the unit it fought. A unit that shook itself (a fall, a hazard) is not pushed.
+- Engine: when the end-of-activation tests are done and a push die shows 4+, the host sets a pending reaction `push` for the attacker (one at a time if several units were pushed). Its only button is **Auto**: the model nearest the attacker moves directly away from the attacker's nearest model, as far as is legal up to 2". The timeout (30 s) applies Auto. A chosen push is the action `push-move { modelId, destination }` (the host ignores any height and works it out; a Confirm button for it arrives with the push HUD).
 
 ### 10.2 Gaps & Drops (Jumping)
 - **Regular movement:** Models cross horizontal gaps $\le 1"$ and drop off elevations $\le 3"$ as regular movement, with no test. A gap is open air with nothing to stand on beneath the path (not the distance between two decks that touch). Movement is measured along the board, so a drop costs only its horizontal distance (climbs, stairs, ramps and ladders cost their full length).
 - **Extended Clearance ($\le 6"$):**
-  - Requires a Jump test: Roll $X + 1$ dice testing for $3+$, where $X$ is 1 die per full 3" traversed (2+ with `pathfinder`; `airborne` auto-passes).
-  - If all dice succeed ($3+$), the model clears the distance without it counting toward its move and the activation continues.
+  - Requires a Jump test: roll **one die per started inch** of the jump (a 1.1" gap is 2 dice, 6.0" is 6), each needing **2+**. A **Strider** rolls half the dice, rounding up (5 dice become 3); **Flying** passes automatically.
+  - If every die succeeds, the model clears the distance without it counting toward its move and the activation continues.
   - If any die fails, the model falls (see 10.3) and its activation ends.
+  - **One roll for the whole unit.** When several models of a squad jump in the same move, the host makes a single `jump` roll sized by the *longest* jump in the leg. All pass: every model crosses. Any fail: the model with the longest jump (ties: the lowest living-model index) falls from its take-off point; the other models that declared a jump stay at their take-off spots; walking models finish their paths; the activation ends.
 - **Beyond 6":** a drop cannot be jumped and the model falls; a gap this wide cannot be crossed (the move is rejected).
-- **Jump distance is measured like a tape:** the straight line from the take-off spot to the landing spot (horizontal and vertical together, not just the gap or just the height). Dice are $X + 1$ with $X$ = one per full 3" of that line. A hop that crosses more than 1" of open air is a gap jump even when it also drops; a hop with no more than 1" of open air and a drop of 3" or less stays a free drop. The 6" limit applies to that line: a gap hop longer than 6" cannot be jumped (it is not a fall either), while a pure drop over 6" still falls.
-- Gaps and drops use the same test; every jump, fall and hazard roll is recorded in the dice log.
-- **Jumps are declared.** Only ordinary movement is ever worked out automatically for the player: walking, stairs, ladders, drops of 3" or less and gaps of 1" or less. A jump (a gap of 1-6", or a drop of 3-6") involves dice, and a fall (a drop over 6") is a guaranteed injury, so the player must choose them, as at the table. A jump is a single hop made from where the model already stands: it must be at the edge of its floor (centre within 0.5" of the edge, heading out over it), with the landing across the gap or below. To jump, first move to the edge (a normal move; moves can be split), then declare the jump as the next move. The host rejects a path that crosses a gap wider than 1" or drops more than 3" without the declaration (`traversal` on the move, see DATA_MODEL). A gap wider than 6" is never offered. A drop over 6" is offered from an edge as an explicit choice with a clear warning that the model will fall (no jump dice; Falling damage, activation ends). Short hops over open air never add up: a run of open air counts as one gap however it is split into steps.
+- **Jump distance is measured like a tape:** the straight line from the take-off spot to the landing spot (horizontal and vertical together, not just the gap or just the height). Dice are one per started inch of that line. A hop that crosses more than 1" of open air is a gap jump even when it also drops; a hop with no more than 1" of open air and a drop of 3" or less stays a free drop. The 6" limit applies to that line: a gap hop longer than 6" cannot be jumped (it is not a fall either), while a pure drop over 6" still falls.
+- Gaps and drops use the same test; every jump, fall and hazard roll is recorded in the dice log (the jump roll is untagged `jump`, the fall dice `fall`, with no per-model prefix).
+- **Jumps are declared.** Only ordinary movement is ever worked out automatically for the player: walking, stairs, ladders, drops of 3" or less and gaps of 1" or less. A jump (a gap of 1-6", or a drop of 3-6") involves dice, and a fall (a drop over 6") is a guaranteed injury, so the player must choose them, as at the table. A jump is a single hop made from where the model already stands: it must be at the edge of its floor (centre within 0.5" of the edge, heading out over it), with the landing across the gap or below. To jump, first move to the edge (a normal move; moves can be split), then declare the jump as the next move. The host rejects a path that crosses a gap wider than 1" or drops more than 3" without the declaration (`traversal` on the move, see DATA_MODEL). A gap wider than 6" is never offered. A drop over 6" is offered from an edge as an explicit choice with a clear warning that the model will fall (no jump dice; fall wounds, activation ends). Short hops over open air never add up: a run of open air counts as one gap however it is split into steps.
 - **Cost of a jump:** a passed jump does not count toward the move, so it is free whatever its length (the model keeps its remaining movement). A drop of 3" or less costs only its horizontal distance. Coming down a ladder of 3" or less is simply such a drop (ladders are climbed up); a taller ladder costs its full length both ways.
 - A model never finishes a move suspended in mid-air: if its allowance cannot finish a drop it stops at the edge.
 - A model never finishes a move with its base partly overhanging an edge: on an elevated floor the whole base must rest on floor at the model's height (flush floors count together, so standing across a seam between two decks is fine). After a climb the model steps on until its base is clear of the lip if the allowance covers it, otherwise it stays at the stand-off spot below. A declared jump must land with the whole base supported.
 
-### 10.3 Falling Damage
-- If a model falls or is pushed off an elevated surface $\ge 2"$ tall:
-  - Takes 1 automatic hit with **AP(1) per full 3" of vertical fall**.
-  - Model lands within 2" of where it fell, on the highest floor below (a lower deck, else the ground), at a spot clear of terrain and other models with its whole base supported, and its activation terminates immediately.
-  - Falling damage applies to any fall of 2" or more, including a failed jump off a 3" deck.
-  - In multi-model squads, a fall eliminates only the individual model that fell (the other models do not move), unless only the squad survivor remains. This covers a failed jump, a drop over 6" and a failed gap jump alike: it is always the falling model that is lost, never "the first living model".
-  - **Squads declare jumps per model.** Each model of a squad that is at a floor edge may declare its own jump (or fall) as part of the squad's move or rush; the other models walk as usual. Only the declaring models roll, each with its own dice, in model order. A model that fails falls and is lost (the last living model instead takes the normal falling damage), and the squad's activation ends; the models that had been moved stay where they were placed. The squad still has to finish in coherency.
-  - **A failed jump stops the later jumpers** (batch 1I PR 31). Walking models always finish their paths, as if the jumpers had been moved last. Jumps resolve in model order; once one fails (or is a fall, which also ends the activation), every later jumper stays at its take-off spot, its jump is not attempted and its rolls are ignored (the log reads "Model N: jump not attempted (activation ended)"). A stopped model counts only the distance walked to its take-off spot. The squad may end out of coherency and regroups on its next activation. This applies to squad moves, rushes and charge legs (a failed jump in a charge ends the activation, so there is no melee). A single jumper is unaffected.
+### 10.3 Falling
+- A fall is a failed jump, walking off a drop over 6", or being pushed off an edge. A fall of **under 2"** only moves the model down (no dice). A fall of **2" or more** rolls **one die per started inch fallen**; each die showing **1-3 is one wound**. There is no Defense roll.
+  - The model lands within 2" of where it fell (a failed jump falls from its take-off point), on the highest floor below (a lower deck, else the ground), at a spot clear of terrain and other models with its whole base supported. A drop over 6" that was walked off ends where the player declared the landing.
+  - The wounds go through the usual wound step: the falling model takes the first wound(s) as its casualty, any further wounds follow the usual order. A Tough model is wounded, not removed, until its wounds run out. The unit's activation ends (a push fall ends nobody's activation).
+  - The host asks for the fall dice together with the move (one `fall` roll sized by the fall height) and, as with a failed move, a spare Morale die (a wound can leave the unit at half strength; the Morale Test runs as the activation ends).
+  - **Squads declare jumps per model.** Each model of a squad that is at a floor edge may declare its own jump (or fall) as part of the squad's move or rush; the other models walk as usual. The squad still has to finish in coherency.
+  - **A failed jump stops the other jumpers.** Walking models always finish their paths. When the one jump roll fails (or a model walks off a drop over 6", which needs no roll), the faller is chosen as above and every other model that declared a jump stays at its take-off spot, its jump not attempted (the log reads "Model N: jump not attempted (activation ended)"). A stopped model counts only the distance walked to its take-off spot. The squad may end out of coherency and regroups on its next activation. This applies to squad moves, rushes and charge legs (a failed jump in a charge ends the activation, so there is no melee).
 
 ---
 
@@ -316,7 +305,7 @@ export interface UnitProfile {
   defense: number;      // e.g. 5 for 5+
   speed: number;        // Standard base speed, default 6
   size: number;         // Model count in squad
-  wounds: number;       // Current trauma count
+  wounds: number;       // Wounds left across living models
   status: Array<'ready' | 'activated' | 'suppressed' | 'fatigued' | 'engaged' | 'destroyed'>;
   weapons: WeaponProfile[];
   traits: TraitInstance[];

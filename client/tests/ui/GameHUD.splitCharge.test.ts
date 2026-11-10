@@ -56,7 +56,7 @@ function setup(position: Vector3, enemyAt: Vector3, terrain: TerrainPiece[] = de
   unit.position = { ...position };
   unit.isActivated = true;
   unit.status = [];
-  unit.specialRules = unit.specialRules.filter((r) => r !== 'stationary');
+  unit.specialRules = unit.specialRules.filter((r) => r !== 'immobile');
   if (!unit.weapons.some((w) => w.isEquipped && w.profile.type === 'melee')) {
     throw new Error('fixture unit needs a melee weapon');
   }

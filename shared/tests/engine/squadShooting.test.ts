@@ -149,9 +149,9 @@ describe('squad shooting: who can fire', () => {
     expect(validateAction(state, shootAction()).valid).toBe(false);
   });
 
-  it('a lobbed weapon needs range only, no sight', () => {
+  it('a indirect weapon needs range only, no sight', () => {
     const shooter = squad('a', HOST, [pt(0, 0)]);
-    const lob = { ...WEAPONS.rifle, profile: { ...WEAPONS.rifle.profile, specialRules: ['lobbed'] } };
+    const lob = { ...WEAPONS.rifle, profile: { ...WEAPONS.rifle.profile, specialRules: ['indirect'] } };
     const target = squad('t', GUEST, [pt(0, 10)]);
     const state = makeState([shooter, target], [wall(0, 5)]);
     expect(firingModels(state, shooter, target, lob)).toHaveLength(1);
@@ -186,7 +186,6 @@ describe('squad shooting: cover by majority', () => {
     const rolls = [
       { rolls: [5], total: 5, finalTotal: 0, purpose: 'to-hit' },
       { rolls: [4], total: 4, finalTotal: 0, purpose: 'defense' },
-      { rolls: [1], total: 1, finalTotal: 0, purpose: 'trauma' },
     ];
     const run = (target: Unit) => {
       const res = applyAction(makeState([shooter, target], [barricade]), shootAction(), rolls);
@@ -226,7 +225,7 @@ describe('single-model regression', () => {
 
   it('split fire across two targets still validates and counts per weapon group', () => {
     const a = squad('a', HOST, [pt(0, 0), pt(2, 0)]);
-    a.weapons = [rifle(), { ...WEAPONS.rifle, id: 'rifle2', profile: { ...WEAPONS.rifle.profile } }];
+    a.weapons = [rifle(), { ...WEAPONS.rifle, id: 'rifle2', name: 'Rifle B', profile: { ...WEAPONS.rifle.profile } }];
     const state = makeState([a, squad('t1', GUEST, [pt(0, 10)]), squad('t2', GUEST, [pt(5, 12)])]);
     const action = createAction(HOST, 'shoot', {
       type: 'shoot', attackerId: 'a', targetId: 't1', weaponId: 'rifle',

@@ -64,7 +64,7 @@ function makeState(units: Unit[], activeId = 'h1'): GameState {
   return state;
 }
 
-const move = (unitId: string, path: Array<[number, number]>, type: 'move-unit' | 'rush' = 'move-unit') =>
+const move = (unitId: string, path: Array<[number, number]>, type: 'advance' | 'rush' = 'advance') =>
   createAction(HOST, type, {
     type,
     unitId,
@@ -128,8 +128,8 @@ describe('1" keep-away rule (non-charge moves)', () => {
     const units = [squad('h1', HOST, [[0, 0], [1.5, 0]], { speed: 6 }), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 6 } })];
     const state = makeState(units);
     const action = (z: number) =>
-      createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0.75, y: 0, z: 0 }, { x: 0.75, y: 0, z: z }],
         finalPosition: { x: 0.75, y: 0, z },
@@ -269,9 +269,9 @@ describe('who strikes in melee', () => {
   const chargerColumn = () =>
     squad('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5]], { weapons: [weapon('blade')], speed: 3 });
 
-  it('only models within 2" of a target model roll attacks on a charge (pooled)', () => {
-    // Models end at z = 9, 8, 7, 6; the target is at z = 10.
-    const state = makeState([chargerColumn(), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10 } })]);
+  it('only models within 3" of a target model roll attacks on a charge (pooled)', () => {
+    // Models end at z = 9, 8, 7, 6; the target is at z = 10.1.
+    const state = makeState([chargerColumn(), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10.1 } })]);
     const charge = createAction(HOST, 'charge', {
       type: 'charge',
       attackerId: 'h1',
@@ -281,23 +281,22 @@ describe('who strikes in melee', () => {
       weaponId: 'blade',
     });
     expect(validateAction(state, charge).valid).toBe(true);
-    // gaps to the target: 0", 1", 2" (all strike), 3" (too far): 3 models x 2 attacks
+    // gaps to the target: 0.1", 1.1", 2.1" (all strike), 3.1" (too far): 3 models x 2 attacks
     expect(getDiceSpecs(state, charge)?.find((s) => s.purpose === 'to-hit')?.count).toBe(6);
 
     const rolls: DiceResult[] = [
       { purpose: 'to-hit', rolls: [1, 1, 1, 1, 1, 1] } as DiceResult,
       { purpose: 'defense', rolls: [6, 6, 6, 6, 6, 6] } as DiceResult,
-      { purpose: 'trauma', rolls: [1] } as DiceResult,
     ];
     const out = applyAction(state, charge, rolls);
     expect(out.ok).toBe(true);
     expect(out.logEntry?.dice?.outcome.attackCount).toBe(6);
   });
 
-  it('the defenders strike back with the models within 2" of the charger', () => {
+  it('the defenders strike back with the models within 3" of the charger', () => {
     const attacker = makeUnit('h1', HOST, { weapons: [weapon('blade')], position: { x: 0, y: 0, z: 0 } });
-    // Defender column: z = 1, 2, 3 (gaps 0", 1", 2") plus z = 4.5 (gap 3.5") -> 3 strike
-    const defender = squad('g1', GUEST, [[0, 1], [0, 2], [0, 3], [0, 4.5]], { weapons: [weapon('fists')] });
+    // Defender column: z = 1, 2, 3, 4 (gaps 0", 1", 2", 3") plus z = 5.5 (gap 4.5") -> 4 strike
+    const defender = squad('g1', GUEST, [[0, 1], [0, 2], [0, 3], [0, 4], [0, 5.5]], { weapons: [weapon('fists')] });
     const state = makeState([attacker, defender], 'h1');
     state.turnState.pendingReaction = {
       id: 'reaction-test',
@@ -313,7 +312,7 @@ describe('who strikes in melee', () => {
       data: { weaponId: 'fists' },
     };
     const ret = createAction(GUEST, 'respond-reaction', { reactionId: 'reaction-test', choiceId: 'strike-back' });
-    expect(getDiceSpecs(state, ret)?.find((s) => s.purpose === 'to-hit')?.count).toBe(3);
+    expect(getDiceSpecs(state, ret)?.find((s) => s.purpose === 'to-hit')?.count).toBe(4);
   });
 
   it('a single-model charger still rolls its full attacks', () => {
@@ -332,11 +331,11 @@ describe('who strikes in melee', () => {
   });
 
   it('a fight uses the same rule', () => {
-    const attacker = squad('h1', HOST, [[0, 0], [0, -1], [0, -2.1], [0, -3.2]], { weapons: [weapon('blade')], status: ['engaged'] });
+    const attacker = squad('h1', HOST, [[0, 0], [0, -1], [0, -3], [0, -3.2]], { weapons: [weapon('blade')], status: ['engaged'] });
     const target = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 1 }, status: ['engaged'] });
     const state = makeState([attacker, target]);
     const fight = createAction(HOST, 'fight', { type: 'fight', attackerId: 'h1', targetId: 'g1', weaponId: 'blade' });
-    // gaps: 0, 1, 2.1, 3.2 -> two strike
-    expect(getDiceSpecs(state, fight)?.find((s) => s.purpose === 'to-hit')?.count).toBe(4);
+    // gaps: 0, 1, 3.0 (exactly at reach), 3.2 -> three strike
+    expect(getDiceSpecs(state, fight)?.find((s) => s.purpose === 'to-hit')?.count).toBe(6);
   });
 });

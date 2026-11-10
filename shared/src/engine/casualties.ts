@@ -4,8 +4,7 @@ import { coherencyShortfall } from './spatial';
 /**
  * Casualties picked by the unit's owner. When an attack's wounds would remove models from a unit that
  * survives (two or more living models), the host leaves the unit untouched and sets a `pick-casualties`
- * reaction for the unit's owner. The wounds (and the pre-rolled wound-effect roll for the last model) are
- * replayed on the unit once the owner has named the models to remove, or the host named them on timeout.
+ * reaction for the unit's owner. The wounds are replayed on the unit once the owner has named the models to remove, or the host named them on timeout.
  */
 
 /** Reaction choice that lets the host pick the models itself (the timeout default). */
@@ -16,9 +15,7 @@ export const PICK_CASUALTIES_DURATION_MS = 30000;
 /** One wound application on a unit, exactly the arguments the wound step takes (plain data). */
 export interface WoundApplication {
   wounds: number;
-  traumaRolls?: number[];
-  dreadBonus: number;
-  lethalValue: number;
+  deadlyValue: number;
 }
 
 /** A unit waiting for its owner's pick, with every wound application to replay on it. */
@@ -26,8 +23,6 @@ export interface CasualtyEntry {
   unitId: string;
   /** Models the owner must remove. */
   count: number;
-  /** Wounds that carry over to the surviving model once the picked models are gone (informational). */
-  remainingWounds: number;
   applications: WoundApplication[];
 }
 

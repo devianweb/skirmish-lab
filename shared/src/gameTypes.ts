@@ -18,7 +18,7 @@ export interface ReactionOption {
 
 export interface PendingReaction {
   id: string;
-  type: 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | string;
+  type: 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | 'push' | string;
   promptingPlayerId: string; // The player who must choose (defender)
   sourceUnitId: string;      // The attacker/charger
   targetUnitId: string;      // The defender making the decision
@@ -49,6 +49,16 @@ export interface TurnState {
    * unit's `remainingMovement`.
    */
   charge?: ChargeState | null;
+  /**
+   * Wounds each living unit had left when the active unit's activation began (unit id -> total wounds across
+   * living models). At the end of the activation any unit below its baseline "took a wound" and may owe a
+   * Morale Test. Cleared when the activation ends.
+   */
+  woundBaseline?: Record<string, number>;
+  /** Units that were in melee during the current activation (they skip the wound-based Morale Test). */
+  meleeUnitIds?: string[];
+  /** Pairs of units that fought each other during the current activation (their melee result is compared at its end). */
+  meleePairs?: [string, string][];
 }
 
 /** A charge declared on a target and made in legs. Plain data: it is part of the game state. */
@@ -62,10 +72,9 @@ export interface ChargeState {
 }
 
 export type UnitStatus =
-  | 'stunned'         // Cannot act on next activation; clears at activation start
-  | 'shaken'          // Suppressed / morale failure state (auto-fails morale, hits on 6s in melee)
+  | 'shaken'          // Failed a Morale Test: may only end its activation idle (then recovers), always fails Morale Tests, strikes back as Fatigued
   | 'fatigued'        // Exhausted in melee for the rest of the round (hits only on unmodified 6s)
-  | 'routed'          // Fleeing / eliminated by morale failure while already shaken
+  | 'routed'          // Removed as destroyed by a failed melee Morale Test
   | 'engaged'         // In melee engagement range
   | 'in-cover'        // Benefit from cover (+1 Defense roll against shooting)
   | { type: 'custom', name: string, data?: any };
@@ -115,11 +124,9 @@ export interface Unit {
   status: UnitStatus[];
   wounds: number;
   maxWounds: number;
-  /** Accumulated trauma tokens on the final surviving model (adds to 1d6 trauma rolls). */
-  traumaTokens?: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
-  /** Whether this unit has been deployed to the board (false during pre-match deployment / drop-reserves). */
+  /** Whether this unit has been deployed to the board (false during pre-match deployment / ambush). */
   isDeployed?: boolean;
 
   // Game State
@@ -262,7 +269,7 @@ export interface WeaponAllocation {
 export type ActionType =
   | 'activate-unit'
   | 'deploy-unit'
-  | 'move-unit'
+  | 'advance'
   | 'rush'
   | 'shoot'
   | 'begin-charge'
@@ -275,6 +282,7 @@ export type ActionType =
   | 'consolidate-move'
   | 'pile-in-move'
   | 'pick-casualties'
+  | 'push-move'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round'        // Finish the round (cleanup/morale)
   | 'concede'         // Forfeit the match (valid any time until game over)
@@ -283,7 +291,7 @@ export type ActionType =
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'deploy-unit', unitId: string, position: Vector3, rotation?: Vector3 }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
+  | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | {
       type: 'shoot';
@@ -302,6 +310,7 @@ export type ActionPayload =
   | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3 }
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'pick-casualties', unitId: string, modelIds: string[] }
+  | { type: 'push-move', modelId: string, destination: Vector3 }
   | { type: 'end-activation' }
   | { type: 'end-round' }
   | { type: 'concede' }
@@ -334,7 +343,7 @@ export interface RetaliationOutcome {
   bonusHits?: number;
   blockedCount: number;
   blockedRolls?: boolean[];
-  wardSavedCount?: number;
+  regenerationSavedCount?: number;
   wounds: number;
   targetDestroyed: boolean;
   targetShaken?: boolean;
@@ -344,11 +353,23 @@ export interface RetaliationOutcome {
   hitModifiers?: string[];
   baseDefense?: number;
   defenseModifiers?: string[];
-  traumaRoll?: number;
-  traumaTokens?: number;
-  traumaDreadBonus?: number;
-  traumaTotal?: number;
-  traumaOutcome?: 'shaken' | 'knocked-out';
+}
+
+/** The share of a Blast shot that landed on a unit other than the aimed-at target (its own defense batch). */
+export interface BlastSplashOutcome {
+  weaponId: string;
+  targetId: string;
+  targetName?: string;
+  hitCount: number;
+  blockedCount: number;
+  blockedRolls?: boolean[];
+  regenerationSavedCount?: number;
+  wounds: number;
+  targetDestroyed: boolean;
+  targetShaken?: boolean;
+  effectiveDefense?: number;
+  baseDefense?: number;
+  defenseModifiers?: string[];
 }
 
 export interface WeaponAttackOutcome {
@@ -361,7 +382,7 @@ export interface WeaponAttackOutcome {
   bonusHits?: number;
   blockedCount: number;
   blockedRolls?: boolean[];
-  wardSavedCount?: number;
+  regenerationSavedCount?: number;
   wounds: number;
   targetDestroyed: boolean;
   targetShaken?: boolean;
@@ -373,11 +394,6 @@ export interface WeaponAttackOutcome {
   hitModifiers?: string[];
   baseDefense?: number;
   defenseModifiers?: string[];
-  traumaRoll?: number;
-  traumaTokens?: number;
-  traumaDreadBonus?: number;
-  traumaTotal?: number;
-  traumaOutcome?: 'shaken' | 'knocked-out';
 }
 
 /**
@@ -387,7 +403,7 @@ export interface WeaponAttackOutcome {
  */
 /** One traversal hazard resolved during a move: a jump, a fall or dangerous terrain (rolled with server dice). */
 export interface TraversalEvent {
-  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard' | 'jump-skipped';
+  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard' | 'jump-skipped' | 'push';
   /** Human-readable result for the dice panel and log. */
   text: string;
   /** The dice rolled for this event (each d6). */
@@ -396,6 +412,39 @@ export interface TraversalEvent {
   target?: number;
   passed?: boolean;
   wounds?: number;
+}
+
+/** One Morale Test, recorded so both peers can render it from state. */
+export interface MoraleTestRecord {
+  unitId: string;
+  unitName: string;
+  /** The d6 rolled; absent when the unit was already Shaken (it fails without a roll). */
+  roll?: number;
+  /** Quality the roll had to meet (the Hero's when better). */
+  effectiveQuality: number;
+  /** Fearless die, rolled after a failed test. */
+  fearlessRoll?: number;
+  /** The attacker's push die (4+ lets them move a model of the unit this test just made Shaken). */
+  pushRoll?: number;
+  passed: boolean;
+  outcome: 'passed' | 'shaken' | 'routed';
+}
+
+/** One side of a melee result. */
+export interface MeleeResultSide {
+  unitId: string;
+  unitName: string;
+  /** Wounds this unit took during the activation. */
+  wounds: number;
+  /** Extra wounds counted against this unit because the enemy has Fear(X). */
+  fearBonus?: number;
+}
+
+/** The outcome of a melee, compared at the end of the activation: the side with more wounds loses. */
+export interface MeleeResultRecord {
+  sides: [MeleeResultSide, MeleeResultSide];
+  /** The unit that lost; absent on a tie (nobody tests). */
+  loserId?: string;
 }
 
 export interface DiceResolution {
@@ -415,7 +464,7 @@ export interface DiceResolution {
     bonusHits?: number;
     blockedCount: number;
     blockedRolls?: boolean[];
-    wardSavedCount?: number;
+    regenerationSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
     /** Movement hazards resolved by this action (gap/drop jumps, falls, dangerous terrain). */
@@ -429,16 +478,14 @@ export interface DiceResolution {
     hitModifiers?: string[];
     baseDefense?: number;
     defenseModifiers?: string[];
-    traumaRoll?: number;
-    traumaTokens?: number;
-    traumaDreadBonus?: number;
-    traumaTotal?: number;
-    traumaOutcome?: 'shaken' | 'knocked-out';
-    moraleRoll?: number;
-    moralePassed?: boolean;
-    moraleOutcome?: 'passed' | 'shaken' | 'routed';
+    /** Morale Tests taken at the end of an activation (one per unit that took wounds and is at half or less). */
+    moraleTests?: MoraleTestRecord[];
+    /** Melee results compared at the end of an activation (the loser tests Morale; see `moraleTests`). */
+    meleeResults?: MeleeResultRecord[];
     retaliation?: RetaliationOutcome;
     allocations?: WeaponAttackOutcome[];
+    /** Blast hits that spilled onto other enemy units near the target (totals above count the target only). */
+    blastSplash?: BlastSplashOutcome[];
     pushedBack?: boolean;
     pushBackPosition?: Vector3;
   };

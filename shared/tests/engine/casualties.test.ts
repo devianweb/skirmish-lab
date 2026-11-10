@@ -65,9 +65,9 @@ function mkState(units: Unit[]): GameState {
 
 /**
  * Dice for a spec list: in each attack (alloc_N_ prefix, or none) the first `wounds[N]` attacks hit and every
- * defense roll fails, so that many wounds land. The wound-effect roll is `trauma`.
+ * defense roll fails, so that many wounds land.
  */
-function diceFor(specs: DiceSpec[], wounds: number[], trauma = 1): DiceResult[] {
+function diceFor(specs: DiceSpec[], wounds: number[]): DiceResult[] {
   return specs.map((spec) => {
     const m = /^alloc_(\d+)_(.*)$/.exec(spec.purpose);
     const index = m ? Number(m[1]) : 0;
@@ -75,7 +75,6 @@ function diceFor(specs: DiceSpec[], wounds: number[], trauma = 1): DiceResult[] 
     let rolls: number[];
     if (base === 'to-hit') rolls = Array.from({ length: spec.count }, (_, i) => (i < (wounds[index] ?? 0) ? 6 : 1));
     else if (base === 'defense') rolls = Array(spec.count).fill(1);
-    else if (base === 'trauma') rolls = [trauma];
     else rolls = Array(spec.count).fill(1);
     return { rolls, total: rolls.reduce((a, b) => a + b, 0), finalTotal: rolls.reduce((a, b) => a + b, 0), purpose: spec.purpose };
   });
@@ -91,9 +90,9 @@ const shootAction = (targets: string[]) =>
       } as any);
 
 /** Resolve an action with `wounds` wounds per attack. */
-function resolve(state: GameState, action: ReturnType<typeof createAction>, wounds: number[], trauma = 1) {
+function resolve(state: GameState, action: ReturnType<typeof createAction>, wounds: number[]) {
   const specs = getDiceSpecs(state, action)!;
-  return applyAction(state, action, diceFor(specs, wounds, trauma));
+  return applyAction(state, action, diceFor(specs, wounds));
 }
 
 const pickAction = (actor: string, unitId: string, modelIds: string[]) =>
@@ -238,43 +237,36 @@ describe('casualties: the owner picks (shooting)', () => {
     expect(dataOf(next).entry.count).toBe(1);
     const done = applyAction(next, pickAction(GUEST, 'g1', ['g1-m1'])).state!;
     expect(aliveIds(done, 'g1')).toEqual(['g1-m0']);
-    // Now it is a lone model: more wounds land immediately
+    // Now it is a lone model: more wounds land immediately (no prompt) and a Tough 1 model dies to one
     done.turnState.activeUnitId = 'h1';
     done.units.find((u) => u.id === 'h1')!.hasAttacked = false;
-    const again = resolve(done, shootAction(['g1']), [1], 1);
+    const again = resolve(done, shootAction(['g1']), [1]);
     expect(again.state!.turnState.pendingReaction ?? null).toBeNull();
-    expect(unitOf(again.state!, 'g1').traumaTokens).toBe(1);
-    expect(unitOf(again.state!, 'g1').status).toContain('shaken');
+    expect(unitOf(again.state!, 'g1').isDestroyed).toBe(true);
   });
 
-  it('the last model\'s wound-effect result is the one that was rolled, whichever models are picked', () => {
-    // 4 wounds into 4 models: three go, one wound is left for the survivor; roll 1 = shaken
-    const next = resolve(shootingState(), shootAction(['g1']), [4], 1);
-    expect(next.logEntry?.dice?.outcome.traumaOutcome).toBe('shaken');
-    expect(next.logEntry?.dice?.outcome.targetShaken).toBe(true);
-    const state = next.state!;
-    expect(dataOf(state).entry.count).toBe(3);
-    expect(dataOf(state).entry.remainingWounds).toBe(1);
-    expect(unitOf(state, 'g1').status).not.toContain('shaken'); // not applied until the pick
-
-    const survivors = ['g1-m0', 'g1-m1', 'g1-m2', 'g1-m3'];
-    for (const keep of survivors) {
-      const picks = survivors.filter((id) => id !== keep);
-      const done = applyAction(state, pickAction(GUEST, 'g1', picks)).state!;
-      const g1 = unitOf(done, 'g1');
-      expect(aliveIds(done, 'g1')).toEqual([keep]);
-      expect(g1.isDestroyed).toBe(false);
-      expect(g1.status).toEqual(expect.arrayContaining(['shaken', 'stunned']));
-      expect(g1.traumaTokens).toBe(1);
-      expect(g1.wounds).toBe(1);
-    }
-  });
-
-  it('a knock-out roll on the survivor still destroys the unit after the pick, as a roll of 6 always did', () => {
-    // 4 wounds into a 4-model squad with tough models: the survivor takes the wound; roll 1 survives it
+  it('Tough 2 models: wounds fill one model before the next, and the owner picks the model that dies', () => {
     const state = shootingState();
-    const out = resolve(state, shootAction(['g1']), [4], 6);
-    // roll 6 knocks the survivor out: whole unit gone, so no prompt at all
+    for (const m of unitOf(state, 'g1').models) {
+      m.wounds = 2;
+      m.maxWounds = 2;
+    }
+    unitOf(state, 'g1').wounds = 8;
+    // 3 wounds: one model takes 2 and dies, the next takes 1 and survives wounded; only one model must go
+    const next = resolve(state, shootAction(['g1']), [3]);
+    const pending = next.state!;
+    expect(dataOf(pending).entry.count).toBe(1);
+    expect(unitOf(pending, 'g1').models.every((m) => !m.isDestroyed)).toBe(true); // not applied until the pick
+
+    const done = applyAction(pending, pickAction(GUEST, 'g1', ['g1-m3'])).state!;
+    const g1 = unitOf(done, 'g1');
+    expect(aliveIds(done, 'g1')).toEqual(['g1-m0', 'g1-m1', 'g1-m2']);
+    expect(g1.models.map((m) => m.wounds)).toEqual([1, 2, 2, 0]);
+    expect(g1.wounds).toBe(5);
+  });
+
+  it('wounds that remove every model of a squad destroy it with no prompt', () => {
+    const out = resolve(shootingState(), shootAction(['g1']), [4]);
     expect(out.state!.turnState.pendingReaction ?? null).toBeNull();
     expect(unitOf(out.state!, 'g1').isDestroyed).toBe(true);
   });

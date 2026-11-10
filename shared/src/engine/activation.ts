@@ -1,6 +1,8 @@
 import {
   GameState,
   MAX_ROUNDS,
+  MeleeResultRecord,
+  MoraleTestRecord,
   Objective,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   OBJECTIVE_CONTROL_RADIUS,
@@ -8,8 +10,8 @@ import {
 } from '../gameTypes';
 import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
-import { hasTrait } from '../rules/traits';
-import { MoraleTestOutcome, resolveMoraleTest } from './combat';
+import { getTraitValue, hasTrait } from '../rules/traits';
+import { resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
 import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
@@ -25,8 +27,8 @@ import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } f
  *   4. When every unit has activated, the round ends: activations reset and
  *      the new round starts with the other player as the starting player.
  *
- * A stunned unit may still be activated — spending the activation is what
- * clears the stun. Routed units cannot activate at all.
+ * A Shaken unit may still be activated: it ends its activation idle, which clears Shaken. Routed units
+ * cannot activate at all.
  */
 
 /** Units a player may still activate this round: alive, not yet activated, not routed. */
@@ -183,88 +185,207 @@ export function endRound(state: GameState): void {
   }
 }
 
-/**
- * True when `playerId`'s surviving non-routed units are at or below 50% of
- * their starting unit count (triggers Round-End Army Morale tests).
- */
-export function isArmyBroken(state: GameState, playerId: string): boolean {
-  const allUnits = state.units.filter((u) => u.ownerId === playerId);
-  if (allUnits.length === 0) return false;
-  const surviving = allUnits.filter(
-    (u) => !u.isDestroyed && !u.status.includes('routed')
-  );
-  return surviving.length > 0 && surviving.length * 2 <= allUnits.length;
+// ============================================================================
+// Morale (end of activation)
+// ============================================================================
+
+/** Friendly Heroes within this base-edge distance lend their Quality to Morale Tests. */
+export const HERO_MORALE_RANGE = 6;
+
+/** Total wounds the living models of a unit have left (a unit without models falls back to its own wounds). */
+export function unitWoundsLeft(unit: Unit): number {
+  if (!unit.models || unit.models.length === 0) return Math.max(0, unit.wounds);
+  return unit.models.filter((m) => !m.isDestroyed).reduce((sum, m) => sum + Math.max(0, m.wounds), 0);
 }
 
-/**
- * Return all surviving units across both players that must take a Round-End
- * Morale test because their army is Broken (<= 50% starting units).
- */
-export function getUnitsRequiringRoundMorale(state: GameState): Unit[] {
-  const result: Unit[] = [];
-  for (const playerId of [state.hostId, state.guestId]) {
-    if (!isArmyBroken(state, playerId)) continue;
-    for (const unit of state.units) {
-      if (
-        unit.ownerId === playerId &&
-        !unit.isDestroyed &&
-        !unit.status.includes('routed')
-      ) {
-        result.push(unit);
-      }
-    }
+/** Record every living unit's wounds so the end of the activation can tell who took a wound. */
+export function recordWoundBaseline(state: GameState): void {
+  const baseline: Record<string, number> = {};
+  for (const unit of state.units) {
+    if (!unit.isDestroyed) baseline[unit.id] = unitWoundsLeft(unit);
   }
-  return result;
+  state.turnState.woundBaseline = baseline;
+  state.turnState.meleeUnitIds = [];
+  state.turnState.meleePairs = [];
+}
+
+/** Note that units were in melee during this activation (they skip the wound-based Morale Test). */
+export function markInMelee(state: GameState, ...unitIds: string[]): void {
+  const list = state.turnState.meleeUnitIds ?? (state.turnState.meleeUnitIds = []);
+  for (const id of unitIds) if (!list.includes(id)) list.push(id);
+  if (unitIds.length === 2) {
+    const pairs = state.turnState.meleePairs ?? (state.turnState.meleePairs = []);
+    const [a, b] = unitIds;
+    if (!pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a))) pairs.push([a, b]);
+  }
+}
+
+/** Wounds a unit lost since the activation began (a unit wiped out lost everything it had). */
+function woundsTakenThisActivation(state: GameState, unit: Unit): number {
+  const before = state.turnState.woundBaseline?.[unit.id];
+  if (before === undefined) return 0;
+  return Math.max(0, before - unitWoundsLeft(unit));
+}
+
+/** The Fear(X) a unit exerts: its highest value, and only while it still has living models. */
+function fearValue(unit: Unit): number {
+  if (unit.isDestroyed || unit.status.includes('routed')) return 0;
+  if ((unit.models ?? []).length > 0 && unit.models.every((m) => m.isDestroyed)) return 0;
+  return getTraitValue(unit.specialRules, 'fear') ?? 0;
 }
 
 /**
- * Apply Round-End Morale tests to all units in broken armies using pre-rolled
- * server morale dice (`purpose: 'morale'`, plus optional `purpose: 'stoic'`).
+ * Compare the wounds each side of every melee of this activation took. A unit with Fear(X) adds X wounds to
+ * the enemy's total, once per unit however many melees it was in. The higher total loses; a tie has no loser.
  */
-export function applyRoundEndMorale(
+export function getMeleeResults(state: GameState): MeleeResultRecord[] {
+  const pairs = state.turnState.meleePairs ?? [];
+  const fearUsed = new Set<string>();
+  const results: MeleeResultRecord[] = [];
+  for (const [aId, bId] of pairs) {
+    const a = state.units.find((u) => u.id === aId);
+    const b = state.units.find((u) => u.id === bId);
+    if (!a || !b) continue;
+    const fearAgainstA = fearUsed.has(b.id) ? 0 : fearValue(b);
+    const fearAgainstB = fearUsed.has(a.id) ? 0 : fearValue(a);
+    if (fearAgainstA > 0) fearUsed.add(b.id);
+    if (fearAgainstB > 0) fearUsed.add(a.id);
+    const woundsA = woundsTakenThisActivation(state, a);
+    const woundsB = woundsTakenThisActivation(state, b);
+    const totalA = woundsA + fearAgainstA;
+    const totalB = woundsB + fearAgainstB;
+    results.push({
+      sides: [
+        { unitId: a.id, unitName: a.name, wounds: woundsA, ...(fearAgainstA > 0 ? { fearBonus: fearAgainstA } : {}) },
+        { unitId: b.id, unitName: b.name, wounds: woundsB, ...(fearAgainstB > 0 ? { fearBonus: fearAgainstB } : {}) },
+      ],
+      ...(totalA === totalB ? {} : { loserId: totalA > totalB ? a.id : b.id }),
+    });
+  }
+  return results;
+}
+
+/** Units that lost a melee and are still standing: they owe a Morale Test. */
+function meleeLosers(state: GameState): Unit[] {
+  const losers: Unit[] = [];
+  for (const result of getMeleeResults(state)) {
+    if (!result.loserId) continue;
+    const unit = state.units.find((u) => u.id === result.loserId);
+    if (unit && !unit.isDestroyed && !unit.status.includes('routed') && !losers.includes(unit)) losers.push(unit);
+  }
+  return losers;
+}
+
+/** The Tough value of a single-model unit (its model's maximum wounds, at least 1). */
+function singleModelTough(unit: Unit): number {
+  const model = (unit.models ?? [])[0];
+  return Math.max(1, model?.maxWounds ?? unit.maxWounds ?? 1);
+}
+
+/**
+ * True when the unit is at half strength or less: for several models, living models x 2 <= starting
+ * models; for a single model, remaining wounds x 2 <= Tough.
+ */
+export function isAtHalfOrLess(unit: Unit): boolean {
+  const total = (unit.models ?? []).length;
+  if (total > 1) {
+    const living = unit.models.filter((m) => !m.isDestroyed).length;
+    return living * 2 <= total;
+  }
+  return unitWoundsLeft(unit) * 2 <= singleModelTough(unit);
+}
+
+/**
+ * Units that owe a Morale Test at the end of the current activation, in state order: alive, took at least
+ * one wound since the activation began, were not in melee, and are now at half strength or less.
+ */
+export function getUnitsRequiringMorale(state: GameState): Unit[] {
+  const baseline = state.turnState.woundBaseline;
+  if (!baseline) return [];
+  const melee = state.turnState.meleeUnitIds ?? [];
+  const woundTests = state.units.filter((u) => {
+    if (u.isDestroyed || u.status.includes('routed')) return false;
+    if (melee.includes(u.id)) return false;
+    const before = baseline[u.id];
+    if (before === undefined || unitWoundsLeft(u) >= before) return false;
+    return isAtHalfOrLess(u);
+  });
+  // Units in melee skip the wound test; the loser of each melee tests instead
+  return [...woundTests, ...meleeLosers(state)];
+}
+
+/** Fearless is a unit rule here, so a Fearless unit is one where most (all) models have it. */
+function isFearlessUnit(unit: Unit): boolean {
+  return hasTrait(unit.specialRules, 'fearless');
+}
+
+/**
+ * Dice a set of Morale Tests needs: one d6 for each unit that is not already Shaken (a Shaken unit fails
+ * without rolling) and one Fearless d6 for each Fearless unit (rolled after the failure, even an automatic one).
+ */
+export function moraleDiceCounts(units: Unit[]): { morale: number; fearless: number } {
+  return {
+    morale: units.filter((u) => !u.status.includes('shaken')).length,
+    fearless: units.filter(isFearlessUnit).length,
+  };
+}
+
+/** The best Quality a friendly, living, non-Shaken Hero within 6" offers `unit` (if any). */
+export function heroQualityFor(state: GameState, unit: Unit): number | undefined {
+  const heroes = state.units.filter(
+    (c) =>
+      c.ownerId === unit.ownerId &&
+      !c.isDestroyed &&
+      !c.status.includes('shaken') &&
+      !c.status.includes('routed') &&
+      hasTrait(c.specialRules, 'hero') &&
+      unitDistance(c, unit) <= HERO_MORALE_RANGE + 0.001
+  );
+  return heroes.length > 0 ? Math.min(...heroes.map((c) => c.quality)) : undefined;
+}
+
+/** A Routed unit is removed as destroyed by morale: every model goes and it is marked `routed`. */
+function routUnit(unit: Unit): void {
+  unit.wounds = 0;
+  unit.isDestroyed = true;
+  for (const m of unit.models ?? []) {
+    m.wounds = 0;
+    m.isDestroyed = true;
+  }
+  unit.status = ['routed'];
+}
+
+/**
+ * Take the end-of-activation Morale Tests with pre-rolled server dice (`morale`, plus `fearless`), in the
+ * order `getUnitsRequiringMorale` lists the units. A failed test makes the unit Shaken.
+ */
+export function applyEndOfActivationMorale(
   state: GameState,
   moraleRolls: number[],
-  stoicRolls: number[] = []
-): Array<{ unitId: string; outcome: MoraleTestOutcome }> {
-  const unitsToTest = getUnitsRequiringRoundMorale(state);
-  const outcomes: Array<{ unitId: string; outcome: MoraleTestOutcome }> = [];
+  fearlessRolls: number[] = []
+): MoraleTestRecord[] {
+  const records: MoraleTestRecord[] = [];
   let rollIdx = 0;
-  let stoicIdx = 0;
+  let fearlessIdx = 0;
+  const meleeLoserIds = meleeLosers(state).map((u) => u.id);
 
-  for (const unit of unitsToTest) {
-    if (rollIdx >= moraleRolls.length) break;
-    const roll = moraleRolls[rollIdx++];
-    const alreadyShaken =
-      unit.status.includes('shaken') || unit.status.includes('stunned');
+  for (const unit of getUnitsRequiringMorale(state)) {
+    const lostMelee = meleeLoserIds.includes(unit.id);
+    // Decided before the test changes anything: a failure at half strength or less is a Rout
+    const wouldRout = lostMelee && isAtHalfOrLess(unit);
+    const alreadyShaken = unit.status.includes('shaken');
+    const roll = alreadyShaken ? undefined : moraleRolls[rollIdx++];
+    if (!alreadyShaken && roll === undefined) break;
+    const fearlessRoll = isFearlessUnit(unit) ? fearlessRolls[fearlessIdx++] : undefined;
+    const heroQuality = heroQualityFor(state, unit);
 
-    // Check for friendly Commander (Hero) within 12" who is not shaken/routed.
-    const commanders = state.units.filter(
-      (c) =>
-        c.ownerId === unit.ownerId &&
-        !c.isDestroyed &&
-        !c.status.includes('shaken') &&
-        !c.status.includes('stunned') &&
-        !c.status.includes('routed') &&
-        hasTrait(c.specialRules, 'commander') &&
-        unitDistance(c, unit) <= 12.01
-    );
-    const commanderQuality =
-      commanders.length > 0
-        ? Math.min(...commanders.map((c) => c.quality))
-        : undefined;
-
-    const stoicRoll =
-      hasTrait(unit.specialRules, 'stoic') && stoicIdx < stoicRolls.length
-        ? stoicRolls[stoicIdx++]
-        : undefined;
-
-    const testOutcome = resolveMoraleTest({
+    const result = resolveMoraleTest({
       quality: unit.quality,
       roll,
       specialRules: unit.specialRules,
       alreadyShaken,
-      commanderQuality,
-      stoicRoll,
+      heroQuality,
+      fearlessRoll,
     });
 
     // Consume one-shot morale-debuff if present.
@@ -272,20 +393,28 @@ export function applyRoundEndMorale(
       unit.specialRules = unit.specialRules.filter((r) => r !== 'morale-debuff');
     }
 
-    if (testOutcome.outcome === 'shaken') {
-      if (!unit.status.includes('shaken')) unit.status.push('shaken');
-      if (!unit.status.includes('stunned')) unit.status.push('stunned');
-    } else if (testOutcome.outcome === 'routed') {
-      if (!unit.status.includes('routed')) unit.status.push('routed');
-      unit.isDestroyed = true;
-      unit.wounds = 0;
-      unit.status = unit.status.filter((s) => s !== 'engaged');
+    let outcome = result.outcome;
+    if (outcome === 'shaken' && wouldRout) {
+      outcome = 'routed';
+      routUnit(unit);
+    } else if (outcome === 'shaken' && !unit.status.includes('shaken')) {
+      unit.status.push('shaken');
     }
 
-    outcomes.push({ unitId: unit.id, outcome: testOutcome });
+    // The Fearless die only matters (and is only shown) when the test itself failed.
+    const testFailed = alreadyShaken || result.fearlessSaved || !result.passed;
+    records.push({
+      unitId: unit.id,
+      unitName: unit.name,
+      ...(roll !== undefined ? { roll } : {}),
+      effectiveQuality: result.effectiveQuality,
+      ...(fearlessRoll !== undefined && testFailed ? { fearlessRoll } : {}),
+      passed: result.passed,
+      outcome,
+    });
   }
 
-  return outcomes;
+  return records;
 }
 
 // ============================================================================
@@ -303,13 +432,13 @@ export interface DeploymentZoneBounds {
  * Calculates rectangular battlefield boundaries for a player's deployment zone.
  * Zones run in from the player's table edge, up to 12" deep, but never so deep that the two zones are less
  * than 24" apart (the rules allow smaller tables as long as armies deploy at least 24" apart). On a 48"-deep
- * table that is the usual 12"; on a 30"-deep table it is 3". Vanguard units may deploy up to 12" further
+ * table that is the usual 12"; on a 30"-deep table it is 3". Scout units may deploy up to 12" further
  * ahead of their zone, but never past the centre line.
  */
 export function getDeploymentZoneBounds(
   state: GameState,
   playerId: string,
-  isVanguard: boolean = false
+  isScout: boolean = false
 ): DeploymentZoneBounds {
   const halfW = (state.board.width * state.board.gridSize) / 2;
   const halfH = (state.board.height * state.board.gridSize) / 2;
@@ -320,13 +449,13 @@ export function getDeploymentZoneBounds(
     // Host deployed at South edge (-halfH) facing +z
     const minZ = -halfH;
     const zoneMax = -halfH + depth;
-    const maxZ = isVanguard ? Math.min(0, zoneMax + 12) : zoneMax;
+    const maxZ = isScout ? Math.min(0, zoneMax + 12) : zoneMax;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   } else {
     // Guest deployed at North edge (+halfH) facing -z
     const maxZ = halfH;
     const zoneMin = halfH - depth;
-    const minZ = isVanguard ? Math.max(0, zoneMin - 12) : zoneMin;
+    const minZ = isScout ? Math.max(0, zoneMin - 12) : zoneMin;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   }
 }
@@ -335,7 +464,7 @@ export function getDeploymentZoneBounds(
  * Get undeployed units eligible for deployment for a player.
  * Enforces rule sequencing:
  * 1. Standard units deploy first.
- * 2. Vanguard units deploy after all standard units are deployed.
+ * 2. Scout units deploy after all standard units are deployed.
  * 3. Drop Reserve units cannot deploy during pre-match deployment (held for Round 2+).
  */
 export function getDeployableUnits(state: GameState, playerId: string): Unit[] {
@@ -343,11 +472,11 @@ export function getDeployableUnits(state: GameState, playerId: string): Unit[] {
     (u) => u.ownerId === playerId && !u.isDestroyed && u.isDeployed === false
   );
 
-  // Filter out drop-reserve units (held for Round 2+)
-  const eligible = undeployed.filter((u) => !hasTrait(u.specialRules, 'drop-reserve'));
+  // Filter out ambush units (held for Round 2+)
+  const eligible = undeployed.filter((u) => !hasTrait(u.specialRules, 'ambush'));
 
-  // Standard units must deploy before vanguard units
-  const standard = eligible.filter((u) => !hasTrait(u.specialRules, 'vanguard'));
+  // Standard units must deploy before scout units
+  const standard = eligible.filter((u) => !hasTrait(u.specialRules, 'scout'));
   if (standard.length > 0) {
     return standard;
   }
@@ -391,17 +520,17 @@ export function validateDeploymentPosition(
   unit: Unit,
   position: Vector3
 ): { valid: boolean; reason?: string } {
-  if (hasTrait(unit.specialRules, 'drop-reserve')) {
+  if (hasTrait(unit.specialRules, 'ambush')) {
     return { valid: false, reason: 'Drop Reserve units cannot be deployed pre-match (held for Round 2+)' };
   }
 
   const eligibleUnits = getDeployableUnits(state, unit.ownerId);
   if (!eligibleUnits.some((u) => u.id === unit.id)) {
-    return { valid: false, reason: 'Unit is not currently eligible for deployment (vanguard units deploy after standard units)' };
+    return { valid: false, reason: 'Unit is not currently eligible for deployment (scout units deploy after standard units)' };
   }
 
-  const isVanguard = hasTrait(unit.specialRules, 'vanguard');
-  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isVanguard);
+  const isScout = hasTrait(unit.specialRules, 'scout');
+  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
 
   if (
     position.x < bounds.minX - 0.01 ||
@@ -411,8 +540,8 @@ export function validateDeploymentPosition(
   ) {
     return {
       valid: false,
-      reason: isVanguard
-        ? 'Position outside friendly vanguard deployment zone (up to 12" ahead)'
+      reason: isScout
+        ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
         : 'Position outside friendly 12" deployment zone',
     };
   }

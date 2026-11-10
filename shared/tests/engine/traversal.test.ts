@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   allocateSquadCasualties,
-  calculateFallingDamage,
-  calculateLedgeKnockback,
+  calculateJumpDice,
+  countFallWounds,
+  fallDiceCount,
   detectPathFall,
   detectPathGapJump,
   distance3D,
@@ -12,7 +13,6 @@ import {
   isPathDifficult,
   pathLength3D,
   resolveDangerousTerrain,
-  resolveFallingDamage,
   resolveGapJump,
   validateMeleeVerticalReach,
 } from '../../src/engine/traversal';
@@ -101,11 +101,11 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(getEffectiveMaxMovement(normalFighter, 'charge', false)).toBe(12.0);
     });
 
-    it('exempts units with pathfinder or airborne from difficult terrain capping', () => {
-      const pathfinder: Unit = { ...dummyUnit, speed: 6, specialRules: ['pathfinder'] };
+    it('exempts units with pathfinder or flying from difficult terrain capping', () => {
+      const pathfinder: Unit = { ...dummyUnit, speed: 6, specialRules: ['strider'] };
       expect(getEffectiveMaxMovement(pathfinder, 'rush', true)).toBe(12.0);
 
-      const flyer: Unit = { ...dummyUnit, speed: 6, specialRules: ['airborne'] };
+      const flyer: Unit = { ...dummyUnit, speed: 6, specialRules: ['flying'] };
       expect(getEffectiveMaxMovement(flyer, 'charge', true)).toBe(12.0);
     });
 
@@ -147,52 +147,20 @@ describe('Phase 11A: Shared Traversal Engine', () => {
     });
   });
 
-  describe('Drops & Falling Damage', () => {
-    it('treats drops <= 3.0" as completely safe with 0 damage', () => {
-      const drop = calculateFallingDamage(3.0);
-      expect(drop.isDangerous).toBe(false);
-      expect(drop.damageHits).toBe(0);
-      expect(drop.armorPiercing).toBe(0);
+  describe('Drops & falls', () => {
+    it('a fall under 2" rolls no dice; from 2" it rolls one die per started inch', () => {
+      expect(fallDiceCount(1.9)).toBe(0);
+      expect(fallDiceCount(2.0)).toBe(2);
+      expect(fallDiceCount(3.0)).toBe(3);
+      expect(fallDiceCount(3.1)).toBe(4);
+      expect(fallDiceCount(6.0)).toBe(6);
+      expect(fallDiceCount(9.0)).toBe(9);
     });
 
-    it('inflicts 1 hit with AP(1) per full 3.0" dropped for drops > 3.0"', () => {
-      // 3.5" fall -> 1 full 3" -> 1 hit with AP 1
-      const fall1 = calculateFallingDamage(3.5);
-      expect(fall1.isDangerous).toBe(true);
-      expect(fall1.damageHits).toBe(1);
-      expect(fall1.armorPiercing).toBe(1);
-
-      // 6.2" fall -> 2 full 3" -> 1 hit with AP 2
-      const fall2 = calculateFallingDamage(6.2);
-      expect(fall2.isDangerous).toBe(true);
-      expect(fall2.damageHits).toBe(1);
-      expect(fall2.armorPiercing).toBe(2);
-
-      // 9.0" fall -> 3 full 3" -> 1 hit with AP 3
-      const fall3 = calculateFallingDamage(9.0);
-      expect(fall3.isDangerous).toBe(true);
-      expect(fall3.damageHits).toBe(1);
-      expect(fall3.armorPiercing).toBe(3);
-    });
-
-    it('resolves falling defense rolls with AP applied', () => {
-      // Unit has Defense 4. Fall has AP 1. Effective defense is 5 (4 + 1).
-      // Roll of 4 fails; roll of 5 succeeds; roll of 6 auto-saves; roll of 1 auto-fails.
-      const resFail = resolveFallingDamage(dummyUnit, 4.0, 4);
-      expect(resFail.saved).toBe(false);
-      expect(resFail.wounds).toBe(1);
-
-      const resPass = resolveFallingDamage(dummyUnit, 4.0, 5);
-      expect(resPass.saved).toBe(true);
-      expect(resPass.wounds).toBe(0);
-
-      const resSix = resolveFallingDamage(dummyUnit, 4.0, 6);
-      expect(resSix.saved).toBe(true);
-      expect(resSix.wounds).toBe(0);
-
-      const resOne = resolveFallingDamage(dummyUnit, 4.0, 1);
-      expect(resOne.saved).toBe(false);
-      expect(resOne.wounds).toBe(1);
+    it('each fall die showing 1-3 is a wound (no Defense roll)', () => {
+      expect(countFallWounds([1, 2, 3, 4, 5, 6])).toBe(3);
+      expect(countFallWounds([4, 5, 6])).toBe(0);
+      expect(countFallWounds([3, 3])).toBe(2);
     });
 
     it('detects vertical drops in paths', () => {
@@ -240,31 +208,41 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(res.passed).toBe(true);
     });
 
-    it('gaps of 1-6" use the jump test: X+1 dice (one per full 3"), all 3+', () => {
-      // Under 3": X = 0 so 1 die; from 3": 2 dice
-      expect(resolveGapJump(2.5, dummyUnit)).toMatchObject({ requiresTest: true, dice: 1, target: 3, passed: false });
-      expect(resolveGapJump(2.5, dummyUnit, [3]).passed).toBe(true);
-      expect(resolveGapJump(2.5, dummyUnit, [2]).passed).toBe(false);
-      expect(resolveGapJump(3.5, dummyUnit)).toMatchObject({ dice: 2 });
-      expect(resolveGapJump(3.5, dummyUnit, [6, 3]).passed).toBe(true);
-      expect(resolveGapJump(3.5, dummyUnit, [6, 2]).passed).toBe(false);
+    it('gaps of 1-6" use the jump test: one die per started inch, each 2+', () => {
+      expect(resolveGapJump(1.1, dummyUnit)).toMatchObject({ requiresTest: true, dice: 2, target: 2, passed: false });
+      expect(resolveGapJump(2.5, dummyUnit)).toMatchObject({ dice: 3 });
+      expect(resolveGapJump(2.5, dummyUnit, [2, 6, 3]).passed).toBe(true);
+      expect(resolveGapJump(2.5, dummyUnit, [2, 1, 3]).passed).toBe(false);
+      expect(resolveGapJump(6.0, dummyUnit)).toMatchObject({ dice: 6 });
+      expect(resolveGapJump(6.0, dummyUnit, [2, 2, 2, 2, 2, 2]).passed).toBe(true);
+      expect(resolveGapJump(6.0, dummyUnit, [2, 2, 2, 2, 2, 1]).passed).toBe(false);
+    });
+
+    it('calculateJumpDice rounds up per started inch (with a hair of tolerance) and Strider halves, rounding up', () => {
+      expect(calculateJumpDice(1.1)).toBe(2);
+      expect(calculateJumpDice(5.0)).toBe(5);
+      expect(calculateJumpDice(5.1)).toBe(6);
+      expect(calculateJumpDice(5, true)).toBe(3);
+      expect(calculateJumpDice(6, true)).toBe(3);
+      expect(calculateJumpDice(1.1, true)).toBe(1);
     });
 
     it('a gap wider than 6" cannot be jumped', () => {
       expect(resolveGapJump(7, dummyUnit, [6, 6, 6])).toMatchObject({ canJump: false, passed: false });
     });
 
-    it('airborne units auto-pass gap jumps without testing', () => {
-      const flyer: Unit = { ...dummyUnit, specialRules: ['airborne'] };
+    it('flying units auto-pass gap jumps without testing', () => {
+      const flyer: Unit = { ...dummyUnit, specialRules: ['flying'] };
       const res = resolveGapJump(4.0, flyer);
       expect(res.requiresTest).toBe(false);
       expect(res.passed).toBe(true);
     });
 
-    it('pathfinder units pass gap jumps on 2+', () => {
-      const scout: Unit = { ...dummyUnit, quality: 5, specialRules: ['pathfinder'] };
-      expect(resolveGapJump(3.5, scout, [2, 2]).passed).toBe(true);
-      expect(resolveGapJump(3.5, scout, [2, 1]).passed).toBe(false);
+    it('Strider rolls half the dice (rounding up) on a gap jump', () => {
+      const strider: Unit = { ...dummyUnit, specialRules: ['strider'] };
+      expect(resolveGapJump(3.5, strider)).toMatchObject({ dice: 2, target: 2 });
+      expect(resolveGapJump(3.5, strider, [2, 2]).passed).toBe(true);
+      expect(resolveGapJump(3.5, strider, [2, 1]).passed).toBe(false);
     });
 
     it('detects gap jumps along a path between distinct elevated platforms', () => {
@@ -300,8 +278,8 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(res.isGapJump).toBe(true);
       // Platform centres are 4" apart: a straight tape from take-off to landing reads 4" (the open gap is only 2")
       expect(res.gapDistance).toBeCloseTo(4, 1);
-      expect(res.dice).toBe(2);
-      expect(res.target).toBe(3);
+      expect(res.dice).toBe(4);
+      expect(res.target).toBe(2);
 
       const samePlatPath = [
         { x: 0, y: 2.5, z: 0 },
@@ -341,8 +319,8 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(outcome.failedCount).toBe(2);
     });
 
-    it('airborne units ignore dangerous terrain', () => {
-      const flyer: Unit = { ...dummyUnit, specialRules: ['airborne'] };
+    it('flying units ignore dangerous terrain', () => {
+      const flyer: Unit = { ...dummyUnit, specialRules: ['flying'] };
       const outcome = resolveDangerousTerrain(flyer, [1, 1, 1]);
       expect(outcome.woundsInflicted).toBe(0);
     });
@@ -370,27 +348,6 @@ describe('Phase 11A: Shared Traversal Engine', () => {
     });
   });
 
-  describe('High Ledge Knockback', () => {
-    it('causes models pushed over ledges > 3.0" tall to plummet to the ground', () => {
-      const elevatedPos = { x: 10, y: 3.5, z: 10 };
-      const push = { x: 1.0, z: 0 };
-      const knockback = calculateLedgeKnockback(elevatedPos, push, 0);
-
-      expect(knockback.didPlummet).toBe(true);
-      expect(knockback.fallHeight).toBe(3.5);
-      expect(knockback.destination).toEqual({ x: 11, y: 0, z: 10 });
-    });
-
-    it('keeps models on level ground when pushed on low surfaces <= 3.0"', () => {
-      const groundPos = { x: 5, y: 1.0, z: 5 };
-      const push = { x: 0, z: 1.0 };
-      const knockback = calculateLedgeKnockback(groundPos, push, 0);
-
-      expect(knockback.didPlummet).toBe(false);
-      expect(knockback.destination).toEqual({ x: 5, y: 1.0, z: 6 });
-    });
-  });
-
   describe('Action Integration (Move, Rush, Charge)', () => {
     it('terminates activation immediately when dropping > 3.0" during move', () => {
       const state = makeState();
@@ -415,7 +372,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
         },
       ];
 
-      const moveAction = createAction('host-1', 'move-unit', {
+      const moveAction = createAction('host-1', 'advance', {
         unitId: unit.id,
         path: [
           { x: 0, y: 4.0, z: 0 },

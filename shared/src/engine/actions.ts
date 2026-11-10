@@ -5,6 +5,8 @@ import {
   ActionLogEntry,
   DiceResolution,
   GameAction,
+  MeleeResultRecord,
+  MoraleTestRecord,
   GameState,
   TraversalEvent,
   Model,
@@ -14,27 +16,35 @@ import {
   Weapon,
   WeaponAllocation,
   WeaponAttackOutcome,
+  BlastSplashOutcome,
 } from '../gameTypes';
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
   advanceActivation,
   advanceDeployment,
-  applyRoundEndMorale,
+  applyEndOfActivationMorale,
   endRound,
-  getUnitsRequiringRoundMorale,
+  getUnitsRequiringMorale,
   isRoundComplete,
+  markInMelee,
+  getMeleeResults,
+  moraleDiceCounts,
+  recordWoundBaseline,
   validateDeploymentPosition,
 } from './activation';
 import {
+  BlastShare,
   CombatOutcome,
+  blastPurpose,
+  countShotHits,
   extractAllocationRolls,
   extractAttackRolls,
+  extractBlastRolls,
   extractRetaliationRolls,
   getAttackDiceSpecs,
   resolveAttack,
-  resolveTraumaRoll,
-  TraumaOutcome,
 } from './combat';
+import { autoSplitForParticipants, getBlastParticipants } from './blast';
 import {
   computeSquadCentroid,
   pushBackChargerModels,
@@ -53,20 +63,20 @@ import {
   coherencyShortfall,
 } from './spatial';
 import {
-  calculateFallingDamage,
   detectPathFall,
+  classifySegment,
+  JUMP_KINDS,
+  JUMP_TARGET,
+  fallDiceCount,
+  countFallWounds,
   getEffectiveMaxMovement,
   isPathDangerous,
   modelsInDangerousTerrain,
   isPathDifficult,
   pathMovementCost,
   resolveDangerousTerrain,
-  resolveFallingDamage,
-  resolveGapJump,
-  resolveDropJump,
   calculateJumpDice,
   FREE_DROP_MAX,
-  FALL_DAMAGE_MIN,
   findFallLanding,
   JUMP_DROP_MAX,
   detectPathGapJump,
@@ -77,6 +87,16 @@ import {
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
 import type { ChargeState } from '../gameTypes';
+import {
+  PUSH_TARGET,
+  PushData,
+  PushQueueEntry,
+  autoPush,
+  createPushReaction,
+  planPush,
+  pushAttackerFor,
+  regroupAfterPush,
+} from './push';
 import { getTraitValue, hasTrait } from '../rules/traits';
 import {
   unitDistance,
@@ -92,7 +112,7 @@ import {
   modelGap,
   livingModelPositions,
 } from './unitGeometry';
-import { firingModels, targetCoverByMajority } from './squadTargeting';
+import { firingModels, ignoresSight, targetCoverByMajority } from './squadTargeting';
 import {
   PILE_IN_AUTO_CHOICE,
   PILE_IN_DISTANCE,
@@ -210,12 +230,12 @@ export function getActiveUnit(state: GameState): Unit | undefined {
  */
 /**
  * A squad that starts its activation out of coherency must spend it getting back
- * together: it may not Hold or end the activation without having moved. Stunned
- * units are exempt (their Hold only clears the stun and they cannot move).
+ * together: it may not Hold or end the activation without having moved. Shaken
+ * units are exempt (they cannot move; their idle activation only clears Shaken).
  * Returns a rejection, or null when the unit is free to hold/end.
  */
 function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | null {
-  if (unit.status.includes('stunned')) return null;
+  if (unit.status.includes('shaken')) return null;
   const positions = (unit.models ?? [])
     .filter((m) => !m.isDestroyed)
     .map((m) => m.position ?? unit.position);
@@ -508,26 +528,23 @@ function applyActivationHazard(state: GameState, unit: Unit, action: GameAction,
     }`,
   });
   recordTraversal(action, unit, events, dice);
-  if (wounds > 0) applyWounds(unit, wounds, undefined, 0, 1, squad ? victims : undefined);
+  if (wounds > 0) applyWounds(unit, wounds, 1, squad ? victims : undefined);
 }
 
-/** Jump, hazard and fall dice a squad charge (leg) needs: jumpers roll tagged `m<index>_` dice in model order. */
+/** Jump, fall and hazard dice a squad charge (leg) needs: one `jump` roll for the squad, hazards per model. */
 function squadChargeTraversalSpecs(state: GameState, unit: Unit, payload: SquadChargePayload): DiceSpec[] {
   const paths = squadChargePaths(unit, payload);
-  const aliveCount = livingModels(unit).length;
   const jumpers = paths.map((_, i) => (payload.modelTraversals?.[i] ? i : -1)).filter((i) => i >= 0);
-  const specs: DiceSpec[] = [];
+  const specs: DiceSpec[] = [...legJumpSpecs(state, unit, chargeLegEntries(unit, payload))];
   // Models that walk share one hazard roll for the squad; jumpers carry their own
   if (paths.some((p, i) => !jumpers.includes(i) && isPathDangerous(state, p, unit)) && untestedLivingCount(unit) > 0) {
     specs.push({ count: untestedLivingCount(unit), sides: 6, purpose: 'hazard' });
   }
-  const needsFallDice = jumpers.length >= aliveCount;
   for (const i of jumpers) {
     specs.push(
       ...pathTraversalSpecs(state, unit, paths[i], {
         prefix: `m${i}_`,
         singleModel: true,
-        includeFallDice: needsFallDice,
         skipHazard: modelWasHazardTested(unit, i),
       })
     );
@@ -580,7 +597,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       action.type !== 'respond-reaction' &&
       action.type !== 'consolidate-move' &&
       action.type !== 'pile-in-move' &&
-      action.type !== 'pick-casualties'
+      action.type !== 'pick-casualties' &&
+      action.type !== 'push-move'
     ) {
       return { valid: false, reason: 'A reaction is pending — waiting for opponent' };
     }
@@ -683,7 +701,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return { valid: true };
     }
 
-    case 'move-unit': {
+    case 'advance': {
       const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path: Vector3[];
@@ -694,8 +712,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       };
       const unit = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in unit) return unit;
-      if (hasTrait(unit.result.specialRules, 'stationary')) {
-        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      if (hasTrait(unit.result.specialRules, 'immobile')) {
+        return { valid: false, reason: 'Immobile units cannot move or charge' };
       }
       if (unit.result.hasAttacked && !unit.result.isRushing) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
@@ -928,6 +946,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
 
       const weaponIds = new Set<string>();
       const targetIds = new Set<string>();
+      const targetByWeaponName = new Map<string, string>();
 
       for (const alloc of allocations) {
         if (weaponIds.has(alloc.weaponId)) {
@@ -940,6 +959,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (!weapon || weapon.profile.type !== 'ranged') {
           return { valid: false, reason: `Unit has no such ranged weapon (${alloc.weaponId})` };
         }
+        // Weapons of the same name are one group: they cannot be split over different targets
+        const groupTarget = targetByWeaponName.get(weapon.name);
+        if (groupTarget !== undefined && groupTarget !== alloc.targetId) {
+          return { valid: false, reason: `All ${weapon.name} weapons must shoot the same target` };
+        }
+        targetByWeaponName.set(weapon.name, alloc.targetId);
 
         const target = requireTarget(state, action.actorId, alloc.targetId);
         if ('reason' in target) return target;
@@ -969,8 +994,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (state.turnState.charge) {
         return { valid: false, reason: 'A charge is already declared' };
       }
-      if (hasTrait(attacker.result.specialRules, 'stationary')) {
-        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      if (hasTrait(attacker.result.specialRules, 'immobile')) {
+        return { valid: false, reason: 'Immobile units cannot move or charge' };
       }
       if (attacker.result.hasMoved || attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
@@ -1071,8 +1096,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (legs && legs.targetId !== targetId) {
         return { valid: false, reason: 'The declared charge is locked to its target' };
       }
-      if (hasTrait(attacker.result.specialRules, 'stationary')) {
-        return { valid: false, reason: 'Stationary units cannot move or charge' };
+      if (hasTrait(attacker.result.specialRules, 'immobile')) {
+        return { valid: false, reason: 'Immobile units cannot move or charge' };
       }
       if ((attacker.result.hasMoved && !legs) || attacker.result.hasAttacked) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
@@ -1167,8 +1192,8 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const actor = requireActiveUnit(state, action.actorId, unitId);
       if ('reason' in actor) return actor;
       const unit = actor.result;
-      if (hasTrait(unit.specialRules, 'stationary')) {
-        return { valid: false, reason: 'Stationary units cannot move or rush' };
+      if (hasTrait(unit.specialRules, 'immobile')) {
+        return { valid: false, reason: 'Immobile units cannot move or rush' };
       }
       if (unit.hasMoved && !unit.isRushing) {
         return { valid: false, reason: 'Unit has already moved or attacked this activation' };
@@ -1427,6 +1452,17 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return result.valid ? { valid: true } : { valid: false, reason: result.reason };
     }
 
+    case 'push-move': {
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'push') return { valid: false, reason: 'No pending push' };
+      if (pending.promptingPlayerId !== action.actorId) return { valid: false, reason: 'Not your push' };
+      const resolved = pushResolution(state, action);
+      if (!resolved) return { valid: false, reason: 'No pending push' };
+      if (!resolved.model) return { valid: false, reason: 'Pick a living model of the Shaken unit' };
+      if (!resolved.plan.ok) return { valid: false, reason: resolved.plan.reason };
+      return { valid: true };
+    }
+
     case 'pile-in-move': {
       const pending = state.turnState.pendingReaction;
       if (!pending || pending.type !== 'pile-in') {
@@ -1507,54 +1543,67 @@ export function validateAction(state: GameState, action: GameAction): Validation
  * that need no dice. Call after validateAction passes.
  */
 export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
-  if (action.type === 'end-round') {
-    const moraleUnits = getUnitsRequiringRoundMorale(state);
-    if (moraleUnits.length === 0) return null;
-    const specs: DiceSpec[] = [{ count: moraleUnits.length, sides: 6, purpose: 'morale' }];
-    const stoicCount = moraleUnits.filter((u) => hasTrait(u.specialRules, 'stoic')).length;
-    if (stoicCount > 0) {
-      specs.push({ count: stoicCount, sides: 6, purpose: 'stoic' });
-    }
-    return specs;
+  const specs = getBaseDiceSpecs(state, action);
+  // A move that can end in a fall can wound the mover and so end its activation with a Morale Test
+  if (
+    specs &&
+    (action.type === 'advance' || action.type === 'rush' || action.type === 'charge-leg' || action.type === 'charge') &&
+    specs.some((sp) => /^(jump|fall)$/.test(sp.purpose ?? ''))
+  ) {
+    const payload = action.payload as { unitId?: string; attackerId?: string };
+    const mover = getUnit(state, payload.unitId ?? payload.attackerId ?? '');
+    if (mover) return [...specs, ...selfMoraleSpecs(mover)];
+  }
+  return specs;
+}
+
+function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
+  if (action.type === 'end-activation') {
+    // Every unit that took a wound this activation and is now at half strength or less tests Morale
+    const counts = moraleDiceCounts(getUnitsRequiringMorale(state));
+    const specs: DiceSpec[] = [];
+    if (counts.morale > 0) specs.push({ count: counts.morale, sides: 6, purpose: 'morale' });
+    if (counts.fearless > 0) specs.push({ count: counts.fearless, sides: 6, purpose: 'fearless' });
+    // One push die per tested unit that an enemy attacked and that is not Shaken yet (used only if it becomes Shaken)
+    const active = getActiveUnit(state);
+    const pushable = getUnitsRequiringMorale(state).filter(
+      (u) => !u.status.includes('shaken') && pushAttackerFor(state, u, active)
+    ).length;
+    if (pushable > 0) specs.push({ count: pushable, sides: 6, purpose: 'push' });
+    return specs.length > 0 ? specs : null;
   }
 
   if (action.type === 'activate-unit' || (action.type === 'hold' && !state.turnState.activeUnitId)) {
     const unit = getUnit(state, (action.payload as PayloadWithUnitId).unitId);
     const specs = unit ? activationHazardSpecs(state, unit) : [];
+    // A hold ends the activation at once, so wounds from the hazard test can owe a Morale Test
+    if (unit && action.type === 'hold' && specs.length > 0) specs.push(...selfMoraleSpecs(unit));
     return specs.length > 0 ? specs : null;
   }
 
-  if (action.type === 'move-unit' || action.type === 'rush') {
+  if (action.type === 'advance' || action.type === 'rush') {
     const payload = action.payload as {
       unitId?: string;
       path?: Vector3[];
       modelPaths?: Vector3[][];
+      modelPositions?: Vector3[];
       modelTraversals?: (DeclaredTraversal | null)[];
     };
     const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
     const path = payload.path;
     const specs: DiceSpec[] = [];
-    const hasModelJumps = Boolean(payload.modelTraversals?.some((t) => t) && payload.modelPaths);
-    if (unit && path && path.length > 0) {
-      // With per-model jumps the summary path is not a jump itself: keep only its shared hazard roll
-      const shared = pathTraversalSpecs(state, unit, path);
-      specs.push(...(hasModelJumps ? shared.filter((sp) => sp.purpose === 'hazard') : shared));
-    }
-    // Squad models that declared a jump roll their own dice, tagged `m<index>_<purpose>` and listed in
-    // model order so every model's rolls are consumed in order.
+    if (unit) specs.push(...legJumpSpecs(state, unit, moveLegEntries(unit, payload)));
+    if (unit && path && path.length > 0) specs.push(...pathTraversalSpecs(state, unit, path));
+    // Squad models that declared a jump keep their own hazard dice, tagged `m<index>_hazard` in model order
     if (unit && payload.modelTraversals && payload.modelPaths) {
       const jumpers = payload.modelTraversals
         .map((t, i) => (t ? i : -1))
         .filter((i) => i >= 0 && payload.modelPaths![i]?.length >= 2);
-      const aliveCount = Math.max(1, unit.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      // A jumper only takes a normal falling hit if every other model could already have been lost.
-      const needsFallDice = jumpers.length >= aliveCount;
       for (const i of jumpers) {
         specs.push(
           ...pathTraversalSpecs(state, unit, payload.modelPaths[i], {
             prefix: `m${i}_`,
             singleModel: true,
-            includeFallDice: needsFallDice,
             skipHazard: modelWasHazardTested(unit, i),
           })
         );
@@ -1571,11 +1620,18 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       return squadSpecs.length > 0 ? squadSpecs : null;
     }
     if (!unit || !payload.path || payload.path.length === 0) return null;
-    const specs = pathTraversalSpecs(state, unit, payload.path);
+    const specs = [...legJumpSpecs(state, unit, chargeLegEntries(unit, payload)), ...pathTraversalSpecs(state, unit, payload.path)];
     return specs.length > 0 ? specs : null;
   }
 
   if (action.type === 'pile-in-move') return pileInStrikeSpecs(state, action);
+
+  if (action.type === 'push-move' || (action.type === 'respond-reaction' && state.turnState.pendingReaction?.type === 'push')) {
+    const resolved = pushResolution(state, action);
+    return resolved?.model && resolved.plan.ok && resolved.plan.fallDice > 0
+      ? [{ count: resolved.plan.fallDice, sides: 6, purpose: 'fall' }]
+      : null;
+  }
 
   if (action.type === 'respond-reaction') {
     const { choiceId } = action.payload as { reactionId: string; choiceId: string };
@@ -1605,8 +1661,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       isCharging: false,
       isFatigued: isTargetFatigued,
       distance: 1,
-      includeTrauma: true,
-    });
+          });
   }
 
   if (action.type === 'shoot') {
@@ -1639,8 +1694,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         isMelee: false,
         isCharging: false,
         distance,
-        includeTrauma: true,
-      });
+              });
 
       if (isSingle) {
         allSpecs.push(...specs);
@@ -1651,6 +1705,33 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
             purpose: `alloc_${index}_${s.purpose}`,
           }))
         );
+      }
+
+      // Blast spills onto other enemy units near the target: each gets its own defense batch (sized for the
+      // most hits its models could take; the split itself is only known once the to-hit dice are rolled).
+      if (hasTrait(weapon.profile.specialRules, 'blast')) {
+        for (const spill of getBlastParticipants(state, attacker, target).slice(1)) {
+          const spillSpecs = getAttackDiceSpecs(totalAttacks, {
+            attackerRules: attacker.specialRules,
+            weaponRules: weapon.profile.specialRules,
+            defenderRules: spill.unit.specialRules ?? [],
+            defenderModelCount: spill.cap,
+            isMelee: false,
+            isCharging: false,
+            distance,
+          });
+          for (const s of spillSpecs) {
+            if (s.purpose === 'to-hit') continue;
+            allSpecs.push({
+              ...s,
+              purpose: blastPurpose(
+                spill.unit.id,
+                s.purpose === 'regeneration' ? 'regeneration' : 'defense',
+                isSingle ? undefined : index
+              ),
+            });
+          }
+        }
       }
     });
 
@@ -1700,7 +1781,10 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
           const moveSpecs = isSquadChargePayload(attacker, chargePayload)
             ? squadChargeTraversalSpecs(state, attacker, chargePayload)
             : chargePayload.path && chargePayload.path.length > 0
-              ? pathTraversalSpecs(state, attacker, chargePayload.path)
+              ? [
+                  ...legJumpSpecs(state, attacker, chargeLegEntries(attacker, chargePayload)),
+                  ...pathTraversalSpecs(state, attacker, chargePayload.path),
+                ]
               : [];
           return moveSpecs.length > 0 ? moveSpecs : null;
         }
@@ -1720,8 +1804,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     isMelee,
     isCharging: action.type === 'charge' || (isMelee && attacker.hasMoved),
     distance,
-    includeTrauma: true,
-  });
+      });
 
   if (action.type === 'charge') {
     const chargePayload = action.payload as { path?: Vector3[] } & SquadChargePayload;
@@ -1732,7 +1815,10 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     if (chargePayload.path && chargePayload.path.length > 0) {
       // Jump, hazard and fall dice come from the validated path, same as a move (the declared traversal
       // is checked to match it), so a charge and a charge leg roll identically.
-      const traversalSpecs = pathTraversalSpecs(state, attacker, chargePayload.path);
+      const traversalSpecs = [
+        ...legJumpSpecs(state, attacker, chargeLegEntries(attacker, chargePayload)),
+        ...pathTraversalSpecs(state, attacker, chargePayload.path),
+      ];
       if (traversalSpecs.length > 0) {
         return [...traversalSpecs, ...attackSpecs];
       }
@@ -1744,22 +1830,180 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
 
 
 /**
- * Dice a path's jumps, hazards and falls need. `prefix` tags the purposes (squad models), `singleModel`
- * rolls one hazard die instead of one per living model, and `includeFallDice` can drop the falling dice
- * for a squad model that is simply lost when it falls.
+ * Morale dice a unit may need if what it does to itself (a fall, a hazard test) wounds it and ends its
+ * activation: one test die, and a Fearless die for Fearless units. Unused dice are simply not consumed.
+ */
+function selfMoraleSpecs(unit: Unit): DiceSpec[] {
+  const specs: DiceSpec[] = [{ count: 1, sides: 6, purpose: 'morale' }];
+  if (hasTrait(unit.specialRules, 'fearless')) specs.push({ count: 1, sides: 6, purpose: 'fearless' });
+  return specs;
+}
+
+/** One model's route in a move or charge leg (a single-model or unit-wide move is one entry). */
+interface LegEntry {
+  index: number;
+  path: Vector3[];
+  /** The model walking this route (undefined when the whole unit moves along one path). */
+  model?: Model;
+  declaration?: DeclaredTraversal | null;
+}
+
+/** A jump or fall a model's route contains. */
+interface LegJump {
+  entry: LegEntry;
+  kind: 'gap' | 'drop' | 'fall';
+  /** Jump length the dice are sized on (the height for a plain fall). */
+  distance: number;
+  takeoff: Vector3;
+}
+
+/** What a leg's jumps need and how a failure plays out; the same on the host's dice request and when applying. */
+interface LegJumpPlan {
+  jumps: LegJump[];
+  /** Dice for the one jump roll (0 when nobody has to roll: no jump, or a fall that is certain). */
+  testDice: number;
+  /** The model that falls if the roll fails (or at once for a fall too far to jump). */
+  faller: LegJump | null;
+  fallPosition: Vector3 | null;
+  fallHeight: number;
+  fallDice: number;
+}
+
+/** Routes of a move (advance / rush), the way `case 'advance'` applies them. */
+function moveLegEntries(
+  unit: Unit,
+  payload: {
+    path?: Vector3[];
+    modelPositions?: Vector3[];
+    modelPaths?: Vector3[][];
+    modelTraversals?: (DeclaredTraversal | null)[];
+  }
+): LegEntry[] {
+  const living = livingModels(unit);
+  if (payload.modelPositions && payload.modelPositions.length > 0 && payload.modelPaths && payload.modelPaths.length > 0) {
+    return payload.modelPaths.map((path, index) => ({
+      index,
+      path,
+      model: living[index],
+      declaration: payload.modelTraversals?.[index] ?? null,
+    }));
+  }
+  if (payload.path && payload.path.length > 0) {
+    return [{ index: 0, path: payload.path, model: living.length === 1 ? living[0] : undefined, declaration: null }];
+  }
+  return [];
+}
+
+/** Routes of a charge or charge leg. */
+function chargeLegEntries(unit: Unit, payload: { path?: Vector3[] } & SquadChargePayload): LegEntry[] {
+  const living = livingModels(unit);
+  if (isSquadChargePayload(unit, payload)) {
+    return squadChargePaths(unit, payload).map((path, index) => ({
+      index,
+      path,
+      model: living[index],
+      declaration: payload.modelTraversals?.[index] ?? null,
+    }));
+  }
+  return payload.path && payload.path.length > 0
+    ? [{ index: 0, path: payload.path, model: living.length === 1 ? living[0] : undefined, declaration: null }]
+    : [];
+}
+
+/** Where a route's jump starts: the declared take-off, else the start of its first jump or fall segment. */
+function routeTakeoff(state: GameState, unit: Unit, entry: LegEntry): Vector3 {
+  if (entry.declaration) return entry.declaration.takeoff;
+  const { path } = entry;
+  for (let i = 1; i < path.length; i++) {
+    const kind = classifySegment(state, path[i - 1], path[i], unit).kind;
+    if ((JUMP_KINDS as readonly string[]).includes(kind)) return path[i - 1];
+  }
+  return path[0];
+}
+
+/** The jumps and falls on each route (Flying units have none). */
+function legJumps(state: GameState, unit: Unit, entries: LegEntry[]): LegJump[] {
+  if (hasTrait(unit.specialRules, 'flying')) return [];
+  const jumps: LegJump[] = [];
+  for (const entry of entries) {
+    if (entry.path.length < 2) continue;
+    const gap = detectPathGapJump(state, entry.path, unit);
+    if (gap.isGapJump) {
+      jumps.push({ entry, kind: 'gap', distance: gap.gapDistance, takeoff: routeTakeoff(state, unit, entry) });
+      continue;
+    }
+    const fall = detectPathFall(entry.path, state);
+    if (fall.maxDrop > FREE_DROP_MAX) {
+      const tooHigh = fall.maxDrop > JUMP_DROP_MAX;
+      jumps.push({
+        entry,
+        kind: tooHigh ? 'fall' : 'drop',
+        distance: tooHigh ? fall.maxDrop : fall.maxDropDistance,
+        takeoff: routeTakeoff(state, unit, entry),
+      });
+    }
+  }
+  return jumps;
+}
+
+/** The longest jump (ties: lowest model index). */
+function longestJump(jumps: LegJump[]): LegJump | null {
+  let best: LegJump | null = null;
+  for (const j of jumps) {
+    if (!best || j.distance > best.distance + 1e-9 || (Math.abs(j.distance - best.distance) <= 1e-9 && j.entry.index < best.entry.index)) {
+      best = j;
+    }
+  }
+  return best;
+}
+
+/**
+ * Plan a leg's jumps: one roll for the whole unit sized by the longest jump; if it fails, that model falls
+ * from its take-off. A fall too far to jump is certain: the model falls with no jump roll.
+ */
+function planLegJumps(state: GameState, unit: Unit, entries: LegEntry[]): LegJumpPlan {
+  const jumps = legJumps(state, unit, entries);
+  const sure = jumps.filter((j) => j.kind === 'fall');
+  const tests = jumps.filter((j) => j.kind !== 'fall');
+  const faller = longestJump(sure.length > 0 ? sure : tests);
+  const plan: LegJumpPlan = { jumps, testDice: 0, faller, fallPosition: null, fallHeight: 0, fallDice: 0 };
+  if (!faller) return plan;
+  if (sure.length === 0) {
+    plan.testDice = calculateJumpDice(faller.distance, hasTrait(unit.specialRules, 'strider'));
+  }
+  if (faller.kind === 'fall') {
+    plan.fallHeight = faller.distance;
+    plan.fallPosition = faller.entry.path[faller.entry.path.length - 1];
+  } else {
+    const landing = findFallLanding(state, unit, { x: faller.takeoff.x, z: faller.takeoff.z }, faller.takeoff.y ?? 0);
+    plan.fallHeight = landing.height;
+    plan.fallPosition = landing.position;
+  }
+  plan.fallDice = fallDiceCount(plan.fallHeight);
+  return plan;
+}
+
+/** Dice a leg's jumps need: the one `jump` roll, and the fall dice a failure (or a certain fall) would roll. */
+function legJumpSpecs(state: GameState, unit: Unit, entries: LegEntry[]): DiceSpec[] {
+  const plan = planLegJumps(state, unit, entries);
+  const specs: DiceSpec[] = [];
+  if (plan.testDice > 0) specs.push({ count: plan.testDice, sides: 6, purpose: 'jump' });
+  if (plan.faller && plan.fallDice > 0) specs.push({ count: plan.fallDice, sides: 6, purpose: 'fall' });
+  return specs;
+}
+
+/**
+ * Dice a path's dangerous terrain needs. `prefix` tags the purposes (squad models) and `singleModel`
+ * rolls one hazard die instead of one per living model. (Jumps and falls: see `legJumpSpecs`.)
  */
 function pathTraversalSpecs(
   state: GameState,
   unit: Unit,
   path: Vector3[],
-  opts: { prefix?: string; singleModel?: boolean; includeFallDice?: boolean; skipHazard?: boolean } = {}
+  opts: { prefix?: string; singleModel?: boolean; skipHazard?: boolean } = {}
 ): DiceSpec[] {
   const prefix = opts.prefix ?? '';
   const specs: DiceSpec[] = [];
-  const gap = detectPathGapJump(state, path, unit);
-  if (gap.isGapJump) {
-    specs.push({ count: gap.dice, sides: 6, purpose: `${prefix}gap_jump` });
-  }
   if (isPathDangerous(state, path, unit)) {
     // Models that already took the activation test (standing in dangerous terrain) do not roll again
     const hazardCount = opts.singleModel
@@ -1768,18 +2012,6 @@ function pathTraversalSpecs(
         : 1
       : untestedLivingCount(unit);
     if (hazardCount > 0) specs.push({ count: hazardCount, sides: 6, purpose: `${prefix}hazard` });
-  }
-  const fall = detectPathFall(path, state);
-  // a hop that is already a gap jump rolls once, on its straight-line length
-  const dropNeedsDice = !gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne');
-  if (dropNeedsDice && fall.maxDrop <= JUMP_DROP_MAX) {
-    specs.push({ count: calculateJumpDice(fall.maxDropDistance), sides: 6, purpose: `${prefix}drop_jump` });
-  }
-  // A failed gap jump from height falls into the gap, so fall dice are needed as a fallback too
-  const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
-  if ((dropNeedsDice || gapMayFall) && opts.includeFallDice !== false) {
-    specs.push({ count: 1, sides: 6, purpose: `${prefix}falling_defense` });
-    specs.push({ count: 1, sides: 6, purpose: `${prefix}trauma` });
   }
   return specs;
 }
@@ -1792,11 +2024,7 @@ function diceForModel(dice: DiceResult[] | undefined, index: number): DiceResult
   return [...own, ...dice.filter((d) => !/^m\d+_/.test((d.purpose ?? '')))];
 }
 
-/**
- * Resolves each squad model's own path in order. Walking models always finish their paths. Declared jumps
- * resolve in model order; once one ends the activation (a failed jump or a fall), every later jumper stays at
- * its take-off spot, its jump is not attempted and its pre-rolled dice are ignored.
- */
+/** Resolves a squad leg: its jumps (one roll), then each model's dangerous-terrain test. */
 function applyModelPathTraversals(
   state: GameState,
   unit: Unit,
@@ -1806,47 +2034,27 @@ function applyModelPathTraversals(
   dice?: DiceResult[]
 ): void {
   const declared = (action.payload as { modelTraversals?: (DeclaredTraversal | null)[] }).modelTraversals;
-  let activationEnded = false;
-  let stoppedAny = false;
-  for (let i = 0; i < modelPaths.length; i++) {
-    const declaration = declared?.[i] ?? null;
-    if (declaration && activationEnded && models[i]) {
-      stopJumperAtTakeoff(state, unit, models[i], modelPaths[i], declaration, i, action, dice);
-      stoppedAny = true;
-      continue;
-    }
-    const before = traversalLog.get(action)?.events.length ?? 0;
-    const result = applyTraversalHazardsAndFalls(state, unit, modelPaths[i], action, diceForModel(dice, i), models[i]);
-    if (declaration && result.terminated) activationEnded = true;
-    const entry = traversalLog.get(action);
-    if (entry && dice) {
-      entry.results = dice; // every roll stays on the log entry, tagged by model
-      if (modelPaths.length > 1) {
-        for (let e = before; e < entry.events.length; e++) {
-          entry.events[e] = { ...entry.events[e], text: `Model ${i + 1}: ${entry.events[e].text}` };
-        }
-      }
-    }
-  }
-  if (stoppedAny) {
-    const living = (unit.models ?? []).filter((m) => !m.isDestroyed);
-    if (living.length > 0) unit.position = computeSquadCentroid(living.map((m) => m.position ?? unit.position));
-  }
+  const entries: LegEntry[] = modelPaths.map((path, index) => ({
+    index,
+    path,
+    model: models[index],
+    declaration: declared?.[index] ?? null,
+  }));
+  applyLegTraversals(state, unit, entries, action, dice);
 }
 
-/** A later jumper after a failed jump: placed at its take-off spot, its jump not attempted, its tally cut back. */
+/** A declared jumper that did not fall: placed at its take-off spot, its jump not attempted, its tally cut back. */
 function stopJumperAtTakeoff(
   state: GameState,
   unit: Unit,
   model: Model,
   path: Vector3[],
-  declaration: DeclaredTraversal,
-  index: number,
-  action: GameAction,
-  dice?: DiceResult[]
+  takeoff: Vector3,
+  events: TraversalEvent[],
+  label: string
 ): void {
-  model.position = { ...declaration.takeoff };
-  const takeoffIdx = path.findIndex((p) => distance3D(p, declaration.takeoff) <= 0.1);
+  model.position = { ...takeoff };
+  const takeoffIdx = path.findIndex((p) => distance3D(p, takeoff) <= 0.1);
   if (takeoffIdx >= 1 && unit.modelMovementSpent && unit.modelMovementSpent[model.id] !== undefined) {
     const walked = pathMovementCost(state, path.slice(0, takeoffIdx + 1), unit);
     const full = pathMovementCost(state, path, unit);
@@ -1854,14 +2062,7 @@ function stopJumperAtTakeoff(
     spent[model.id] = Math.max(0, Math.round((spent[model.id] - full + walked) * 100) / 100);
     unit.modelMovementSpent = spent;
   }
-  recordTraversal(
-    action,
-    unit,
-    [{ type: 'jump-skipped', wounds: 0, text: `Model ${index + 1}: jump not attempted (activation ended)` }],
-    dice
-  );
-  const entry = traversalLog.get(action);
-  if (entry && dice) entry.results = dice;
+  events.push({ type: 'jump-skipped', wounds: 0, text: `${label}jump not attempted (activation ended)` });
 }
 
 /** Traversal hazards resolved per action, so the log entry can show the dice story (jumps, falls, hazards). */
@@ -1871,10 +2072,137 @@ function recordTraversal(action: GameAction, unit: Unit, events: TraversalEvent[
   if (events.length === 0) return;
   const entry = traversalLog.get(action) ?? { unitId: unit.id, events: [], results: dice ?? [] };
   entry.events.push(...events);
+  if (dice) entry.results = dice; // every roll stays on the log entry
   traversalLog.set(action, entry);
 }
 
 const rollsText = (rolls: number[]) => rolls.join(', ');
+
+/** Dangerous terrain along one route (rolled with server dice; every 1 is a wound). */
+function applyPathHazard(
+  unit: Unit,
+  path: Vector3[],
+  state: GameState,
+  payload: any,
+  events: TraversalEvent[],
+  dice: DiceResult[] | undefined,
+  label: string
+): void {
+  if (!isPathDangerous(state, path, unit)) return;
+  const hazardDice = dice?.find((d) => d.purpose === 'hazard')?.rolls ?? payload.hazardDice;
+  if (!hazardDice || hazardDice.length === 0) return;
+  const hazardRes = resolveDangerousTerrain(unit, hazardDice);
+  events.push({
+    type: 'hazard',
+    rolls: hazardDice,
+    wounds: hazardRes.woundsInflicted,
+    text: `${label}Dangerous terrain: rolled ${rollsText(hazardDice)} → ${
+      hazardRes.woundsInflicted > 0 ? `${hazardRes.woundsInflicted} wound${hazardRes.woundsInflicted > 1 ? 's' : ''} (each 1)` : 'no wounds'
+    }`,
+  });
+  if (hazardRes.woundsInflicted > 0) {
+    if (payload.casualtyModelIds && unit.models && unit.models.length > 1) {
+      allocateSquadCasualties(unit, hazardRes.woundsInflicted, payload.casualtyModelIds);
+    }
+    applyWounds(unit, hazardRes.woundsInflicted);
+  }
+}
+
+/**
+ * Resolve a leg's traversals: the jump roll (one for the whole unit, sized by the longest jump), the fall if
+ * it fails or the drop is too far to jump, each model's dangerous-terrain test, then the end of the activation
+ * if someone fell. Returns whether the activation ended.
+ */
+function applyLegTraversals(
+  state: GameState,
+  unit: Unit,
+  entries: LegEntry[],
+  action: GameAction,
+  dice?: DiceResult[]
+): { terminated: boolean; wounds: number } {
+  const payload = action.payload as any;
+  const events: TraversalEvent[] = [];
+  const multi = entries.length > 1;
+  const labelFor = (e: LegEntry) => (multi ? `Model ${e.index + 1}: ` : '');
+  const plan = planLegJumps(state, unit, entries);
+  let fallen: LegJump | null = null;
+  let fallWounds = 0;
+
+  if (plan.faller) {
+    const faller = plan.faller;
+    let failed = true;
+    if (plan.testDice > 0) {
+      const rolls = dice?.find((d) => d.purpose === 'jump')?.rolls;
+      const used = rolls?.slice(0, plan.testDice);
+      const passed = !!used && used.length >= plan.testDice && used.every((r) => r >= JUMP_TARGET);
+      failed = !passed;
+      const what = faller.kind === 'gap' ? 'Gap jump' : 'Jump down';
+      events.push({
+        type: faller.kind === 'gap' ? 'gap-jump' : 'drop-jump',
+        rolls: used,
+        target: JUMP_TARGET,
+        passed,
+        text: `${what} ${faller.distance.toFixed(1)}" (${plan.testDice} dice, each ${JUMP_TARGET}+)${
+          used ? `: rolled ${rollsText(used)}` : ''
+        } → ${passed ? (faller.kind === 'gap' ? 'cleared the gap' : 'landed') : 'failed, falls'}`,
+      });
+    }
+    if (failed) {
+      fallen = faller;
+      // The faller comes to rest on the floor below; every other declared jumper stays at its take-off
+      const alive = livingModels(unit);
+      const model = faller.entry.model && alive.includes(faller.entry.model) ? faller.entry.model : alive[0];
+      const at = plan.fallPosition ?? unit.position;
+      if (alive.length > 1 && model) {
+        model.position = { ...at };
+      } else {
+        unit.position = { ...at };
+        for (const m of alive) m.position = { ...at };
+      }
+      const fallRolls = dice?.find((d) => d.purpose === 'fall')?.rolls?.slice(0, plan.fallDice);
+      const wounds = fallRolls ? countFallWounds(fallRolls) : 0;
+      const cause = faller.kind === 'fall' ? 'Too far to jump. ' : '';
+      events.push({
+        type: 'fall',
+        wounds,
+        rolls: fallRolls && fallRolls.length > 0 ? fallRolls : undefined,
+        text:
+          plan.fallDice > 0
+            ? `${labelFor(faller.entry)}${cause}Fell ${plan.fallHeight.toFixed(1)}" (${plan.fallDice} dice, 1-3 wounds)${
+                fallRolls ? `: rolled ${rollsText(fallRolls)}` : ''
+              } → ${wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''}` : 'unhurt'}`
+            : `${labelFor(faller.entry)}${cause}Fell ${plan.fallHeight.toFixed(1)}"`,
+      });
+      for (const j of plan.jumps) {
+        if (j === faller || !j.entry.declaration || !j.entry.model) continue;
+        stopJumperAtTakeoff(state, unit, j.entry.model, j.entry.path, j.entry.declaration.takeoff, events, labelFor(j.entry));
+      }
+      if (alive.length > 1) {
+        unit.position = computeSquadCentroid(alive.map((m) => m.position ?? unit.position));
+      }
+      if (wounds > 0) {
+        // The model that fell takes the first wound(s) as its casualty; any further wounds follow the usual order
+        applyWounds(unit, wounds, 1, model ? Array(wounds).fill(model.id) : undefined);
+      }
+      fallWounds = wounds;
+    }
+  }
+
+  // Dangerous terrain on each route (a model that fell never walked the rest of its route)
+  for (const e of entries) {
+    if (fallen && fallen.entry === e) continue;
+    applyPathHazard(unit, e.path, state, payload, events, diceForModel(dice, e.index), labelFor(e));
+  }
+
+  recordTraversal(action, unit, events, dice);
+  if (fallen) {
+    unit.hasMoved = true;
+    unit.remainingMovement = 0;
+    if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice, action);
+    return { terminated: true, wounds: fallWounds };
+  }
+  return { terminated: false, wounds: 0 };
+}
 
 export function applyTraversalHazardsAndFalls(
   state: GameState,
@@ -1884,167 +2212,14 @@ export function applyTraversalHazardsAndFalls(
   dice?: DiceResult[],
   model?: Model
 ): { terminated: boolean; wounds: number } {
-  const payload = action.payload as any;
-  const events: TraversalEvent[] = [];
-  const done = (result: { terminated: boolean; wounds: number }) => {
-    recordTraversal(action, unit, events, dice);
-    return result;
-  };
-
-  // A fall ends the activation; with several squad models failing in one move it ends only once
-  const endActivationOnce = () => {
-    if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice);
-  };
-
-  // Fall damage roll helper shared by failed jumps and plain falls
-  const resolveFall = (height: number, cause: string, forcedFall = false) => {
-    const defRoll =
-      dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ?? payload.fallingDefenseRoll;
-    const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
-    const fallRes = resolveFallingDamage(unit, height, defRoll, forcedFall);
-    if (fallRes.wounds > 0) {
-      applyWounds(unit, fallRes.wounds, traumaRolls);
-    }
-    events.push({
-      type: 'fall',
-      wounds: fallRes.wounds,
-      rolls: defRoll !== undefined ? [defRoll] : undefined,
-      text: fallRes.isDangerous
-        ? `${cause} Fell ${height.toFixed(1)}": Falling damage (AP ${fallRes.armorPiercing})${
-            defRoll !== undefined ? `, save roll ${defRoll}` : ''
-          } → ${fallRes.wounds > 0 ? `${fallRes.wounds} wound` : 'saved'}`
-        : `${cause} Fell ${height.toFixed(1)}"`,
-    });
-    return fallRes;
-  };
-
-  // 1. Gap jump (X+1 dice, all 3+): a failed jump falls into the gap
-  const gap = detectPathGapJump(state, path, unit);
-  if (gap.isGapJump) {
-    const rolls = dice?.find((d) => d.purpose === 'gap_jump')?.rolls ?? payload.gapJumpRolls;
-    const jump = resolveGapJump(gap.gapDistance, unit, rolls);
-    events.push({
-      type: 'gap-jump',
-      rolls: rolls?.slice(0, jump.dice),
-      target: jump.target,
-      passed: jump.passed,
-      text: `Gap jump ${gap.gapDistance.toFixed(1)}" (${jump.dice} dice, all ${jump.target}+)${
-        rolls ? `: rolled ${rollsText(rolls.slice(0, jump.dice))}` : ''
-      } → ${jump.passed ? 'cleared the gap' : 'failed'}`,
-    });
-    if (!jump.passed) {
-      // The model plummets into the gap and lands on the highest floor below, clear of terrain, within 2" of the fall
-      const startPt = path[0] ?? unit.position;
-      const endPt = path[path.length - 1] ?? unit.position;
-      const landing = findFallLanding(
-        state,
-        unit,
-        { x: (startPt.x + endPt.x) / 2, z: (startPt.z + endPt.z) / 2 },
-        startPt.y ?? 0
-      );
-      const alive = unit.models?.filter((m) => !m.isDestroyed) ?? [];
-      let fallWounds = 0;
-      if (alive.length > 1) {
-        // Squad: only the jumping model falls, and the fall eliminates it (the last survivor is never eliminated)
-        const faller = (model && alive.includes(model) ? model : alive[0])!;
-        faller.position = { ...landing.position };
-        faller.isDestroyed = true;
-        faller.wounds = 0;
-        unit.wounds = Math.max(1, unit.wounds - 1);
-        const left = alive.filter((m) => m !== faller);
-        unit.position = computeSquadCentroid(left.map((m) => m.position ?? unit.position));
-        fallWounds = 1;
-        events.push({
-          type: 'fall',
-          wounds: 1,
-          text: `Fell into the gap. Fell ${landing.height.toFixed(1)}": the model is lost`,
-        });
-      } else {
-        unit.position = { ...landing.position };
-        for (const m of alive) m.position = { ...landing.position };
-        if (landing.height >= FALL_DAMAGE_MIN - 0.05 && !hasTrait(unit.specialRules, 'airborne')) {
-          fallWounds = resolveFall(landing.height, 'Fell into the gap.', true).wounds;
-        } else {
-          events.push({ type: 'fall', wounds: 0, text: `Fell into the gap. Fell ${landing.height.toFixed(1)}"` });
-        }
-      }
-      unit.hasMoved = true;
-      unit.remainingMovement = 0;
-      endActivationOnce();
-      return done({ terminated: true, wounds: fallWounds });
-    }
-  }
-
-  // 2. Dangerous terrain
-  if (isPathDangerous(state, path, unit)) {
-    const hazardDice =
-      dice?.find((d) => d.purpose === 'hazard')?.rolls ?? payload.hazardDice;
-    if (hazardDice && hazardDice.length > 0) {
-      const hazardRes = resolveDangerousTerrain(unit, hazardDice);
-      events.push({
-        type: 'hazard',
-        rolls: hazardDice,
-        wounds: hazardRes.woundsInflicted,
-        text: `Dangerous terrain: rolled ${rollsText(hazardDice)} → ${
-          hazardRes.woundsInflicted > 0 ? `${hazardRes.woundsInflicted} wound${hazardRes.woundsInflicted > 1 ? 's' : ''} (each 1)` : 'no wounds'
-        }`,
-      });
-      if (hazardRes.woundsInflicted > 0) {
-        if (payload.casualtyModelIds && unit.models && unit.models.length > 1) {
-          allocateSquadCasualties(unit, hazardRes.woundsInflicted, payload.casualtyModelIds);
-        }
-        applyWounds(unit, hazardRes.woundsInflicted);
-      }
-    }
-  }
-
-  // 3. Drops: up to 3" is regular movement; 3-6" must be jumped (X+1 dice, all 3+); otherwise the model falls
-  const fall = detectPathFall(path, state);
-  if (!gap.isGapJump && fall.maxDrop > FREE_DROP_MAX && !hasTrait(unit.specialRules, 'airborne')) {
-    const jumpRolls = dice?.find((d) => d.purpose === 'drop_jump')?.rolls ?? payload.dropJumpRolls;
-    const jump = resolveDropJump(unit, fall.maxDrop, jumpRolls, fall.maxDropDistance);
-    if (jump.canJump) {
-      events.push({
-        type: 'drop-jump',
-        rolls: jumpRolls?.slice(0, jump.dice),
-        target: jump.target,
-        passed: jump.passed,
-        text: `Jump down ${fall.maxDropDistance.toFixed(1)}" (${jump.dice} dice, all ${jump.target}+)${
-          jumpRolls ? `: rolled ${rollsText(jumpRolls.slice(0, jump.dice))}` : ''
-        } → ${jump.passed ? 'landed' : 'failed, falls'}`,
-      });
-    }
-    if (jump.canJump && jump.passed) {
-      return done({ terminated: false, wounds: 0 }); // landed the jump
-    }
-    const aliveNow = unit.models?.filter((m) => !m.isDestroyed) ?? [];
-    if (aliveNow.length > 1 && model && aliveNow.includes(model)) {
-      // Squad: the model that fell is lost (the last survivor takes the normal falling hit instead)
-      const cause = jump.canJump ? '' : 'Too far to jump.';
-      model.isDestroyed = true;
-      model.wounds = 0;
-      unit.wounds = Math.max(1, unit.wounds - 1);
-      unit.position = computeSquadCentroid(
-        aliveNow.filter((m) => m !== model).map((m) => m.position ?? unit.position)
-      );
-      events.push({
-        type: 'fall',
-        wounds: 1,
-        text: `${cause} Fell ${fall.maxDrop.toFixed(1)}": the model is lost`.trim(),
-      });
-      unit.hasMoved = true;
-      unit.remainingMovement = 0;
-      endActivationOnce();
-      return done({ terminated: true, wounds: 1 });
-    }
-    const fallRes = resolveFall(fall.maxDrop, jump.canJump ? '' : 'Too far to jump.');
-    unit.hasMoved = true;
-    unit.remainingMovement = 0;
-    endActivationOnce();
-    return done({ terminated: true, wounds: fallRes.wounds });
-  }
-
-  return done({ terminated: false, wounds: 0 });
+  const living = livingModels(unit);
+  return applyLegTraversals(
+    state,
+    unit,
+    [{ index: 0, path, model: model ?? (living.length === 1 ? living[0] : undefined), declaration: null }],
+    action,
+    dice
+  );
 }
 
 export function createConsolidationReaction(
@@ -2158,8 +2333,7 @@ function pileInStrikeSpecs(state: GameState, action: GameAction): DiceSpec[] | n
     isMelee: true,
     isCharging: true,
     distance: pending.data?.chargeDistance ?? 1,
-    includeTrauma: true,
-  });
+      });
 }
 
 /**
@@ -2181,15 +2355,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'activate-unit': {
       const { unitId } = action.payload as PayloadWithUnitId;
       const unit = getUnit(newState, unitId)!;
-      const wasSuppressed =
-        unit.status.includes('stunned') || unit.status.includes('shaken');
       beginActivation(newState, unit);
       applyActivationHazard(newState, unit, action, dice);
-      // A stunned/shaken unit spends its activation clearing suppression and
-      // passes initiative immediately (cannot move or attack on this activation).
+      // A Shaken unit stays the active unit but may only end its activation idle (which clears Shaken).
       // A unit the hazard test destroyed has nothing left to activate.
-      if (wasSuppressed || unit.isDestroyed) {
-        finishActivation(newState, dice);
+      if (unit.isDestroyed) {
+        finishActivation(newState, dice, action);
       }
       logEntry = acceptedEntry(action);
       break;
@@ -2203,7 +2374,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         applyActivationHazard(newState, unit, action, dice);
       }
       // A hold ends the unit's activation immediately without moving or acting.
-      finishActivation(newState, dice);
+      finishActivation(newState, dice, action);
       logEntry = acceptedEntry(action);
       break;
     }
@@ -2236,7 +2407,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
-    case 'move-unit': {
+    case 'advance': {
       const { unitId, path, finalPosition, modelPositions, modelPaths, modelTraversals } = action.payload as {
         unitId: string;
         path?: Vector3[];
@@ -2360,11 +2531,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let totalBonusHits = 0;
       let totalBlockedCount = 0;
       const allBlockedRolls: boolean[] = [];
-      let totalWardSavedCount = 0;
+      let totalRegenerationSavedCount = 0;
       let totalWounds = 0;
       let primaryTargetDestroyed = false;
       let primaryTargetShaken = false;
       const ledger: WoundLedger = new Map();
+      const blastSplash: BlastSplashOutcome[] = [];
 
       // Turn attacker to face the primary target
       const primaryTarget = getUnit(newState, allocations[0].targetId);
@@ -2395,57 +2567,103 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const weapon = getWeapon(attacker, alloc.weaponId)!;
         const target = getUnit(newState, alloc.targetId)!;
         const distance = unitDistance(attacker, target);
-        const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+        // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
+        const sightless = ignoresSight(attacker, weapon);
         const firing = firingModels(newState, attacker, target, weapon);
         const inCover =
           target.status.includes('in-cover') ||
-          (!isLobbed && targetCoverByMajority(newState, firing, attacker, target));
+          (!sightless && targetCoverByMajority(newState, firing, attacker, target));
         const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
         const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
 
+        const attackerStats = {
+          quality: attacker.quality,
+          specialRules: attacker.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: false,
+          isCharging: false,
+          hasMoved: attacker.hasMoved,
+          isFatigued: false,
+          distance,
+        };
+        const targetStats = {
+          defense: target.defense,
+          inCover,
+          specialRules: target.specialRules,
+          modelCount: aliveModels,
+          hasMoved: target.hasMoved,
+        };
+        const isBlast = hasTrait(weapon.profile.specialRules, 'blast');
+        const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
+
         let outcome: CombatOutcome;
-        let traumaRolls: number[] | undefined;
         try {
           const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
-          traumaRolls = rolls.trauma;
-          outcome = resolveAttack(
-            {
-              quality: attacker.quality,
-              specialRules: attacker.specialRules,
-              weaponRules: weapon.profile.specialRules,
-              isMelee: false,
-              isCharging: false,
-              hasMoved: attacker.hasMoved,
-              isFatigued: false,
-              distance,
-            },
-            {
-              defense: target.defense,
-              inCover,
-              specialRules: target.specialRules,
-              modelCount: aliveModels,
-              hasMoved: target.hasMoved,
-            },
-            totalAttacks,
-            rolls
-          );
+          if (isBlast) {
+            // Spread the shot's hits over the target and its neighbours; each unit rolls its own defense batch
+            const participants = getBlastParticipants(newState, attacker, target);
+            const shares = autoSplitForParticipants(
+              countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit),
+              participants
+            );
+            let offset = 0;
+            const share = (count: number): BlastShare => ({ offset, count, aimedAt: targetStats });
+            outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls, share(shares[0]));
+            offset += shares[0];
+            for (let k = 1; k < participants.length; k++) {
+              const spill = participants[k].unit;
+              const count = shares[k];
+              if (count === 0) continue;
+              const spillOutcome = resolveAttack(
+                attackerStats,
+                {
+                  defense: spill.defense,
+                  inCover: false,
+                  specialRules: spill.specialRules,
+                  modelCount: participants[k].cap,
+                  hasMoved: spill.hasMoved,
+                },
+                totalAttacks,
+                extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i),
+                share(count)
+              );
+              offset += count;
+              applyTrackedWounds(ledger, spill, spillOutcome.wounds, deadlyValue);
+              blastSplash.push({
+                weaponId: weapon.id,
+                targetId: spill.id,
+                targetName: spill.name,
+                hitCount: spillOutcome.hitCount,
+                blockedCount: spillOutcome.blockedCount,
+                blockedRolls: spillOutcome.blockedRolls,
+                regenerationSavedCount: spillOutcome.regenerationSavedCount,
+                wounds: spillOutcome.wounds,
+                targetDestroyed: spill.isDestroyed,
+                targetShaken: spill.status.includes('shaken'),
+                effectiveDefense: spillOutcome.effectiveDefense,
+                baseDefense: spillOutcome.baseDefense,
+                defenseModifiers: spillOutcome.defenseModifiers,
+              });
+            }
+          } else {
+            outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls);
+          }
         } catch (error) {
           return { ok: false, reason: (error as Error).message };
         }
 
-        if (hasTrait(weapon.profile.specialRules, 'expendable')) {
+        if (hasTrait(weapon.profile.specialRules, 'limited')) {
           weapon.isEquipped = false;
         }
 
-        const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
-        const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, 0, lethalValue);
+        applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
 
         totalAttackCount += outcome.attackCount;
         totalHitCount += outcome.hitCount;
         totalBonusHits += outcome.bonusHits;
         totalBlockedCount += outcome.blockedCount;
         allBlockedRolls.push(...outcome.blockedRolls);
-        totalWardSavedCount += outcome.wardSavedCount;
+        totalRegenerationSavedCount += outcome.regenerationSavedCount;
         totalWounds += outcome.wounds;
         if (i === 0) {
           primaryTargetDestroyed = target.isDestroyed;
@@ -2462,7 +2680,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           bonusHits: outcome.bonusHits,
           blockedCount: outcome.blockedCount,
           blockedRolls: outcome.blockedRolls,
-          wardSavedCount: outcome.wardSavedCount,
+          regenerationSavedCount: outcome.regenerationSavedCount,
           wounds: outcome.wounds,
           targetDestroyed: target.isDestroyed,
           targetShaken: target.status.includes('shaken'),
@@ -2474,15 +2692,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           defenseModifiers: outcome.defenseModifiers,
           coverApplied: outcome.coverApplied,
           apApplied: outcome.apApplied,
-          ...(trauma
-            ? {
-                traumaRoll: trauma.roll,
-                traumaTokens: trauma.tokens,
-                traumaDreadBonus: trauma.dreadBonus,
-                traumaTotal: trauma.total,
-                traumaOutcome: trauma.outcome,
-              }
-            : {}),
         });
       }
 
@@ -2510,7 +2719,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           bonusHits: totalBonusHits,
           blockedCount: totalBlockedCount,
           blockedRolls: allBlockedRolls,
-          wardSavedCount: totalWardSavedCount,
+          regenerationSavedCount: totalRegenerationSavedCount,
           wounds: totalWounds,
           targetDestroyed: primaryTargetDestroyed,
           targetShaken: primaryTargetShaken,
@@ -2522,12 +2731,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           defenseModifiers: firstAlloc.defenseModifiers,
           coverApplied: firstAlloc.coverApplied,
           apApplied: firstAlloc.apApplied,
-          traumaRoll: firstAlloc.traumaRoll,
-          traumaTokens: firstAlloc.traumaTokens,
-          traumaDreadBonus: firstAlloc.traumaDreadBonus,
-          traumaTotal: firstAlloc.traumaTotal,
-          traumaOutcome: firstAlloc.traumaOutcome,
           allocations: allocationOutcomes,
+          ...(blastSplash.length > 0 ? { blastSplash } : {}),
         },
       };
 
@@ -2588,11 +2793,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       let outcome: CombatOutcome;
-      let traumaRolls: number[] | undefined;
       try {
         if (!dice) throw new Error('Dice results required');
         const rolls = extractAttackRolls(dice);
-        traumaRolls = rolls.trauma;
         outcome = resolveAttack(
           {
             quality: attacker.quality,
@@ -2620,17 +2823,17 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
-      if (hasTrait(weapon.profile.specialRules, 'expendable')) {
+      if (hasTrait(weapon.profile.specialRules, 'limited')) {
         weapon.isEquipped = false;
       }
       if (isMelee && !attacker.status.includes('fatigued')) {
         attacker.status.push('fatigued');
       }
 
-      const dreadBonus = isMelee ? (getTraitValue(attacker.specialRules, 'dread') ?? 0) : 0;
-      const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+      const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
       const ledger: WoundLedger = new Map();
-      const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, dreadBonus, lethalValue);
+      applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
+      if (isMelee) markInMelee(newState, attacker.id, target.id);
       deferCasualties(newState, ledger, action.id, attacker, {
         kind: 'fight',
         attackerId: attacker.id,
@@ -2657,10 +2860,10 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
           blockedCount: outcome.blockedCount,
           blockedRolls: outcome.blockedRolls,
-          ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
+          ...(outcome.regenerationSavedCount > 0 ? { regenerationSavedCount: outcome.regenerationSavedCount } : {}),
           wounds: outcome.wounds,
           targetDestroyed: target.isDestroyed,
-          ...(trauma?.outcome === 'shaken' ? { targetShaken: true } : {}),
+          ...(target.status.includes('shaken') ? { targetShaken: true } : {}),
           effectiveQuality: outcome.effectiveQuality,
           effectiveDefense: outcome.effectiveDefense,
           baseQuality: outcome.baseQuality,
@@ -2669,15 +2872,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           defenseModifiers: outcome.defenseModifiers,
           ...(outcome.coverApplied ? { coverApplied: true } : {}),
           ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
-          ...(trauma
-            ? {
-                traumaRoll: trauma.roll,
-                traumaTokens: trauma.tokens,
-                traumaDreadBonus: trauma.dreadBonus,
-                traumaTotal: trauma.total,
-                traumaOutcome: trauma.outcome,
-              }
-            : {}),
         },
       };
       logEntry = acceptedEntry(action, diceResolution);
@@ -2960,6 +3154,10 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         logEntry = acceptedEntry(action);
         break;
       }
+      if (pending.type === 'push') {
+        logEntry = applyPush(state, newState, action, dice);
+        break;
+      }
       if (pending.type === 'pile-in') {
         const piled = applyPileIn(state, newState, action, dice);
         if (!piled.ok) return piled;
@@ -2980,7 +3178,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         : defender.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
 
       let retCombat: ReturnType<typeof resolveAttack> | undefined;
-      let trauma: ReturnType<typeof applyWounds> | undefined;
       const ledger: WoundLedger = new Map();
 
       if (choiceId === 'strike-back' && defenderMelee && dice) {
@@ -3031,9 +3228,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           retRolls
         );
 
-        const retDreadBonus = getTraitValue(defender.specialRules, 'dread') ?? 0;
-        const retLethalValue = getTraitValue(defenderMelee.profile.specialRules, 'lethal') ?? 1;
-        trauma = applyTrackedWounds(ledger, charger, retCombat.wounds, retRolls.trauma, retDreadBonus, retLethalValue);
+        const retDeadlyValue = getTraitValue(defenderMelee.profile.specialRules, 'deadly') ?? 1;
+        applyTrackedWounds(ledger, charger, retCombat.wounds, retDeadlyValue);
+        markInMelee(newState, defender.id, charger.id);
 
         if (!defender.status.includes('fatigued')) {
           defender.status.push('fatigued');
@@ -3080,15 +3277,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             defenseModifiers: retCombat.defenseModifiers,
             pushedBack,
             pushBackPosition: pushBackPos,
-            ...(trauma
-              ? {
-                  traumaRoll: trauma.roll,
-                  traumaTokens: trauma.tokens,
-                  traumaDreadBonus: trauma.dreadBonus,
-                  traumaTotal: trauma.total,
-                  traumaOutcome: trauma.outcome,
-                }
-              : {}),
           },
         };
       } else if (pushedBack) {
@@ -3161,14 +3349,18 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'push-move': {
+      logEntry = applyPush(state, newState, action, dice);
+      break;
+    }
+
     case 'end-activation': {
-      finishActivation(newState, dice);
+      finishActivation(newState, dice, action);
       logEntry = acceptedEntry(action);
       break;
     }
 
     case 'end-round': {
-      runMoraleIfProvided(newState, dice);
       endRound(newState);
       logEntry = acceptedEntry(action);
       break;
@@ -3299,10 +3491,10 @@ function resolveChargeStrike(
       rolls
     );
 
-    const dreadBonus = getTraitValue(attacker.specialRules, 'dread') ?? 0;
-    const lethalValue = getTraitValue(weapon.profile.specialRules, 'lethal') ?? 1;
+    const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
     const ledger: WoundLedger = new Map();
-    const trauma = applyTrackedWounds(ledger, target, outcome.wounds, rolls.trauma, dreadBonus, lethalValue);
+    applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
+    markInMelee(newState, attacker.id, target.id);
     const targetShaken = target.status.includes('shaken');
     // A surviving squad that lost models: its owner picks who goes, then the strike-back / push-back follows
     const deferred = deferCasualties(newState, ledger, action.id, attacker, {
@@ -3338,7 +3530,7 @@ function resolveChargeStrike(
         ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
         blockedCount: outcome.blockedCount,
       blockedRolls: outcome.blockedRolls,
-        ...(outcome.wardSavedCount > 0 ? { wardSavedCount: outcome.wardSavedCount } : {}),
+        ...(outcome.regenerationSavedCount > 0 ? { regenerationSavedCount: outcome.regenerationSavedCount } : {}),
         wounds: outcome.wounds,
         targetDestroyed: target.isDestroyed,
         targetShaken,
@@ -3350,15 +3542,6 @@ function resolveChargeStrike(
         defenseModifiers: outcome.defenseModifiers,
         coverApplied: false,
         ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
-        ...(trauma
-          ? {
-              traumaRoll: trauma.roll,
-              traumaTokens: trauma.tokens,
-              traumaDreadBonus: trauma.dreadBonus,
-              traumaTotal: trauma.total,
-              traumaOutcome: trauma.outcome,
-            }
-          : {}),
         pushedBack,
         ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
       },
@@ -3470,8 +3653,8 @@ function requireActiveUnit(state: GameState, actorId: string, unitId: string): R
   if (state.turnState.activeUnitId !== unitId) {
     return { valid: false, reason: 'Unit is not the active unit' };
   }
-  if (unit.status.includes('stunned') || unit.status.includes('routed')) {
-    return { valid: false, reason: 'Unit is stunned or routed and cannot act' };
+  if (unit.status.includes('shaken') || unit.status.includes('routed')) {
+    return { valid: false, reason: 'Unit is Shaken or routed and cannot act' };
   }
   return { result: unit };
 }
@@ -3536,140 +3719,213 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.remainingMovement = unit.speed;
   delete unit.activationHazardModelIds;
   resetModelMovement(unit);
-  unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
+  recordWoundBaseline(state);
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
   state.turnState.charge = null;
   state.turnState.phase = 'activation';
 }
 
-function runMoraleIfProvided(state: GameState, dice?: DiceResult[]): void {
-  if (!dice) return;
-  const moraleRes = dice.find((d) => d.purpose === 'morale');
-  if (!moraleRes || moraleRes.rolls.length === 0) return;
-  const stoicRes = dice.find((d) => d.purpose === 'stoic');
-  applyRoundEndMorale(state, moraleRes.rolls, stoicRes?.rolls ?? []);
-}
+/** Morale Tests taken at the end of each action's activation, so the log entry can show them. */
+const moraleLog = new WeakMap<GameAction, MoraleTestRecord[]>();
+/** Melee results compared at the end of an action's activation. */
+const meleeLog = new WeakMap<GameAction, MeleeResultRecord[]>();
 
-function finishActivation(state: GameState, dice?: DiceResult[]): void {
+/**
+ * End the active unit's activation: units that took a wound and are at half strength or less test Morale
+ * (server dice), the active unit sheds Shaken (its idle activation is over), then play passes on.
+ */
+function finishActivation(state: GameState, dice?: DiceResult[], action?: GameAction): void {
+  const active = getActiveUnit(state);
   state.turnState.activeUnitId = null;
   state.turnState.charge = null; // an unfinished declared charge is abandoned: no melee
-  if (isRoundComplete(state)) {
-    runMoraleIfProvided(state, dice);
+
+  const moraleRolls = dice?.find((d) => d.purpose === 'morale')?.rolls ?? [];
+  const fearlessRolls = dice?.find((d) => d.purpose === 'fearless')?.rolls ?? [];
+  // A Shaken active unit has spent its activation idle: it recovers before the tests, so it only tests
+  // again if it was wounded meanwhile
+  if (active && active.status.includes('shaken')) {
+    active.status = active.status.filter((s) => s !== 'shaken');
   }
+  const meleeResults = getMeleeResults(state);
+  // Who would push each tested unit that is not Shaken yet (decided before the tests change anything)
+  const pushers = new Map<string, Unit>();
+  for (const u of getUnitsRequiringMorale(state)) {
+    const attacker = u.status.includes('shaken') ? null : pushAttackerFor(state, u, active);
+    if (attacker) pushers.set(u.id, attacker);
+  }
+  const tests = applyEndOfActivationMorale(state, moraleRolls, fearlessRolls);
+  // A unit this test made Shaken (it rolled and failed; a Routed unit is gone) can be pushed on a 4+
+  const pushRolls = dice?.find((d) => d.purpose === 'push')?.rolls ?? [];
+  const queue: PushQueueEntry[] = [];
+  let pushIdx = 0;
+  for (const record of tests) {
+    const attacker = pushers.get(record.unitId);
+    if (!attacker || record.outcome !== 'shaken' || record.roll === undefined) continue;
+    const pushRoll = pushRolls[pushIdx++];
+    if (pushRoll === undefined) continue;
+    record.pushRoll = pushRoll;
+    if (pushRoll >= PUSH_TARGET) queue.push({ unitId: record.unitId, attackerId: attacker.id });
+  }
+  if (tests.length > 0 && action) moraleLog.set(action, tests);
+  if (meleeResults.length > 0 && action) meleeLog.set(action, meleeResults);
+  delete state.turnState.woundBaseline;
+  delete state.turnState.meleeUnitIds;
+  delete state.turnState.meleePairs;
   advanceActivation(state);
+  if (state.status !== 'game-over') startNextPush(state, action?.id ?? 'push', queue);
+}
+
+/** Set the next waiting push as the pending reaction (skipping units that are gone), if any. */
+function startNextPush(state: GameState, actionId: string, queue: PushQueueEntry[]): void {
+  const rest = [...queue];
+  while (rest.length > 0) {
+    const entry = rest.shift()!;
+    const shaken = getUnit(state, entry.unitId);
+    const attacker = getUnit(state, entry.attackerId);
+    if (!shaken || shaken.isDestroyed || !shaken.status.includes('shaken') || !attacker) continue;
+    state.turnState.pendingReaction = createPushReaction(actionId, shaken, attacker, rest);
+    return;
+  }
+}
+
+/** What a push action (the Auto choice, or a `push-move`) would do right now, from the pending `push` reaction. */
+function pushResolution(
+  state: GameState,
+  action: GameAction
+): { pending: PendingReaction; unit: Unit; attacker: Unit; model: Model | null; plan: ReturnType<typeof planPush> } | null {
+  const pending = state.turnState.pendingReaction;
+  if (!pending || pending.type !== 'push') return null;
+  const unit = getUnit(state, pending.targetUnitId);
+  const attacker = getUnit(state, pending.sourceUnitId);
+  if (!unit || !attacker) return null;
+  const none = { pending, unit, attacker, model: null, plan: { ok: false, reason: 'No legal push' } as ReturnType<typeof planPush> };
+  if (action.type === 'push-move') {
+    const payload = action.payload as { modelId?: string; destination?: Vector3 };
+    const model = livingModels(unit).find((m) => m.id === payload.modelId);
+    if (!model || !payload.destination) return none;
+    return { pending, unit, attacker, model, plan: planPush(state, unit, model, payload.destination) };
+  }
+  const auto = autoPush(state, unit, attacker);
+  return auto ? { pending, unit, attacker, model: auto.model, plan: auto.plan } : none;
+}
+
+/** Apply a push (Auto or chosen), roll its fall if any, tidy the rest of the unit, and move on to the next push. */
+function applyPush(state: GameState, newState: GameState, action: GameAction, dice?: DiceResult[]): ActionLogEntry {
+  const resolved = pushResolution(state, action)!;
+  const unit = getUnit(newState, resolved.unit.id)!;
+  const model = resolved.model ? livingModels(unit).find((m) => m.id === resolved.model!.id) : undefined;
+  const events: TraversalEvent[] = [];
+  if (model && resolved.plan.ok) {
+    const plan = resolved.plan;
+    const from = model.position ?? unit.position;
+    model.position = { ...plan.position };
+    events.push({
+      type: 'push',
+      wounds: 0,
+      text: `${unit.name} pushed: one model moved ${Math.hypot(plan.position.x - from.x, plan.position.z - from.z).toFixed(1)}"`,
+    });
+    if (plan.fallDice > 0) {
+      const rolls = dice?.find((d) => d.purpose === 'fall')?.rolls?.slice(0, plan.fallDice);
+      const wounds = rolls ? countFallWounds(rolls) : 0;
+      events.push({
+        type: 'fall',
+        wounds,
+        rolls: rolls && rolls.length > 0 ? rolls : undefined,
+        text: `Pushed off an edge: fell ${plan.fallHeight.toFixed(1)}" (${plan.fallDice} dice, 1-3 wounds)${
+          rolls ? `: rolled ${rollsText(rolls)}` : ''
+        } → ${wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''}` : 'unhurt'}`,
+      });
+      if (wounds > 0) applyWounds(unit, wounds, 1, Array(wounds).fill(model.id));
+    } else if (plan.fallHeight > 0) {
+      events.push({ type: 'fall', wounds: 0, text: `Pushed off an edge: fell ${plan.fallHeight.toFixed(1)}"` });
+    }
+    if (!unit.isDestroyed && !model.isDestroyed) regroupAfterPush(newState, unit, model);
+    const alive = livingModels(unit);
+    if (alive.length > 1) unit.position = computeSquadCentroid(alive.map((m) => m.position ?? unit.position));
+    else if (alive.length === 1) unit.position = { ...(alive[0].position ?? unit.position) };
+  } else {
+    events.push({ type: 'push', wounds: 0, text: `${unit.name}: no legal push` });
+  }
+  recordTraversal(action, unit, events, dice);
+
+  const data = resolved.pending.data as unknown as PushData;
+  newState.turnState.pendingReaction = null;
+  refreshEngagements(newState);
+  if (newState.status !== 'game-over') startNextPush(newState, data.actionId, data.rest);
+  return acceptedEntry(action);
 }
 
 export function getUnitTough(unit: Unit, finalModel?: Model): number {
   return (
-    getTraitValue(unit.specialRules, 'resilient') ??
+    getTraitValue(unit.specialRules, 'tough') ??
     finalModel?.maxWounds ??
     (unit.models.length <= 1 ? unit.maxWounds : 1) ??
     1
   );
 }
 
-function applyWounds(
-  unit: Unit,
-  wounds: number,
-  traumaRolls?: number[],
-  dreadBonus: number = 0,
-  lethalValue: number = 1,
-  victimIds?: string[]
-): TraumaOutcome | undefined {
-  if (wounds <= 0) return undefined;
+/**
+ * Apply unblocked wounds to a unit. A model is killed (removed) when its wounds reach its Tough value; a
+ * wounded model keeps taking wounds until it dies before another model takes any. `victimIds` are the
+ * owner's picks (consumed in order) for who takes the wounds when a fresh model has to be chosen; without a
+ * pick the already-wounded model goes first, then the first living model. Deadly(X) wounds arrive in chunks of
+ * X for one hit: the excess of a chunk past the model it kills does not spill over.
+ */
+function applyWounds(unit: Unit, wounds: number, deadlyValue: number = 1, victimIds?: string[]): void {
+  if (wounds <= 0) return;
 
-  let remainingWounds = wounds;
+  if (!unit.models || unit.models.length === 0) {
+    unit.wounds = Math.max(0, unit.wounds - wounds);
+    if (unit.wounds <= 0) markUnitDestroyed(unit);
+    return;
+  }
 
-  // 1. Multi-model squad allocation: eliminate non-final models first.
-  // Lethal(X) excess wounds from a single hit do not spill over across models.
-  if (unit.models.length > 1) {
-    const step = Math.max(1, lethalValue);
-    while (remainingWounds > 0) {
-      const alive = unit.models.filter((m) => !m.isDestroyed);
-      if (alive.length <= 1) break;
-      // The owner's picks (consumed in order) decide who goes; without them it is the first living model
+  const step = Math.max(1, deadlyValue);
+  let remaining = wounds;
+  let victim: Model | undefined;
+  while (remaining > 0) {
+    const alive = unit.models.filter((m) => !m.isDestroyed);
+    if (alive.length === 0) break;
+    if (!victim || victim.isDestroyed) {
       const wanted = victimIds?.shift();
-      const victim = (wanted ? alive.find((m) => m.id === wanted) : undefined) ?? alive[0];
-      const applied = Math.min(remainingWounds, Math.max(victim.wounds, step));
-      victim.wounds = 0;
-      victim.isDestroyed = true;
-      unit.wounds = Math.max(1, unit.wounds - 1);
-      remainingWounds -= applied;
+      victim =
+        (wanted ? alive.find((m) => m.id === wanted) : undefined) ??
+        alive.find((m) => m.wounds < m.maxWounds) ??
+        alive[0];
     }
-    const surviving = unit.models.filter((m) => !m.isDestroyed);
-    if (surviving.length > 0 && surviving.some((m) => m.position)) {
-      unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
-    }
+    const chunk = Math.min(remaining, step);
+    victim.wounds = Math.max(0, victim.wounds - chunk);
+    remaining -= chunk;
+    if (victim.wounds <= 0) victim.isDestroyed = true;
   }
 
-  if (remainingWounds <= 0) return undefined;
-
-  // 2. Final surviving model (or single-model unit): accumulate wounds.
-  const finalModel = unit.models.find((m) => !m.isDestroyed);
-  const toughValue = getUnitTough(unit, finalModel);
-  unit.traumaTokens = (unit.traumaTokens ?? 0) + remainingWounds;
-  unit.wounds = Math.max(0, toughValue - unit.traumaTokens);
-  if (finalModel) {
-    finalModel.wounds = unit.wounds;
+  const surviving = unit.models.filter((m) => !m.isDestroyed);
+  unit.wounds = surviving.reduce((sum, m) => sum + Math.max(0, m.wounds), 0);
+  if (surviving.length === 0) {
+    markUnitDestroyed(unit);
+    return;
   }
-
-  // Tough(X) rule (OPR v3.5.1):
-  // "This model only rolls to check wound effects once it has taken X wounds or more,
-  // and is only Knocked Out on rolls of 5+X or more."
-  if (unit.traumaTokens < toughValue) {
-    return undefined;
+  if (unit.models.length > 1 && surviving.some((m) => m.position)) {
+    unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
   }
+}
 
-  // 3. Reached Tough threshold: resolve Wound Effects if server trauma roll is present.
-  const koThreshold = 5 + toughValue;
-  if (traumaRolls && traumaRolls.length > 0) {
-    const trauma = resolveTraumaRoll(traumaRolls[0], unit.traumaTokens, dreadBonus, koThreshold);
-
-    if (trauma.outcome === 'knocked-out') {
-      unit.wounds = 0;
-      unit.isDestroyed = true;
-      unit.status = unit.status.filter((s) => s !== 'engaged');
-      if (finalModel) {
-        finalModel.wounds = 0;
-        finalModel.isDestroyed = true;
-      }
-    } else {
-      // Suppressed (Shaken): remains in play on final HP with accumulated trauma tokens.
-      unit.wounds = 1;
-      if (!unit.status.includes('shaken')) unit.status.push('shaken');
-      if (!unit.status.includes('stunned')) unit.status.push('stunned');
-      if (finalModel) {
-        finalModel.wounds = 1;
-        finalModel.isDestroyed = false;
-      }
-    }
-    return trauma;
-  }
-
-  // Fallback when no trauma roll was supplied (e.g. legacy 2-spec test helpers).
+function markUnitDestroyed(unit: Unit): void {
   unit.wounds = 0;
   unit.isDestroyed = true;
   unit.status = unit.status.filter((s) => s !== 'engaged');
-  if (finalModel) {
-    finalModel.wounds = 0;
-    finalModel.isDestroyed = true;
+  for (const m of unit.models ?? []) {
+    m.wounds = 0;
+    m.isDestroyed = true;
   }
-  return undefined;
 }
 
 /** Wounds taken by multi-model units during one action, so each damaged unit's owner can be asked who goes. */
 type WoundLedger = Map<string, { snapshot: Unit; livingBefore: number; applications: WoundApplication[] }>;
 
 /** `applyWounds`, remembering the unit as it was and each application so the casualties can be deferred. */
-function applyTrackedWounds(
-  ledger: WoundLedger,
-  unit: Unit,
-  wounds: number,
-  traumaRolls?: number[],
-  dreadBonus: number = 0,
-  lethalValue: number = 1
-): TraumaOutcome | undefined {
+function applyTrackedWounds(ledger: WoundLedger, unit: Unit, wounds: number, deadlyValue: number = 1): void {
   const alive = livingModels(unit).length;
   if (wounds > 0 && alive >= 2) {
     let record = ledger.get(unit.id);
@@ -3677,14 +3933,9 @@ function applyTrackedWounds(
       record = { snapshot: snapshotUnit(unit), livingBefore: alive, applications: [] };
       ledger.set(unit.id, record);
     }
-    record.applications.push({
-      wounds,
-      ...(traumaRolls ? { traumaRolls: [...traumaRolls] } : {}),
-      dreadBonus,
-      lethalValue,
-    });
+    record.applications.push({ wounds, deadlyValue });
   }
-  return applyWounds(unit, wounds, traumaRolls, dreadBonus, lethalValue);
+  applyWounds(unit, wounds, deadlyValue);
 }
 
 /**
@@ -3705,9 +3956,8 @@ function deferCasualties(
     if (!unit || unit.isDestroyed) continue;
     const removed = record.livingBefore - livingModels(unit).length;
     if (removed <= 0) continue;
-    const carried = Math.max(0, (unit.traumaTokens ?? 0) - (record.snapshot.traumaTokens ?? 0));
     restoreUnit(unit, record.snapshot);
-    entries.push({ unitId, count: removed, remainingWounds: carried, applications: record.applications });
+    entries.push({ unitId, count: removed, applications: record.applications });
   }
   if (entries.length === 0) return null;
   const [entry, ...rest] = entries;
@@ -3721,11 +3971,11 @@ function deferCasualties(
   return reaction;
 }
 
-/** Remove the picked models from the damaged unit and put the rest of the wounds (and wound-effect roll) on the survivor. */
+/** Remove the picked models from the damaged unit and put the rest of the wounds on the survivors. */
 function replayCasualties(unit: Unit, entry: CasualtyEntry, victims: string[]): void {
   const ids = [...victims];
   for (const app of entry.applications) {
-    applyWounds(unit, app.wounds, app.traumaRolls, app.dreadBonus, app.lethalValue, ids);
+    applyWounds(unit, app.wounds, app.deadlyValue, ids);
   }
 }
 
@@ -3835,6 +4085,26 @@ function checkGameEnd(state: GameState): void {
 }
 
 function acceptedEntry(action: GameAction, dice?: DiceResolution): ActionLogEntry {
+  const morale = moraleLog.get(action);
+  const melee = meleeLog.get(action);
+  const entry = acceptedEntryBase(action, dice);
+  if ((morale && morale.length > 0) || (melee && melee.length > 0)) {
+    const first = morale?.[0]?.unitId ?? melee![0].sides[0].unitId;
+    const resolution: DiceResolution = entry.dice ?? {
+      rollId: action.id,
+      specs: [],
+      results: [],
+      context: { attackerId: first, targetId: first, actionId: action.id },
+      outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, targetDestroyed: false },
+    };
+    if (morale && morale.length > 0) resolution.outcome.moraleTests = morale;
+    if (melee && melee.length > 0) resolution.outcome.meleeResults = melee;
+    entry.dice = resolution;
+  }
+  return entry;
+}
+
+function acceptedEntryBase(action: GameAction, dice?: DiceResolution): ActionLogEntry {
   const traversal = traversalLog.get(action);
   if (traversal && traversal.events.length > 0) {
     const wounds = traversal.events.reduce((sum, e) => sum + (e.wounds ?? 0), 0);

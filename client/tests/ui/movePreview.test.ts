@@ -106,7 +106,7 @@ describe('resolveMoveTarget', () => {
     expect(target.x).toBeCloseTo(5.5, 5);
     expect(jump).not.toBeNull();
     expect(jump!.kind).toBe('jump-gap');
-    expect(jump!.dice).toBe(2);
+    expect(jump!.dice).toBe(6);
     // identical to what the engine returns for the snapped target: no client-side rules
     expect(jump).toEqual(findJumpOption(state, unit, unit.position, target));
   });
@@ -139,7 +139,7 @@ describe('jumpChip', () => {
     const opt = findJumpOption(state, unit, unit.position, P(5.6, 3, -1))!;
     const chip = jumpChip(opt);
     expect(chip.warning).toBe(false);
-    expect(chip.text).toBe(`Jump gap ${opt.distance.toFixed(1)}" · 2 dice (3+)`);
+    expect(chip.text).toBe(`Jump gap ${opt.distance.toFixed(1)}" · 6 dice (2+)`);
   });
 
   it('jump down and the red fall warning', () => {
@@ -157,7 +157,7 @@ describe('jumpChip', () => {
     });
     const u4 = makeUnit(P(1.8, 4, 0));
     const down = findJumpOption(makeState(u4, [deck(4)]), u4, u4.position, P(3, 0, 0))!;
-    expect(jumpChip(down)).toEqual({ text: 'Jump down 4.2" · 2 dice (3+)', warning: false });
+    expect(jumpChip(down)).toEqual({ text: 'Jump down 4.2" · 5 dice (2+)', warning: false });
     const u7 = makeUnit(P(1.8, 7, 0));
     const fall = findJumpOption(makeState(u7, [deck(7)]), u7, u7.position, P(3, 0, 0))!;
     const chip = jumpChip(fall);
@@ -188,8 +188,8 @@ describe('describePathSegments (P6 labels from classifySegment)', () => {
   it('a declared jump is labelled with distance and dice', () => {
     const segs = describePathSegments(state, unit, [P(0, 4, 0), P(1, 0, 0)]);
     expect(segs[0].kind).toBe('jump-drop');
-    expect(segs[0].label).toBe('jump 4.1" · 2 dice');
-    expect(segmentSummary(segs)).toBe('jump 4.1" · 2 dice');
+    expect(segs[0].label).toBe('jump 4.1" · 5 dice');
+    expect(segmentSummary(segs)).toBe('jump 4.1" · 5 dice');
   });
 
   it('a climb is labelled with its rise', () => {

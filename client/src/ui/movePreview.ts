@@ -71,7 +71,7 @@ export function jumpChip(option: JumpOption): { text: string; warning: boolean }
   const d = inch(option.distance);
   if (option.kind === 'fall') {
     return {
-      text: `Drop ${d}: too high to jump — the model will fall (falling damage, activation ends)`,
+      text: `Drop ${d}: too high to jump — the model will fall (one die per inch, 1-3 wounds; activation ends)`,
       warning: true,
     };
   }

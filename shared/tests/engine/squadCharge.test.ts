@@ -71,7 +71,6 @@ const roll = (purpose: string, rolls: number[]): DiceResult => ({
 const meleeDice = (n = 40): DiceResult[] => [
   roll('to-hit', Array(n).fill(1)),
   roll('defense', Array(n).fill(6)),
-  roll('trauma', [1]),
 ];
 
 const startsOf = (state: GameState, id = 'h1') => livingModelPositions(state.units.find((u) => u.id === id)!);
@@ -227,16 +226,16 @@ describe('squad charge: each model moves', () => {
 });
 
 describe('squad charge: who strikes, pile-in', () => {
-  it('only models within 2" (base edge) of a target model roll attacks, pooled', () => {
+  it('only models within 3" (base edge) of a target model roll attacks, pooled', () => {
     const state = mkState([
       mkUnit('h1', HOST, [[0, 3.5], [0, 2.5], [0, 1.5], [0, 0.5]], { speed: 3 }),
-      mkUnit('g1', GUEST, [[0, 10]]),
+      mkUnit('g1', GUEST, [[0, 10.1]]),
     ]);
     // Charge distance 6": the column closes up as far as each model's own walk allows
-    const ends = [P(0, 9), P(0, 8), P(0, 7), P(0, 6)]; // gaps to the target: 0", 1", 2", 3"
+    const ends = [P(0, 9), P(0, 8), P(0, 7), P(0, 6)]; // gaps to the target: 0.1", 1.1", 2.1", 3.1"
     const action = chargeAction(ends, straight(state, ends));
     expect(validateAction(state, action).valid).toBe(true);
-    // 3 models within 2" x 2 blade attacks
+    // 3 models within 3" x 2 blade attacks
     expect(getDiceSpecs(state, action)?.find((s) => s.purpose === 'to-hit')?.count).toBe(6);
     const out = applyAction(state, action, meleeDice());
     expect(out.ok).toBe(true);
@@ -402,7 +401,7 @@ describe('squad charge in legs', () => {
     );
     expect(validateAction(declared, jumpLeg)).toEqual({ valid: true });
     const specs = getDiceSpecs(declared, jumpLeg) ?? [];
-    expect(specs.some((s) => s.purpose === 'm0_drop_jump')).toBe(true);
+    expect(specs.some((s) => s.purpose === 'jump')).toBe(true);
     expect(specs.some((s) => s.purpose.startsWith('m1_'))).toBe(false);
     // An undeclared jump is still rejected
     const undeclared = chargeAction(ends, [front.path, [P(-1.5, 0, 4.5), P(-0.5, 0, 4.5)]], {}, 'charge-leg');

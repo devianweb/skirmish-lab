@@ -115,7 +115,7 @@ When an attack's wounds would remove models from a surviving multi-model unit, t
 ### Action Flow
 ```
 Guest wants to move unit:
-1. Guest creates GameAction { type: 'move-unit', unitId, destination, ... }
+1. Guest creates GameAction { type: 'advance', unitId, destination, ... }
 2. Guest sends action-request to Host over data channel
 3. Host receives, validates:
    - Is it guest's turn? Correct phase?

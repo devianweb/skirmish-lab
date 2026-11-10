@@ -32,7 +32,7 @@ function clickByText(root: HTMLElement, text: string): HTMLElement | null {
 }
 
 /** The fixture map with the host's first unit made the active, single-model unit at `position`. */
-function setup(position: Vector3, action: 'Move' | 'Rush' = 'Move', rules: string[] = []) {
+function setup(position: Vector3, action: 'Advance' | 'Rush' = 'Advance', rules: string[] = []) {
   const state: GameState = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   applyDefaultScenario(state, {
     customMap: { ...createBlankMap(), id: 'fixture', terrain: legacyScenarioTerrain() },
@@ -74,7 +74,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     const { hud, container } = setup(P(-0.2, 3, 0));
     hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
     expect(chip(container).style.display).toBe('block');
-    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · 2 dice \(3\+\)$/);
+    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · \d dice \(2\+\)$/);
     // the preview is the single hop
     const path = (hud as any).movePathPreview as Vector3[];
     expect(path).toHaveLength(2);
@@ -107,7 +107,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     clickByText(container, 'Confirm');
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
     const action = controller.submitAction.mock.calls[0][0];
-    expect(action.type).toBe('move-unit');
+    expect(action.type).toBe('advance');
     expect(action.payload.traversal).toMatchObject({
       kind: 'jump-gap',
       takeoff: { x: -0.2, y: 3, z: 0 },
@@ -145,7 +145,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
   });
 
   it('offers a pathfinder the 2+ target', () => {
-    const { hud, container } = setup(P(-0.2, 3, 0), 'Move', ['pathfinder']);
+    const { hud, container } = setup(P(-0.2, 3, 0), 'Advance', ['strider']);
     hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
     expect(chip(container).textContent).toContain('(2+)');
   });
@@ -176,7 +176,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
       },
     ];
     hud.syncFromState(state);
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     hud.handleBoardHover({ kind: 'position', position: P(3, 0, 0) });
     expect(chip(container).textContent).toContain('Drop 7.0"');
     expect(chip(container).textContent).toContain('too high to jump');
@@ -204,16 +204,16 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     (container.querySelector('.sl-hud-confirm-summary') as HTMLElement).textContent ?? '';
   const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
 
-  it('a pure 4" drop from an edge shows exactly one jump line: "Jump down 4.2" · 2 dice" (the tape reading)', () => {
+  it('a pure 4" drop from an edge shows exactly one jump line: "Jump down 4.2" · 5 dice" (the tape reading)', () => {
     const { hud, container, state } = setup(P(1.8, 4, 0));
     state.terrain = [deckPiece('tall', 0, 4)];
     hud.syncFromState(state);
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     hud.handleBoardHover({ kind: 'position', position: P(3, 0, 0) });
-    expect(chip(container).textContent).toBe('Jump down 4.2" · 2 dice (3+)');
+    expect(chip(container).textContent).toBe('Jump down 4.2" · 5 dice (2+)');
     hud.handleBoardPick({ kind: 'position', position: P(3, 0, 0) });
     const summary = confirmSummary(container);
-    expect(occurrences(summary, 'Jump down 4.2" · 2 dice')).toBe(1);
+    expect(occurrences(summary, 'Jump down 4.2" · 5 dice')).toBe(1);
     expect(summary).not.toMatch(/JUMP DOWN/);
   });
 
@@ -221,13 +221,13 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     const { hud, container, state } = setup(P(1.6, 8, 0));
     state.terrain = [deckPiece('up', 0, 8), deckPiece('lo', 5.2, 3.5)]; // 1.2" gap, 4.5" drop
     hud.syncFromState(state);
-    clickByText(container, 'Move');
+    clickByText(container, 'Advance');
     hud.handleBoardHover({ kind: 'position', position: P(4.1, 3.5, 0) });
     const text = chip(container).textContent!;
-    expect(text).toMatch(/^Jump gap 5\.1" · 2 dice \(3\+\)$/);
+    expect(text).toMatch(/^Jump gap 5\.1" · 6 dice \(2\+\)$/);
     hud.handleBoardPick({ kind: 'position', position: P(4.1, 3.5, 0) });
     const summary = confirmSummary(container);
-    expect(occurrences(summary, 'Jump gap 5.1" · 2 dice')).toBe(1);
+    expect(occurrences(summary, 'Jump gap 5.1" · 6 dice')).toBe(1);
     expect(summary).not.toMatch(/JUMP DOWN/);
     expect(summary).not.toMatch(/dice, all|roll \d dice/);
   });
@@ -245,7 +245,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
         { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: P(1.5, 3, 0.8), rotation: P(0, 0, 0) },
       ] as any;
       hud.syncFromState(state);
-      clickByText(container, 'Move');
+      clickByText(container, 'Advance');
       hud.handleBoardPick({ kind: 'position', position: P(0.5, 3, 0) });
       return ctx;
     }
@@ -272,7 +272,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     });
   });
 
-  function squadAtLedge(action: 'Move' | 'Rush' = 'Move') {
+  function squadAtLedge(action: 'Advance' | 'Rush' = 'Advance') {
     const base = setup(P(-0.2, 3, 0), action);
     base.unit.models = [
       { id: 'm1', position: P(-0.2, 3, 0), isDestroyed: false, wounds: 0, maxWounds: 1 } as any,
@@ -287,7 +287,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     const { hud, container, markers } = squadAtLedge();
     hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
     expect(chip(container).style.display).toBe('block');
-    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · 2 dice \(3\+\)$/);
+    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · \d dice \(2\+\)$/);
     const path = (hud as any).movePathPreview as Vector3[];
     expect(path).toHaveLength(2);
     expect(path[0]).toMatchObject({ x: -0.2, y: 3 });
@@ -351,7 +351,7 @@ describe('GameHUD move preview: segment styling (P6)', () => {
     const marker = markers[markers.length - 1].movePath!;
     expect(marker.segments).toHaveLength(1);
     expect(marker.segments![0].kind).toBe('jump-gap');
-    expect(marker.segments![0].label).toMatch(/^jump \d\.\d" · 2 dice$/);
+    expect(marker.segments![0].label).toMatch(/^jump \d\.\d" · \d dice$/);
   });
 
   it('a 3" drop onto the ground is an amber drop segment labelled with its height', () => {
@@ -381,7 +381,7 @@ describe('GameHUD squad staging: per-model declared jumps (batch 1D PR 15)', () 
   });
 
   /** A 3-model squad: model 1 stands at the ledge edge, models 2 and 3 already stand on the far deck. */
-  function squadSetup(action: 'Move' | 'Rush' = 'Move') {
+  function squadSetup(action: 'Advance' | 'Rush' = 'Advance') {
     const base = setup(P(-0.2, 3, 0), action);
     const { state, unit, container } = base;
     const mk = (id: string, p: Vector3) => ({

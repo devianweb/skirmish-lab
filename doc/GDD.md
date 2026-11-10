@@ -5,12 +5,12 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 
 ## IP & Legal Stance
 - SkirmishLab is a fan-made community project, not affiliated with, endorsed by, or sponsored by One Page Rules.
-- All game mechanics are implemented from first principles — no third-party rulebook text, lore prose, or artwork is bundled.
-- Faction names and unit data shipped with the engine are original/generic until an endorsement agreement (if any) clarifies what is permitted.
-- The engine's brand (SkirmishLab) is neutral; no third-party trademarks appear in the product name.
+- Rules, units, weapons and traits use One Page Rules' own names, and mechanics follow the Firefight rules (v3.6). No rulebook or army book text, lore prose, logos, or artwork is bundled, and nothing from Patreon-only files is used.
+- The visible disclaimer (unofficial, not affiliated or endorsed) stays in the README and the app. Monetisation is out of scope.
+- The product name (SkirmishLab) is its own; no OPR logos are used in branding.
 
 ## Core Pillars
-- **OPR-Style Skirmish Play** - Quality/Defense d6 resolution, alternating activations, wound/stun tracking, morale — the standard OPR skirmish math implemented from first principles
+- **OPR-Style Skirmish Play** - Quality/Defense d6 resolution, alternating activations, wound/stun tracking, morale — the standard OPR skirmish math, matching Firefight v3.6
 - **3D Tabletop Experience** - Use Three.js to render the battlefield in 3D with controllable cameras to view models on the field
 - **Direct Play** - Peer-to-peer connection via invite codes, no matchmaking or public lobbies
 - **Ruleset-Agnostic Engine** - Rules logic reads stats and special rules from data definitions; rulesets are data packs, not code

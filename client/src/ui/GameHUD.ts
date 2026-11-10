@@ -10,6 +10,9 @@ import {
   createAction,
   describeTerrainPiece,
   describeTrait,
+  MeleeResultRecord,
+  MoraleTestRecord,
+  BlastSplashOutcome,
   classifySegment,
   findNavPath,
   JumpOption,
@@ -53,6 +56,7 @@ import {
   livingModelPositions,
   MELEE_MAX_VERTICAL_REACH,
   firingModels,
+  ignoresSight,
   targetCoverByMajority,
   ENGAGEMENT_EDGE_GAP,
   Vector3,
@@ -753,7 +757,7 @@ export class GameHUD {
           !resolved.jump &&
           (isRush || !!active.isRushing) &&
           path.length > 0 &&
-          !hasTrait(active.specialRules, 'airborne') &&
+          !hasTrait(active.specialRules, 'flying') &&
           (isElevationObstacle ||
             stoppedBeforeDifficult);
 
@@ -1126,13 +1130,14 @@ export class GameHUD {
 
   private promptUnitActivation(unit: Unit): void {
     this.selectedUnitId = unit.id;
-    if (unit.status.includes('stunned')) {
+    if (unit.status.includes('shaken')) {
+      // A Shaken unit may only spend its activation idle, which clears Shaken
       this.beginConfirmation(
         createAction(this.localPlayerId, 'hold', {
           type: 'hold',
           unitId: unit.id,
         }),
-        `Hold with ${unit.name} (clears stun)`
+        `End activation with ${unit.name} (idle: clears Shaken)`
       );
       return;
     }
@@ -1593,7 +1598,7 @@ export class GameHUD {
           pointEngagesUnit(destination, e)
       );
       if (wouldEngage) {
-        this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Move'} cannot end in melee contact — use Charge instead`);
+        this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Advance'} cannot end in melee contact — use Charge instead`);
         return;
       }
     }
@@ -1732,7 +1737,7 @@ export class GameHUD {
     const isAnyModelDifficult = orderedPaths.some((p) =>
       isPathDifficult(this.state!, p, active)
     );
-    let summary = `${actionKind === 'rush' || active.isRushing ? 'Rush' : 'Move'} ${active.name} (${alive.length} models) · ${
+    let summary = `${actionKind === 'rush' || active.isRushing ? 'Rush' : 'Advance'} ${active.name} (${alive.length} models) · ${
       actionKind === 'rush' || active.isRushing ? 'double move (ineligible to shoot)' : 'can shoot after moving'
     }`;
     if (isAnyModelDifficult) {
@@ -1768,8 +1773,8 @@ export class GameHUD {
     this.moveSegments = null;
 
     this.beginConfirmation(
-      createAction(this.localPlayerId, actionKind === 'rush' ? 'rush' : 'move-unit', {
-        type: actionKind === 'rush' ? 'rush' : 'move-unit',
+      createAction(this.localPlayerId, actionKind === 'rush' ? 'rush' : 'advance', {
+        type: actionKind === 'rush' ? 'rush' : 'advance',
         unitId: active.id,
         path: [active.position, finalCentroid],
         finalPosition: finalCentroid,
@@ -1964,12 +1969,12 @@ export class GameHUD {
         pointEngagesUnit(destination, e)
     );
     if (wouldEngage) {
-      this.showToast('Move cannot end in melee contact — use Charge instead');
+      this.showToast('Advance cannot end in melee contact — use Charge instead');
       return;
     }
 
     const maxMoveStr = Number.isInteger(maxMove) ? `${maxMove}` : maxMove.toFixed(1);
-    let summary = `Move ${active.name} ${distance.toFixed(1)}" (max ${maxMoveStr}") · ${
+    let summary = `Advance ${active.name} ${distance.toFixed(1)}" (max ${maxMoveStr}") · ${
       active.isRushing ? 'rush move' : 'can shoot after moving'
     }`;
     if (isDifficult) {
@@ -1992,8 +1997,8 @@ export class GameHUD {
     this.moveJump = jump;
     this.moveSegments = describePathSegments(this.state, active, path);
     this.beginConfirmation(
-      createAction(this.localPlayerId, 'move-unit', {
-        type: 'move-unit',
+      createAction(this.localPlayerId, 'advance', {
+        type: 'advance',
         unitId: active.id,
         path,
         finalPosition: destination,
@@ -2035,7 +2040,7 @@ export class GameHUD {
     const stoppedAtBase =
       !jump &&
       path.length > 0 &&
-      !hasTrait(active.specialRules, 'airborne') &&
+      !hasTrait(active.specialRules, 'flying') &&
       (isElevationObstacle ||
         stoppedBeforeDifficult);
 
@@ -2277,17 +2282,24 @@ export class GameHUD {
         return;
       }
 
-      const otherTargets = new Set<string>();
-      for (const [wid, tid] of this.shootAllocations.entries()) {
-        if (wid !== currentWeapon.id && tid) otherTargets.add(tid);
+      // Weapons with the same name are one group: they follow each other onto the new target
+      const group = rangedWeapons.filter((w) => w.name === currentWeapon.name);
+      for (const mate of group) {
+        if (mate.id !== currentWeapon.id && !canFire(mate)) {
+          this.showToast(`${mate.name} cannot reach ${target.name}, and all ${mate.name} weapons must share a target`);
+          return;
+        }
       }
-      otherTargets.add(target.id);
-      if (otherTargets.size > 2) {
+      const resultingTargets = new Set<string>([target.id]);
+      for (const [wid, tid] of this.shootAllocations.entries()) {
+        if (tid && !group.some((w) => w.id === wid)) resultingTargets.add(tid);
+      }
+      if (resultingTargets.size > 2) {
         this.showToast('Cannot split fire across more than 2 distinct targets');
         return;
       }
 
-      this.shootAllocations.set(currentWeapon.id, target.id);
+      for (const mate of group) this.shootAllocations.set(mate.id, target.id);
 
       const nextUnassigned = rangedWeapons.find(
         (w) => w.id !== currentWeapon.id && this.shootAllocations.get(w.id) === null
@@ -2527,12 +2539,13 @@ export class GameHUD {
         );
         return;
       }
-      const isLobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+      // Indirect fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
+      const sightless = ignoresSight(active, weapon);
 
       const inCover =
         !hasTrait(weapon.profile.specialRules, 'blast') &&
         (target.status.includes('in-cover') ||
-          (!isLobbed && targetCoverByMajority(this.state, firing, active, target)));
+          (!sightless && targetCoverByMajority(this.state, firing, active, target)));
       const attacks = (weapon.profile.attacks as number) * firing.length;
       const mods = computeCombatModifiers(
         {
@@ -2562,6 +2575,13 @@ export class GameHUD {
     }
 
     const uniqueTargets = new Set(allocations.map((a) => a.target.id));
+    const sameNameSplit = allocations.find((a) =>
+      allocations.some((b) => b.weapon.name === a.weapon.name && b.target.id !== a.target.id)
+    );
+    if (sameNameSplit) {
+      this.showToast(`All ${sameNameSplit.weapon.name} weapons must shoot the same target`);
+      return;
+    }
     if (uniqueTargets.size > 2) {
       this.showToast('Cannot split fire across more than 2 distinct targets');
       return;
@@ -2887,30 +2907,32 @@ export class GameHUD {
     return `Game over — ${state.endReason ?? 'draw'} vs ${opponentName}`;
   }
 
+  /** "2/3 W": wounds a single tough model has taken so far (nothing for squads of Tough 1 models). */
+  private woundTag(unit: Unit, tough: number): string | null {
+    const living = (unit.models ?? []).filter((m) => !m.isDestroyed);
+    if (tough <= 1 || living.length !== 1) return null;
+    const taken = tough - Math.max(0, living[0].wounds);
+    return taken > 0 ? `${taken}/${tough} W` : null;
+  }
+
   private renderUnitRow(unit: Unit, teamClass: string = 'team-blue'): string {
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
-    else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
     if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('routed')) statusTags.push('ROUTED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('COVER');
     const tough = getUnitTough(unit);
-    if (unit.traumaTokens && unit.traumaTokens > 0) {
-      if (tough > 1 && unit.traumaTokens < tough) {
-        statusTags.push(`${unit.traumaTokens}/${tough} WT`);
-      } else {
-        statusTags.push(`+${unit.traumaTokens} WT`);
-      }
-    }
+    const woundTag = this.woundTag(unit, tough);
+    if (woundTag) statusTags.push(woundTag);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
     const isDeployPhase = this.state?.turnState.phase === 'deployment';
     if (unit.isDeployed === false) {
-      if (hasTrait(unit.specialRules, 'drop-reserve')) {
+      if (hasTrait(unit.specialRules, 'ambush')) {
         statusTags.push('DROP RESERVE (RD 2+)');
-      } else if (hasTrait(unit.specialRules, 'vanguard')) {
-        statusTags.push('VANGUARD');
+      } else if (hasTrait(unit.specialRules, 'scout')) {
+        statusTags.push('SCOUT');
       } else {
         statusTags.push('UNDEPLOYED');
       }
@@ -2970,25 +2992,19 @@ export class GameHUD {
   private renderEnemyRow(unit: Unit, teamClass: string = 'team-red'): string {
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
-    else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
     if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('COVER');
     const enemyTough = getUnitTough(unit);
-    if (unit.traumaTokens && unit.traumaTokens > 0) {
-      if (enemyTough > 1 && unit.traumaTokens < enemyTough) {
-        statusTags.push(`${unit.traumaTokens}/${enemyTough} WT`);
-      } else {
-        statusTags.push(`+${unit.traumaTokens} WT`);
-      }
-    }
+    const enemyWoundTag = this.woundTag(unit, enemyTough);
+    if (enemyWoundTag) statusTags.push(enemyWoundTag);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
     if (unit.isDeployed === false) {
-      if (hasTrait(unit.specialRules, 'drop-reserve')) {
+      if (hasTrait(unit.specialRules, 'ambush')) {
         statusTags.push('DROP RESERVE');
-      } else if (hasTrait(unit.specialRules, 'vanguard')) {
-        statusTags.push('VANGUARD');
+      } else if (hasTrait(unit.specialRules, 'scout')) {
+        statusTags.push('SCOUT');
       } else {
         statusTags.push('UNDEPLOYED');
       }
@@ -3011,6 +3027,59 @@ export class GameHUD {
         <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${enemyTough})${enemyModelText}</span>
         ${statusTags.length ? `<span class="sl-hud-unit-tags">${statusTags.join(' ')}</span>` : ''}
       </div>`;
+  }
+
+  /** "X took 3 wounds, Y took 1 (+1 Fear): X loses" for one melee result. */
+  private meleeResultText(r: MeleeResultRecord): string {
+    const side = (x: MeleeResultRecord['sides'][number]) =>
+      `${x.unitName} took ${x.wounds} wound${x.wounds === 1 ? '' : 's'}${x.fearBonus ? ` (+${x.fearBonus} Fear)` : ''}`;
+    const loser = r.sides.find((x) => x.unitId === r.loserId);
+    return `${side(r.sides[0])}, ${side(r.sides[1])}: ${loser ? `${loser.unitName} loses` : 'tied, nobody tests Morale'}`;
+  }
+
+  private meleeResultsHtml(results: MeleeResultRecord[]): string {
+    return results
+      .map((r) => `<div class="sl-hud-dice-label">Melee: ${this.meleeResultText(r)}</div>`)
+      .join('');
+  }
+
+  /** One line per Morale Test: the die, the Quality it needed and the result (Passed, Shaken, Routed). */
+  private moraleTestsHtml(tests: MoraleTestRecord[]): string {
+    return tests
+      .map((t) => {
+        const result = t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken';
+        const dieHtml =
+          t.roll !== undefined
+            ? `<span class="sl-die ${t.passed || t.fearlessRoll !== undefined && t.fearlessRoll >= 4 ? 'hit-pass' : 'hit-miss'}">${t.roll}</span>`
+            : '';
+        const fearlessHtml =
+          t.fearlessRoll !== undefined
+            ? `<span class="sl-hud-dice-sublabel" style="margin: 0 4px 0 8px;">Fearless (4+):</span><span class="sl-die ${
+                t.fearlessRoll >= 4 ? 'hit-pass' : 'hit-miss'
+              }">${t.fearlessRoll}</span>`
+            : '';
+        const note = t.roll === undefined ? ' (already Shaken: fails without a roll)' : '';
+        return `
+          <div class="sl-hud-dice-label">${t.unitName} Morale (need Q${t.effectiveQuality}+)${note}:</div>
+          <div class="sl-hud-dice-row">${dieHtml}${fearlessHtml}<span class="sl-hud-dice-summary" style="margin-left:8px;">${result}</span></div>`;
+      })
+      .join('');
+  }
+
+  /** Blast hits that spilled onto other units: one line per unit with its own Defense result. */
+  private blastSplashHtml(splash: BlastSplashOutcome[] | undefined): string {
+    if (!splash || splash.length === 0) return '';
+    const lines = splash
+      .map((b) => {
+        const status = b.targetDestroyed ? ' · down' : b.targetShaken ? ' · shaken' : '';
+        return `<div class="sl-hud-dice-summary" style="font-size: 11px;">Blast spill: ${b.targetName ?? b.targetId} · ${b.hitCount} hit${
+          b.hitCount === 1 ? '' : 's'
+        } (D${b.effectiveDefense ?? '?'}+) · ${b.blockedCount} blocked · <strong>${b.wounds} wound${
+          b.wounds === 1 ? '' : 's'
+        }</strong>${status}</div>`;
+      })
+      .join('');
+    return `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.2);">${lines}</div>`;
   }
 
   private renderDice(): string {
@@ -3041,6 +3110,20 @@ export class GameHUD {
           <div class="sl-hud-dice">
             <div class="sl-hud-dice-title">Movement hazards: ${mover}</div>
             ${eventsHtml}
+            ${entry.dice.outcome.moraleTests?.length ? this.moraleTestsHtml(entry.dice.outcome.moraleTests) : ''}
+          </div>`;
+      }
+
+      // End of an activation: the melee results and Morale Tests it triggered (no attack in this entry)
+      if (
+        (entry.dice.outcome.moraleTests?.length || entry.dice.outcome.meleeResults?.length) &&
+        entry.dice.outcome.attackCount === 0
+      ) {
+        return `
+          <div class="sl-hud-dice">
+            <div class="sl-hud-dice-title">${entry.dice.outcome.meleeResults?.length ? 'Melee result & Morale' : 'Morale'}</div>
+            ${this.meleeResultsHtml(entry.dice.outcome.meleeResults ?? [])}
+            ${this.moraleTestsHtml(entry.dice.outcome.moraleTests ?? [])}
           </div>`;
       }
 
@@ -3059,7 +3142,7 @@ export class GameHUD {
         ...(weapon?.profile.specialRules ?? []),
       ];
       const hasRupture = hasTrait(allAttackerRules, 'rupture');
-      const hasShred = hasTrait(allAttackerRules, 'shred');
+      const hasRending = hasTrait(allAttackerRules, 'rending');
 
       // A casualty pick (the owner's, or the host's on timeout) that also ended the melee with the step back
       if (
@@ -3115,15 +3198,6 @@ export class GameHUD {
                     .join('')
                 : '<span class="sl-hud-dice-empty">no hits</span>';
 
-            const allocTraumaHtml =
-              alloc.traumaRoll !== undefined
-                ? `<div class="sl-hud-dice-label" style="font-size:10px;">Wound Effect (roll ${alloc.traumaRoll} + ${alloc.traumaTokens ?? 0} WT = ${alloc.traumaTotal}):</div>
-                   <div class="sl-hud-dice-row">
-                     <span class="sl-die ${alloc.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${alloc.traumaRoll}</span>
-                     <span class="sl-hud-dice-summary">${alloc.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'}</span>
-                   </div>`
-                : '';
-
             return `
               <div class="sl-hud-alloc-block" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">
                 <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold; font-size: 11px;">
@@ -3133,7 +3207,6 @@ export class GameHUD {
                   <span class="sl-hud-dice-sublabel" style="font-size:10px; margin-right:4px;">Hit (Q${alloc.effectiveQuality ?? 4}+):</span> ${aHitDice}
                   <span class="sl-hud-dice-sublabel" style="font-size:10px; margin: 0 4px 0 8px;">Def (D${alloc.effectiveDefense ?? 5}+):</span> ${aDefDice}
                 </div>
-                ${allocTraumaHtml}
                 <div class="sl-hud-dice-summary" style="font-size: 10px; margin-top: 2px;">
                   ${alloc.hitCount} hit${alloc.hitCount === 1 ? '' : 's'} · ${alloc.blockedCount} blocked ·
                   <strong>${alloc.wounds} wound${alloc.wounds === 1 ? '' : 's'}</strong>
@@ -3150,6 +3223,7 @@ export class GameHUD {
             <div class="sl-hud-dice-summary" style="margin-top: 6px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 4px;">
               Total: ${outcome.hitCount} hits · ${outcome.blockedCount} blocked · ${outcome.wounds} unsaved wounds
             </div>
+            ${this.blastSplashHtml(outcome.blastSplash)}
           </div>`;
       }
 
@@ -3157,7 +3231,7 @@ export class GameHUD {
         ? toHit.rolls
             .map((r) => {
               const isHit = r > 1 && (r >= 6 || r >= effectiveQ);
-              const traitNote = r >= 6 && hasRupture ? ' · Rupture (+2 AP)' : r >= 6 && hasShred ? ' · Shred (AP 4)' : '';
+              const traitNote = r >= 6 && hasRupture ? ' · Rupture (+2 AP)' : r >= 6 && hasRending ? ' · Rending (AP 4)' : '';
               const title = isHit ? `Hit (${r} >= ${effectiveQ})${traitNote}` : `Miss (${r} < ${effectiveQ})`;
               return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}" title="${title}">${r}${
                 r >= 6 && hasRupture ? '<span class="sl-die-sub" style="font-size:9px;display:block;line-height:1">RUP</span>' : ''
@@ -3190,25 +3264,9 @@ export class GameHUD {
         ? ` · Base D${outcome.baseDefense ?? target?.defense ?? 5} ${outcome.defenseModifiers.join(' ')}`
         : outcome.coverApplied ? ' w/ cover' : '') + ruptureNote;
 
-      const targetTough = target ? getUnitTough(target) : 1;
-      const koThreshold = 5 + targetTough;
-      const traumaTokensCount = outcome.traumaTokens ?? 0;
-      const traumaDreadText = outcome.traumaDreadBonus ? ` + ${outcome.traumaDreadBonus} dread` : '';
-      const traumaHtml =
-        outcome.traumaRoll !== undefined
-          ? `<div class="sl-hud-dice-label">Wound Effect (roll ${outcome.traumaRoll} + ${traumaTokensCount} wound tokens${traumaDreadText} = ${outcome.traumaTotal} — need ${koThreshold}+ to KO):</div>
-             <div class="sl-hud-dice-row">
-               <span class="sl-die ${outcome.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${outcome.traumaRoll}</span>
-               <span class="sl-hud-dice-summary">${
-                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
-               }</span>
-             </div>`
-          : '';
-
-      const totalWoundsText = traumaTokensCount > 0 ? ` · ${traumaTokensCount} wound tokens total` : '';
       const outcomeStatus = outcome.targetDestroyed ? ' · target down' : outcome.targetShaken ? ' · shaken' : '';
       const summaryWounds = outcome.wounds > 0
-        ? `<strong>${outcome.wounds} unsaved wound${outcome.wounds === 1 ? '' : 's'}${totalWoundsText}</strong>${outcomeStatus}`
+        ? `<strong>${outcome.wounds} unsaved wound${outcome.wounds === 1 ? '' : 's'}</strong>${outcomeStatus}`
         : '<strong>0 wounds</strong>';
 
       let retaliationHtml = '';
@@ -3225,13 +3283,13 @@ export class GameHUD {
           ...(retWeapon?.profile.specialRules ?? []),
         ];
         const retHasRupture = hasTrait(retAttackerRules, 'rupture');
-        const retHasShred = hasTrait(retAttackerRules, 'shred');
+        const retHasRending = hasTrait(retAttackerRules, 'rending');
 
         const retHitDiceHtml = retToHit
           ? retToHit.rolls
               .map((r) => {
                 const isHit = r > 1 && (r >= 6 || r >= retEffectiveQ);
-                const traitNote = r >= 6 && retHasRupture ? ' · Rupture (+2 AP)' : r >= 6 && retHasShred ? ' · Shred (AP 4)' : '';
+                const traitNote = r >= 6 && retHasRupture ? ' · Rupture (+2 AP)' : r >= 6 && retHasRending ? ' · Rending (AP 4)' : '';
                 const title = isHit ? `Hit (${r} >= ${retEffectiveQ})${traitNote}` : `Miss (${r} < ${retEffectiveQ})`;
                 return `<span class="sl-die ${isHit ? 'hit-pass' : 'hit-miss'}" title="${title}">${r}${
                   r >= 6 && retHasRupture ? '<span class="sl-die-sub" style="font-size:9px;display:block;line-height:1">RUP</span>' : ''
@@ -3263,25 +3321,9 @@ export class GameHUD {
           ? ` · Base D${ret.baseDefense ?? attacker?.defense ?? 5} ${ret.defenseModifiers.join(' ')}`
           : '') + retRuptureNote;
 
-        const chargerTough = attacker ? getUnitTough(attacker) : 1;
-        const retKoThreshold = 5 + chargerTough;
-        const retTraumaTokens = ret.traumaTokens ?? 0;
-        const retTraumaDreadText = ret.traumaDreadBonus ? ` + ${ret.traumaDreadBonus} dread` : '';
-        const retTraumaHtml =
-          ret.traumaRoll !== undefined
-            ? `<div class="sl-hud-dice-label">Wound Effect (roll ${ret.traumaRoll} + ${retTraumaTokens} wound tokens${retTraumaDreadText} = ${ret.traumaTotal} — need ${retKoThreshold}+ to KO):</div>
-               <div class="sl-hud-dice-row">
-                 <span class="sl-die ${ret.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${ret.traumaRoll}</span>
-                 <span class="sl-hud-dice-summary">${
-                   ret.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
-                 }</span>
-               </div>`
-            : '';
-
-        const retTotalWoundsText = retTraumaTokens > 0 ? ` · ${retTraumaTokens} wound tokens total` : '';
         const retStatus = ret.targetDestroyed ? ' · charger down' : ret.targetShaken ? ' · charger shaken' : '';
         const retSummaryWounds = ret.wounds > 0
-          ? `<strong>${ret.wounds} unsaved wound${ret.wounds === 1 ? '' : 's'}${retTotalWoundsText}</strong>${retStatus}`
+          ? `<strong>${ret.wounds} unsaved wound${ret.wounds === 1 ? '' : 's'}</strong>${retStatus}`
           : '<strong>0 wounds</strong>';
 
         retaliationHtml = `
@@ -3291,7 +3333,6 @@ export class GameHUD {
             <div class="sl-hud-dice-row">${retHitDiceHtml}</div>
             <div class="sl-hud-dice-label">Defense (need D${retChargerD}+${retDefMods}):</div>
             <div class="sl-hud-dice-row">${retDefDiceHtml}</div>
-            ${retTraumaHtml}
             <div class="sl-hud-dice-summary">
               ${ret.hitCount} hit${ret.hitCount === 1 ? '' : 's'} ·
               ${ret.blockedCount} blocked ·
@@ -3318,12 +3359,12 @@ export class GameHUD {
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
           <div class="sl-hud-dice-label">Defense (need D${targetD}+${defMods}):</div>
           <div class="sl-hud-dice-row">${defDiceHtml}</div>
-          ${traumaHtml}
           <div class="sl-hud-dice-summary">
             ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
             ${outcome.blockedCount} blocked ·
             ${summaryWounds}
           </div>
+          ${this.blastSplashHtml(outcome.blastSplash)}
           ${retaliationHtml}
           ${pushBackHtml}
         </div>`;
@@ -3340,7 +3381,16 @@ export class GameHUD {
         const actor = state.players.find((p) => p.id === entry.action.actorId);
         const hazards = entry.dice?.outcome.traversal;
         const hazardText = hazards && hazards.length > 0 ? ` — ${hazards.map((e) => e.text).join('; ')}` : '';
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}</div>`;
+        const morale = entry.dice?.outcome.moraleTests;
+        const moraleText =
+          morale && morale.length > 0
+            ? ` — Morale: ${morale
+                .map((t) => `${t.unitName} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
+                .join(', ')}`
+            : '';
+        const melee = entry.dice?.outcome.meleeResults;
+        const meleeText = melee && melee.length > 0 ? ` — ${melee.map((r) => this.meleeResultText(r)).join('; ')}` : '';
+        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${meleeText}${moraleText}</div>`;
       })
       .join('');
   }
@@ -3353,8 +3403,8 @@ export class GameHUD {
         return `activated ${this.unitName((action.payload as any).unitId)}`;
       case 'hold':
         return `held with ${this.unitName((action.payload as any).unitId)}`;
-      case 'move-unit':
-        return `moved ${this.unitName((action.payload as any).unitId)}`;
+      case 'advance':
+        return `advanced ${this.unitName((action.payload as any).unitId)}`;
       case 'rush':
         return `rushed ${this.unitName((action.payload as any).unitId)}`;
       case 'shoot':
@@ -3758,14 +3808,16 @@ export class GameHUD {
       const hasMovementLeft = (active.remainingMovement ?? active.speed) > 0.05;
       const hasActed = hasMoved || hasAttacked || isRushing;
 
-      const canMove = !active.isDestroyed && !engaged && hasMovementLeft && (!hasAttacked || isRushing);
+      const isShaken = active.status.includes('shaken');
+      const canMove = !active.isDestroyed && !isShaken && !engaged && hasMovementLeft && (!hasAttacked || isRushing);
       const canRush =
         !active.isDestroyed &&
+        !isShaken &&
         !engaged &&
         ((!hasMoved && !hasAttacked) || (isRushing && hasMovementLeft));
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
       const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
-            const canCharge = !active.isDestroyed && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
+            const canCharge = !active.isDestroyed && !isShaken && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
       // Once the unit has moved or attacked, show End Activation instead.
@@ -3774,13 +3826,15 @@ export class GameHUD {
         .map((m) => m.position ?? active.position);
       const outOfCoherency =
         !hasActed &&
-        !active.status.includes('stunned') &&
+        !active.status.includes('shaken') &&
         squadPositions.length > 1 &&
         !validateSquadCoherency(squadPositions).coherent;
       // Shooting without moving is a Hold: an out-of-coherency squad must move first
       const canShoot =
-        !active.isDestroyed && !engaged && !hasAttacked && !isRushing && !!rangedWeapon && !outOfCoherency;
-      const finishBtn = !hasActed
+        !active.isDestroyed && !isShaken && !engaged && !hasAttacked && !isRushing && !!rangedWeapon && !outOfCoherency;
+      const finishBtn = isShaken
+        ? `<button class="sl-hud-btn primary" data-action="end-activation" title="A Shaken unit can only end its activation idle, which clears Shaken">End Activation (idle)</button>`
+        : !hasActed
         ? `<button class="sl-hud-btn" data-action="hold" ${outOfCoherency ? 'disabled' : ''}>Hold</button>`
         : `<button class="sl-hud-btn primary" data-action="end-activation">End Activation</button>`;
 
@@ -3794,7 +3848,7 @@ export class GameHUD {
                 ? `<span class="sl-hud-hint" style="color:#ffb74d">Squad is out of coherency: this activation's move must bring it back together</span>`
                 : ''
             }
-            <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Move</button>
+            <button class="sl-hud-btn" data-action="move" ${canMove ? '' : 'disabled'}>Advance</button>
             <button class="sl-hud-btn" data-action="rush" ${canRush ? '' : 'disabled'}>Rush</button>
             <button class="sl-hud-btn" data-action="shoot" ${canShoot ? '' : 'disabled'}>Shoot</button>
             <button class="sl-hud-btn" data-action="charge" ${canCharge ? '' : 'disabled'}>Charge</button>
@@ -3913,19 +3967,13 @@ export class GameHUD {
     const isMine = unit.ownerId === this.localPlayerId;
     const statusTags: string[] = [];
     if (unit.status.includes('shaken')) statusTags.push('SHAKEN');
-    else if (unit.status.includes('stunned')) statusTags.push('STUNNED');
     if (unit.status.includes('fatigued')) statusTags.push('FATIGUED');
     if (unit.status.includes('routed')) statusTags.push('ROUTED');
     if (unit.status.includes('engaged')) statusTags.push('ENGAGED');
     if (unit.status.includes('in-cover')) statusTags.push('IN COVER');
     const cardTough = getUnitTough(unit);
-    if (unit.traumaTokens && unit.traumaTokens > 0) {
-      if (cardTough > 1 && unit.traumaTokens < cardTough) {
-        statusTags.push(`${unit.traumaTokens}/${cardTough} WOUND TOKENS`);
-      } else {
-        statusTags.push(`+${unit.traumaTokens} WOUND TOKENS`);
-      }
-    }
+    const cardWoundTag = this.woundTag(unit, cardTough);
+    if (cardWoundTag) statusTags.push(cardWoundTag);
     if (unit.isActivated) statusTags.push('ACTIVATED');
     else statusTags.push('READY');
 
@@ -3971,7 +4019,7 @@ export class GameHUD {
         <div class="sl-hud-datacard-tables">
           <table class="sl-hud-table">
             <thead>
-              <tr><th>Quality</th><th>Defense</th><th>Toughness</th><th>Models</th><th>Move</th><th>Charge</th></tr>
+              <tr><th>Quality</th><th>Defense</th><th>Tough</th><th>Models</th><th>Move</th><th>Charge</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -4565,7 +4613,8 @@ export class GameHUD {
         if (
           entry.dice &&
           entry.dice.outcome.wounds !== undefined &&
-          !(entry.dice.outcome.traversal && entry.dice.outcome.attackCount === 0 && entry.dice.outcome.wounds === 0)
+          !(entry.dice.outcome.traversal && entry.dice.outcome.attackCount === 0 && entry.dice.outcome.wounds === 0) &&
+          !(entry.dice.outcome.moraleTests && entry.dice.outcome.attackCount === 0 && entry.dice.outcome.wounds === 0)
         ) {
           const target = this.state.units.find((u) => u.id === entry.dice!.context.targetId);
           if (target) {
@@ -4616,7 +4665,7 @@ export class GameHUD {
           ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
           : null) ?? deployable[0];
 
-      if (this.myTurn && currentDeployUnit && hasTrait(currentDeployUnit.specialRules, 'vanguard')) {
+      if (this.myTurn && currentDeployUnit && hasTrait(currentDeployUnit.specialRules, 'scout')) {
         const vBounds = getDeploymentZoneBounds(this.state, currentDeployUnit.ownerId, true);
         previewUnitZone = {
           ...vBounds,
@@ -4664,7 +4713,7 @@ export class GameHUD {
         markers.targetUnitId = payload.targetId;
       }
       if (
-        (this.flow.action.type === 'move-unit' ||
+        (this.flow.action.type === 'advance' ||
           this.flow.action.type === 'rush' ||
           this.flow.action.type === 'charge' ||
           this.flow.action.type === 'charge-leg' ||
@@ -4748,7 +4797,7 @@ export class GameHUD {
       (this.flow.mode === 'idle' && this.hoveredAction === 'rush');
     const isMoveMode =
       (this.flow.mode === 'targeting' && this.flow.action === 'move') ||
-      (this.flow.mode === 'confirming' && this.flow.action.type === 'move-unit') ||
+      (this.flow.mode === 'confirming' && this.flow.action.type === 'advance') ||
       (this.flow.mode === 'idle' && this.hoveredAction === 'move');
 
     const pendingConsolidation = this.state?.turnState.pendingReaction;

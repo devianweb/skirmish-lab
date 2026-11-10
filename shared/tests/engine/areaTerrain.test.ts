@@ -181,9 +181,9 @@ describe('difficult terrain along the whole path', () => {
     expect(isPathDifficult(state, [P(-8, 3, 0), P(8, 3, 0)], unit)).toBe(false);
   });
 
-  it('Pathfinder and Airborne units are exempt', () => {
-    expect(isPathDifficult(state, [P(-8, 0, 0), P(8, 0, 0)], makeUnit('p', P(-8, 0, 0), { rules: ['pathfinder'] }))).toBe(false);
-    expect(isPathDifficult(state, [P(-8, 0, 0), P(8, 0, 0)], makeUnit('a', P(-8, 0, 0), { rules: ['airborne'] }))).toBe(false);
+  it('Strider and Flying units are exempt', () => {
+    expect(isPathDifficult(state, [P(-8, 0, 0), P(8, 0, 0)], makeUnit('p', P(-8, 0, 0), { rules: ['strider'] }))).toBe(false);
+    expect(isPathDifficult(state, [P(-8, 0, 0), P(8, 0, 0)], makeUnit('a', P(-8, 0, 0), { rules: ['flying'] }))).toBe(false);
   });
 
   it('a rotated piece is tested in its own frame', () => {
@@ -254,19 +254,19 @@ describe('dangerous terrain along the whole path', () => {
   const pool = piece('hazard-pool', 0, 0, 0); // x -2..2, z -2..2
   const rubble = piece('rubble-field', 10, 0, 0);
 
-  it('a straight path across a hazard pool is dangerous; across rubble it is not; airborne is exempt', () => {
+  it('a straight path across a hazard pool is dangerous; across rubble it is not; flying is exempt', () => {
     const s = makeState([makeUnit('u', P(-6, 0, 0))], [pool, rubble]);
     const u = s.units[0];
     expect(isPathDangerous(s, [P(-6, 0, 0), P(6, 0, 0)], u)).toBe(true);
     expect(isPathDangerous(s, [P(6, 0, 0), P(14, 0, 0)], u)).toBe(false);
-    expect(isPathDangerous(s, [P(-6, 0, 0), P(6, 0, 0)], makeUnit('a', P(-6, 0, 0), { rules: ['airborne'] }))).toBe(false);
+    expect(isPathDangerous(s, [P(-6, 0, 0), P(6, 0, 0)], makeUnit('a', P(-6, 0, 0), { rules: ['flying'] }))).toBe(false);
   });
 
   it('a single model crossing asks for one hazard die; a squad of 3 asks for 3', () => {
     const single = makeState([makeUnit('u', P(-6, 0, 0))], [pool]);
     single.turnState.activeUnitId = 'u';
     const move = (unitId: string) =>
-      createAction(HOST, 'move-unit', { type: 'move-unit', unitId, path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0) });
+      createAction(HOST, 'advance', { type: 'advance', unitId, path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0) });
     expect(getDiceSpecs(single, move('u'))).toEqual([{ count: 1, sides: 6, purpose: 'hazard' }]);
 
     const squad = makeState([makeUnit('s', P(-6, 0, 0), { models: 3 })], [pool]);
@@ -277,15 +277,15 @@ describe('dangerous terrain along the whole path', () => {
   it('crossing rubble needs no hazard dice', () => {
     const s = makeState([makeUnit('u', P(6, 0, 0))], [rubble]);
     s.turnState.activeUnitId = 'u';
-    const act = createAction(HOST, 'move-unit', { type: 'move-unit', unitId: 'u', path: [P(6, 0, 0), P(14, 0, 0)], finalPosition: P(14, 0, 0) });
+    const act = createAction(HOST, 'advance', { type: 'advance', unitId: 'u', path: [P(6, 0, 0), P(14, 0, 0)], finalPosition: P(14, 0, 0) });
     expect(getDiceSpecs(s, act)).toBeNull();
   });
 
   it('a squad model that declares a jump still tags its own dice m<index>_', () => {
     const s = makeState([makeUnit('s', P(-6, 0, 0), { models: 2 })], [pool]);
     s.turnState.activeUnitId = 's';
-    const squadMove = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const squadMove = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 's',
       path: [P(-6, 0, 0), P(6, 0, 0)],
       finalPosition: P(6, 0, 0),
@@ -312,7 +312,7 @@ describe('dangerous terrain along the whole path', () => {
     };
     const s = makeState([makeUnit('u', P(-6, 0, 0))], [toxic]);
     s.turnState.activeUnitId = 'u';
-    const act = createAction(HOST, 'move-unit', { type: 'move-unit', unitId: 'u', path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0) });
+    const act = createAction(HOST, 'advance', { type: 'advance', unitId: 'u', path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0) });
     expect(getDiceSpecs(s, act)).toEqual([{ count: 1, sides: 6, purpose: 'hazard' }]);
   });
 });
@@ -436,7 +436,7 @@ describe('models stay on the ground in area terrain', () => {
     s.turnState.activeUnitId = 'u';
     u.isActivated = true;
     expect(findEndOverlap(s, 'u', P(1, 0, 0))).toBeNull();
-    const inside = createAction(HOST, 'move-unit', { type: 'move-unit', unitId: 'u', path: [P(-6, 0, 0), P(0, 0, 0)], finalPosition: P(0, 0, 0) });
+    const inside = createAction(HOST, 'advance', { type: 'advance', unitId: 'u', path: [P(-6, 0, 0), P(0, 0, 0)], finalPosition: P(0, 0, 0) });
     expect(validateAction(s, inside)).toEqual({ valid: true });
     const out = applyAction(s, inside);
     expect(out.ok).toBe(true);
@@ -497,8 +497,8 @@ describe('activation hazard test', () => {
     expect(after.models.find((m) => m.id === 'm-out')!.isDestroyed).toBe(false);
   });
 
-  it('airborne units are exempt', () => {
-    const s = makeState([makeUnit('u', P(0, 0, 0), { rules: ['airborne'] })], [pool]);
+  it('flying units are exempt', () => {
+    const s = makeState([makeUnit('u', P(0, 0, 0), { rules: ['flying'] })], [pool]);
     expect(getDiceSpecs(s, activate('u'))).toBeNull();
   });
 
@@ -521,7 +521,7 @@ describe('activation hazard test', () => {
     const s = makeState([u, makeUnit('e', P(0, 0, 30), { owner: GUEST })], [pool]);
     const activated = applyAction(s, activate('u'), [roll('activation_hazard', [4])]).state!;
     expect(activated.units[0].activationHazardModelIds).toEqual(['u-m0']);
-    const move = createAction(HOST, 'move-unit', { type: 'move-unit', unitId: 'u', path: [P(0, 0, 0), P(5, 0, 0)], finalPosition: P(5, 0, 0) });
+    const move = createAction(HOST, 'advance', { type: 'advance', unitId: 'u', path: [P(0, 0, 0), P(5, 0, 0)], finalPosition: P(5, 0, 0) });
     expect(getDiceSpecs(activated, move)).toBeNull();
   });
 
@@ -533,8 +533,8 @@ describe('activation hazard test', () => {
     const s = makeState([squad], [pool]);
     const activated = applyAction(s, activate('s'), [roll('m0_activation_hazard', [4])]).state!;
     activated.turnState.activeUnitId = 's';
-    const move = createAction(HOST, 'move-unit', {
-      type: 'move-unit', unitId: 's', path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0),
+    const move = createAction(HOST, 'advance', {
+      type: 'advance', unitId: 's', path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0),
     });
     expect(getDiceSpecs(activated, move)).toEqual([{ count: 2, sides: 6, purpose: 'hazard' }]);
   });
@@ -551,6 +551,10 @@ describe('activation hazard test', () => {
   it('a hold that starts the activation is tested too', () => {
     const s = makeState([makeUnit('u', P(0, 0, 0))], [pool]);
     const hold = createAction(HOST, 'hold', { type: 'hold', unitId: 'u' });
-    expect(getDiceSpecs(s, hold)).toEqual([{ count: 1, sides: 6, purpose: 'activation_hazard' }]);
+    // A hold ends the activation at once, so the hazard wound can owe the unit a Morale Test (one spare die)
+    expect(getDiceSpecs(s, hold)).toEqual([
+      { count: 1, sides: 6, purpose: 'activation_hazard' },
+      { count: 1, sides: 6, purpose: 'morale' },
+    ]);
   });
 });
