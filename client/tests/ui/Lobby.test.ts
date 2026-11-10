@@ -345,6 +345,7 @@ describe('Lobby UI', () => {
       (lobby as any).render();
       expect(container.querySelector('option[value="test-army"]')).toBeNull();
       expect(container.querySelector('option[value="test-squad-army"]')).toBeNull();
+      expect(container.querySelector('option[value="test-rules-army"]')).toBeNull();
       expect(container.querySelector('#devBadge')).toBeNull();
     });
 
@@ -365,6 +366,7 @@ describe('Lobby UI', () => {
       for (const id of ['hostArmySelect', 'guestArmySelect']) {
         expect(container.querySelector(`#${id} option[value="test-army"]`)).toBeTruthy();
         expect(container.querySelector(`#${id} option[value="test-squad-army"]`)).toBeTruthy();
+        expect(container.querySelector(`#${id} option[value="test-rules-army"]`)).toBeTruthy();
       }
       expect(document.body.querySelector('.sl-lobby-toast')?.textContent).toBe('Developer mode on');
 
