@@ -66,6 +66,19 @@ const AIM_LINE_COLOR = 0xff7043;
 const AIM_BLOCKED_COLOR = 0xef5350;
 const AIMED_MODEL_COLOR = 0xffeb3b;
 
+/** One 1" keep-away disc to draw (see ui/keepAwayZones.ts). */
+export interface KeepAwayZoneMarker {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  exempt: boolean;
+  otherTier: boolean;
+}
+
+const KEEP_AWAY_COLOR = 0xe53935;
+const KEEP_AWAY_ALLOWED_COLOR = 0x66bb6a;
+
 export interface MovePathMarker {
   from: Vector3;
   to: Vector3;
@@ -148,6 +161,8 @@ export class MarkerRenderer {
   private objectivesDebug: THREE.Object3D | null = null;
   private squadCoherency: THREE.Object3D | null = null;
   private casualtyPicks: THREE.Object3D | null = null;
+  private keepAwayZones: THREE.Object3D | null = null;
+  private keepAwaySignature: string | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -998,6 +1013,61 @@ export class MarkerRenderer {
   }
 
   /**
+   * The 1" keep-away no-go discs: red for a model another unit's base can't enter, green for the declared charge
+   * target (allowed), faint for models on another tier (they don't block). Rebuilt only when the zone list
+   * changes, so a mouse-move re-emit of identical markers costs nothing.
+   */
+  setKeepAwayZones(zones: KeepAwayZoneMarker[] | null): void {
+    if (!zones || zones.length === 0) {
+      this.keepAwaySignature = null;
+      this.removeMarker('keepAwayZones');
+      return;
+    }
+    const signature = zones
+      .map((z) => `${z.x.toFixed(2)},${z.y.toFixed(2)},${z.z.toFixed(2)},${z.radius.toFixed(2)},${z.exempt ? 1 : 0},${z.otherTier ? 1 : 0}`)
+      .join('|');
+    if (signature === this.keepAwaySignature && this.keepAwayZones) return;
+    this.removeMarker('keepAwayZones');
+    this.keepAwaySignature = signature;
+
+    const group = new THREE.Group();
+    group.name = 'marker-keep-away-zones';
+    const discGeo = new THREE.CircleGeometry(1, 40);
+    const ringGeo = new THREE.RingGeometry(0.97, 1, 48);
+    const mats = new Map<string, THREE.MeshBasicMaterial>();
+    const material = (color: number, opacity: number): THREE.MeshBasicMaterial => {
+      const key = `${color}-${opacity}`;
+      let m = mats.get(key);
+      if (!m) {
+        m = new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        mats.set(key, m);
+      }
+      return m;
+    };
+    for (const zone of zones) {
+      const color = zone.exempt ? KEEP_AWAY_ALLOWED_COLOR : KEEP_AWAY_COLOR;
+      const faint = zone.otherTier && !zone.exempt;
+      const disc = new THREE.Mesh(discGeo, material(color, faint ? 0.05 : 0.16));
+      const ring = new THREE.Mesh(ringGeo, material(color, faint ? 0.2 : 0.75));
+      for (const mesh of [disc, ring]) {
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.scale.set(zone.radius, zone.radius, 1);
+        mesh.position.set(zone.x, zone.y + 0.03, zone.z);
+        mesh.renderOrder = 1;
+        group.add(mesh);
+      }
+    }
+    this.markerGroup.add(group);
+    this.keepAwayZones = group;
+  }
+
+  /**
    * Highlight for the models the owner has picked to remove as casualties: a bold orange ring on the floor
    * under each model plus a smaller ring at head height (so it reads from the side and on decks).
    */
@@ -1067,6 +1137,8 @@ export class MarkerRenderer {
     this.removeMarker('objectivesDebug');
     this.removeMarker('squadCoherency');
     this.removeMarker('casualtyPicks');
+    this.keepAwaySignature = null;
+    this.removeMarker('keepAwayZones');
     this.clearOutcome();
   }
 
@@ -1108,6 +1180,7 @@ export class MarkerRenderer {
       | 'objectivesDebug'
       | 'squadCoherency'
       | 'casualtyPicks'
+      | 'keepAwayZones'
   ): void {
     const current = this[kind];
     if (current) {

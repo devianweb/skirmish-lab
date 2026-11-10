@@ -31,6 +31,10 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] **Group crossing keeps the formation.** With the four models in a line along the deck edge (leader at one end), jump straight across: the other models keep their line on deck B beside the leader. A diagonal landing or a leader at the deck corner also gives a sensible, legal spread. Repeat as a Rush and as a charge leg (declare a charge on a unit on deck B first): the carried models land the same way and nothing is spent from their charge move.
 - [ ] **Fall wounds stay on the faller (playtest fix).** Make a squad model fall (fail a jump down the tall deck, or push one off an edge) and check that only that model takes the fall wounds: with Tough 1, one model dies even on 3 wounds and the rest of the squad is untouched.
 
+- [ ] **Rush up your own stairs as the guest and as the host (pathing bugfix).** Developer mode, "TEST: Jump Check" both sides, map Jump Range. As the **guest**, Rush "Test Striders" from near the foot of a stairs (e.g. x 9, z 16): pick Model 1 and hover the deck top: the preview climbs the stairs and ends on the deck. Repeat as the **host** at the mirrored spot (x -9, z -16).
+- [ ] **A unit at the foot of the stairs closes the way, and says so.** Park another friendly unit (e.g. "Test Jumpers") at the foot of the stairs, then Rush a squad model toward the deck top: the preview does not draw a path through the stairs, and the note reads "Blocked by another unit..." (not "Can't reach that height"). Clicking the spot gives the same reason. Move the other unit 2" aside and the climb works again.
+- [ ] **Flying squad flies straight (pathing bugfix).** With "Test Flyers", pick a model on the ground near the stairs and hover the top of a deck: the preview is one straight line from the model to the spot (no detour to another deck or the stairs). Flying over another unit's models is allowed, but a spot within 1" of any of them is refused. A far spot is cut off at the model's remaining move.
+
 ## 5. Low cover & scatter
 - All items verified.
 
@@ -38,6 +42,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 7. Movement, rush and shooting
+- [ ] **Keep-away zones:** click Advance (then Rush, a declared Charge incl. later legs, a squad model pick after the leader's jump, a push and a pile-in): red translucent discs with a ring appear round every model of other units near you (friends too), the legend "Red rings: 1" zone around other units..." shows, and they vanish on Confirm/Cancel. A destination just outside a disc is accepted, just inside is refused/stops short; the disc edge matches where the path detours. During a charge the target's discs are green, not red. A model on another deck/tier more than ~1.8" away in height shows a very faint disc. No visible lag while moving the mouse.
 - All items verified.
 
 ## 8. Melee & objectives
