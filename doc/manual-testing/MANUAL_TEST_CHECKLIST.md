@@ -31,7 +31,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 7. Movement, rush and shooting
 - All items verified.
 - [ ] **14C-2 Hero:** (TEST: Rules Check army in Developer mode; Test Squads A/B are Quality 6+, the Test Hero 3+) a squad at half within 6" of a living non-Shaken Hero tests with the Hero's better Quality; at more than 6" it uses its own.
-- [ ] **14C-2 two targets:** (TEST: Rules Check army; the Test Heavy Gunner carries a Frag Launcher, a Trench Mortar, two weapons named Rifle and a Sidearm) the HUD lets you send the weapons to two enemy units but toasts "Cannot split fire across more than 2 distinct targets" for a third. Two weapons with the same name always move to a new target together.
+- [x] **14C-2 two targets:** (TEST: Rules Check army; the Test Heavy Gunner carries a Frag Launcher, a Trench Mortar, two weapons named Rifle and a Sidearm) the HUD lets you send the weapons to two enemy units but toasts "Cannot split fire across more than 2 distinct targets" for a third. Two weapons with the same name always move to a new target together.
 - [ ] **14C-2 Blast spread:** (TEST: Rules Check army; the enemy Test Squads A and B start within 3" of each other) fire the Test Heavy Gunner's Frag Launcher at one of them: the dice panel shows the target's hits plus a "Blast spill" line for the neighbour (its own Defense); both squads owe morale at the end of the activation if they dropped to half. A neighbour more than 3" away takes nothing.
 - [ ] **14C-2 Indirect:** (TEST: Rules Check army) the Test Heavy Gunner's Trench Mortar, when the gunner held (did not move) can target a unit behind a wall; after an Advance it reports "No line of sight" on the same target. No -1 to hit appears after moving.
 
@@ -40,5 +40,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - All items verified.
-- [ ] **14C-1 F9 in game:** during a match F9 still opens the LoS debugger and does not change developer mode (return to the lobby: the state is as you left it).
-- [ ] **14C-1 smoke game:** play a few activations. Data cards show AP / Tough / Rending where relevant, the button and log say Advance, and nothing reads "Suppressed" or "Toughness".
+- [ ] **Deployment spacing:** during deployment, try to place a squad so one of its ring models would sit within 1" of a unit you already deployed (friendly or enemy): the placement is refused ("Cannot deploy within 1\" of another friendly unit" / "...of enemy models"), even when the click point itself is clear. With deployment off, the TEST: Rules Check squads start about 2.5" apart (not touching), still close enough for a Blast spill.
+- [x] **14C-1 F9 in game:** during a match F9 still opens the LoS debugger and does not change developer mode (return to the lobby: the state is as you left it).
+- [x] **14C-1 smoke game:** play a few activations. Data cards show AP / Tough / Rending where relevant, the button and log say Advance, and nothing reads "Suppressed" or "Toughness".
