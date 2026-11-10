@@ -97,24 +97,24 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
     const cls = classifySegment(state, takeoff, landing, unit);
     expect(cls.kind).toBe('jump-gap');
     expect(cls.cost).toBe(0);
-    expect(cls.dice).toBe(2);
+    expect(cls.dice).toBe(6);
     // measured like a tape, take-off to landing: 4.9" across and 2.25" down
     expect(cls.distance).toBeCloseTo(Math.hypot(4.9, 2.25), 2);
   });
 
-  it('at the edges the container hop (3.8" gap, 2.25" drop) is a 4.42" tape: 2 dice', () => {
+  it('at the edges the container hop (3.8" gap, 2.25" drop) is a 4.42" tape: 5 dice', () => {
     const edge = P(0, 4.5, 1.125);
     const far = P(0, 2.25, 4.925);
     const cls = classifySegment(state, edge, far, unit);
-    expect(cls).toMatchObject({ kind: 'jump-gap', dice: 2 });
+    expect(cls).toMatchObject({ kind: 'jump-gap', dice: 5 });
     expect(cls.distance).toBeCloseTo(4.42, 2);
-    expect(detectPathGapJump(state, [edge, far], unit)).toMatchObject({ isGapJump: true, dice: 2 });
+    expect(detectPathGapJump(state, [edge, far], unit)).toMatchObject({ isGapJump: true, dice: 5 });
   });
 
   it('findJumpOption offers it from the edge spot and the path detector agrees', () => {
     const opt = findJumpOption(state, unit, takeoff, landing);
     expect(opt?.kind).toBe('jump-gap');
-    expect(opt?.dice).toBe(2);
+    expect(opt?.dice).toBe(6);
     expect(detectPathGapJump(state, [takeoff, landing], unit).isGapJump).toBe(true);
   });
 
@@ -123,7 +123,7 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
       const opt = findJumpOption(state, unit, takeoff, landing)!;
       const act = moveAction(opt.path, { kind: opt.kind, takeoff: opt.takeoff, landing: opt.landing }, type);
       expect(validateAction(state, act)).toEqual({ valid: true });
-      expect(getDiceSpecs(state, act)![0]).toMatchObject({ count: 2, purpose: 'gap_jump' });
+      expect(getDiceSpecs(state, act)![0]).toMatchObject({ count: 6, purpose: 'jump' });
     });
 
     it(`the host still rejects the ${type} when it is not declared`, () => {
@@ -134,7 +134,7 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
 
   it('a failed jump falls into the gap and lands on the ground, ending the activation', () => {
     const act = moveAction([takeoff, landing], { kind: 'jump-gap', takeoff, landing });
-    const out = applyAction(state, act, [roll('gap_jump', [1, 1]), roll('falling_defense', [6])]);
+    const out = applyAction(state, act, [roll('jump', [1, 1, 1, 1, 1, 1]), roll('fall', [6, 6, 6])]);
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
     expect(u.position.y).toBe(0);
@@ -145,7 +145,7 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
 
   it('a passed jump lands on the lower roof', () => {
     const act = moveAction([takeoff, landing], { kind: 'jump-gap', takeoff, landing });
-    const out = applyAction(state, act, [roll('gap_jump', [3, 3])]);
+    const out = applyAction(state, act, [roll('jump', [3, 3, 3, 3, 3, 3])]);
     if (!out.ok) throw new Error(out.reason);
     expect(out.state.units[0].position).toMatchObject({ x: 0, y: 2.25, z: 5.5 });
   });
@@ -177,15 +177,15 @@ describe('jump distance is the straight-line hop, with a 6" limit', () => {
     }) as TerrainPiece;
   const upper = deck('up', 0, 6); // x -2..2, top 6
 
-  it('a 2.9" gap with a 2.9" drop is a 4.1" hop: 2 dice (a drop that also crosses air is one gap jump)', () => {
+  it('a 2.9" gap with a 2.9" drop is a 4.1" hop: 5 dice (a drop that also crosses air is one gap jump)', () => {
     const lower = deck('lo', 6.9, 3.1); // x 4.9..8.9
     const u = makeUnit(P(2, 6, 0));
     const s = makeState(u, [upper, lower]);
     const cls = classifySegment(s, P(2, 6, 0), P(4.9, 3.1, 0), u);
     expect(cls.kind).toBe('jump-gap');
     expect(cls.distance).toBeCloseTo(4.1, 1);
-    expect(cls.dice).toBe(2);
-    expect(detectPathGapJump(s, [P(2, 6, 0), P(4.9, 3.1, 0)], u).dice).toBe(2);
+    expect(cls.dice).toBe(5);
+    expect(detectPathGapJump(s, [P(2, 6, 0), P(4.9, 3.1, 0)], u).dice).toBe(5);
   });
 
   it('a gap hop that drops over 3" rolls one set of gap dice, not a second drop test', () => {
@@ -197,7 +197,7 @@ describe('jump distance is the straight-line hop, with a 6" limit', () => {
     expect(classifySegment(s, hop[0], hop[1], u).kind).toBe('jump-gap');
     const act = moveAction(hop, { kind: 'jump-gap', takeoff: hop[0], landing: hop[1] });
     const purposes = getDiceSpecs(s, act)!.map((d) => d.purpose);
-    expect(purposes.filter((p) => p === 'gap_jump')).toHaveLength(1);
+    expect(purposes.filter((p) => p === 'jump')).toHaveLength(1);
     expect(purposes).not.toContain('drop_jump');
   });
 
@@ -211,11 +211,11 @@ describe('jump distance is the straight-line hop, with a 6" limit', () => {
     expect(validateAction(s, act).valid).toBe(false);
   });
 
-  it('a level hop is measured the same way: a 5.8" tape is 2 dice, 6.2" is blocked', () => {
+  it('a level hop is measured the same way: a 5.8" tape is 6 dice, 6.2" is blocked', () => {
     const b = deck('b', 9, 6); // x 7..11 level with the upper deck: a 5" gap
     const u = makeUnit(P(1.6, 6, 0));
     const s = makeState(u, [upper, b]);
-    expect(classifySegment(s, P(1.6, 6, 0), P(7.4, 6, 0), u)).toMatchObject({ kind: 'jump-gap', dice: 2 });
+    expect(classifySegment(s, P(1.6, 6, 0), P(7.4, 6, 0), u)).toMatchObject({ kind: 'jump-gap', dice: 6 });
     expect(classifySegment(s, P(1.6, 6, 0), P(7.8, 6, 0), u).kind).toBe('blocked');
   });
 });

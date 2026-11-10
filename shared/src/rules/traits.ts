@@ -171,7 +171,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   strider: {
     displayName: 'Strider',
-    description: 'Ignores difficult terrain movement penalties and jumps gaps on a 2+.',
+    description: 'Ignores difficult terrain movement penalties and rolls only half the dice (rounded up) when jumping.',
   },
   surge: {
     displayName: 'Surge',

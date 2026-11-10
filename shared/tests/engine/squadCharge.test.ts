@@ -401,7 +401,7 @@ describe('squad charge in legs', () => {
     );
     expect(validateAction(declared, jumpLeg)).toEqual({ valid: true });
     const specs = getDiceSpecs(declared, jumpLeg) ?? [];
-    expect(specs.some((s) => s.purpose === 'm0_drop_jump')).toBe(true);
+    expect(specs.some((s) => s.purpose === 'jump')).toBe(true);
     expect(specs.some((s) => s.purpose.startsWith('m1_'))).toBe(false);
     // An undeclared jump is still rejected
     const undeclared = chargeAction(ends, [front.path, [P(-1.5, 0, 4.5), P(-0.5, 0, 4.5)]], {}, 'charge-leg');

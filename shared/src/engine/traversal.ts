@@ -155,7 +155,8 @@ export function classifySegment(
   const horizontal = distanceHorizontal(a, b);
   const length = Math.hypot(horizontal, dy);
   const flying = !!unit && hasTrait(unit.specialRules, 'flying');
-  const target = unit && hasTrait(unit.specialRules, 'strider') ? 2 : 3;
+  const target = JUMP_TARGET;
+  const strider = !!unit && hasTrait(unit.specialRules, 'strider');
   const make = (kind: SegmentKind, cost: number, extra: Partial<SegmentClass> = {}): SegmentClass => ({
     kind,
     cost,
@@ -193,11 +194,11 @@ export function classifySegment(
     // cannot be jumped (it is not a fall either)
     if (measureElevatedGap(state, [a, b]) > FREE_GAP_MAX) {
       if (length > JUMP_GAP_MAX) return make('blocked', length, { distance: length });
-      return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length), target });
+      return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
     }
     if (kind === 'drop') return make('drop', horizontal, { distance: height });
     if (kind === 'jump-drop') {
-      return make('jump-drop', 0, { distance: length, dice: calculateJumpDice(length), target });
+      return make('jump-drop', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
     }
     return make('fall', horizontal, { distance: height });
   }
@@ -216,7 +217,7 @@ export function classifySegment(
     return make('gap', length, { distance: gap });
   }
   if (length <= JUMP_GAP_MAX) {
-    return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length), target });
+    return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
   }
   return make('blocked', length, { distance: length });
 }
@@ -234,9 +235,16 @@ export function pathMovementCost(state: GameState, path: Vector3[], unit?: Unit)
   return total;
 }
 
-/** Jump test dice for a drop (or gap) of `distance` inches: one die per full 3", plus one. */
-export function calculateJumpDice(distance: number): number {
-  return Math.floor((distance + 0.05) / 3.0) + 1;
+/** Every jump die needs this or better. */
+export const JUMP_TARGET = 2;
+
+/**
+ * Jump test dice for a drop (or gap) of `distance` inches: one per started inch (a hair of tolerance so a
+ * measured 5.0" is 5 dice, not 6). A Strider rolls half as many, rounding up.
+ */
+export function calculateJumpDice(distance: number, strider: boolean = false): number {
+  const dice = Math.max(1, Math.ceil(distance - 0.05));
+  return strider ? Math.ceil(dice / 2) : dice;
 }
 
 interface JumpResult {
@@ -248,8 +256,8 @@ interface JumpResult {
 }
 
 /**
- * The jump test: roll one die per full 3" plus one, each needing 3+ (2+ with Strider; Flying
- * auto-passes). All dice must succeed. Distances up to `freeMax` are regular movement (no test);
+ * The jump test: one die per started inch (half as many for a Strider), each needing 2+; Flying
+ * auto-passes. All dice must succeed. Distances up to `freeMax` are regular movement (no test);
  * distances above `jumpMax` cannot be jumped.
  */
 function resolveJump(
@@ -266,11 +274,11 @@ function resolveJump(
   if (hasTrait(unit.specialRules, 'flying')) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
-  const target = hasTrait(unit.specialRules, 'strider') ? 2 : 3;
+  const target = JUMP_TARGET;
   if (distance > jumpMax) {
     return { requiresTest: false, canJump: false, dice: 0, target, passed: false };
   }
-  const dice = calculateJumpDice(diceDistance);
+  const dice = calculateJumpDice(diceDistance, hasTrait(unit.specialRules, 'strider'));
   const passed = !!rolls && rolls.length >= dice && rolls.slice(0, dice).every((r) => r >= target);
   return { requiresTest: true, canJump: true, dice, target, passed };
 }
@@ -286,10 +294,10 @@ export function describeDrop(drop: number, unit: Unit): string {
   const kind = classifyDropHeight(drop);
   if (kind === 'drop' || hasTrait(unit.specialRules, 'flying')) return '';
   if (kind === 'fall') {
-    return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls, Falling damage and ends activation!`;
+    return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls (${fallDiceCount(drop)} dice, 1-3 wounds) and ends activation!`;
   }
   const res = resolveDropJump(unit, drop);
-  return `⚠️ JUMP DOWN (${drop.toFixed(1)}"): roll ${res.dice} dice, all must be ${res.target}+ or fall (Falling damage, ends activation)`;
+  return `⚠️ JUMP DOWN (${drop.toFixed(1)}"): roll ${res.dice} dice, all must be ${res.target}+ or fall (ends activation)`;
 }
 
 /**
@@ -441,97 +449,17 @@ export function getEffectiveMaxMovement(
 }
 
 /**
- * Drops <= 3.0" are safe. Drops > 3.0" inflict Falling Damage: 1 hit with AP(1) per full 3.0" fallen.
+ * Dice a fall of `height` inches rolls: none under 2", otherwise one per started inch fallen. Each die
+ * showing 1-3 is one wound (no Defense roll).
  */
-export function calculateFallingDamage(
-  verticalDrop: number,
-  forcedFall: boolean = false
-): {
-  isDangerous: boolean;
-  damageHits: number;
-  armorPiercing: number;
-} {
-  // A voluntary drop of up to 3" is safe movement; a model that actually falls (failed jump) is hurt from 2" up.
-  const threshold = forcedFall ? FALL_DAMAGE_MIN - 0.05 : FREE_DROP_MAX;
-  if (forcedFall ? verticalDrop < threshold : verticalDrop <= threshold) {
-    return { isDangerous: false, damageHits: 0, armorPiercing: 0 };
-  }
-  const full3Inches = Math.floor((verticalDrop + 0.05) / 3.0);
-  const ap = full3Inches; // AP(1) per FULL 3" fallen: a 2-2.99" fall is an AP(0) hit
-  return {
-    isDangerous: true,
-    damageHits: 1,
-    armorPiercing: ap,
-  };
+export function fallDiceCount(height: number): number {
+  if (height < FALL_DAMAGE_MIN - 0.05) return 0;
+  return Math.max(1, Math.ceil(height - 0.05));
 }
 
-/**
- * Resolves the falling damage defense roll for a unit that plummeted.
- */
-export function resolveFallingDamage(
-  unit: Unit,
-  verticalDrop: number,
-  defenseRoll?: number,
-  forcedFall: boolean = false
-): {
-  isDangerous: boolean;
-  damageHits: number;
-  armorPiercing: number;
-  saved: boolean;
-  wounds: number;
-} {
-  const calc = calculateFallingDamage(verticalDrop, forcedFall);
-  if (!calc.isDangerous) {
-    return {
-      isDangerous: false,
-      damageHits: 0,
-      armorPiercing: 0,
-      saved: true,
-      wounds: 0,
-    };
-  }
-
-  if (defenseRoll === undefined) {
-    // Unchecked or guaranteed hit if no roll supplied
-    return {
-      isDangerous: true,
-      damageHits: calc.damageHits,
-      armorPiercing: calc.armorPiercing,
-      saved: false,
-      wounds: 1,
-    };
-  }
-
-  // Natural 1 always fails; natural 6 always saves.
-  // Defense test: roll - AP >= unit.defense
-  if (defenseRoll === 6) {
-    return {
-      isDangerous: true,
-      damageHits: calc.damageHits,
-      armorPiercing: calc.armorPiercing,
-      saved: true,
-      wounds: 0,
-    };
-  }
-  if (defenseRoll === 1) {
-    return {
-      isDangerous: true,
-      damageHits: calc.damageHits,
-      armorPiercing: calc.armorPiercing,
-      saved: false,
-      wounds: 1,
-    };
-  }
-
-  const effectiveDefense = Math.max(2, Math.min(6, unit.defense + calc.armorPiercing));
-  const saved = defenseRoll >= effectiveDefense;
-  return {
-    isDangerous: true,
-    damageHits: calc.damageHits,
-    armorPiercing: calc.armorPiercing,
-    saved,
-    wounds: saved ? 0 : 1,
-  };
+/** Wounds a fall inflicts from its dice: each 1-3 is one wound. */
+export function countFallWounds(rolls: number[]): number {
+  return rolls.filter((r) => r <= 3).length;
 }
 
 /** Gaps up to this width (inches) are regular movement: no test. */
@@ -613,7 +541,7 @@ export function detectPathGapJump(
   };
 }
 
-/** Jump test for crossing a horizontal gap (same dice as a drop: X+1 dice, all 3+). */
+/** Jump test for crossing a horizontal gap (same dice as a drop: one per started inch, each 2+). */
 export function resolveGapJump(gapDistance: number, unit: Unit, rolls?: number[]): JumpResult {
   return resolveJump(unit, gapDistance, FREE_GAP_MAX, JUMP_GAP_MAX, rolls);
 }
@@ -812,39 +740,6 @@ export function resolveDangerousTerrain(
 }
 
 /**
- * Calculates knockback displacement when a unit is shoved near a high ledge.
- * If pushed over an edge where elevation drops > 3.0", the model plummets to the ground.
- */
-export function calculateLedgeKnockback(
-  currentPos: Vector3,
-  pushOffset: { x: number; z: number },
-  groundElevation: number = 0
-): {
-  destination: Vector3;
-  didPlummet: boolean;
-  fallHeight: number;
-} {
-  const currentY = currentPos.y ?? 0;
-  const targetX = currentPos.x + pushOffset.x;
-  const targetZ = currentPos.z + pushOffset.z;
-
-  if (currentY > 3.0) {
-    // If elevated > 3" and pushed over edge, model plummets to ground level
-    return {
-      destination: { x: targetX, y: groundElevation, z: targetZ },
-      didPlummet: true,
-      fallHeight: currentY - groundElevation,
-    };
-  }
-
-  return {
-    destination: { x: targetX, y: currentY, z: targetZ },
-    didPlummet: false,
-    fallHeight: 0,
-  };
-}
-
-/**
  * Allocates hazard or fall casualties to models in a squad.
  * If specific model IDs are selected by the player, those are prioritized (verifying they are alive).
  * Otherwise, allocates to living models in default order.
@@ -906,6 +801,22 @@ export function allocateSquadCasualties(
 }
 
 
+/** Height of the highest walkable floor under (`x`, `z`) that lies below `startY` (at least 0.5" lower); 0 for the ground. */
+export function floorHeightBelow(
+  surfaces: ReturnType<typeof collectWalkableSurfaces>,
+  x: number,
+  z: number,
+  startY: number
+): number {
+  let best = 0;
+  for (const s of surfaces) {
+    if (s.topY > startY - 0.5 || s.topY <= best) continue;
+    const l = worldToLocal(s.piece, { x, y: 0, z });
+    if (l.x >= s.minX && l.x <= s.maxX && l.z >= s.minZ && l.z <= s.maxZ) best = s.topY;
+  }
+  return best;
+}
+
 /**
  * Where a model that fell from `startY` at (`from.x`, `from.z`) comes to rest: the highest floor below the start
  * floor (a lower deck, or the ground) at a spot with the whole base supported and clear of terrain and other
@@ -919,15 +830,7 @@ export function findFallLanding(
   startY: number
 ): { position: Vector3; height: number } {
   const surfaces = collectWalkableSurfaces(state);
-  const floorAt = (x: number, z: number): number => {
-    let best = 0;
-    for (const s of surfaces) {
-      if (s.topY > startY - 0.5 || s.topY <= best) continue;
-      const l = worldToLocal(s.piece, { x, y: 0, z });
-      if (l.x >= s.minX && l.x <= s.maxX && l.z >= s.minZ && l.z <= s.maxZ) best = s.topY;
-    }
-    return best;
-  };
+  const floorAt = (x: number, z: number): number => floorHeightBelow(surfaces, x, z, startY);
   const candidates: Array<{ x: number; z: number }> = [{ x: from.x, z: from.z }];
   for (let r = 0.25; r <= FALL_LANDING_RADIUS + 1e-6; r += 0.25) {
     const n = Math.max(8, Math.round(r * 16));

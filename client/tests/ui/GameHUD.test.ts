@@ -10,6 +10,8 @@ import {
   applyDefaultScenario,
   hasLineOfSight,
   createBlankMap,
+  createPushReaction,
+  PUSH_AUTO_CHOICE,
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 
@@ -1066,6 +1068,23 @@ describe('GameHUD', () => {
     expect(submitted.payload.choiceId).toBe('strike-back');
   });
 
+  it('push prompt (engine only until the push HUD): the attacker gets one Auto button that answers with the Auto choice', () => {
+    const state = scenarioState();
+    const attacker = state.units.find((u) => u.ownerId === HOST)!;
+    const shaken = state.units.find((u) => u.ownerId === GUEST)!;
+    state.turnState.pendingReaction = createPushReaction('end-1', shaken, attacker, []);
+    const { controller, container } = setup(HOST, state);
+    const buttons = container.querySelectorAll('button[data-reaction-choice]');
+    expect(buttons).toHaveLength(1);
+    (buttons[0] as HTMLElement).click();
+    const submitted = controller.submitAction.mock.calls[0][0];
+    expect(submitted.type).toBe('respond-reaction');
+    expect(submitted.payload.choiceId).toBe(PUSH_AUTO_CHOICE);
+    // the other player just waits
+    const other = setup(GUEST, state);
+    expect(other.container.querySelector('.sl-hud-reaction-waiting')?.textContent).toContain('Push');
+  });
+
   it('renders waiting banner for opponent during reaction', () => {
     const state = scenarioState();
     const charger = state.units.find((u) => u.ownerId === HOST)!;
@@ -1867,8 +1886,8 @@ describe('GameHUD', () => {
         appliedAt: 0,
         dice: {
           rollId: 'a1',
-          specs: [{ count: 2, sides: 6, purpose: 'drop_jump' }],
-          results: [{ rolls: [3, 2], total: 5, finalTotal: 5, purpose: 'drop_jump' }],
+          specs: [{ count: 4, sides: 6, purpose: 'jump' }, { count: 4, sides: 6, purpose: 'fall' }],
+          results: [{ rolls: [3, 2, 1, 6], total: 12, finalTotal: 12, purpose: 'jump' }, { rolls: [1, 5, 6, 4], total: 16, finalTotal: 16, purpose: 'fall' }],
           context: { attackerId: unit.id, targetId: unit.id, actionId: 'a1' },
           outcome: {
             attackCount: 0,
@@ -1877,15 +1896,15 @@ describe('GameHUD', () => {
             wounds: 1,
             targetDestroyed: false,
             traversal: [
-              { type: 'drop-jump', rolls: [3, 2], target: 3, passed: false, text: 'Jump down 4.0" (2 dice, all 3+): rolled 3, 2 → failed, falls' },
-              { type: 'fall', wounds: 1, rolls: [1], text: 'Fell 4.0": Falling damage (AP 1), save roll 1 → 1 wound' },
+              { type: 'drop-jump', rolls: [3, 2, 1, 6], target: 2, passed: false, text: 'Jump down 4.0" (4 dice, each 2+): rolled 3, 2, 1, 6 → failed, falls' },
+              { type: 'fall', wounds: 1, rolls: [1, 5, 6, 4], text: 'Fell 4.0" (4 dice, 1-3 wounds): rolled 1, 5, 6, 4 → 1 wound' },
             ],
           },
         },
       });
       const { container } = setup(HOST, state);
       expect(container.textContent).toContain('Movement hazards');
-      expect(container.textContent).toContain('Jump down 4.0" (2 dice, all 3+)');
+      expect(container.textContent).toContain('Jump down 4.0" (4 dice, each 2+)');
       expect(container.textContent).toContain('Fell 4.0"');
     });
 
