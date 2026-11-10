@@ -256,8 +256,8 @@ describe('no shooting in place for an out-of-coherency squad', () => {
     expect(validateAction(state, shoot()).valid).toBe(true);
   });
 
-  it('exempts stunned units from the coherency block', () => {
-    const res = validateAction(build({ status: ['stunned'] }), shoot());
+  it('exempts Shaken units from the coherency block', () => {
+    const res = validateAction(build({ status: ['shaken'] }), shoot());
     expect(res.reason ?? '').not.toMatch(/coheren/i);
   });
 

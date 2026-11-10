@@ -150,7 +150,6 @@ describe('per-model movement budget: split squad charge', () => {
   const dice = (): DiceResult[] => [
     { rolls: Array(40).fill(1), total: 40, finalTotal: 40, purpose: 'to-hit' },
     { rolls: Array(40).fill(6), total: 240, finalTotal: 240, purpose: 'defense' },
-    { rolls: [1], total: 1, finalTotal: 1, purpose: 'trauma' },
   ];
 
   it('regression: the furthest mover in each leg does not cost a squad-mate its distance', () => {

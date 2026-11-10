@@ -551,6 +551,10 @@ describe('activation hazard test', () => {
   it('a hold that starts the activation is tested too', () => {
     const s = makeState([makeUnit('u', P(0, 0, 0))], [pool]);
     const hold = createAction(HOST, 'hold', { type: 'hold', unitId: 'u' });
-    expect(getDiceSpecs(s, hold)).toEqual([{ count: 1, sides: 6, purpose: 'activation_hazard' }]);
+    // A hold ends the activation at once, so the hazard wound can owe the unit a Morale Test (one spare die)
+    expect(getDiceSpecs(s, hold)).toEqual([
+      { count: 1, sides: 6, purpose: 'activation_hazard' },
+      { count: 1, sides: 6, purpose: 'morale' },
+    ]);
   });
 });

@@ -134,7 +134,7 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
 
   it('a failed jump falls into the gap and lands on the ground, ending the activation', () => {
     const act = moveAction([takeoff, landing], { kind: 'jump-gap', takeoff, landing });
-    const out = applyAction(state, act, [roll('gap_jump', [1, 1]), roll('falling_defense', [6]), roll('trauma', [1])]);
+    const out = applyAction(state, act, [roll('gap_jump', [1, 1]), roll('falling_defense', [6])]);
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
     expect(u.position.y).toBe(0);

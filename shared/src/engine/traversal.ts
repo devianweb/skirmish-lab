@@ -466,7 +466,7 @@ export function calculateFallingDamage(
 }
 
 /**
- * Resolves falling damage defense roll and trauma for a unit that plummeted.
+ * Resolves the falling damage defense roll for a unit that plummeted.
  */
 export function resolveFallingDamage(
   unit: Unit,
@@ -884,7 +884,7 @@ export function allocateSquadCasualties(
     const alive = unit.models.filter((m) => !m.isDestroyed);
     if (alive.length <= 1) {
       // Last surviving model is not auto-destroyed by multi-model loop;
-      // it takes damage via normal unit trauma/tough logic
+      // it takes the rest as ordinary wounds
       break;
     }
     const victim = alive[0];

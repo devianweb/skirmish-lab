@@ -71,7 +71,6 @@ const roll = (purpose: string, rolls: number[]): DiceResult => ({
 const meleeDice = (n = 40): DiceResult[] => [
   roll('to-hit', Array(n).fill(1)),
   roll('defense', Array(n).fill(6)),
-  roll('trauma', [1]),
 ];
 
 const startsOf = (state: GameState, id = 'h1') => livingModelPositions(state.units.find((u) => u.id === id)!);

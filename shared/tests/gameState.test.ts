@@ -170,17 +170,17 @@ describe('gameState', () => {
       expect(result.reason).toBe('Unit is routed and cannot activate');
     });
 
-    it('should allow activating a stunned unit (activation is spent clearing the stun)', () => {
+    it('should allow activating a Shaken unit (it can only end the activation idle)', () => {
       const state = createInitialGameState('h1', 'g1');
-      state.units = [makeUnit({ status: ['stunned'] })];
+      state.units = [makeUnit({ status: ['shaken'] })];
       const action = createAction('h1', 'activate-unit', { type: 'activate-unit', unitId: 'u1' });
       const result = validateActionBasic(action, state);
       expect(result.valid).toBe(true);
     });
 
-    it('should reject acting with a stunned unit inside an activation', () => {
+    it('should reject acting with a Shaken unit inside an activation', () => {
       const state = createInitialGameState('h1', 'g1');
-      state.units = [makeUnit({ status: ['stunned'] })];
+      state.units = [makeUnit({ status: ['shaken'] })];
       const action = createAction('h1', 'advance', {
         type: 'advance',
         unitId: 'u1',
@@ -189,7 +189,7 @@ describe('gameState', () => {
       });
       const result = validateActionBasic(action, state);
       expect(result.valid).toBe(false);
-      expect(result.reason).toBe('Unit is stunned or routed and cannot act');
+      expect(result.reason).toBe('Unit is Shaken or routed and cannot act');
     });
 
     it('should validate attackerId-based actions (shoot)', () => {

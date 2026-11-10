@@ -4,7 +4,6 @@ import {
   getAttackDiceSpecs,
   resolveAttack,
   resolveMoraleTest,
-  resolveTraumaRoll,
 } from '../../src/engine/combat';
 
 describe('combat: core Quality / Defense & Cover axioms', () => {
@@ -115,14 +114,13 @@ describe('combat: core Quality / Defense & Cover axioms', () => {
     ).toThrow(/Incomplete dice results/);
   });
 
-  it('extracts to-hit, defense, regeneration, and trauma rolls from server results by purpose', () => {
+  it('extracts to-hit, defense, and regeneration rolls from server results by purpose', () => {
     const rolls = extractAttackRolls([
       { rolls: [3, 5], total: 8, finalTotal: 8, purpose: 'to-hit' },
       { rolls: [6, 2], total: 8, finalTotal: 8, purpose: 'defense' },
       { rolls: [5], total: 5, finalTotal: 5, purpose: 'regeneration' },
-      { rolls: [4], total: 4, finalTotal: 4, purpose: 'trauma' },
     ]);
-    expect(rolls).toEqual({ toHit: [3, 5], defense: [6, 2], regeneration: [5], trauma: [4] });
+    expect(rolls).toEqual({ toHit: [3, 5], defense: [6, 2], regeneration: [5] });
   });
 
   it('throws when results are missing a required purpose', () => {
@@ -309,39 +307,42 @@ describe('combat: special rules & weapon traits', () => {
   });
 });
 
-describe('combat: Trauma Table & Morale resolution', () => {
-  it('resolveTraumaRoll: 1-5 results in shaken (natural 1 always shaken), 6+ results in knocked-out', () => {
-    expect(resolveTraumaRoll(4, 1).outcome).toBe('shaken');      // 4 + 1 = 5
-    expect(resolveTraumaRoll(5, 1).outcome).toBe('knocked-out'); // 5 + 1 = 6
-    expect(resolveTraumaRoll(1, 10).outcome).toBe('shaken');     // natural 1 always shaken
-    expect(resolveTraumaRoll(3, 1, 2).outcome).toBe('knocked-out'); // 3 + 1 + Fear(2) = 6
+describe('combat: Morale resolution', () => {
+  it('a Quality test: passes on a roll that meets Quality, 1 always fails, 6 always passes', () => {
+    expect(resolveMoraleTest({ quality: 4, roll: 4 })).toMatchObject({ passed: true, outcome: 'passed' });
+    expect(resolveMoraleTest({ quality: 4, roll: 3 })).toMatchObject({ passed: false, outcome: 'shaken' });
+    expect(resolveMoraleTest({ quality: 2, roll: 1 }).passed).toBe(false);
+    expect(resolveMoraleTest({ quality: 6, roll: 6 }).passed).toBe(true);
   });
 
-  it('resolveMoraleTest: handles Steadfast, Hero quality, Fearless, Iron Will, and already-shaken routing', () => {
-    // Already shaken unit auto-fails and routs.
-    expect(resolveMoraleTest({ quality: 4, roll: 6, alreadyShaken: true }).outcome).toBe('routed');
+  it('a Shaken unit always fails, even on a 6, and a failure is Shaken (not routed)', () => {
+    const out = resolveMoraleTest({ quality: 4, roll: 6, alreadyShaken: true });
+    expect(out).toMatchObject({ passed: false, outcome: 'shaken' });
+    expect(resolveMoraleTest({ quality: 4, alreadyShaken: true }).passed).toBe(false); // no roll needed
+  });
 
-    // Steadfast (+1) turns a roll of 3 into 4 >= Q4+ (passed).
+  it('Steadfast (+1) turns a roll of 3 into a pass against Quality 4', () => {
+    expect(resolveMoraleTest({ quality: 4, roll: 3, specialRules: ['steadfast'] }).outcome).toBe('passed');
+  });
+
+  it('a Hero lends a better Quality, never a worse one', () => {
+    expect(resolveMoraleTest({ quality: 6, roll: 4, heroQuality: 4 }).outcome).toBe('passed');
+    expect(resolveMoraleTest({ quality: 3, roll: 3, heroQuality: 5 })).toMatchObject({ effectiveQuality: 3, passed: true });
+  });
+
+  it('Fearless: 4+ on the extra die saves a failure, including the automatic one while Shaken', () => {
+    const saved = resolveMoraleTest({ quality: 4, roll: 2, specialRules: ['fearless'], fearlessRoll: 4 });
+    expect(saved.outcome).toBe('passed');
+    expect(saved.fearlessSaved).toBe(true);
+    expect(resolveMoraleTest({ quality: 4, roll: 2, specialRules: ['fearless'], fearlessRoll: 3 }).outcome).toBe('shaken');
+    const shaken = resolveMoraleTest({ quality: 4, alreadyShaken: true, specialRules: ['fearless'], fearlessRoll: 4 });
+    expect(shaken).toMatchObject({ passed: true, fearlessSaved: true });
     expect(
-      resolveMoraleTest({ quality: 4, roll: 3, specialRules: ['steadfast'] }).outcome
-    ).toBe('passed');
+      resolveMoraleTest({ quality: 4, alreadyShaken: true, specialRules: ['fearless'], fearlessRoll: 3 }).outcome
+    ).toBe('shaken');
+  });
 
-    // Hero quality (Q4+) lets a Q6+ Conscript pass on a 4.
-    expect(
-      resolveMoraleTest({ quality: 6, roll: 4, heroQuality: 4 }).outcome
-    ).toBe('passed');
-
-    // Fearless turns a failed morale roll into passed on a 4+ fearlessRoll.
-    const fearlessPass = resolveMoraleTest({
-      quality: 4,
-      roll: 2,
-      specialRules: ['fearless'],
-      fearlessRoll: 4,
-    });
-    expect(fearlessPass.outcome).toBe('passed');
-    expect(fearlessPass.fearlessSaved).toBe(true);
-
-    // Iron Will (No Retreat) counts failed morale as passed and deals self-wounds on 1-3.
+  it('Iron Will counts a failed test as passed and deals self-wounds on 1-3', () => {
     const ironWill = resolveMoraleTest({
       quality: 4,
       roll: 2,

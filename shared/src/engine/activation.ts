@@ -1,6 +1,7 @@
 import {
   GameState,
   MAX_ROUNDS,
+  MoraleTestRecord,
   Objective,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
   OBJECTIVE_CONTROL_RADIUS,
@@ -9,7 +10,7 @@ import {
 import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { hasTrait } from '../rules/traits';
-import { MoraleTestOutcome, resolveMoraleTest } from './combat';
+import { resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
 import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
@@ -25,8 +26,8 @@ import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } f
  *   4. When every unit has activated, the round ends: activations reset and
  *      the new round starts with the other player as the starting player.
  *
- * A stunned unit may still be activated — spending the activation is what
- * clears the stun. Routed units cannot activate at all.
+ * A Shaken unit may still be activated: it ends its activation idle, which clears Shaken. Routed units
+ * cannot activate at all.
  */
 
 /** Units a player may still activate this round: alive, not yet activated, not routed. */
@@ -183,82 +184,122 @@ export function endRound(state: GameState): void {
   }
 }
 
-/**
- * True when `playerId`'s surviving non-routed units are at or below 50% of
- * their starting unit count (triggers Round-End Army Morale tests).
- */
-export function isArmyBroken(state: GameState, playerId: string): boolean {
-  const allUnits = state.units.filter((u) => u.ownerId === playerId);
-  if (allUnits.length === 0) return false;
-  const surviving = allUnits.filter(
-    (u) => !u.isDestroyed && !u.status.includes('routed')
-  );
-  return surviving.length > 0 && surviving.length * 2 <= allUnits.length;
+// ============================================================================
+// Morale (end of activation)
+// ============================================================================
+
+/** Friendly Heroes within this base-edge distance lend their Quality to Morale Tests. */
+export const HERO_MORALE_RANGE = 6;
+
+/** Total wounds the living models of a unit have left (a unit without models falls back to its own wounds). */
+export function unitWoundsLeft(unit: Unit): number {
+  if (!unit.models || unit.models.length === 0) return Math.max(0, unit.wounds);
+  return unit.models.filter((m) => !m.isDestroyed).reduce((sum, m) => sum + Math.max(0, m.wounds), 0);
 }
 
-/**
- * Return all surviving units across both players that must take a Round-End
- * Morale test because their army is Broken (<= 50% starting units).
- */
-export function getUnitsRequiringRoundMorale(state: GameState): Unit[] {
-  const result: Unit[] = [];
-  for (const playerId of [state.hostId, state.guestId]) {
-    if (!isArmyBroken(state, playerId)) continue;
-    for (const unit of state.units) {
-      if (
-        unit.ownerId === playerId &&
-        !unit.isDestroyed &&
-        !unit.status.includes('routed')
-      ) {
-        result.push(unit);
-      }
-    }
+/** Record every living unit's wounds so the end of the activation can tell who took a wound. */
+export function recordWoundBaseline(state: GameState): void {
+  const baseline: Record<string, number> = {};
+  for (const unit of state.units) {
+    if (!unit.isDestroyed) baseline[unit.id] = unitWoundsLeft(unit);
   }
-  return result;
+  state.turnState.woundBaseline = baseline;
+  state.turnState.meleeUnitIds = [];
+}
+
+/** Note that units were in melee during this activation (they skip the wound-based Morale Test). */
+export function markInMelee(state: GameState, ...unitIds: string[]): void {
+  const list = state.turnState.meleeUnitIds ?? (state.turnState.meleeUnitIds = []);
+  for (const id of unitIds) if (!list.includes(id)) list.push(id);
+}
+
+/** The Tough value of a single-model unit (its model's maximum wounds, at least 1). */
+function singleModelTough(unit: Unit): number {
+  const model = (unit.models ?? [])[0];
+  return Math.max(1, model?.maxWounds ?? unit.maxWounds ?? 1);
 }
 
 /**
- * Apply Round-End Morale tests to all units in broken armies using pre-rolled
- * server morale dice (`purpose: 'morale'`, plus optional `purpose: 'fearless'`).
+ * True when the unit is at half strength or less: for several models, living models x 2 <= starting
+ * models; for a single model, remaining wounds x 2 <= Tough.
  */
-export function applyRoundEndMorale(
+export function isAtHalfOrLess(unit: Unit): boolean {
+  const total = (unit.models ?? []).length;
+  if (total > 1) {
+    const living = unit.models.filter((m) => !m.isDestroyed).length;
+    return living * 2 <= total;
+  }
+  return unitWoundsLeft(unit) * 2 <= singleModelTough(unit);
+}
+
+/**
+ * Units that owe a Morale Test at the end of the current activation, in state order: alive, took at least
+ * one wound since the activation began, were not in melee, and are now at half strength or less.
+ */
+export function getUnitsRequiringMorale(state: GameState): Unit[] {
+  const baseline = state.turnState.woundBaseline;
+  if (!baseline) return [];
+  const melee = state.turnState.meleeUnitIds ?? [];
+  return state.units.filter((u) => {
+    if (u.isDestroyed || u.status.includes('routed')) return false;
+    if (melee.includes(u.id)) return false;
+    const before = baseline[u.id];
+    if (before === undefined || unitWoundsLeft(u) >= before) return false;
+    return isAtHalfOrLess(u);
+  });
+}
+
+/** Fearless is a unit rule here, so a Fearless unit is one where most (all) models have it. */
+function isFearlessUnit(unit: Unit): boolean {
+  return hasTrait(unit.specialRules, 'fearless');
+}
+
+/**
+ * Dice a set of Morale Tests needs: one d6 for each unit that is not already Shaken (a Shaken unit fails
+ * without rolling) and one Fearless d6 for each Fearless unit (rolled after the failure, even an automatic one).
+ */
+export function moraleDiceCounts(units: Unit[]): { morale: number; fearless: number } {
+  return {
+    morale: units.filter((u) => !u.status.includes('shaken')).length,
+    fearless: units.filter(isFearlessUnit).length,
+  };
+}
+
+/** The best Quality a friendly, living, non-Shaken Hero within 6" offers `unit` (if any). */
+export function heroQualityFor(state: GameState, unit: Unit): number | undefined {
+  const heroes = state.units.filter(
+    (c) =>
+      c.ownerId === unit.ownerId &&
+      !c.isDestroyed &&
+      !c.status.includes('shaken') &&
+      !c.status.includes('routed') &&
+      hasTrait(c.specialRules, 'hero') &&
+      unitDistance(c, unit) <= HERO_MORALE_RANGE + 0.001
+  );
+  return heroes.length > 0 ? Math.min(...heroes.map((c) => c.quality)) : undefined;
+}
+
+/**
+ * Take the end-of-activation Morale Tests with pre-rolled server dice (`morale`, plus `fearless`), in the
+ * order `getUnitsRequiringMorale` lists the units. A failed test makes the unit Shaken.
+ */
+export function applyEndOfActivationMorale(
   state: GameState,
   moraleRolls: number[],
   fearlessRolls: number[] = []
-): Array<{ unitId: string; outcome: MoraleTestOutcome }> {
-  const unitsToTest = getUnitsRequiringRoundMorale(state);
-  const outcomes: Array<{ unitId: string; outcome: MoraleTestOutcome }> = [];
+): MoraleTestRecord[] {
+  const records: MoraleTestRecord[] = [];
   let rollIdx = 0;
   let fearlessIdx = 0;
 
-  for (const unit of unitsToTest) {
-    if (rollIdx >= moraleRolls.length) break;
-    const roll = moraleRolls[rollIdx++];
-    const alreadyShaken =
-      unit.status.includes('shaken') || unit.status.includes('stunned');
+  for (const unit of getUnitsRequiringMorale(state)) {
+    const alreadyShaken = unit.status.includes('shaken');
+    const roll = alreadyShaken ? undefined : moraleRolls[rollIdx++];
+    if (!alreadyShaken && roll === undefined) break;
+    const fearlessRoll = isFearlessUnit(unit) ? fearlessRolls[fearlessIdx++] : undefined;
+    const heroQuality = heroQualityFor(state, unit);
 
-    // Check for friendly Hero within 12" who is not shaken/routed.
-    const commanders = state.units.filter(
-      (c) =>
-        c.ownerId === unit.ownerId &&
-        !c.isDestroyed &&
-        !c.status.includes('shaken') &&
-        !c.status.includes('stunned') &&
-        !c.status.includes('routed') &&
-        hasTrait(c.specialRules, 'hero') &&
-        unitDistance(c, unit) <= 12.01
-    );
-    const heroQuality =
-      commanders.length > 0
-        ? Math.min(...commanders.map((c) => c.quality))
-        : undefined;
-
-    const fearlessRoll =
-      hasTrait(unit.specialRules, 'fearless') && fearlessIdx < fearlessRolls.length
-        ? fearlessRolls[fearlessIdx++]
-        : undefined;
-
-    const testOutcome = resolveMoraleTest({
+    const result = resolveMoraleTest({
       quality: unit.quality,
       roll,
       specialRules: unit.specialRules,
@@ -272,20 +313,22 @@ export function applyRoundEndMorale(
       unit.specialRules = unit.specialRules.filter((r) => r !== 'morale-debuff');
     }
 
-    if (testOutcome.outcome === 'shaken') {
-      if (!unit.status.includes('shaken')) unit.status.push('shaken');
-      if (!unit.status.includes('stunned')) unit.status.push('stunned');
-    } else if (testOutcome.outcome === 'routed') {
-      if (!unit.status.includes('routed')) unit.status.push('routed');
-      unit.isDestroyed = true;
-      unit.wounds = 0;
-      unit.status = unit.status.filter((s) => s !== 'engaged');
-    }
+    if (result.outcome === 'shaken' && !unit.status.includes('shaken')) unit.status.push('shaken');
 
-    outcomes.push({ unitId: unit.id, outcome: testOutcome });
+    // The Fearless die only matters (and is only shown) when the test itself failed.
+    const testFailed = alreadyShaken || result.fearlessSaved || !result.passed;
+    records.push({
+      unitId: unit.id,
+      unitName: unit.name,
+      ...(roll !== undefined ? { roll } : {}),
+      effectiveQuality: result.effectiveQuality,
+      ...(fearlessRoll !== undefined && testFailed ? { fearlessRoll } : {}),
+      passed: result.passed,
+      outcome: result.outcome,
+    });
   }
 
-  return outcomes;
+  return records;
 }
 
 // ============================================================================

@@ -400,7 +400,7 @@ describe('host: jumps must be declared', () => {
     expect(validateAction(state, action).valid).toBe(true);
     const specs = getDiceSpecs(state, action)!;
     expect(specs.find((s) => s.purpose === 'gap_jump')?.count).toBe(2);
-    const out = applyAction(state, action, [roll('gap_jump', [4, 6]), roll('falling_defense', [6]), roll('trauma', [6])]);
+    const out = applyAction(state, action, [roll('gap_jump', [4, 6]), roll('falling_defense', [6])]);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     const u = out.state.units[0];
@@ -418,7 +418,6 @@ describe('host: jumps must be declared', () => {
     const out = applyAction(state, moveAction([takeoff, landing], declared), [
       roll('gap_jump', [2, 6]),
       roll('falling_defense', [1]),
-      roll('trauma', [1]),
     ]);
     expect(out.ok).toBe(true);
     if (!out.ok) return;

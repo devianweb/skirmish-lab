@@ -186,7 +186,6 @@ describe('squad shooting: cover by majority', () => {
     const rolls = [
       { rolls: [5], total: 5, finalTotal: 0, purpose: 'to-hit' },
       { rolls: [4], total: 4, finalTotal: 0, purpose: 'defense' },
-      { rolls: [1], total: 1, finalTotal: 0, purpose: 'trauma' },
     ];
     const run = (target: Unit) => {
       const res = applyAction(makeState([shooter, target], [barricade]), shootAction(), rolls);
