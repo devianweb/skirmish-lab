@@ -287,7 +287,6 @@ describe('who strikes in melee', () => {
     const rolls: DiceResult[] = [
       { purpose: 'to-hit', rolls: [1, 1, 1, 1, 1, 1] } as DiceResult,
       { purpose: 'defense', rolls: [6, 6, 6, 6, 6, 6] } as DiceResult,
-      { purpose: 'trauma', rolls: [1] } as DiceResult,
     ];
     const out = applyAction(state, charge, rolls);
     expect(out.ok).toBe(true);

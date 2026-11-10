@@ -75,6 +75,8 @@ interface TurnState {
   roundStartTime?: number;
   pendingReaction?: PendingReaction | null; // Active reaction prompt awaiting player decision
   charge?: ChargeState | null; // Declared split charge in progress (batch 1D PR 16); cleared by the final charge, a fall or the end of the activation
+  woundBaseline?: Record<string, number>; // 14C-2: wounds each living unit had when the active unit's activation began (unit id -> total wounds across living models); the end-of-activation Morale Test trigger compares against it; cleared when the activation ends
+  meleeUnitIds?: string[];     // 14C-2: units that fought in melee during this activation (they skip the wound-based Morale Test); cleared when the activation ends
 }
 
 /** A charge declared on a target and made in legs. The budget is the unit's remainingMovement. */
@@ -100,8 +102,10 @@ interface PendingReaction {
 }
 
 // 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
-// CasualtyEntry = { unitId, count, remainingWounds, applications: { wounds, traumaRolls?, fearBonus, deadlyValue }[] }
+// CasualtyEntry = { unitId, count, applications: { wounds, deadlyValue }[] }
 // CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
+
+// MoraleTestRecord = { unitId, unitName, roll?: number /* absent when already Shaken */, effectiveQuality, fearlessRoll?, passed, outcome: 'passed' | 'shaken' | 'routed' }
 
 interface ReactionOption {
   id: string;                  // e.g. 'strike-back' | 'decline'
@@ -192,9 +196,8 @@ interface Vector3 {
 ## Unit Status
 ```typescript
 type UnitStatus = 
-  | 'stunned'         // Cannot act on next activation; clears at activation start
-  | 'shaken'          // Morale failure state (restrictions per ruleset data)
-  | 'routed'          // Fleeing / forced move state
+  | 'shaken'          // Failed a Morale Test: may only end its activation idle (then recovers), always fails Morale Tests, strikes back as Fatigued, cannot seize or contest objectives
+  | 'routed'          // Removed as destroyed by a failed melee Morale Test
   | 'engaged'         // In melee engagement range
   | 'in-cover'        // Benefit from cover (defense modifier)
   | { type: 'custom', name: string, data?: any };
@@ -438,11 +441,7 @@ interface DiceResolution {
     hitModifiers?: string[];
     baseDefense?: number;
     defenseModifiers?: string[];
-    traumaRoll?: number;
-    traumaTokens?: number;
-    traumaFearBonus?: number;
-    traumaTotal?: number;
-    traumaOutcome?: 'shaken' | 'knocked-out';
+    moraleTests?: MoraleTestRecord[]; // 14C-2: Morale Tests taken at the end of an activation (attached to the end-activation / hold / fall log entry)
     retaliation?: RetaliationOutcome;
     pushedBack?: boolean;
     pushBackPosition?: Vector3;

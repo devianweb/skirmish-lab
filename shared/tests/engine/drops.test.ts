@@ -27,7 +27,7 @@ function makeUnit(id: string, position: Vector3, rules: string[] = []): Unit {
     position: { ...position },
     rotation: { x: 0, y: 0, z: 0 },
     status: [],
-    wounds: 0,
+    wounds: 3,
     maxWounds: 3,
     isActivated: false,
     isDestroyed: false,
@@ -175,10 +175,9 @@ describe('drops: resolution through the host', () => {
     const out = applyAction(state, moveAction(dropPath(4), jumpDecl(4)), [
       roll('drop_jump', [3, 5]),
       roll('falling_defense', [1]),
-      roll('trauma', [6]),
     ]);
     const u = out.state.units[0];
-    expect(u.wounds).toBe(0);
+    expect(u.wounds).toBe(3);
     expect(u.position.y).toBe(0);
     expect(out.state.turnState.activeUnitId).toBe('u'); // activation not forced to end
     // The dice story is in the action log so both players see the rolls
@@ -195,9 +194,8 @@ describe('drops: resolution through the host', () => {
     const out = applyAction(state, moveAction(dropPath(4), jumpDecl(4)), [
       roll('drop_jump', [3, 2]),
       roll('falling_defense', [1]), // natural 1 always fails the save
-      roll('trauma', [1]),
     ]);
-    expect(out.state.units[0].wounds).toBeGreaterThan(0);
+    expect(out.state.units[0].wounds).toBeLessThan(3);
     expect(out.state.turnState.activeUnitId).not.toBe('u'); // activation ended
     const events = out.state.actionLog[out.state.actionLog.length - 1].dice!.outcome.traversal!;
     expect(events.map((e) => e.type)).toEqual(['drop-jump', 'fall']);

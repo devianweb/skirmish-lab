@@ -107,11 +107,11 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   fear: {
     displayName: 'Fear',
-    description: 'Adds X to the melee trauma roll when at least 1 wound is dealt.',
+    description: 'Counts as X extra wounds against its enemy when melee results are compared.',
   },
   fearless: {
     displayName: 'Fearless',
-    description: 'After failing a morale test, rolls 1d6: on a 4+ the test counts as passed.',
+    description: 'After failing a Morale Test (even an automatic failure while Shaken), rolls 1d6: on a 4+ the test counts as passed.',
   },
   flying: {
     displayName: 'Flying',
@@ -123,7 +123,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   hero: {
     displayName: 'Hero',
-    description: 'Friendly units within 12" may use this unit Quality for morale tests.',
+    description: 'Friendly units within 6" may use this unit\'s Quality for Morale Tests while it is not Shaken.',
   },
   immobile: {
     displayName: 'Immobile',
@@ -183,7 +183,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   tough: {
     displayName: 'Tough',
-    description: 'Accumulates wounds up to X before rolling trauma; removed from play on a trauma total of 5+X.',
+    description: 'A model is removed once it has taken X wounds.',
   },
   unstoppable: {
     displayName: 'Unstoppable',

@@ -92,7 +92,6 @@ function ok(state: GameState, action: GameAction, dice?: DiceResult[]): GameStat
 const meleeDice = (): DiceResult[] => [
   roll('to-hit', [1, 1]),
   roll('defense', [6, 6]),
-  roll('trauma', [1]),
 ];
 
 /** Charger on deck A, enemy across the gap on deck B. */
@@ -268,7 +267,7 @@ describe('split charge: jumping mid-charge', () => {
 
     const jumpLeg = leg([takeoff, landing], jump);
     expect(validateAction(state, jumpLeg)).toEqual({ valid: true });
-    expect(getDiceSpecs(state, jumpLeg)?.map((s) => s.purpose)).toEqual(['gap_jump', 'falling_defense', 'trauma']);
+    expect(getDiceSpecs(state, jumpLeg)?.map((s) => s.purpose)).toEqual(['gap_jump', 'falling_defense', 'morale']);
     expect(getDiceSpecs(state, jumpLeg)?.[0].count).toBe(2);
     state = ok(state, jumpLeg, [roll('gap_jump', [3, 4])]);
     // a passed jump costs no movement

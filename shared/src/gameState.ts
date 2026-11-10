@@ -120,8 +120,8 @@ function unitHasStatus(unit: Unit, status: Exclude<UnitStatus, { type: 'custom' 
  *   2. Game not over
  *   3. It is the actor's turn to act (activation order)
  *   4. For unit-targeting actions: unit exists, is owned by the actor, is not
- *      destroyed, and is not stunned/routed (except that a stunned unit may
- *      still be activated - its activation is spent clearing the stun).
+ *      destroyed, and is not Shaken/routed (except that a Shaken unit may
+ *      still be activated - it can only end that activation idle).
  *
  * Full validation (movement allowance, LOS, range, engagement, sequencing
  * within an activation) is the rules engine's job and is not checked here.
@@ -156,9 +156,8 @@ export function validateActionBasic(action: GameAction, state: GameState): { val
     if (action.type === 'activate-unit' || action.type === 'hold') {
       // Starting an activation (hold is a one-step activation: the unit
       // activates, does nothing, and the activation ends). The unit must not
-      // have already activated this round. A stunned unit may activate (its
-      // activation is spent clearing the stun), but a routed unit cannot
-      // activate at all.
+      // have already activated this round. A Shaken unit may activate (it can
+      // only end the activation idle), but a routed unit cannot activate at all.
       if (state.turnState.unitsActivatedThisRound.includes(unitId) || unit.isActivated) {
         return { valid: false, reason: 'Unit already activated this round' };
       }
@@ -166,9 +165,9 @@ export function validateActionBasic(action: GameAction, state: GameState): { val
         return { valid: false, reason: 'Unit is routed and cannot activate' };
       }
     } else {
-      // Acting within an activation: stunned and routed units cannot act.
-      if (unitHasStatus(unit, 'stunned') || unitHasStatus(unit, 'routed')) {
-        return { valid: false, reason: 'Unit is stunned or routed and cannot act' };
+      // Acting within an activation: Shaken and routed units cannot act.
+      if (unitHasStatus(unit, 'shaken') || unitHasStatus(unit, 'routed')) {
+        return { valid: false, reason: 'Unit is Shaken or routed and cannot act' };
       }
     }
   }

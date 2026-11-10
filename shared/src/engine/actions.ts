@@ -5,6 +5,7 @@ import {
   ActionLogEntry,
   DiceResolution,
   GameAction,
+  MoraleTestRecord,
   GameState,
   TraversalEvent,
   Model,
@@ -19,10 +20,13 @@ import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
   advanceActivation,
   advanceDeployment,
-  applyRoundEndMorale,
+  applyEndOfActivationMorale,
   endRound,
-  getUnitsRequiringRoundMorale,
+  getUnitsRequiringMorale,
   isRoundComplete,
+  markInMelee,
+  moraleDiceCounts,
+  recordWoundBaseline,
   validateDeploymentPosition,
 } from './activation';
 import {
@@ -32,8 +36,6 @@ import {
   extractRetaliationRolls,
   getAttackDiceSpecs,
   resolveAttack,
-  resolveTraumaRoll,
-  TraumaOutcome,
 } from './combat';
 import {
   computeSquadCentroid,
@@ -210,12 +212,12 @@ export function getActiveUnit(state: GameState): Unit | undefined {
  */
 /**
  * A squad that starts its activation out of coherency must spend it getting back
- * together: it may not Hold or end the activation without having moved. Stunned
- * units are exempt (their Hold only clears the stun and they cannot move).
+ * together: it may not Hold or end the activation without having moved. Shaken
+ * units are exempt (they cannot move; their idle activation only clears Shaken).
  * Returns a rejection, or null when the unit is free to hold/end.
  */
 function incoherentStartBlock(unit: Unit): { valid: false; reason: string } | null {
-  if (unit.status.includes('stunned')) return null;
+  if (unit.status.includes('shaken')) return null;
   const positions = (unit.models ?? [])
     .filter((m) => !m.isDestroyed)
     .map((m) => m.position ?? unit.position);
@@ -508,7 +510,7 @@ function applyActivationHazard(state: GameState, unit: Unit, action: GameAction,
     }`,
   });
   recordTraversal(action, unit, events, dice);
-  if (wounds > 0) applyWounds(unit, wounds, undefined, 0, 1, squad ? victims : undefined);
+  if (wounds > 0) applyWounds(unit, wounds, 1, squad ? victims : undefined);
 }
 
 /** Jump, hazard and fall dice a squad charge (leg) needs: jumpers roll tagged `m<index>_` dice in model order. */
@@ -1507,20 +1509,35 @@ export function validateAction(state: GameState, action: GameAction): Validation
  * that need no dice. Call after validateAction passes.
  */
 export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
-  if (action.type === 'end-round') {
-    const moraleUnits = getUnitsRequiringRoundMorale(state);
-    if (moraleUnits.length === 0) return null;
-    const specs: DiceSpec[] = [{ count: moraleUnits.length, sides: 6, purpose: 'morale' }];
-    const fearlessCount = moraleUnits.filter((u) => hasTrait(u.specialRules, 'fearless')).length;
-    if (fearlessCount > 0) {
-      specs.push({ count: fearlessCount, sides: 6, purpose: 'fearless' });
-    }
-    return specs;
+  const specs = getBaseDiceSpecs(state, action);
+  // A move that can end in a fall can wound the mover and so end its activation with a Morale Test
+  if (
+    specs &&
+    (action.type === 'advance' || action.type === 'rush' || action.type === 'charge-leg' || action.type === 'charge') &&
+    specs.some((sp) => /(^|_)(falling_defense|drop_jump|gap_jump)$/.test(sp.purpose ?? ''))
+  ) {
+    const payload = action.payload as { unitId?: string; attackerId?: string };
+    const mover = getUnit(state, payload.unitId ?? payload.attackerId ?? '');
+    if (mover) return [...specs, ...selfMoraleSpecs(mover)];
+  }
+  return specs;
+}
+
+function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
+  if (action.type === 'end-activation') {
+    // Every unit that took a wound this activation and is now at half strength or less tests Morale
+    const counts = moraleDiceCounts(getUnitsRequiringMorale(state));
+    const specs: DiceSpec[] = [];
+    if (counts.morale > 0) specs.push({ count: counts.morale, sides: 6, purpose: 'morale' });
+    if (counts.fearless > 0) specs.push({ count: counts.fearless, sides: 6, purpose: 'fearless' });
+    return specs.length > 0 ? specs : null;
   }
 
   if (action.type === 'activate-unit' || (action.type === 'hold' && !state.turnState.activeUnitId)) {
     const unit = getUnit(state, (action.payload as PayloadWithUnitId).unitId);
     const specs = unit ? activationHazardSpecs(state, unit) : [];
+    // A hold ends the activation at once, so wounds from the hazard test can owe a Morale Test
+    if (unit && action.type === 'hold' && specs.length > 0) specs.push(...selfMoraleSpecs(unit));
     return specs.length > 0 ? specs : null;
   }
 
@@ -1605,8 +1622,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
       isCharging: false,
       isFatigued: isTargetFatigued,
       distance: 1,
-      includeTrauma: true,
-    });
+          });
   }
 
   if (action.type === 'shoot') {
@@ -1639,8 +1655,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
         isMelee: false,
         isCharging: false,
         distance,
-        includeTrauma: true,
-      });
+              });
 
       if (isSingle) {
         allSpecs.push(...specs);
@@ -1720,8 +1735,7 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
     isMelee,
     isCharging: action.type === 'charge' || (isMelee && attacker.hasMoved),
     distance,
-    includeTrauma: true,
-  });
+      });
 
   if (action.type === 'charge') {
     const chargePayload = action.payload as { path?: Vector3[] } & SquadChargePayload;
@@ -1742,6 +1756,16 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
   return attackSpecs;
 }
 
+
+/**
+ * Morale dice a unit may need if what it does to itself (a fall, a hazard test) wounds it and ends its
+ * activation: one test die, and a Fearless die for Fearless units. Unused dice are simply not consumed.
+ */
+function selfMoraleSpecs(unit: Unit): DiceSpec[] {
+  const specs: DiceSpec[] = [{ count: 1, sides: 6, purpose: 'morale' }];
+  if (hasTrait(unit.specialRules, 'fearless')) specs.push({ count: 1, sides: 6, purpose: 'fearless' });
+  return specs;
+}
 
 /**
  * Dice a path's jumps, hazards and falls need. `prefix` tags the purposes (squad models), `singleModel`
@@ -1779,7 +1803,6 @@ function pathTraversalSpecs(
   const gapMayFall = gap.isGapJump && (path[0].y ?? 0) >= FALL_DAMAGE_MIN;
   if ((dropNeedsDice || gapMayFall) && opts.includeFallDice !== false) {
     specs.push({ count: 1, sides: 6, purpose: `${prefix}falling_defense` });
-    specs.push({ count: 1, sides: 6, purpose: `${prefix}trauma` });
   }
   return specs;
 }
@@ -1893,17 +1916,16 @@ export function applyTraversalHazardsAndFalls(
 
   // A fall ends the activation; with several squad models failing in one move it ends only once
   const endActivationOnce = () => {
-    if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice);
+    if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice, action);
   };
 
   // Fall damage roll helper shared by failed jumps and plain falls
   const resolveFall = (height: number, cause: string, forcedFall = false) => {
     const defRoll =
       dice?.find((d) => d.purpose === 'falling_defense')?.rolls[0] ?? payload.fallingDefenseRoll;
-    const traumaRolls = dice?.find((d) => d.purpose === 'trauma')?.rolls;
     const fallRes = resolveFallingDamage(unit, height, defRoll, forcedFall);
     if (fallRes.wounds > 0) {
-      applyWounds(unit, fallRes.wounds, traumaRolls);
+      applyWounds(unit, fallRes.wounds);
     }
     events.push({
       type: 'fall',
@@ -2158,8 +2180,7 @@ function pileInStrikeSpecs(state: GameState, action: GameAction): DiceSpec[] | n
     isMelee: true,
     isCharging: true,
     distance: pending.data?.chargeDistance ?? 1,
-    includeTrauma: true,
-  });
+      });
 }
 
 /**
@@ -2181,15 +2202,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     case 'activate-unit': {
       const { unitId } = action.payload as PayloadWithUnitId;
       const unit = getUnit(newState, unitId)!;
-      const wasSuppressed =
-        unit.status.includes('stunned') || unit.status.includes('shaken');
       beginActivation(newState, unit);
       applyActivationHazard(newState, unit, action, dice);
-      // A stunned/shaken unit spends its activation clearing suppression and
-      // passes initiative immediately (cannot move or attack on this activation).
+      // A Shaken unit stays the active unit but may only end its activation idle (which clears Shaken).
       // A unit the hazard test destroyed has nothing left to activate.
-      if (wasSuppressed || unit.isDestroyed) {
-        finishActivation(newState, dice);
+      if (unit.isDestroyed) {
+        finishActivation(newState, dice, action);
       }
       logEntry = acceptedEntry(action);
       break;
@@ -2203,7 +2221,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         applyActivationHazard(newState, unit, action, dice);
       }
       // A hold ends the unit's activation immediately without moving or acting.
-      finishActivation(newState, dice);
+      finishActivation(newState, dice, action);
       logEntry = acceptedEntry(action);
       break;
     }
@@ -2404,10 +2422,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
 
         let outcome: CombatOutcome;
-        let traumaRolls: number[] | undefined;
         try {
           const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
-          traumaRolls = rolls.trauma;
           outcome = resolveAttack(
             {
               quality: attacker.quality,
@@ -2438,7 +2454,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         }
 
         const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
-        const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, 0, deadlyValue);
+        applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
 
         totalAttackCount += outcome.attackCount;
         totalHitCount += outcome.hitCount;
@@ -2474,15 +2490,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           defenseModifiers: outcome.defenseModifiers,
           coverApplied: outcome.coverApplied,
           apApplied: outcome.apApplied,
-          ...(trauma
-            ? {
-                traumaRoll: trauma.roll,
-                traumaTokens: trauma.tokens,
-                traumaFearBonus: trauma.fearBonus,
-                traumaTotal: trauma.total,
-                traumaOutcome: trauma.outcome,
-              }
-            : {}),
         });
       }
 
@@ -2522,11 +2529,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           defenseModifiers: firstAlloc.defenseModifiers,
           coverApplied: firstAlloc.coverApplied,
           apApplied: firstAlloc.apApplied,
-          traumaRoll: firstAlloc.traumaRoll,
-          traumaTokens: firstAlloc.traumaTokens,
-          traumaFearBonus: firstAlloc.traumaFearBonus,
-          traumaTotal: firstAlloc.traumaTotal,
-          traumaOutcome: firstAlloc.traumaOutcome,
           allocations: allocationOutcomes,
         },
       };
@@ -2588,11 +2590,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
 
       let outcome: CombatOutcome;
-      let traumaRolls: number[] | undefined;
       try {
         if (!dice) throw new Error('Dice results required');
         const rolls = extractAttackRolls(dice);
-        traumaRolls = rolls.trauma;
         outcome = resolveAttack(
           {
             quality: attacker.quality,
@@ -2627,10 +2627,10 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         attacker.status.push('fatigued');
       }
 
-      const fearBonus = isMelee ? (getTraitValue(attacker.specialRules, 'fear') ?? 0) : 0;
       const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
       const ledger: WoundLedger = new Map();
-      const trauma = applyTrackedWounds(ledger, target, outcome.wounds, traumaRolls, fearBonus, deadlyValue);
+      applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
+      if (isMelee) markInMelee(newState, attacker.id, target.id);
       deferCasualties(newState, ledger, action.id, attacker, {
         kind: 'fight',
         attackerId: attacker.id,
@@ -2660,7 +2660,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           ...(outcome.regenerationSavedCount > 0 ? { regenerationSavedCount: outcome.regenerationSavedCount } : {}),
           wounds: outcome.wounds,
           targetDestroyed: target.isDestroyed,
-          ...(trauma?.outcome === 'shaken' ? { targetShaken: true } : {}),
+          ...(target.status.includes('shaken') ? { targetShaken: true } : {}),
           effectiveQuality: outcome.effectiveQuality,
           effectiveDefense: outcome.effectiveDefense,
           baseQuality: outcome.baseQuality,
@@ -2669,15 +2669,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           defenseModifiers: outcome.defenseModifiers,
           ...(outcome.coverApplied ? { coverApplied: true } : {}),
           ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
-          ...(trauma
-            ? {
-                traumaRoll: trauma.roll,
-                traumaTokens: trauma.tokens,
-                traumaFearBonus: trauma.fearBonus,
-                traumaTotal: trauma.total,
-                traumaOutcome: trauma.outcome,
-              }
-            : {}),
         },
       };
       logEntry = acceptedEntry(action, diceResolution);
@@ -2980,7 +2971,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         : defender.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
 
       let retCombat: ReturnType<typeof resolveAttack> | undefined;
-      let trauma: ReturnType<typeof applyWounds> | undefined;
       const ledger: WoundLedger = new Map();
 
       if (choiceId === 'strike-back' && defenderMelee && dice) {
@@ -3031,9 +3021,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           retRolls
         );
 
-        const retFearBonus = getTraitValue(defender.specialRules, 'fear') ?? 0;
         const retDeadlyValue = getTraitValue(defenderMelee.profile.specialRules, 'deadly') ?? 1;
-        trauma = applyTrackedWounds(ledger, charger, retCombat.wounds, retRolls.trauma, retFearBonus, retDeadlyValue);
+        applyTrackedWounds(ledger, charger, retCombat.wounds, retDeadlyValue);
+        markInMelee(newState, defender.id, charger.id);
 
         if (!defender.status.includes('fatigued')) {
           defender.status.push('fatigued');
@@ -3080,15 +3070,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
             defenseModifiers: retCombat.defenseModifiers,
             pushedBack,
             pushBackPosition: pushBackPos,
-            ...(trauma
-              ? {
-                  traumaRoll: trauma.roll,
-                  traumaTokens: trauma.tokens,
-                  traumaFearBonus: trauma.fearBonus,
-                  traumaTotal: trauma.total,
-                  traumaOutcome: trauma.outcome,
-                }
-              : {}),
           },
         };
       } else if (pushedBack) {
@@ -3162,13 +3143,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'end-activation': {
-      finishActivation(newState, dice);
+      finishActivation(newState, dice, action);
       logEntry = acceptedEntry(action);
       break;
     }
 
     case 'end-round': {
-      runMoraleIfProvided(newState, dice);
       endRound(newState);
       logEntry = acceptedEntry(action);
       break;
@@ -3299,10 +3279,10 @@ function resolveChargeStrike(
       rolls
     );
 
-    const fearBonus = getTraitValue(attacker.specialRules, 'fear') ?? 0;
     const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
     const ledger: WoundLedger = new Map();
-    const trauma = applyTrackedWounds(ledger, target, outcome.wounds, rolls.trauma, fearBonus, deadlyValue);
+    applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
+    markInMelee(newState, attacker.id, target.id);
     const targetShaken = target.status.includes('shaken');
     // A surviving squad that lost models: its owner picks who goes, then the strike-back / push-back follows
     const deferred = deferCasualties(newState, ledger, action.id, attacker, {
@@ -3350,15 +3330,6 @@ function resolveChargeStrike(
         defenseModifiers: outcome.defenseModifiers,
         coverApplied: false,
         ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
-        ...(trauma
-          ? {
-              traumaRoll: trauma.roll,
-              traumaTokens: trauma.tokens,
-              traumaFearBonus: trauma.fearBonus,
-              traumaTotal: trauma.total,
-              traumaOutcome: trauma.outcome,
-            }
-          : {}),
         pushedBack,
         ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
       },
@@ -3470,8 +3441,8 @@ function requireActiveUnit(state: GameState, actorId: string, unitId: string): R
   if (state.turnState.activeUnitId !== unitId) {
     return { valid: false, reason: 'Unit is not the active unit' };
   }
-  if (unit.status.includes('stunned') || unit.status.includes('routed')) {
-    return { valid: false, reason: 'Unit is stunned or routed and cannot act' };
+  if (unit.status.includes('shaken') || unit.status.includes('routed')) {
+    return { valid: false, reason: 'Unit is Shaken or routed and cannot act' };
   }
   return { result: unit };
 }
@@ -3536,27 +3507,36 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.remainingMovement = unit.speed;
   delete unit.activationHazardModelIds;
   resetModelMovement(unit);
-  unit.status = unit.status.filter((s) => s !== 'stunned' && s !== 'shaken');
+  recordWoundBaseline(state);
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
   state.turnState.charge = null;
   state.turnState.phase = 'activation';
 }
 
-function runMoraleIfProvided(state: GameState, dice?: DiceResult[]): void {
-  if (!dice) return;
-  const moraleRes = dice.find((d) => d.purpose === 'morale');
-  if (!moraleRes || moraleRes.rolls.length === 0) return;
-  const fearlessRes = dice.find((d) => d.purpose === 'fearless');
-  applyRoundEndMorale(state, moraleRes.rolls, fearlessRes?.rolls ?? []);
-}
+/** Morale Tests taken at the end of each action's activation, so the log entry can show them. */
+const moraleLog = new WeakMap<GameAction, MoraleTestRecord[]>();
 
-function finishActivation(state: GameState, dice?: DiceResult[]): void {
+/**
+ * End the active unit's activation: units that took a wound and are at half strength or less test Morale
+ * (server dice), the active unit sheds Shaken (its idle activation is over), then play passes on.
+ */
+function finishActivation(state: GameState, dice?: DiceResult[], action?: GameAction): void {
+  const active = getActiveUnit(state);
   state.turnState.activeUnitId = null;
   state.turnState.charge = null; // an unfinished declared charge is abandoned: no melee
-  if (isRoundComplete(state)) {
-    runMoraleIfProvided(state, dice);
+
+  const moraleRolls = dice?.find((d) => d.purpose === 'morale')?.rolls ?? [];
+  const fearlessRolls = dice?.find((d) => d.purpose === 'fearless')?.rolls ?? [];
+  // A Shaken active unit has spent its activation idle: it recovers before the tests, so it only tests
+  // again if it was wounded meanwhile
+  if (active && active.status.includes('shaken')) {
+    active.status = active.status.filter((s) => s !== 'shaken');
   }
+  const tests = applyEndOfActivationMorale(state, moraleRolls, fearlessRolls);
+  if (tests.length > 0 && action) moraleLog.set(action, tests);
+  delete state.turnState.woundBaseline;
+  delete state.turnState.meleeUnitIds;
   advanceActivation(state);
 }
 
@@ -3569,107 +3549,67 @@ export function getUnitTough(unit: Unit, finalModel?: Model): number {
   );
 }
 
-function applyWounds(
-  unit: Unit,
-  wounds: number,
-  traumaRolls?: number[],
-  fearBonus: number = 0,
-  deadlyValue: number = 1,
-  victimIds?: string[]
-): TraumaOutcome | undefined {
-  if (wounds <= 0) return undefined;
+/**
+ * Apply unblocked wounds to a unit. A model is killed (removed) when its wounds reach its Tough value; a
+ * wounded model keeps taking wounds until it dies before another model takes any. `victimIds` are the
+ * owner's picks (consumed in order) for who takes the wounds when a fresh model has to be chosen; without a
+ * pick the already-wounded model goes first, then the first living model. Deadly(X) wounds arrive in chunks of
+ * X for one hit: the excess of a chunk past the model it kills does not spill over.
+ */
+function applyWounds(unit: Unit, wounds: number, deadlyValue: number = 1, victimIds?: string[]): void {
+  if (wounds <= 0) return;
 
-  let remainingWounds = wounds;
+  if (!unit.models || unit.models.length === 0) {
+    unit.wounds = Math.max(0, unit.wounds - wounds);
+    if (unit.wounds <= 0) markUnitDestroyed(unit);
+    return;
+  }
 
-  // 1. Multi-model squad allocation: eliminate non-final models first.
-  // Deadly(X) excess wounds from a single hit do not spill over across models.
-  if (unit.models.length > 1) {
-    const step = Math.max(1, deadlyValue);
-    while (remainingWounds > 0) {
-      const alive = unit.models.filter((m) => !m.isDestroyed);
-      if (alive.length <= 1) break;
-      // The owner's picks (consumed in order) decide who goes; without them it is the first living model
+  const step = Math.max(1, deadlyValue);
+  let remaining = wounds;
+  let victim: Model | undefined;
+  while (remaining > 0) {
+    const alive = unit.models.filter((m) => !m.isDestroyed);
+    if (alive.length === 0) break;
+    if (!victim || victim.isDestroyed) {
       const wanted = victimIds?.shift();
-      const victim = (wanted ? alive.find((m) => m.id === wanted) : undefined) ?? alive[0];
-      const applied = Math.min(remainingWounds, Math.max(victim.wounds, step));
-      victim.wounds = 0;
-      victim.isDestroyed = true;
-      unit.wounds = Math.max(1, unit.wounds - 1);
-      remainingWounds -= applied;
+      victim =
+        (wanted ? alive.find((m) => m.id === wanted) : undefined) ??
+        alive.find((m) => m.wounds < m.maxWounds) ??
+        alive[0];
     }
-    const surviving = unit.models.filter((m) => !m.isDestroyed);
-    if (surviving.length > 0 && surviving.some((m) => m.position)) {
-      unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
-    }
+    const chunk = Math.min(remaining, step);
+    victim.wounds = Math.max(0, victim.wounds - chunk);
+    remaining -= chunk;
+    if (victim.wounds <= 0) victim.isDestroyed = true;
   }
 
-  if (remainingWounds <= 0) return undefined;
-
-  // 2. Final surviving model (or single-model unit): accumulate wounds.
-  const finalModel = unit.models.find((m) => !m.isDestroyed);
-  const toughValue = getUnitTough(unit, finalModel);
-  unit.traumaTokens = (unit.traumaTokens ?? 0) + remainingWounds;
-  unit.wounds = Math.max(0, toughValue - unit.traumaTokens);
-  if (finalModel) {
-    finalModel.wounds = unit.wounds;
+  const surviving = unit.models.filter((m) => !m.isDestroyed);
+  unit.wounds = surviving.reduce((sum, m) => sum + Math.max(0, m.wounds), 0);
+  if (surviving.length === 0) {
+    markUnitDestroyed(unit);
+    return;
   }
-
-  // Tough(X) rule (OPR v3.5.1):
-  // "This model only rolls to check wound effects once it has taken X wounds or more,
-  // and is only Knocked Out on rolls of 5+X or more."
-  if (unit.traumaTokens < toughValue) {
-    return undefined;
+  if (unit.models.length > 1 && surviving.some((m) => m.position)) {
+    unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
   }
+}
 
-  // 3. Reached Tough threshold: resolve Wound Effects if server trauma roll is present.
-  const koThreshold = 5 + toughValue;
-  if (traumaRolls && traumaRolls.length > 0) {
-    const trauma = resolveTraumaRoll(traumaRolls[0], unit.traumaTokens, fearBonus, koThreshold);
-
-    if (trauma.outcome === 'knocked-out') {
-      unit.wounds = 0;
-      unit.isDestroyed = true;
-      unit.status = unit.status.filter((s) => s !== 'engaged');
-      if (finalModel) {
-        finalModel.wounds = 0;
-        finalModel.isDestroyed = true;
-      }
-    } else {
-      // Suppressed (Shaken): remains in play on final HP with accumulated trauma tokens.
-      unit.wounds = 1;
-      if (!unit.status.includes('shaken')) unit.status.push('shaken');
-      if (!unit.status.includes('stunned')) unit.status.push('stunned');
-      if (finalModel) {
-        finalModel.wounds = 1;
-        finalModel.isDestroyed = false;
-      }
-    }
-    return trauma;
-  }
-
-  // Fallback when no trauma roll was supplied (e.g. legacy 2-spec test helpers).
+function markUnitDestroyed(unit: Unit): void {
   unit.wounds = 0;
   unit.isDestroyed = true;
   unit.status = unit.status.filter((s) => s !== 'engaged');
-  if (finalModel) {
-    finalModel.wounds = 0;
-    finalModel.isDestroyed = true;
+  for (const m of unit.models ?? []) {
+    m.wounds = 0;
+    m.isDestroyed = true;
   }
-  return undefined;
 }
 
 /** Wounds taken by multi-model units during one action, so each damaged unit's owner can be asked who goes. */
 type WoundLedger = Map<string, { snapshot: Unit; livingBefore: number; applications: WoundApplication[] }>;
 
 /** `applyWounds`, remembering the unit as it was and each application so the casualties can be deferred. */
-function applyTrackedWounds(
-  ledger: WoundLedger,
-  unit: Unit,
-  wounds: number,
-  traumaRolls?: number[],
-  fearBonus: number = 0,
-  deadlyValue: number = 1
-): TraumaOutcome | undefined {
+function applyTrackedWounds(ledger: WoundLedger, unit: Unit, wounds: number, deadlyValue: number = 1): void {
   const alive = livingModels(unit).length;
   if (wounds > 0 && alive >= 2) {
     let record = ledger.get(unit.id);
@@ -3677,14 +3617,9 @@ function applyTrackedWounds(
       record = { snapshot: snapshotUnit(unit), livingBefore: alive, applications: [] };
       ledger.set(unit.id, record);
     }
-    record.applications.push({
-      wounds,
-      ...(traumaRolls ? { traumaRolls: [...traumaRolls] } : {}),
-      fearBonus,
-      deadlyValue,
-    });
+    record.applications.push({ wounds, deadlyValue });
   }
-  return applyWounds(unit, wounds, traumaRolls, fearBonus, deadlyValue);
+  applyWounds(unit, wounds, deadlyValue);
 }
 
 /**
@@ -3705,9 +3640,8 @@ function deferCasualties(
     if (!unit || unit.isDestroyed) continue;
     const removed = record.livingBefore - livingModels(unit).length;
     if (removed <= 0) continue;
-    const carried = Math.max(0, (unit.traumaTokens ?? 0) - (record.snapshot.traumaTokens ?? 0));
     restoreUnit(unit, record.snapshot);
-    entries.push({ unitId, count: removed, remainingWounds: carried, applications: record.applications });
+    entries.push({ unitId, count: removed, applications: record.applications });
   }
   if (entries.length === 0) return null;
   const [entry, ...rest] = entries;
@@ -3721,11 +3655,11 @@ function deferCasualties(
   return reaction;
 }
 
-/** Remove the picked models from the damaged unit and put the rest of the wounds (and wound-effect roll) on the survivor. */
+/** Remove the picked models from the damaged unit and put the rest of the wounds on the survivors. */
 function replayCasualties(unit: Unit, entry: CasualtyEntry, victims: string[]): void {
   const ids = [...victims];
   for (const app of entry.applications) {
-    applyWounds(unit, app.wounds, app.traumaRolls, app.fearBonus, app.deadlyValue, ids);
+    applyWounds(unit, app.wounds, app.deadlyValue, ids);
   }
 }
 
@@ -3835,6 +3769,23 @@ function checkGameEnd(state: GameState): void {
 }
 
 function acceptedEntry(action: GameAction, dice?: DiceResolution): ActionLogEntry {
+  const morale = moraleLog.get(action);
+  const entry = acceptedEntryBase(action, dice);
+  if (morale && morale.length > 0) {
+    const resolution: DiceResolution = entry.dice ?? {
+      rollId: action.id,
+      specs: [],
+      results: [],
+      context: { attackerId: morale[0].unitId, targetId: morale[0].unitId, actionId: action.id },
+      outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, targetDestroyed: false },
+    };
+    resolution.outcome.moraleTests = morale;
+    entry.dice = resolution;
+  }
+  return entry;
+}
+
+function acceptedEntryBase(action: GameAction, dice?: DiceResolution): ActionLogEntry {
   const traversal = traversalLog.get(action);
   if (traversal && traversal.events.length > 0) {
     const wounds = traversal.events.reduce((sum, e) => sum + (e.wounds ?? 0), 0);

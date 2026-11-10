@@ -142,7 +142,7 @@ describe('squad declared jumps', () => {
     const state = makeState(makeSquad());
     // 3 models, 1 jumper: it is simply lost on a fall, so no falling dice
     const specs = getDiceSpecs(state, squadMove(state.units[0]))!;
-    expect(specs.map((s) => s.purpose)).toEqual(['m1_gap_jump']);
+    expect(specs.map((s) => s.purpose)).toEqual(['m1_gap_jump', 'morale']);
     expect(specs[0].count).toBe(2); // a 3.1" hop from spot to spot: one die per full 3" plus one
   });
 
@@ -184,21 +184,22 @@ describe('squad declared jumps', () => {
     const unit = makeSquad(3);
     unit.models[0].isDestroyed = true;
     unit.models[2].isDestroyed = true;
-    unit.wounds = 1;
+    unit.models[1].wounds = 2; // a Tough(2) model: the fall wound does not kill it
+    unit.models[1].maxWounds = 2;
+    unit.wounds = 2;
     unit.position = { ...takeoff };
     const state = makeState(unit);
     const action = squadMove(state.units[0]);
-    expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['m0_gap_jump', 'm0_falling_defense', 'm0_trauma']);
+    expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['m0_gap_jump', 'm0_falling_defense', 'morale']);
     const out = applyAction(state, action, [
       roll('m0_gap_jump', [1, 1, 1]),
       roll('m0_falling_defense', [1]),
-      roll('m0_trauma', [1]),
     ]);
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
     expect(u.models[1].isDestroyed).toBe(false);
     expect(u.position.y).toBe(0);
-    expect(u.traumaTokens).toBe(1);
+    expect(u.models[1].wounds).toBe(1);
     expect(out.state.turnState.activeUnitId).not.toBe('u');
   });
 
@@ -224,7 +225,7 @@ describe('squad declared jumps', () => {
       modelTraversals: [null, traversal, { kind: 'jump-gap', takeoff: takeoff2, landing: landing2 }],
     });
     expect(validateAction(state, action)).toEqual({ valid: true });
-    expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['m1_gap_jump', 'm2_gap_jump']);
+    expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['m1_gap_jump', 'm2_gap_jump', 'morale']);
     const out = applyAction(state, action, [roll('m1_gap_jump', [1, 1, 1]), roll('m2_gap_jump', [6, 6, 6])]);
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
@@ -315,7 +316,7 @@ describe('squad declared jumps', () => {
     it('keeps the dice request as it was (every jumper, in model order)', () => {
       const { state, action } = fourModel();
       expect(validateAction(state, action)).toEqual({ valid: true });
-      expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['m1_gap_jump', 'm2_gap_jump']);
+      expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['m1_gap_jump', 'm2_gap_jump', 'morale']);
     });
 
     it('model 2 fails: it is lost, model 3 stays at its take-off, walkers finish, the log says why', () => {

@@ -2,13 +2,12 @@ import { DiceSpec, DiceResult } from '../types';
 import { getTraitValue, hasTrait, sumTraitValue } from '../rules/traits';
 
 /**
- * Quality/Defense d6 combat, trauma, and morale resolution (first principles).
+ * Quality/Defense d6 combat and morale resolution (first principles).
  *
  * Core Axioms:
  *   - Natural 1 always fails; Natural 6 always succeeds.
  *   - To-Hit:  roll + hitMod >= baseQuality -> hit
  *   - Defense: roll + coverBonus + shieldBonus - ap >= defense -> hit blocked
- *   - Trauma:  1d6 + accumulatedTokens (natural 1 always Shaken; 1-5 Shaken, 6+ Knocked Out)
  *   - Morale:  1d6 + moraleMod >= effectiveQuality
  *
  * Dice are always rolled by the signaling server (never client-side).
@@ -18,23 +17,15 @@ export interface AttackRolls {
   toHit: number[];
   defense: number[];
   regeneration?: number[];
-  trauma?: number[];
-}
-
-export interface TraumaOutcome {
-  roll: number;
-  tokens: number;
-  fearBonus: number;
-  total: number;
-  outcome: 'shaken' | 'knocked-out';
 }
 
 export interface MoraleTestInput {
   quality: number;
-  roll: number;
+  /** The d6 rolled; omit for a unit that is already Shaken (it fails without rolling). */
+  roll?: number;
   specialRules?: string[];
   alreadyShaken?: boolean;
-  /** Optional nearby Hero quality within 12". */
+  /** Quality of a friendly Hero within 6" whose Quality may be used instead. */
   heroQuality?: number;
   /** Optional 1d6 roll for Fearless (Fearless 4+ pass on failure). */
   fearlessRoll?: number;
@@ -120,13 +111,12 @@ export interface AttackDiceOptions {
   isCharging?: boolean;
   isFatigued?: boolean;
   distance?: number;
-  includeTrauma?: boolean;
 }
 
 /**
  * Dice specs for one attack. When called without `options`, returns `count`
  * to-hit dice and `count` defense dice. When `options` are provided, scales
- * defense dice for blast/bonus-hit/bane worst-case and appends regeneration/trauma
+ * defense dice for blast/bonus-hit/bane worst-case and appends regeneration
  * dice when applicable.
  */
 export function getAttackDiceSpecs(
@@ -175,10 +165,6 @@ export function getAttackDiceSpecs(
   if (hasTrait(defenderRules, 'regeneration') && !ignoresRegeneration) {
     const deadlyMult = getTraitValue(allAttackerRules, 'deadly') ?? 1;
     specs.push({ count: maxHits * deadlyMult, sides: 6, purpose: 'regeneration' });
-  }
-
-  if (options.includeTrauma) {
-    specs.push({ count: 1, sides: 6, purpose: 'trauma' });
   }
 
   return specs;
@@ -467,44 +453,14 @@ export function resolveAttack(
 }
 
 /**
- * Resolve a Trauma Table roll (1d6 + accumulated trauma tokens + fear bonus):
- *   - Unmodified roll of 1 always results in 'shaken' (never Knocked Out).
- *   - Score 1-5: 'shaken' (Suppressed / Shaken).
- *   - Score 6+:  'knocked-out' (Eliminated / Destroyed).
- */
-export function resolveTraumaRoll(
-  roll: number,
-  accumulatedTokens: number,
-  fearBonus: number = 0,
-  koThreshold: number = 6
-): TraumaOutcome {
-  const tokens = Math.max(1, accumulatedTokens);
-  if (roll <= 1) {
-    return {
-      roll,
-      tokens,
-      fearBonus,
-      total: 1,
-      outcome: 'shaken',
-    };
-  }
-  const total = roll + tokens + Math.max(0, fearBonus);
-  return {
-    roll,
-    tokens,
-    fearBonus,
-    total,
-    outcome: total >= koThreshold ? 'knocked-out' : 'shaken',
-  };
-}
-
-/**
- * Resolve a Morale Test (1d6 + moraleMod >= effectiveQuality):
- *   - Already Shaken/Suppressed units automatically fail and become 'routed'.
- *   - Natural 1 always fails; Natural 6 always passes.
- *   - Steadfast (+1, or +2 with Steadfast Boost), Dauntless (+1), Morale Debuff (-1).
- *   - Fearless: on failure, if `fearlessRoll >= 4`, counts as passed.
+ * Resolve a Morale Test: a Quality test (1d6 + moraleMod >= effectiveQuality).
+ *   - A Shaken unit always fails (no roll needed).
+ *   - Natural 1 always fails; natural 6 always passes.
+ *   - Steadfast (+1, or +2 with Steadfast Boost), Dauntless (+1), Morale Debuff (-1) modify the roll
+ *     (faction traits, until 14C-3 retires them).
+ *   - Fearless: after a failure (including the automatic one while Shaken), `fearlessRoll >= 4` counts as passed.
  *   - Iron Will (No Retreat): on failure, counts as passed and takes 1 wound per 1-3 in `ironWillRolls`.
+ * A plain failure is 'shaken'. Only a failed melee test can Rout; the caller turns that into 'routed'.
  */
 export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
   const rules = input.specialRules ?? [];
@@ -512,16 +468,7 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
     input.heroQuality !== undefined
       ? Math.min(input.quality, input.heroQuality)
       : input.quality;
-
-  if (input.alreadyShaken) {
-    return {
-      roll: input.roll,
-      modifier: 0,
-      effectiveQuality,
-      passed: false,
-      outcome: 'routed',
-    };
-  }
+  const roll = input.roll ?? 0;
 
   let modifier = 0;
   if (hasTrait(rules, 'steadfast')) {
@@ -535,18 +482,20 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
   }
 
   let passed: boolean;
-  if (input.roll <= 1) {
+  if (input.alreadyShaken) {
     passed = false;
-  } else if (input.roll >= 6) {
+  } else if (roll <= 1) {
+    passed = false;
+  } else if (roll >= 6) {
     passed = true;
   } else {
-    passed = input.roll + modifier >= effectiveQuality;
+    passed = roll + modifier >= effectiveQuality;
   }
 
   if (!passed && hasTrait(rules, 'fearless') && input.fearlessRoll !== undefined) {
     if (input.fearlessRoll >= 4) {
       return {
-        roll: input.roll,
+        roll,
         modifier,
         effectiveQuality,
         passed: true,
@@ -556,11 +505,11 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
     }
   }
 
-  if (!passed && hasTrait(rules, 'iron-will')) {
+  if (!passed && !input.alreadyShaken && hasTrait(rules, 'iron-will')) {
     const selfRolls = input.ironWillRolls ?? [];
     const selfWounds = selfRolls.filter((r) => r >= 1 && r <= 3).length;
     return {
-      roll: input.roll,
+      roll,
       modifier,
       effectiveQuality,
       passed: true,
@@ -571,7 +520,7 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
   }
 
   return {
-    roll: input.roll,
+    roll,
     modifier,
     effectiveQuality,
     passed,
@@ -585,14 +534,12 @@ export function extractAllocationRolls(results: DiceResult[], index: number = 0)
   let toHit = results.find((r) => r.purpose === `${prefix}to-hit`);
   let defense = results.find((r) => r.purpose === `${prefix}defense`);
   let regeneration = results.find((r) => r.purpose === `${prefix}regeneration`);
-  let trauma = results.find((r) => r.purpose === `${prefix}trauma`);
 
   // Fallback to unprefixed purposes for single-attack resolutions (legacy / melee / index 0)
   if (!toHit && index === 0) {
     toHit = results.find((r) => r.purpose === 'to-hit');
     defense = results.find((r) => r.purpose === 'defense');
     regeneration = results.find((r) => r.purpose === 'regeneration');
-    trauma = results.find((r) => r.purpose === 'trauma');
   }
 
   if (!toHit || !defense) {
@@ -603,11 +550,10 @@ export function extractAllocationRolls(results: DiceResult[], index: number = 0)
     toHit: toHit.rolls,
     defense: defense.rolls,
     ...(regeneration ? { regeneration: regeneration.rolls } : {}),
-    ...(trauma ? { trauma: trauma.rolls } : {}),
   };
 }
 
-/** Extract the to-hit, defense, regeneration, and trauma roll values from server-rolled results. */
+/** Extract the to-hit, defense, and regeneration roll values from server-rolled results. */
 export function extractAttackRolls(results: DiceResult[]): AttackRolls {
   return extractAllocationRolls(results, 0);
 }
@@ -618,11 +564,9 @@ export function extractRetaliationRolls(results: DiceResult[]): AttackRolls | nu
   const defense = results.find((r) => r.purpose === 'retaliation-defense');
   if (!toHit || !defense) return null;
   const regeneration = results.find((r) => r.purpose === 'retaliation-regeneration');
-  const trauma = results.find((r) => r.purpose === 'retaliation-trauma');
   return {
     toHit: toHit.rolls,
     defense: defense.rolls,
     ...(regeneration ? { regeneration: regeneration.rolls } : {}),
-    ...(trauma ? { trauma: trauma.rolls } : {}),
   };
 }

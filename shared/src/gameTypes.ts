@@ -49,6 +49,14 @@ export interface TurnState {
    * unit's `remainingMovement`.
    */
   charge?: ChargeState | null;
+  /**
+   * Wounds each living unit had left when the active unit's activation began (unit id -> total wounds across
+   * living models). At the end of the activation any unit below its baseline "took a wound" and may owe a
+   * Morale Test. Cleared when the activation ends.
+   */
+  woundBaseline?: Record<string, number>;
+  /** Units that were in melee during the current activation (they skip the wound-based Morale Test). */
+  meleeUnitIds?: string[];
 }
 
 /** A charge declared on a target and made in legs. Plain data: it is part of the game state. */
@@ -62,10 +70,9 @@ export interface ChargeState {
 }
 
 export type UnitStatus =
-  | 'stunned'         // Cannot act on next activation; clears at activation start
-  | 'shaken'          // Suppressed / morale failure state (auto-fails morale, hits on 6s in melee)
+  | 'shaken'          // Failed a Morale Test: may only end its activation idle (then recovers), always fails Morale Tests, strikes back as Fatigued
   | 'fatigued'        // Exhausted in melee for the rest of the round (hits only on unmodified 6s)
-  | 'routed'          // Fleeing / eliminated by morale failure while already shaken
+  | 'routed'          // Removed as destroyed by a failed melee Morale Test
   | 'engaged'         // In melee engagement range
   | 'in-cover'        // Benefit from cover (+1 Defense roll against shooting)
   | { type: 'custom', name: string, data?: any };
@@ -115,8 +122,6 @@ export interface Unit {
   status: UnitStatus[];
   wounds: number;
   maxWounds: number;
-  /** Accumulated trauma tokens on the final surviving model (adds to 1d6 trauma rolls). */
-  traumaTokens?: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
   /** Whether this unit has been deployed to the board (false during pre-match deployment / ambush). */
@@ -344,11 +349,6 @@ export interface RetaliationOutcome {
   hitModifiers?: string[];
   baseDefense?: number;
   defenseModifiers?: string[];
-  traumaRoll?: number;
-  traumaTokens?: number;
-  traumaFearBonus?: number;
-  traumaTotal?: number;
-  traumaOutcome?: 'shaken' | 'knocked-out';
 }
 
 export interface WeaponAttackOutcome {
@@ -373,11 +373,6 @@ export interface WeaponAttackOutcome {
   hitModifiers?: string[];
   baseDefense?: number;
   defenseModifiers?: string[];
-  traumaRoll?: number;
-  traumaTokens?: number;
-  traumaFearBonus?: number;
-  traumaTotal?: number;
-  traumaOutcome?: 'shaken' | 'knocked-out';
 }
 
 /**
@@ -396,6 +391,20 @@ export interface TraversalEvent {
   target?: number;
   passed?: boolean;
   wounds?: number;
+}
+
+/** One Morale Test, recorded so both peers can render it from state. */
+export interface MoraleTestRecord {
+  unitId: string;
+  unitName: string;
+  /** The d6 rolled; absent when the unit was already Shaken (it fails without a roll). */
+  roll?: number;
+  /** Quality the roll had to meet (the Hero's when better). */
+  effectiveQuality: number;
+  /** Fearless die, rolled after a failed test. */
+  fearlessRoll?: number;
+  passed: boolean;
+  outcome: 'passed' | 'shaken' | 'routed';
 }
 
 export interface DiceResolution {
@@ -429,14 +438,8 @@ export interface DiceResolution {
     hitModifiers?: string[];
     baseDefense?: number;
     defenseModifiers?: string[];
-    traumaRoll?: number;
-    traumaTokens?: number;
-    traumaFearBonus?: number;
-    traumaTotal?: number;
-    traumaOutcome?: 'shaken' | 'knocked-out';
-    moraleRoll?: number;
-    moralePassed?: boolean;
-    moraleOutcome?: 'passed' | 'shaken' | 'routed';
+    /** Morale Tests taken at the end of an activation (one per unit that took wounds and is at half or less). */
+    moraleTests?: MoraleTestRecord[];
     retaliation?: RetaliationOutcome;
     allocations?: WeaponAttackOutcome[];
     pushedBack?: boolean;

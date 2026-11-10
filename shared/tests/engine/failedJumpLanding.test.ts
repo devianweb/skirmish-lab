@@ -38,14 +38,14 @@ function makeUnit(position: Vector3, models = 1, budget = 6): Unit {
     position: { ...position },
     rotation: { x: 0, y: 0, z: 0 },
     status: [],
-    wounds: 0,
-    maxWounds: 3,
+    wounds: models > 1 ? models : 3,
+    maxWounds: models > 1 ? models : 3,
     isActivated: true,
     isDestroyed: false,
     models: Array.from({ length: models }, (_, i) => ({
       id: `u-m${i}`,
-      wounds: models > 1 ? 1 : 0,
-      maxWounds: 1,
+      wounds: models > 1 ? 1 : 3,
+      maxWounds: models > 1 ? 1 : 3,
       isDestroyed: false,
       position: { x: position.x, y: position.y, z: position.z + i * 0.2 },
     })) as any,
@@ -93,7 +93,6 @@ function failJump(state: GameState, fallSave: number) {
   const out = applyAction(state, jumpAction(), [
     roll('gap_jump', [1]),
     roll('falling_defense', [fallSave]),
-    roll('trauma', [1]),
   ]);
   if (!out.ok) throw new Error(out.reason);
   const events = out.state.actionLog[out.state.actionLog.length - 1].dice!.outcome.traversal!;
@@ -103,14 +102,14 @@ function failJump(state: GameState, fallSave: number) {
 describe('failed gap jump: landing', () => {
   it('requests falling dice for a jump off a 3" deck', () => {
     const state = makeState(makeUnit(takeoff));
-    expect(getDiceSpecs(state, jumpAction())!.map((s) => s.purpose)).toEqual(['gap_jump', 'falling_defense', 'trauma']);
+    expect(getDiceSpecs(state, jumpAction())!.map((s) => s.purpose)).toEqual(['gap_jump', 'falling_defense', 'morale']);
   });
 
   it('a 3" fall to the ground takes the AP(1) hit, lands near the fall point and ends the activation', () => {
     const { state, unit, events } = failJump(makeState(makeUnit(takeoff)), 5); // defense 5 + AP1 needs 6: a 5 fails
     expect(unit.position.y).toBe(0);
     expect(Math.hypot(unit.position.x - 1.15, unit.position.z)).toBeLessThanOrEqual(2);
-    expect(unit.traumaTokens).toBe(1);
+    expect(unit.wounds).toBe(2);
     const fall = events.find((e) => e.type === 'fall')!;
     expect(fall.wounds).toBe(1);
     expect(fall.text).toMatch(/3\.0"/);
@@ -120,7 +119,7 @@ describe('failed gap jump: landing', () => {
 
   it('a saved fall reports 0 wounds, still lands on the floor and ends the activation', () => {
     const { state, unit, events } = failJump(makeState(makeUnit(takeoff)), 6);
-    expect(unit.traumaTokens ?? 0).toBe(0);
+    expect(unit.wounds).toBe(3);
     expect(events.find((e) => e.type === 'fall')!.wounds).toBe(0);
     expect(unit.position.y).toBe(0);
     expect(state.turnState.activeUnitId).not.toBe('u');
@@ -139,7 +138,7 @@ describe('failed gap jump: landing', () => {
     const lower = piece('lower', 'platform-small', P(1.15, 0, 0), 1.5); // top at 1.5": a 1.5" fall
     const { unit, events } = failJump(makeState(makeUnit(takeoff), [lower]), 1);
     expect(unit.position.y).toBeCloseTo(1.5);
-    expect(unit.traumaTokens ?? 0).toBe(0);
+    expect(unit.wounds).toBe(3);
     expect(events.find((e) => e.type === 'fall')!.wounds).toBe(0);
   });
 
@@ -171,13 +170,12 @@ describe('failed jump-down: lands on the floor below', () => {
     const out = applyAction(state, action, [
       roll('drop_jump', [1, 1]),
       roll('falling_defense', [1]),
-      roll('trauma', [1]),
     ]);
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
     expect(u.position).toMatchObject({ x: 1, y: 0, z: 0 });
     expect(findEndOverlap(out.state, 'u', u.position)).toBeNull();
-    expect(u.traumaTokens).toBe(1);
+    expect(u.wounds).toBe(2);
     expect(out.state.turnState.activeUnitId).not.toBe('u');
   });
 });
@@ -197,7 +195,7 @@ describe('failed gap jump: squads', () => {
       u,
       [takeoff, landing],
       jumpAction(),
-      [roll('gap_jump', [1]), roll('falling_defense', [6]), roll('trauma', [1])],
+      [roll('gap_jump', [1]), roll('falling_defense', [6])],
       u.models[1]
     );
     expect(res).toMatchObject({ terminated: true, wounds: 1 });
@@ -212,10 +210,12 @@ describe('failed gap jump: squads', () => {
   it('the last remaining model is not eliminated: it takes the normal falling hit', () => {
     const unit = makeUnit(takeoff, 2);
     unit.models[1].isDestroyed = true;
+    unit.models[0].wounds = 2; // a Tough(2) model: the fall wound does not kill it
+    unit.models[0].maxWounds = 2;
     const { unit: u } = failJump(makeState(unit), 1);
     expect(u.models[0].isDestroyed).toBe(false);
     expect(u.position.y).toBe(0);
-    expect(u.traumaTokens).toBe(1);
+    expect(u.models[0].wounds).toBe(1);
   });
 });
 
