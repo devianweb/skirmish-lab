@@ -345,9 +345,9 @@ interface WeaponAllocation {
  * A jump or fall the player chose to make, sent with the move that contains it. The pathfinder never plans one.
  * The host recomputes everything: the path must contain exactly one segment from `takeoff` to `landing` whose
  * classification matches `kind`, and `takeoff` must be at the edge of a floor (within 0.5", heading out).
- * - 'jump-gap': landing across 1-6" of open air at the same height (X+1 dice, 3+ each; 2+ Strider)
+ * - 'jump-gap': landing across 1-6" of open air at the same height (one die per started inch, 2+ each; half for Strider)
  * - 'jump-drop': landing 3-6" below
- * - 'fall': landing more than 6" below (no jump dice; Falling damage, activation ends)
+ * - 'fall': landing more than 6" below (no jump dice; fall wounds, activation ends)
  * A path with a jump/fall but no matching declaration (or a declaration with no jump) is rejected.
  */
 interface DeclaredTraversal {

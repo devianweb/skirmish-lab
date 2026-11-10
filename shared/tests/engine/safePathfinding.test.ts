@@ -83,10 +83,10 @@ describe('classifySegment', () => {
     expect(c.cost).toBeCloseTo(0.5);
   });
 
-  it('a drop just over 3" is a jump (2 dice, 3+) and its cost is zero', () => {
+  it('a drop just over 3" is a jump (4 dice, 2+) and its cost is zero', () => {
     const c = classifySegment(state, P(2, 3.5, 0), P(2.5, 0, 0), unit);
-    expect(c).toMatchObject({ kind: 'jump-drop', dice: 2, target: 3, cost: 0 });
-    expect(classifySegment(state, P(2, 3.5, 0), P(2.5, 0, 0), makeUnit('p', P(0, 0, 0), 6, ['strider'])).target).toBe(2);
+    expect(c).toMatchObject({ kind: 'jump-drop', dice: 4, target: 2, cost: 0 });
+    expect(classifySegment(state, P(2, 3.5, 0), P(2.5, 0, 0), makeUnit('p', P(0, 0, 0), 6, ['strider'])).dice).toBe(2);
   });
 
   it('a drop of exactly 6" is still a jump; over 6" is a fall with no dice', () => {
@@ -131,12 +131,12 @@ describe('classifySegment', () => {
       isObstacle: false,
     });
     const at = (gap: number) => makeState(unit, [deckAt('a', 0), deckAt('b', 4 + gap)]); // a: -2..2
-    it('a 1" gap is ordinary; 1.5" is a jump needing 1 die; the hop (take-off to landing) is limited to 6"', () => {
+    it('a 1" gap is ordinary; 1.5" is a jump needing 3 dice; the hop (take-off to landing) is limited to 6"', () => {
       expect(classifySegment(at(1), P(0, 3, 0), P(4, 3, 0), unit).kind).toBe('gap');
       const j = classifySegment(at(1.5), P(1.6, 3, 0), P(3.9, 3, 0), unit);
-      expect(j).toMatchObject({ kind: 'jump-gap', dice: 1, cost: 0 });
+      expect(j).toMatchObject({ kind: 'jump-gap', dice: 3, cost: 0 });
       expect(j.distance).toBeCloseTo(2.3, 1);
-      expect(classifySegment(at(5), P(1.6, 3, 0), P(7.4, 3, 0), unit)).toMatchObject({ kind: 'jump-gap', dice: 2 }); // 5.8"
+      expect(classifySegment(at(5), P(1.6, 3, 0), P(7.4, 3, 0), unit)).toMatchObject({ kind: 'jump-gap', dice: 6 }); // 5.8"
       expect(classifySegment(at(5), P(0, 3, 0), P(9, 3, 0), unit).kind).toBe('blocked'); // a 9" hop, though only a 5" gap
       expect(classifySegment(at(7), P(1.6, 3, 0), P(9.4, 3, 0), unit).kind).toBe('blocked');
     });
@@ -201,7 +201,7 @@ describe('fixture: safe pathfinding (testy-mctestface)', () => {
     }
   });
 
-  it('from the ledge east edge the 5" gap jump to platform A is offered (2 dice, 3+); from mid-ledge it is not', () => {
+  it('from the ledge east edge the 5" gap jump to platform A is offered (6 dice, 2+); from mid-ledge it is not', () => {
     const unit = makeUnit('m', P(-0.2, 3, 0));
     const state = makeState(unit);
     const opt = findJumpOption(state, unit, P(-0.2, 3, 0), P(5.6, 3, -1))!;
@@ -209,17 +209,17 @@ describe('fixture: safe pathfinding (testy-mctestface)', () => {
     expect(opt.kind).toBe('jump-gap');
     expect(opt.distance).toBeGreaterThan(5.6); // take-off to landing, 3D
     expect(opt.distance).toBeLessThan(6.05);
-    expect(opt.dice).toBe(2);
-    expect(opt.target).toBe(3);
+    expect(opt.dice).toBe(6);
+    expect(opt.target).toBe(2);
     expect(opt.takeoff).toMatchObject(P(-0.2, 3, 0));
     expect(opt.landing).toMatchObject(P(5.6, 3, -1));
 
     expect(findJumpOption(state, unit, P(-1.5, 3, 0), P(5.6, 3, -1))).toBeNull();
   });
 
-  it('pathfinder jumps on 2+, flying needs no dice', () => {
+  it('Strider rolls half the dice (and still needs 2+)', () => {
     const pf = makeUnit('p', P(-0.2, 3, 0), 12, ['strider']);
-    expect(findJumpOption(makeState(pf), pf, pf.position, P(5.6, 3, -1))!.target).toBe(2);
+    expect(findJumpOption(makeState(pf), pf, pf.position, P(5.6, 3, -1))).toMatchObject({ dice: 3, target: 2 }); // half of 6
   });
 
   it('a drop of 3-6" from an edge is a jump down; over 6" is a fall with a warning flag; at most 3" is no option', () => {
@@ -242,7 +242,7 @@ describe('fixture: safe pathfinding (testy-mctestface)', () => {
     const a4 = at(4);
     expect(findJumpOption(a4.s, a4.u, a4.u.position, P(3, 0, 0))).toMatchObject({
       kind: 'jump-drop',
-      dice: 2,
+      dice: 5,
       distance: 4.2, // 4" down plus the 0.7" step-off, measured as a tape
     });
     const a3 = at(3);
@@ -393,14 +393,14 @@ describe('host: jumps must be declared', () => {
     expect((v as { reason: string }).reason).toMatch(/needs a jump/i);
   });
 
-  it('accepts the declared jump, requests 2 jump dice, and a passed jump does not count toward the move', () => {
+  it('accepts the declared jump, requests one die per started inch, and a passed jump does not count toward the move', () => {
     const unit = makeUnit('u', takeoff, 1); // only 1" of movement left
     const state = makeState(unit);
     const action = moveAction([takeoff, landing], declared);
     expect(validateAction(state, action).valid).toBe(true);
     const specs = getDiceSpecs(state, action)!;
-    expect(specs.find((s) => s.purpose === 'gap_jump')?.count).toBe(2);
-    const out = applyAction(state, action, [roll('gap_jump', [4, 6]), roll('falling_defense', [6])]);
+    expect(specs.find((s) => s.purpose === 'jump')?.count).toBe(6);
+    const out = applyAction(state, action, [roll('jump', [4, 6, 2, 3, 5, 6]), roll('fall', [6, 6, 6])]);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     const u = out.state.units[0];
@@ -416,8 +416,8 @@ describe('host: jumps must be declared', () => {
     const unit = makeUnit('u', takeoff, 6);
     const state = makeState(unit);
     const out = applyAction(state, moveAction([takeoff, landing], declared), [
-      roll('gap_jump', [2, 6]),
-      roll('falling_defense', [1]),
+      roll('jump', [2, 6, 1, 3, 4, 4]),
+      roll('fall', [1, 5, 6]),
     ]);
     expect(out.ok).toBe(true);
     if (!out.ok) return;

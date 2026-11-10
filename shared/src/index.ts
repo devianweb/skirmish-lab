@@ -9,6 +9,7 @@ export * from './engine/spatial';
 export * from './engine/closestApproach';
 export * from './engine/pileIn';
 export * from './engine/casualties';
+export * from './engine/push';
 export * from './engine/unitGeometry';
 export * from './engine/squadTargeting';
 export * from './engine/traversal';

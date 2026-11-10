@@ -267,9 +267,9 @@ describe('split charge: jumping mid-charge', () => {
 
     const jumpLeg = leg([takeoff, landing], jump);
     expect(validateAction(state, jumpLeg)).toEqual({ valid: true });
-    expect(getDiceSpecs(state, jumpLeg)?.map((s) => s.purpose)).toEqual(['gap_jump', 'falling_defense', 'morale']);
-    expect(getDiceSpecs(state, jumpLeg)?.[0].count).toBe(2);
-    state = ok(state, jumpLeg, [roll('gap_jump', [3, 4])]);
+    expect(getDiceSpecs(state, jumpLeg)?.map((s) => s.purpose)).toEqual(['jump', 'fall', 'morale']);
+    expect(getDiceSpecs(state, jumpLeg)?.[0].count).toBe(4);
+    state = ok(state, jumpLeg, [roll('jump', [3, 4, 2, 6])]);
     // a passed jump costs no movement
     expect(state.units[0].remainingMovement).toBeCloseTo(9.5, 5);
     expect(state.units[0].position).toMatchObject(landing);
@@ -287,7 +287,7 @@ describe('split charge: jumping mid-charge', () => {
   it('a failed jump falls, ends the activation and the charge, with no melee', () => {
     let state = declared();
     state = ok(state, leg([P(-3, 3, 0), takeoff]));
-    state = ok(state, leg([takeoff, landing], jump), [roll('gap_jump', [1, 1])]);
+    state = ok(state, leg([takeoff, landing], jump), [roll('jump', [1, 1, 1, 1, 1]), roll('fall', [4, 4, 4])]);
     expect(state.units[0].position.y).toBe(0); // fell to the floor below
     expect(state.turnState.activeUnitId).toBeNull();
     expect(state.turnState.charge).toBeNull();
@@ -331,6 +331,6 @@ describe('split charge: jumping mid-charge', () => {
       traversal: jump,
     } as any);
     expect(validateAction(state, action)).toEqual({ valid: true });
-    expect(getDiceSpecs(state, action)?.map((s) => s.purpose).slice(0, 1)).toEqual(["gap_jump"]);
+    expect(getDiceSpecs(state, action)?.map((s) => s.purpose).slice(0, 1)).toEqual(["jump"]);
   });
 });

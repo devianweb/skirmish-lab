@@ -21,6 +21,8 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 4. Drops, jumps and movement cost
 - All items verified.
+- [ ] **14C-2 jump dice:** from a deck edge declare a jump over a gap of about 3": the move chip and the dice panel show one die per started inch (a 3.1" hop is 4 dice, each needing 2+). A Strider unit shows half the dice, rounded up.
+- [ ] **14C-2 squad jump:** a squad with two models jumping in the same move shows ONE jump roll (not one per model). On a failure the model with the longest jump lands on the floor below (taking fall wounds on 1-3, one die per inch fallen) and the other jumper stays at its take-off edge; the activation ends. A fall under 2" rolls no fall dice.
 
 ## 5. Low cover & scatter
 - All items verified.
@@ -41,6 +43,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 8. Melee & objectives
 - All earlier items verified.
+- [ ] **14C-2 push (engine, no HUD yet):** wound an enemy squad to half strength with a shooting unit, then End Activation. When its Morale Test fails and the push die shows 4+, a "Push" prompt appears for you (the attacker) with one "Auto push" button (the opponent sees "Waiting for opponent: Push"). Pressing it moves the model nearest your unit 2" straight away; the squad's other models step in only if the push split it. If you do nothing, the push is applied after 30 s. A push die under 4, or a unit that passes its test, shows no prompt. A model pushed off a deck edge falls and rolls fall dice in the dice panel.
 - [ ] **14C-2 melee reach:** a charged or fighting squad strikes with every model whose base edge is within 3" of an enemy model (the attack count in the dice panel matches), not only those within 2".
 - [ ] **14C-2 melee result:** charge a unit, let it strike back, then End Activation. The log and dice panel show a line like "X took 3 wounds, Y took 1 (+1 Fear): X loses". The loser rolls Morale: a pass changes nothing, a fail Shakes it, and a fail while it is at half strength or less removes it ("Routed"). An even exchange shows "tied, nobody tests Morale".
 

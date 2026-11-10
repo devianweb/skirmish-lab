@@ -18,7 +18,7 @@ export interface ReactionOption {
 
 export interface PendingReaction {
   id: string;
-  type: 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | string;
+  type: 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | 'push' | string;
   promptingPlayerId: string; // The player who must choose (defender)
   sourceUnitId: string;      // The attacker/charger
   targetUnitId: string;      // The defender making the decision
@@ -282,6 +282,7 @@ export type ActionType =
   | 'consolidate-move'
   | 'pile-in-move'
   | 'pick-casualties'
+  | 'push-move'
   | 'end-activation'   // Finish current unit's activation
   | 'end-round'        // Finish the round (cleanup/morale)
   | 'concede'         // Forfeit the match (valid any time until game over)
@@ -309,6 +310,7 @@ export type ActionPayload =
   | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3 }
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'pick-casualties', unitId: string, modelIds: string[] }
+  | { type: 'push-move', modelId: string, destination: Vector3 }
   | { type: 'end-activation' }
   | { type: 'end-round' }
   | { type: 'concede' }
@@ -401,7 +403,7 @@ export interface WeaponAttackOutcome {
  */
 /** One traversal hazard resolved during a move: a jump, a fall or dangerous terrain (rolled with server dice). */
 export interface TraversalEvent {
-  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard' | 'jump-skipped';
+  type: 'gap-jump' | 'drop-jump' | 'fall' | 'hazard' | 'jump-skipped' | 'push';
   /** Human-readable result for the dice panel and log. */
   text: string;
   /** The dice rolled for this event (each d6). */
@@ -422,6 +424,8 @@ export interface MoraleTestRecord {
   effectiveQuality: number;
   /** Fearless die, rolled after a failed test. */
   fearlessRoll?: number;
+  /** The attacker's push die (4+ lets them move a model of the unit this test just made Shaken). */
+  pushRoll?: number;
   passed: boolean;
   outcome: 'passed' | 'shaken' | 'routed';
 }

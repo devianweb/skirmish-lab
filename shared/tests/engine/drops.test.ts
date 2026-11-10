@@ -106,38 +106,40 @@ describe('drops: movement cost (measured along the board)', () => {
 describe('drops: jump test (3-6" drops)', () => {
   const trooper = makeUnit('u', { x: 0, y: 0, z: 0 });
 
-  it('X + 1 dice: one per full 3" plus one', () => {
-    expect(calculateJumpDice(3.5)).toBe(2);
-    expect(calculateJumpDice(5.9)).toBe(2);
-    expect(calculateJumpDice(6)).toBe(3);
+  it('one die per started inch of the jump', () => {
+    expect(calculateJumpDice(3.5)).toBe(4);
+    expect(calculateJumpDice(5.9)).toBe(6);
+    expect(calculateJumpDice(6)).toBe(6);
+    expect(calculateJumpDice(3.1)).toBe(4);
   });
 
   it('drops of 3" or less are regular movement: no test', () => {
     expect(resolveDropJump(trooper, 3.0)).toMatchObject({ requiresTest: false, passed: true });
   });
 
-  it('a 4" drop needs 2 dice, all 3+', () => {
+  it('a 4" drop needs 4 dice, each 2+', () => {
     const none = resolveDropJump(trooper, 4);
-    expect(none).toMatchObject({ requiresTest: true, canJump: true, dice: 2, target: 3, passed: false });
-    expect(resolveDropJump(trooper, 4, [3, 6]).passed).toBe(true);
-    expect(resolveDropJump(trooper, 4, [3, 2]).passed).toBe(false);
-    expect(resolveDropJump(trooper, 4, [1, 6]).passed).toBe(false);
+    expect(none).toMatchObject({ requiresTest: true, canJump: true, dice: 4, target: 2, passed: false });
+    expect(resolveDropJump(trooper, 4, [2, 6, 3, 4]).passed).toBe(true);
+    expect(resolveDropJump(trooper, 4, [3, 2, 1, 6]).passed).toBe(false);
+    expect(resolveDropJump(trooper, 4, [1, 6, 6, 6]).passed).toBe(false);
   });
 
-  it('a 6" drop needs 3 dice', () => {
-    expect(resolveDropJump(trooper, 6, [3, 4, 5]).passed).toBe(true);
-    expect(resolveDropJump(trooper, 6, [3, 4, 2]).passed).toBe(false);
+  it('a 6" drop needs 6 dice', () => {
+    expect(resolveDropJump(trooper, 6, [2, 3, 4, 5, 6, 2]).passed).toBe(true);
+    expect(resolveDropJump(trooper, 6, [3, 4, 2, 6, 6, 1]).passed).toBe(false);
   });
 
-  it('Strider needs 2+; Flying auto-passes; above 6" cannot be jumped', () => {
+  it('Strider rolls half the dice; Flying auto-passes; above 6" cannot be jumped', () => {
     expect(resolveDropJump(makeUnit('p', { x: 0, y: 0, z: 0 }, ['strider']), 4, [2, 2]).passed).toBe(true);
+    expect(resolveDropJump(makeUnit('p', { x: 0, y: 0, z: 0 }, ['strider']), 5)).toMatchObject({ dice: 3 });
     expect(resolveDropJump(makeUnit('a', { x: 0, y: 0, z: 0 }, ['flying']), 5)).toMatchObject({ requiresTest: false, passed: true });
     expect(resolveDropJump(trooper, 7, [6, 6, 6])).toMatchObject({ canJump: false, passed: false });
   });
 
   it('warns about the jump or the fall for the move preview', () => {
     expect(describeDrop(2.5, trooper)).toBe('');
-    expect(describeDrop(4, trooper)).toMatch(/JUMP DOWN.*2 dice.*3\+/);
+    expect(describeDrop(4, trooper)).toMatch(/JUMP DOWN.*4 dice.*2\+/);
     expect(describeDrop(7, trooper)).toMatch(/too far to jump/);
   });
 });
@@ -152,29 +154,37 @@ describe('drops: resolution through the host', () => {
       ...(traversal ? { traversal } : {}),
     });
 
-  it('requests jump dice (and fall dice as a fallback) for a 4" drop; none for a 3" drop', () => {
+  it('requests one jump roll (one die per started inch of the hop) and the fall dice for a 4" drop; none for a 3" drop', () => {
     const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
     const specs = getDiceSpecs(makeState(unit, 4), moveAction(dropPath(4), jumpDecl(4)))!;
-    expect(specs.find((d) => d.purpose === 'drop_jump')?.count).toBe(2);
-    expect(specs.some((d) => d.purpose === 'falling_defense')).toBe(true);
+    // The hop from the edge to the landing is 4.3" long: 5 dice; a failure falls the 4" from the edge: 4 dice
+    expect(specs.find((d) => d.purpose === 'jump')).toMatchObject({ count: 5, sides: 6 });
+    expect(specs.find((d) => d.purpose === 'fall')).toMatchObject({ count: 4, sides: 6 });
+    expect(specs.some((d) => d.purpose === 'morale')).toBe(true); // spare morale die for a fall that could wound
 
     const low = makeUnit('u', { x: 1.8, y: 3, z: 0 });
     expect(getDiceSpecs(makeState(low, 3), moveAction(dropPath(3)))).toBeNull();
   });
 
-  it('a 7" drop cannot be jumped: no jump dice, only fall dice', () => {
+  it('a Strider rolls half the jump dice, rounding up', () => {
+    const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 }, ['strider']);
+    const specs = getDiceSpecs(makeState(unit, 4), moveAction(dropPath(4), jumpDecl(4)))!;
+    expect(specs.find((d) => d.purpose === 'jump')?.count).toBe(3);
+  });
+
+  it('a 7" drop cannot be jumped: no jump dice, only fall dice (one per started inch)', () => {
     const unit = makeUnit('u', { x: 1.8, y: 7, z: 0 });
     const specs = getDiceSpecs(makeState(unit, 7), moveAction(dropPath(7), jumpDecl(7, 'fall')))!;
-    expect(specs.some((d) => d.purpose === 'drop_jump')).toBe(false);
-    expect(specs.some((d) => d.purpose === 'falling_defense')).toBe(true);
+    expect(specs.some((d) => d.purpose === 'jump')).toBe(false);
+    expect(specs.find((d) => d.purpose === 'fall')?.count).toBe(7);
   });
 
   it('a successful jump lands with no damage and the activation continues', () => {
     const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
     const state = makeState(unit, 4);
     const out = applyAction(state, moveAction(dropPath(4), jumpDecl(4)), [
-      roll('drop_jump', [3, 5]),
-      roll('falling_defense', [1]),
+      roll('jump', [3, 5, 2, 6, 4]),
+      roll('fall', [1, 1, 1, 1]),
     ]);
     const u = out.state.units[0];
     expect(u.wounds).toBe(3);
@@ -183,24 +193,41 @@ describe('drops: resolution through the host', () => {
     // The dice story is in the action log so both players see the rolls
     const logged = out.state.actionLog[out.state.actionLog.length - 1].dice!;
     expect(logged.outcome.traversal).toHaveLength(1);
-    expect(logged.outcome.traversal![0]).toMatchObject({ type: 'drop-jump', rolls: [3, 5], passed: true });
-    expect(logged.outcome.traversal![0].text).toMatch(/Jump down 4\.3" \(2 dice.*3, 5.*landed/);
-    expect(logged.results.map((r) => r.purpose)).toContain('drop_jump');
+    expect(logged.outcome.traversal![0]).toMatchObject({ type: 'drop-jump', rolls: [3, 5, 2, 6, 4], passed: true });
+    expect(logged.outcome.traversal![0].text).toMatch(/Jump down 4\.3" \(5 dice.*3, 5, 2, 6, 4.*landed/);
+    expect(logged.results.map((r) => r.purpose)).toContain('jump');
   });
 
-  it('a failed jump falls: Falling damage and the activation ends', () => {
+  it('a failed jump falls: one wound per fall die showing 1-3, and the activation ends', () => {
     const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
     const state = makeState(unit, 4);
     const out = applyAction(state, moveAction(dropPath(4), jumpDecl(4)), [
-      roll('drop_jump', [3, 2]),
-      roll('falling_defense', [1]), // natural 1 always fails the save
+      roll('jump', [3, 2, 6, 6, 1]),
+      roll('fall', [1, 3, 4, 6]), // two wounds: the 1 and the 3
     ]);
-    expect(out.state.units[0].wounds).toBeLessThan(3);
+    expect(out.state.units[0].wounds).toBe(1);
     expect(out.state.turnState.activeUnitId).not.toBe('u'); // activation ended
     const events = out.state.actionLog[out.state.actionLog.length - 1].dice!.outcome.traversal!;
     expect(events.map((e) => e.type)).toEqual(['drop-jump', 'fall']);
-    expect(events[0]).toMatchObject({ passed: false, rolls: [3, 2] });
-    expect(events[1].wounds).toBeGreaterThan(0);
+    expect(events[0]).toMatchObject({ passed: false });
+    expect(events[1]).toMatchObject({ wounds: 2, rolls: [1, 3, 4, 6] });
+  });
+
+  it('a failed jump whose fall dice all show 4+ is unhurt but still ends the activation', () => {
+    const unit = makeUnit('u', { x: 1.8, y: 4, z: 0 });
+    const out = applyAction(makeState(unit, 4), moveAction(dropPath(4), jumpDecl(4)), [
+      roll('jump', [1, 1, 1, 1, 1]),
+      roll('fall', [4, 5, 6, 4]),
+    ]);
+    expect(out.state.units[0].wounds).toBe(3);
+    expect(out.state.turnState.activeUnitId).not.toBe('u');
+  });
+
+  it('a fall over 6" needs no jump roll: it falls and takes fall wounds', () => {
+    const unit = makeUnit('u', { x: 1.8, y: 7, z: 0 });
+    const out = applyAction(makeState(unit, 7), moveAction(dropPath(7), jumpDecl(7, 'fall')), [roll('fall', [1, 2, 6, 6, 6, 6, 6])]);
+    expect(out.state.units[0].wounds).toBe(1);
+    expect(out.state.turnState.activeUnitId).not.toBe('u');
   });
 });
 
@@ -226,15 +253,15 @@ describe('gaps: only real open air is a gap', () => {
     expect(res.isGapJump).toBe(false);
   });
 
-  it('a 2" gap between decks is a jump of 1 die; a gap over 6" is too wide', () => {
+  it('a 2" gap between decks is a jump of 3 dice (2.8" tape); a gap over 6" is too wide', () => {
     const state = createInitialGameState(HOST, GUEST);
     state.terrain = [deckAt('a', 0, 0), deckAt('b', 6, 0)]; // x -2..2 and 4..8: 2" gap
     // measured like a tape from the take-off spot to the landing spot (0.4" inside each edge): 2.8"
     const res = detectPathGapJump(state, [{ x: 1.6, y: 3, z: 0 }, { x: 4.4, y: 3, z: 0 }], trooper);
-    expect(res).toMatchObject({ isGapJump: true, tooWide: false, dice: 1, target: 3 });
+    expect(res).toMatchObject({ isGapJump: true, tooWide: false, dice: 3, target: 2 });
     expect(res.gapDistance).toBeCloseTo(2.8, 1);
-    // the same 2" gap crossed from deck centre to deck centre is a 6" hop: 3 dice
-    expect(detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 6, y: 3, z: 0 }], trooper)).toMatchObject({ dice: 3 });
+    // the same 2" gap crossed from deck centre to deck centre is a 6" hop: 6 dice
+    expect(detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 6, y: 3, z: 0 }], trooper)).toMatchObject({ dice: 6 });
 
     const far = createInitialGameState(HOST, GUEST);
     far.terrain = [deckAt('a', 0, 0), deckAt('b', 14, 0)]; // 10" gap

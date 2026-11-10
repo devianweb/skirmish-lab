@@ -210,7 +210,10 @@ describe('end-activation: the test itself', () => {
   };
 
   it('requests one die per testing unit and none when nobody tests', () => {
-    expect(getDiceSpecs(setup(), endAction())).toEqual([{ count: 1, sides: 6, purpose: 'morale' }]);
+    expect(getDiceSpecs(setup(), endAction())).toEqual([
+      { count: 1, sides: 6, purpose: 'morale' },
+      { count: 1, sides: 6, purpose: 'push' }, // the enemy attacker's push die, used only if g1 becomes Shaken
+    ]);
     const calm = endOfActivation([mkUnit('h1', HOST, 0, 0), mkUnit('g1', GUEST, 0, 10, { count: 4 })], { g1: 1 });
     expect(getDiceSpecs(calm, endAction())).toBeNull();
   });
@@ -247,7 +250,11 @@ describe('end-activation: the test itself', () => {
       [mkUnit('h1', HOST, 0, 0, { count: 4 }), mkUnit('g1', GUEST, 0, 10, { count: 4 })],
       { h1: 2, g1: 2 }
     );
-    expect(getDiceSpecs(state, endAction())).toEqual([{ count: 2, sides: 6, purpose: 'morale' }]);
+    // only g1 (an enemy of the active unit) can be pushed: one push die, none for h1's own test
+    expect(getDiceSpecs(state, endAction())).toEqual([
+      { count: 2, sides: 6, purpose: 'morale' },
+      { count: 1, sides: 6, purpose: 'push' },
+    ]);
     const out = endWith(state, { morale: [6, 2] });
     expect(unitOf(out.state!, 'h1').status).toEqual([]);
     expect(unitOf(out.state!, 'g1').status).toEqual(['shaken']);
@@ -324,6 +331,7 @@ describe('Fearless', () => {
     expect(getDiceSpecs(fearless(), endAction())).toEqual([
       { count: 1, sides: 6, purpose: 'morale' },
       { count: 1, sides: 6, purpose: 'fearless' },
+      { count: 1, sides: 6, purpose: 'push' },
     ]);
   });
 

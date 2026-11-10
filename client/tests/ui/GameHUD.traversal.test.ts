@@ -74,7 +74,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     const { hud, container } = setup(P(-0.2, 3, 0));
     hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
     expect(chip(container).style.display).toBe('block');
-    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · 2 dice \(3\+\)$/);
+    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · \d dice \(2\+\)$/);
     // the preview is the single hop
     const path = (hud as any).movePathPreview as Vector3[];
     expect(path).toHaveLength(2);
@@ -204,16 +204,16 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     (container.querySelector('.sl-hud-confirm-summary') as HTMLElement).textContent ?? '';
   const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
 
-  it('a pure 4" drop from an edge shows exactly one jump line: "Jump down 4.2" · 2 dice" (the tape reading)', () => {
+  it('a pure 4" drop from an edge shows exactly one jump line: "Jump down 4.2" · 5 dice" (the tape reading)', () => {
     const { hud, container, state } = setup(P(1.8, 4, 0));
     state.terrain = [deckPiece('tall', 0, 4)];
     hud.syncFromState(state);
     clickByText(container, 'Advance');
     hud.handleBoardHover({ kind: 'position', position: P(3, 0, 0) });
-    expect(chip(container).textContent).toBe('Jump down 4.2" · 2 dice (3+)');
+    expect(chip(container).textContent).toBe('Jump down 4.2" · 5 dice (2+)');
     hud.handleBoardPick({ kind: 'position', position: P(3, 0, 0) });
     const summary = confirmSummary(container);
-    expect(occurrences(summary, 'Jump down 4.2" · 2 dice')).toBe(1);
+    expect(occurrences(summary, 'Jump down 4.2" · 5 dice')).toBe(1);
     expect(summary).not.toMatch(/JUMP DOWN/);
   });
 
@@ -224,10 +224,10 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     clickByText(container, 'Advance');
     hud.handleBoardHover({ kind: 'position', position: P(4.1, 3.5, 0) });
     const text = chip(container).textContent!;
-    expect(text).toMatch(/^Jump gap 5\.1" · 2 dice \(3\+\)$/);
+    expect(text).toMatch(/^Jump gap 5\.1" · 6 dice \(2\+\)$/);
     hud.handleBoardPick({ kind: 'position', position: P(4.1, 3.5, 0) });
     const summary = confirmSummary(container);
-    expect(occurrences(summary, 'Jump gap 5.1" · 2 dice')).toBe(1);
+    expect(occurrences(summary, 'Jump gap 5.1" · 6 dice')).toBe(1);
     expect(summary).not.toMatch(/JUMP DOWN/);
     expect(summary).not.toMatch(/dice, all|roll \d dice/);
   });
@@ -287,7 +287,7 @@ describe('GameHUD move preview: declared jumps (batch 1E E3)', () => {
     const { hud, container, markers } = squadAtLedge();
     hud.handleBoardHover({ kind: 'position', position: P(5.6, 3, -1) });
     expect(chip(container).style.display).toBe('block');
-    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · 2 dice \(3\+\)$/);
+    expect(chip(container).textContent).toMatch(/^Jump gap \d\.\d" · \d dice \(2\+\)$/);
     const path = (hud as any).movePathPreview as Vector3[];
     expect(path).toHaveLength(2);
     expect(path[0]).toMatchObject({ x: -0.2, y: 3 });
@@ -351,7 +351,7 @@ describe('GameHUD move preview: segment styling (P6)', () => {
     const marker = markers[markers.length - 1].movePath!;
     expect(marker.segments).toHaveLength(1);
     expect(marker.segments![0].kind).toBe('jump-gap');
-    expect(marker.segments![0].label).toMatch(/^jump \d\.\d" · 2 dice$/);
+    expect(marker.segments![0].label).toMatch(/^jump \d\.\d" · \d dice$/);
   });
 
   it('a 3" drop onto the ground is an amber drop segment labelled with its height', () => {
