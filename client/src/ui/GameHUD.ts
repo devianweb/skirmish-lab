@@ -1,3 +1,4 @@
+import { computeKeepAwayZones, KeepAwayZone } from './keepAwayZones';
 import {
   boardDistance,
   ChargeState,
@@ -141,6 +142,8 @@ export interface MarkerSnapshot {
   squadCoherency?: { positions: Vector3[]; radius: number } | null;
   /** Floor positions of the models picked as casualties (highlighted). */
   casualtyPicks?: Vector3[] | null;
+  /** 1" keep-away no-go discs shown while a move, rush, charge, push or pile-in is planned. */
+  keepAwayZones?: KeepAwayZone[] | null;
 }
 
 export type PickTarget =
@@ -3530,7 +3533,10 @@ export class GameHUD {
       </div>`
       : '';
 
-    return `${alertsHtml}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
+    const keepAwayLegend = this.keepAwayZonesForFlow()
+      ? '<div class="sl-hud-keepaway-legend" data-keep-away-legend><span class="sl-keepaway-swatch"></span>Red rings: 1" zone around other units — your models\' bases can\'t enter (charges may close on their target, shown green)</div>'
+      : '';
+    return `${alertsHtml}${keepAwayLegend}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
       alerts.length ? '' : toastHtml
     }`;
   }
@@ -5619,9 +5625,50 @@ export class GameHUD {
       };
     }
 
+    markers.keepAwayZones = this.keepAwayZonesForFlow();
+
     for (const handler of this.markerHandlers) {
       handler(markers);
     }
+  }
+
+  /**
+   * The 1" keep-away discs for whatever move is being planned right now (move, rush, charge incl. legs, squad
+   * model picks, group-crossing placement, push, pile-in), or null when nothing is being planned. The declared
+   * charge target / pile-in charger is exempt, like on the host.
+   */
+  private keepAwayZonesForFlow(): KeepAwayZone[] | null {
+    const state = this.state;
+    if (!state || !this.visible) return null;
+    const result = (mover: Unit, reach: number, exempt: string | null | undefined): KeepAwayZone[] | null => {
+      const zones = computeKeepAwayZones(state, mover, { reach, exemptUnitId: exempt });
+      return zones.length > 0 ? zones : null;
+    };
+
+    const pile = this.pileInContext();
+    if (pile) return result(pile.defender, pile.maxDistance, pile.charger.id);
+    const push = this.pushContext();
+    if (push && this.pushPicking) return result(push.shaken, PUSH_RANGE, null);
+
+    const active = this.activeUnit;
+    if (!active || !this.myTurn) return null;
+    const flow = this.flow;
+    if (flow.mode === 'targeting') {
+      if (flow.action === 'move') return result(active, this.distanceLeft(active, 'move'), null);
+      if (flow.action === 'rush') return result(active, this.distanceLeft(active, 'rush'), null);
+      if (flow.action === 'charge' && this.declaredCharge) {
+        return result(active, this.distanceLeft(active, 'charge'), this.declaredCharge.targetId);
+      }
+    } else if (flow.mode === 'confirming') {
+      const type = flow.action.type;
+      if (type === 'advance') return result(active, this.distanceLeft(active, 'move'), null);
+      if (type === 'rush') return result(active, this.distanceLeft(active, 'rush'), null);
+      if (type === 'charge' || type === 'charge-leg') {
+        const targetId = (flow.action.payload as { targetId?: string }).targetId ?? this.declaredCharge?.targetId;
+        return result(active, this.distanceLeft(active, 'charge'), targetId);
+      }
+    }
+    return null;
   }
 
   private actionMaxRange(unit: Unit, action: 'shoot' | 'charge' | 'fight'): number {
@@ -5793,6 +5840,11 @@ export class GameHUD {
 .sl-hud-dice-summary { font-size: 12px; color: #b0bec5; margin-top: 4px; }
 .sl-hud-dice-empty, .sl-hud-log-empty { color: #607d8b; font-size: 12px; }
 .sl-hud-log-entry { font-size: 12px; color: #b0bec5; padding: 2px 0; }
+.sl-hud-keepaway-legend { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%);
+  background: rgba(38,50,56,0.92); color: #ffcdd2; border: 1px solid #e53935; border-radius: 8px;
+  padding: 6px 12px; font-size: 12px; pointer-events: none; max-width: 520px; text-align: center; }
+.sl-keepaway-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%;
+  background: rgba(229,57,53,0.5); border: 1px solid #e53935; }
 .sl-hud-toast { position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
   background: #263238; color: #ffd54f; border: 1px solid #4f5b62; border-radius: 8px;
   padding: 8px 16px; font-size: 13px; pointer-events: none; }
