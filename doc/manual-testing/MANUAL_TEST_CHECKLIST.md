@@ -36,11 +36,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] Same with an enemy unit standing there (the note names the enemy), and with a charge leg (the declared target is exempt, any other unit is named).
 - [ ] Aim a move past its allowance: the note is "Stopped: out of movement" with the marker at the end of the path. Rush out of rubble or other difficult ground toward a far point: "Stopped: difficult terrain caps the move at 6\"". Rush toward a point on the far side of rubble: the existing "Rush stops at the edge of difficult terrain" shows once, with the marker. Point at a 3" deck from open ground with no stairs or ladder in reach: "Stopped: can't climb there (use stairs or a ladder)".
 - [ ] Both players: the guest sees the same notes and markers when moving on their side.
-- [ ] Put the host's TEST: Jump Check squad on the ground under a 3" deck (the host-side deck at x -9, z -10..-2), then activate the guest's squad (or another host unit) and Move it up the stairs and across the deck above the squad: the preview is not red and the move is accepted.
-- [ ] Same setup: a path that really passes within 1" in 3D (walking on the ground right beside the models under the deck, or climbing the stairs while a model stands right at their foot) is still refused with the 1" message.
-- [ ] Select a unit standing on the 3" deck above the ground squad: no red ring is drawn solid around the under-deck models (they show faint); hover the "Red rings" legend: the tooltip explains that the 1" is measured in 3D. Select a unit on the ground beside the stairs: models on the deck are faint too.
-- [ ] Deploy (Deployment on) a unit on a deck directly above a deployed friendly unit on the ground (and the reverse): accepted; one inch beside it on the same level: still "within 1"".
-- [ ] A squad crossing a gap (group crossing) can land carried models over/under another unit's models at a different level; the same spot at the same level within 1" is still refused.
 
 ## 8. Melee & objectives
 - All earlier items verified.
