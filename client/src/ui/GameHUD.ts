@@ -228,6 +228,8 @@ export class GameHUD {
   private moveJump: JumpOption | null = null;
   /** Set while hovering across a gap over the 6" jump limit (hint only; nothing is offered). */
   private moveTooWide: { distance: number } | null = null;
+  /** Why the spot under the cursor would be refused (a jump breaking the 1" keep-away rule, or a squad model that overlaps / breaks coherency), or null. */
+  private moveJumpRefused: string | null = null;
   /** Engine classification of each leg of the previewed path (for styling and labels). */
   private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
@@ -452,6 +454,7 @@ export class GameHUD {
     this.movePreviewDifficult = false;
     this.moveJump = null;
     this.moveTooWide = null;
+    this.moveJumpRefused = null;
     this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
     this.selectedCasualtyModelId = null;
@@ -735,6 +738,7 @@ export class GameHUD {
   handleBoardHover(target: PickTarget | null): void {
     if (!this.state || this.state.status === 'game-over') return;
     this.moveTooWide = null;
+    this.moveJumpRefused = null;
 
     const nextTerrainId =
       target?.kind === 'position'
@@ -881,6 +885,11 @@ export class GameHUD {
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
         this.moveTooWide = this.tooWideHint(resolved, path);
+        this.moveJumpRefused = resolved.refused
+          ? `Cannot jump there: ${resolved.refused}`
+          : currentModel && path.length > 1
+          ? this.squadPlacementProblem(active, alive, currentModel, path[path.length - 1])
+          : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -933,11 +942,13 @@ export class GameHUD {
       let cursor: Vector3 | null = null;
       let jump = null as JumpOption | null;
       let tooWide: { distance: number } | null = null;
+      let jumpRefused: string | null = null;
       if (target?.kind === 'position') {
-        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
+        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true, { ignoreUnitId: declared.targetId });
         cursor = resolved.target;
         jump = resolved.jump;
         tooWide = resolved.tooWide;
+        jumpRefused = resolved.refused ?? null;
       } else if (target?.kind === 'unit' && target.unitId === declared.targetId && enemy) {
         cursor = this.contactSpotFor(startPos, enemy);
       }
@@ -953,6 +964,7 @@ export class GameHUD {
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.moveJump = jump;
         this.moveTooWide = tooWide && cursor ? this.tooWideHint({ target: cursor, jump, tooWide }, path) : null;
+        this.moveJumpRefused = jumpRefused ? `Cannot jump there: ${jumpRefused}` : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePreviewDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.hoveredEngagedTargetId = target?.kind === 'unit' ? declared.targetId : null;
@@ -995,7 +1007,7 @@ export class GameHUD {
         this.updateMoveWarning(isDifficult, this.flow.action);
       } else if (active && declared && target?.kind === 'position') {
         // A leg: walk toward the cursor, or declare a jump when standing at an edge (same as a move)
-        const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true);
+        const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true, { ignoreUnitId: declared.targetId });
         const path = resolved.jump
           ? resolved.jump.path
           : this.hoverNav(active, resolved.target, budget, {
@@ -1006,6 +1018,7 @@ export class GameHUD {
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
         this.moveTooWide = this.tooWideHint(resolved, path);
+        this.moveJumpRefused = resolved.refused ? `Cannot jump there: ${resolved.refused}` : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -1814,6 +1827,79 @@ export class GameHUD {
     return `This model cannot move there: the way is blocked or the spot is not reachable (it has ${budget.toFixed(1)}" of move left)`;
   }
 
+  /**
+   * Why the model about to be placed at `destination` would be refused for the squad as a whole (overlapping
+   * another model, too far from the placed ones, or breaking coherency when it is the last one), or null.
+   * The click and the hover preview both use it, so what the preview shows is what the click does.
+   */
+  private squadPlacementProblem(active: Unit, alive: Model[], currentModel: Model, destination: Vector3): string | null {
+    // Minimum model separation check: models cannot physically overlap (bases must not overlap)
+    for (let i = 0; i < alive.length; i++) {
+      const m = alive[i];
+      if (m.id === currentModel.id) continue;
+      const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
+      const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
+      if (dist < 0.90) {
+        return `Cannot place model on top of Model ${i + 1} (bases would overlap)`;
+      }
+    }
+
+    // Coherency checks against other placed models
+    const otherPlaced: Array<{ id: string; pos: Vector3; name: string }> = [];
+    for (let i = 0; i < alive.length; i++) {
+      const m = alive[i];
+      if (m.id !== currentModel.id && this.stagedSquadModelPositions.has(m.id)) {
+        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: `Model ${i + 1}` });
+      }
+    }
+
+    // A squad that started the action out of coherency may end it closer to coherent (regrouping)
+    const startPositions = alive.map((m) => m.position ?? active.position);
+    const startedIncoherent = !validateSquadCoherency(startPositions).coherent;
+
+    if (otherPlaced.length > 0) {
+      // 1. All models must remain within 6" (base edge to base edge) of all other placed models
+      //    (a regrouping squad is judged as a whole when the last model is placed)
+      for (const placed of startedIncoherent ? [] : otherPlaced) {
+        const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
+        if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
+          return `Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`;
+        }
+      }
+
+      // 2. When placing the final model of the squad, full squad coherency must be satisfied
+      const isPlacingLastModel = otherPlaced.length === alive.length - 1;
+      if (isPlacingLastModel) {
+        const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
+        const coherency = validateSquadCoherency(candidatePositions);
+        if (!coherency.coherent) {
+          // Candidate positions are in placement order, not model order: compare as a set of positions
+          const regrouping = startedIncoherent && isRegroupingMove(startPositions, candidatePositions);
+          if (!regrouping) {
+            return (
+              (coherency.reason ??
+                'Each model must be within 1" of another squad member (3" if they are on different levels)') +
+              (startedIncoherent
+                ? ' (the squad started out of coherency: it must end closer to coherent than it began)'
+                : '')
+            );
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /** A refused hand placement: toast the reason and keep it on the model's chip (replacing any older reason). */
+  private refuseSquadPlacement(model: Model, reason: string): void {
+    this.showToast(reason);
+    if (!this.stagedSquadModelPositions.has(model.id)) {
+      this.squadBlockedModels.set(model.id, `Not placed: ${reason}`);
+      this.render();
+    }
+  }
+
   private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush' | 'charge'): void {
     const active = this.activeUnit;
     if (!active || !this.state) return;
@@ -1826,7 +1912,11 @@ export class GameHUD {
 
     const startPos = currentModel.position ?? active.position;
     // The cursor snaps to floor edges; a model standing at an edge may declare its own jump or fall
-    const resolved = resolveMoveTarget(this.state, active, startPos, rawDestination, true);
+    const resolved = resolveMoveTarget(this.state, active, startPos, rawDestination, true, actionKind === 'charge' ? { ignoreUnitId: this.declaredCharge?.targetId } : {});
+    if (resolved.refused) {
+      this.refuseSquadPlacement(currentModel, `Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     rawDestination = resolved.target;
 
@@ -1858,13 +1948,13 @@ export class GameHUD {
       path = findNavPath(this.state, active, rawDestination, maxAllowance, navOptions);
     }
     if (path.length < 2) {
-      this.showToast(this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
+      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
       return;
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path, active);
     if (distance < 0.05 && !jump) {
-      this.showToast(this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
+      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
       return;
     }
 
@@ -1875,7 +1965,7 @@ export class GameHUD {
     if (isCharge) {
       // A charging model may end in contact with the target, but not on top of one of its models
       if (livingModelPositions(chargeTarget!).some((t) => boardDistance(t, destination) < 0.9)) {
-        this.showToast('Cannot place a model on top of an enemy model (bases would overlap)');
+        this.refuseSquadPlacement(currentModel, "Cannot place a model on top of an enemy model (bases would overlap)");
         return;
       }
     } else {
@@ -1885,69 +1975,16 @@ export class GameHUD {
           pointEngagesUnit(destination, e)
       );
       if (wouldEngage) {
-        this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Advance'} cannot end in melee contact — use Charge instead`);
+        this.refuseSquadPlacement(currentModel, `${actionKind === "rush" ? "Rush" : "Advance"} cannot end in melee contact — use Charge instead`);
         return;
       }
     }
 
-    // Minimum model separation check: models cannot physically overlap (bases must not overlap)
-    for (let i = 0; i < alive.length; i++) {
-      const m = alive[i];
-      if (m.id === currentModel.id) continue;
-      const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
-      const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
-      if (dist < 0.90) {
-        this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
-        return;
-      }
+    const placementProblem = this.squadPlacementProblem(active, alive, currentModel, destination);
+    if (placementProblem) {
+      this.refuseSquadPlacement(currentModel, placementProblem);
+      return;
     }
-
-    // Coherency checks against other placed models
-    const otherPlaced: Array<{ id: string; pos: Vector3; name: string }> = [];
-    for (let i = 0; i < alive.length; i++) {
-      const m = alive[i];
-      if (m.id !== currentModel.id && this.stagedSquadModelPositions.has(m.id)) {
-        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: `Model ${i + 1}` });
-      }
-    }
-
-    // A squad that started the action out of coherency may end it closer to coherent (regrouping)
-    const startPositions = alive.map((m) => m.position ?? active.position);
-    const startedIncoherent = !validateSquadCoherency(startPositions).coherent;
-
-    if (otherPlaced.length > 0) {
-      // 1. All models must remain within 6" (base edge to base edge) of all other placed models
-      //    (a regrouping squad is judged as a whole when the last model is placed)
-      for (const placed of startedIncoherent ? [] : otherPlaced) {
-        const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
-        if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
-          this.showToast(`Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`);
-          return;
-        }
-      }
-
-      // 2. When placing the final model of the squad, full squad coherency must be satisfied
-      const isPlacingLastModel = otherPlaced.length === alive.length - 1;
-      if (isPlacingLastModel) {
-        const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
-        const coherency = validateSquadCoherency(candidatePositions);
-        if (!coherency.coherent) {
-          // Candidate positions are in placement order, not model order: compare as a set of positions
-          const regrouping = startedIncoherent && isRegroupingMove(startPositions, candidatePositions);
-          if (!regrouping) {
-            this.showToast(
-              (coherency.reason ??
-                'Each model must be within 1" of another squad member (3" if they are on different levels)') +
-                (startedIncoherent
-                  ? ' (the squad started out of coherency: it must end closer to coherent than it began)'
-                  : '')
-            );
-            return;
-          }
-        }
-      }
-    }
-
     // Model placed successfully
     this.stagedSquadModelPositions.set(currentModel.id, destination);
     this.stagedSquadModelPaths.set(currentModel.id, path);
@@ -2051,7 +2088,7 @@ export class GameHUD {
         taken.push(option.takeoff, option.landing);
         followed.push(idx + 1);
       } else if (plan.status === 'unreachable') {
-        this.squadBlockedModels.set(m.id, plan.reason);
+        this.squadBlockedModels.set(m.id, `Cannot reach the take-off edge: ${plan.reason}`);
         blocked.push(`Model ${idx + 1} (${plan.reason})`);
       }
     });
@@ -2104,7 +2141,7 @@ export class GameHUD {
           }.${
             this.squadBlockedModels.size > 0
               ? ` ${alive
-                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1} cannot reach the take-off edge (${this.squadBlockedModels.get(m.id)})` : ''))
+                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1}: ${this.squadBlockedModels.get(m.id)}` : ''))
                   .filter(Boolean)
                   .join('; ')}.`
               : ''
@@ -2328,6 +2365,10 @@ export class GameHUD {
       : Math.min(active.speed, active.remainingMovement ?? active.speed);
     let maxAllowance = currentBudget;
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    if (resolved.refused) {
+      this.showToast(`Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     rawDestination = resolved.target;
     let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance, { keepAway: true });
@@ -2402,6 +2443,10 @@ export class GameHUD {
     const currentRushBudget = active.isRushing ? active.remainingMovement : active.speed * 2;
     let maxAllowance = currentRushBudget;
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    if (resolved.refused) {
+      this.showToast(`Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     rawDestination = resolved.target;
     let path = jump
@@ -2526,7 +2571,11 @@ export class GameHUD {
     const target = this.state.units.find((u) => u.id === declared.targetId);
     if (!target) return;
 
-    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true, { ignoreUnitId: target.id });
+    if (resolved.refused) {
+      this.showToast(`Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     const dest = resolved.target;
     let allowance = active.remainingMovement;
@@ -4175,7 +4224,7 @@ export class GameHUD {
                   <button class="sl-hud-btn sl-hud-chip ${isSelected ? 'active' : ''}"
                     data-action="select-squad-model"
                     data-model-id="${m.id}"
-                    ${blockedWhy ? `title="Cannot reach the take-off edge: ${blockedWhy.replace(/"/g, '&quot;')}"` : ''}
+                    ${blockedWhy ? `title="${blockedWhy.replace(/"/g, '&quot;')}"` : ''}
                     style="${
                       blockedWhy
                         ? 'background: rgba(244, 67, 54, 0.25); border-color: #f44336; color: #ef9a9a;'
@@ -4756,6 +4805,14 @@ export class GameHUD {
   private showTraversalChip(): void {
     const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!el) return;
+    if (this.moveJumpRefused && !this.moveJump) {
+      el.textContent = this.moveJumpRefused;
+      el.style.display = 'block';
+      el.style.background = 'rgba(244, 67, 54, 0.25)';
+      el.style.borderColor = '#f44336';
+      el.style.color = '#ff8a80';
+      return;
+    }
     if (this.moveTooWide && !this.moveJump) {
       el.textContent = tooWideText(this.moveTooWide.distance);
       el.style.display = 'block';
