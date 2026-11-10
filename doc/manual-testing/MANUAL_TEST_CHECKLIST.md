@@ -21,8 +21,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 4. Drops, jumps and movement cost
 - All items verified.
-- [ ] **14C-2 jump dice:** from a deck edge declare a jump over a gap of about 3": the move chip and the dice panel show one die per started inch (a 3.1" hop is 4 dice, each needing 2+). A Strider unit shows half the dice, rounded up.
-- [ ] **14C-2 squad jump:** a squad with two models jumping in the same move shows ONE jump roll (not one per model). On a failure the model with the longest jump lands on the floor below (taking fall wounds on 1-3, one die per inch fallen) and the other jumper stays at its take-off edge; the activation ends. A fall under 2" rolls no fall dice.
 
 ## 5. Low cover & scatter
 - All items verified.
@@ -32,24 +30,15 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 7. Movement, rush and shooting
 - All items verified.
-- [ ] **14C-2 morale at half:** shoot a 4-model squad with a squad of yours until it has 2 models left, then end your activation: a Morale dice panel appears for both players (unit, die, Quality needed, result) and the log says passed or Shaken. A squad hit but still above half (3 of 4 left) rolls nothing. A unit at half that was not hit this activation rolls nothing.
-- [ ] **14C-2 Tough:** a Tough(3) model shows `1/3 W`, `2/3 W` as it takes wounds, is not Shaken by the wounds themselves, and is removed on the third (no Wound Effect roll anywhere).
-- [ ] **14C-2 Shaken:** a Shaken unit, when you activate it, offers only *End Activation (idle)* (Advance, Rush, Shoot, Charge greyed out); ending it removes the SHAKEN tag. A second wound to a Shaken unit at half still re-tests (it fails automatically, no die). A Fearless unit gets a Fearless die.
-- [ ] **14C-2 Hero:** a squad at half within 6" of a living non-Shaken Hero tests with the Hero's better Quality; at more than 6" it uses its own.
-- [ ] **14C-2 round end:** ending a round with half your army dead triggers no morale tests.
-- [ ] **14C-2 two targets:** give a unit two weapons with different names plus a third: the HUD lets you send the weapons to two enemy units but toasts "Cannot split fire across more than 2 distinct targets" for a third. Two weapons with the same name always move to a new target together.
-- [ ] **14C-2 Blast spread:** fire a Blast weapon (Frag Launcher / Trench Mortar) at a squad with another enemy squad within 3" of it: the dice panel shows the target's hits plus a "Blast spill" line for the neighbour (its own Defense); both squads owe morale at the end of the activation if they dropped to half. A neighbour more than 3" away takes nothing.
-- [ ] **14C-2 Indirect:** a Trench Mortar that held (did not move) can target a unit behind a wall; after an Advance it reports "No line of sight" on the same target. No -1 to hit appears after moving.
+- [ ] **14C-2 Hero:** (TEST: Rules Check army in Developer mode; Test Squads A/B are Quality 6+, the Test Hero 3+) a squad at half within 6" of a living non-Shaken Hero tests with the Hero's better Quality; at more than 6" it uses its own.
+- [ ] **14C-2 two targets:** (TEST: Rules Check army; the Test Heavy Gunner carries a Frag Launcher, a Trench Mortar, two weapons named Rifle and a Sidearm) the HUD lets you send the weapons to two enemy units but toasts "Cannot split fire across more than 2 distinct targets" for a third. Two weapons with the same name always move to a new target together.
+- [ ] **14C-2 Blast spread:** (TEST: Rules Check army; the enemy Test Squads A and B start within 3" of each other) fire the Test Heavy Gunner's Frag Launcher at one of them: the dice panel shows the target's hits plus a "Blast spill" line for the neighbour (its own Defense); both squads owe morale at the end of the activation if they dropped to half. A neighbour more than 3" away takes nothing.
+- [ ] **14C-2 Indirect:** (TEST: Rules Check army) the Test Heavy Gunner's Trench Mortar, when the gunner held (did not move) can target a unit behind a wall; after an Advance it reports "No line of sight" on the same target. No -1 to hit appears after moving.
 
 ## 8. Melee & objectives
 - All earlier items verified.
-- [ ] **14C-2 push (engine, no HUD yet):** wound an enemy squad to half strength with a shooting unit, then End Activation. When its Morale Test fails and the push die shows 4+, a "Push" prompt appears for you (the attacker) with one "Auto push" button (the opponent sees "Waiting for opponent: Push"). Pressing it moves the model nearest your unit 2" straight away; the squad's other models step in only if the push split it. If you do nothing, the push is applied after 30 s. A push die under 4, or a unit that passes its test, shows no prompt. A model pushed off a deck edge falls and rolls fall dice in the dice panel.
-- [ ] **14C-2 melee reach:** a charged or fighting squad strikes with every model whose base edge is within 3" of an enemy model (the attack count in the dice panel matches), not only those within 2".
-- [ ] **14C-2 melee result:** charge a unit, let it strike back, then End Activation. The log and dice panel show a line like "X took 3 wounds, Y took 1 (+1 Fear): X loses". The loser rolls Morale: a pass changes nothing, a fail Shakes it, and a fail while it is at half strength or less removes it ("Routed"). An even exchange shows "tied, nobody tests Morale".
 
 ## 9. Multiplayer & custom maps
 - All items verified.
-- [ ] **14C-1 lobby default:** the lobby footer shows "Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules." plus the "Full rules: onepagerules.com (free)" link, and neither army picker lists a TEST army.
-- [ ] **14C-1 F9 toggle:** F9 on the main menu shows the toast "Developer mode on", a DEV badge and the TEST armies in both pickers. A page reload keeps it. F9 again shows "Developer mode off" and hides them.
 - [ ] **14C-1 F9 in game:** during a match F9 still opens the LoS debugger and does not change developer mode (return to the lobby: the state is as you left it).
 - [ ] **14C-1 smoke game:** play a few activations. Data cards show AP / Tough / Rending where relevant, the button and log say Advance, and nothing reads "Suppressed" or "Toughness".

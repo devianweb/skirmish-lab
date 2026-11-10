@@ -69,6 +69,17 @@ export const WEAPONS: Record<string, Weapon> = {
     profile: { type: 'melee', range: 1, attacks: 1, specialRules: [] },
     isEquipped: true,
   },
+  /**
+   * TEST-only twin of `rifle`: a different id with the same name, so a unit can carry two weapons
+   * named "Rifle" (checks that same-name weapons always share a target).
+   */
+  'rifle-twin': {
+    id: 'rifle-twin',
+    weaponType: 'rifle',
+    name: 'Rifle',
+    profile: { type: 'ranged', range: 24, attacks: 1, specialRules: [] },
+    isEquipped: true,
+  },
   'long-rifle': {
     id: 'long-rifle',
     weaponType: 'long-rifle',
