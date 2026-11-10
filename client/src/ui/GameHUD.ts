@@ -557,7 +557,7 @@ export class GameHUD {
           const maxDist = pendingReaction.data?.maxDistance ?? 3.0;
           const path = findNavPath(this.state, victor, target.position, maxDist);
           if (path.length >= 2) {
-            const distance = pathMovementCost(this.state!, path);
+            const distance = pathMovementCost(this.state!, path, victor);
             this.flow = {
               mode: 'confirming',
               action: createAction(this.localPlayerId, 'consolidate-move', {
@@ -861,7 +861,7 @@ export class GameHUD {
           ? rushStopText(
               rushStopReason({
                 heightShort: isElevationObstacle,
-                pathCost: pathMovementCost(this.state, path),
+                pathCost: pathMovementCost(this.state, path, active),
                 budget: remainingBudget,
               })
             )
@@ -1768,6 +1768,13 @@ export class GameHUD {
       </div>`;
   }
 
+  /** Why a squad model's spot was refused: no move left, the spot is the model itself, or the way is blocked. */
+  private refusedSquadSpotReason(start: Vector3, destination: Vector3, budget: number): string {
+    if (budget < 0.05) return 'This model has no move left';
+    if (boardDistance(start, destination) < 0.05) return 'Pick a destination away from the model';
+    return `This model cannot move there: the way is blocked or the spot is not reachable (it has ${budget.toFixed(1)}" of move left)`;
+  }
+
   private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush' | 'charge'): void {
     const active = this.activeUnit;
     if (!active || !this.state) return;
@@ -1812,13 +1819,13 @@ export class GameHUD {
       path = findNavPath(this.state, active, rawDestination, maxAllowance, navOptions);
     }
     if (path.length < 2) {
-      this.showToast('Pick a destination away from the model');
+      this.showToast(this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathMovementCost(this.state!, path);
+    const distance = pathMovementCost(this.state!, path, active);
     if (distance < 0.05 && !jump) {
-      this.showToast('Pick a destination away from the model');
+      this.showToast(this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
       return;
     }
 
@@ -2240,7 +2247,7 @@ export class GameHUD {
       return;
     }
 
-    const cost = Math.max(...orderedPaths.map((p) => pathMovementCost(state, p)), 0);
+    const cost = Math.max(...orderedPaths.map((p) => pathMovementCost(state, p, active)), 0);
     let summary: string;
     if (inContact) {
       const attacks = (weapon.profile.attacks as number) * Math.max(1, strikers);
@@ -2249,7 +2256,7 @@ export class GameHUD {
       // Each model keeps its own distance: report the most any model has left after this leg
       const left = Math.max(
         0,
-        ...alive.map((m, i) => this.distanceLeft(active, 'charge', m) - pathMovementCost(state, orderedPaths[i]))
+        ...alive.map((m, i) => this.distanceLeft(active, 'charge', m) - pathMovementCost(state, orderedPaths[i], active))
       );
       summary = `Charge leg for ${active.name} (${alive.length} models) · furthest walk ${cost.toFixed(1)}" · each model keeps its own distance (up to ${left.toFixed(1)}" left after this leg; no melee yet)`;
     }
@@ -2297,7 +2304,7 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathMovementCost(this.state!, path);
+    const distance = pathMovementCost(this.state!, path, active);
     if (distance < 0.05 && !jump) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -2404,7 +2411,7 @@ export class GameHUD {
       return;
     }
     const destination = path[path.length - 1];
-    const distance = pathMovementCost(this.state!, path);
+    const distance = pathMovementCost(this.state!, path, active);
     if (distance < 0.05 && !jump) {
       this.showToast('Pick a destination away from the unit');
       return;
@@ -2424,7 +2431,7 @@ export class GameHUD {
       ? rushStopText(
           rushStopReason({
             heightShort: isElevationObstacle,
-            pathCost: pathMovementCost(this.state!, path),
+            pathCost: pathMovementCost(this.state!, path, active),
             budget: currentRushBudget,
           })
         )
@@ -2501,7 +2508,7 @@ export class GameHUD {
       return;
     }
     const end = path[path.length - 1];
-    const cost = pathMovementCost(this.state, path);
+    const cost = pathMovementCost(this.state, path, active);
     if (cost < 0.05 && !jump) {
       this.showToast('Pick a spot away from the unit');
       return;
@@ -2696,7 +2703,7 @@ export class GameHUD {
       });
       const end = path[path.length - 1];
       const contact = chargeContact(active, target, end, MELEE_MAX_VERTICAL_REACH);
-      const pathCharge = pathMovementCost(this.state!, path);
+      const pathCharge = pathMovementCost(this.state!, path, active);
       const isDifficult = isPathDifficult(this.state!, path, active);
       const maxCharge = getEffectiveMaxMovement(active, 'charge', isDifficult);
       // The host must accept this exact path (the pathfinder can fall back to a straight line across a gap)
