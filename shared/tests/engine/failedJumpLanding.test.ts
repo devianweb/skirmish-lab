@@ -80,8 +80,8 @@ const roll = (purpose: string, rolls: number[]): DiceResult => ({
 });
 
 const jumpAction = () =>
-  createAction(HOST, 'move-unit', {
-    type: 'move-unit',
+  createAction(HOST, 'advance', {
+    type: 'advance',
     unitId: 'u',
     path: [takeoff, landing],
     finalPosition: landing,
@@ -161,8 +161,8 @@ describe('failed jump-down: lands on the floor below', () => {
     const unit = makeUnit(from);
     const state = makeState(unit);
     state.terrain = [tall];
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path: [from, to],
       finalPosition: to,

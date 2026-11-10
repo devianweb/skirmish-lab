@@ -181,8 +181,8 @@ describe('gameState', () => {
     it('should reject acting with a stunned unit inside an activation', () => {
       const state = createInitialGameState('h1', 'g1');
       state.units = [makeUnit({ status: ['stunned'] })];
-      const action = createAction('h1', 'move-unit', {
-        type: 'move-unit',
+      const action = createAction('h1', 'advance', {
+        type: 'advance',
         unitId: 'u1',
         path: [{ x: 1, y: 0, z: 1 }],
         finalPosition: { x: 1, y: 0, z: 1 },

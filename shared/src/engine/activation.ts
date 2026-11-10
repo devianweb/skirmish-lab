@@ -219,17 +219,17 @@ export function getUnitsRequiringRoundMorale(state: GameState): Unit[] {
 
 /**
  * Apply Round-End Morale tests to all units in broken armies using pre-rolled
- * server morale dice (`purpose: 'morale'`, plus optional `purpose: 'stoic'`).
+ * server morale dice (`purpose: 'morale'`, plus optional `purpose: 'fearless'`).
  */
 export function applyRoundEndMorale(
   state: GameState,
   moraleRolls: number[],
-  stoicRolls: number[] = []
+  fearlessRolls: number[] = []
 ): Array<{ unitId: string; outcome: MoraleTestOutcome }> {
   const unitsToTest = getUnitsRequiringRoundMorale(state);
   const outcomes: Array<{ unitId: string; outcome: MoraleTestOutcome }> = [];
   let rollIdx = 0;
-  let stoicIdx = 0;
+  let fearlessIdx = 0;
 
   for (const unit of unitsToTest) {
     if (rollIdx >= moraleRolls.length) break;
@@ -237,7 +237,7 @@ export function applyRoundEndMorale(
     const alreadyShaken =
       unit.status.includes('shaken') || unit.status.includes('stunned');
 
-    // Check for friendly Commander (Hero) within 12" who is not shaken/routed.
+    // Check for friendly Hero within 12" who is not shaken/routed.
     const commanders = state.units.filter(
       (c) =>
         c.ownerId === unit.ownerId &&
@@ -245,17 +245,17 @@ export function applyRoundEndMorale(
         !c.status.includes('shaken') &&
         !c.status.includes('stunned') &&
         !c.status.includes('routed') &&
-        hasTrait(c.specialRules, 'commander') &&
+        hasTrait(c.specialRules, 'hero') &&
         unitDistance(c, unit) <= 12.01
     );
-    const commanderQuality =
+    const heroQuality =
       commanders.length > 0
         ? Math.min(...commanders.map((c) => c.quality))
         : undefined;
 
-    const stoicRoll =
-      hasTrait(unit.specialRules, 'stoic') && stoicIdx < stoicRolls.length
-        ? stoicRolls[stoicIdx++]
+    const fearlessRoll =
+      hasTrait(unit.specialRules, 'fearless') && fearlessIdx < fearlessRolls.length
+        ? fearlessRolls[fearlessIdx++]
         : undefined;
 
     const testOutcome = resolveMoraleTest({
@@ -263,8 +263,8 @@ export function applyRoundEndMorale(
       roll,
       specialRules: unit.specialRules,
       alreadyShaken,
-      commanderQuality,
-      stoicRoll,
+      heroQuality,
+      fearlessRoll,
     });
 
     // Consume one-shot morale-debuff if present.
@@ -303,13 +303,13 @@ export interface DeploymentZoneBounds {
  * Calculates rectangular battlefield boundaries for a player's deployment zone.
  * Zones run in from the player's table edge, up to 12" deep, but never so deep that the two zones are less
  * than 24" apart (the rules allow smaller tables as long as armies deploy at least 24" apart). On a 48"-deep
- * table that is the usual 12"; on a 30"-deep table it is 3". Vanguard units may deploy up to 12" further
+ * table that is the usual 12"; on a 30"-deep table it is 3". Scout units may deploy up to 12" further
  * ahead of their zone, but never past the centre line.
  */
 export function getDeploymentZoneBounds(
   state: GameState,
   playerId: string,
-  isVanguard: boolean = false
+  isScout: boolean = false
 ): DeploymentZoneBounds {
   const halfW = (state.board.width * state.board.gridSize) / 2;
   const halfH = (state.board.height * state.board.gridSize) / 2;
@@ -320,13 +320,13 @@ export function getDeploymentZoneBounds(
     // Host deployed at South edge (-halfH) facing +z
     const minZ = -halfH;
     const zoneMax = -halfH + depth;
-    const maxZ = isVanguard ? Math.min(0, zoneMax + 12) : zoneMax;
+    const maxZ = isScout ? Math.min(0, zoneMax + 12) : zoneMax;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   } else {
     // Guest deployed at North edge (+halfH) facing -z
     const maxZ = halfH;
     const zoneMin = halfH - depth;
-    const minZ = isVanguard ? Math.max(0, zoneMin - 12) : zoneMin;
+    const minZ = isScout ? Math.max(0, zoneMin - 12) : zoneMin;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   }
 }
@@ -335,7 +335,7 @@ export function getDeploymentZoneBounds(
  * Get undeployed units eligible for deployment for a player.
  * Enforces rule sequencing:
  * 1. Standard units deploy first.
- * 2. Vanguard units deploy after all standard units are deployed.
+ * 2. Scout units deploy after all standard units are deployed.
  * 3. Drop Reserve units cannot deploy during pre-match deployment (held for Round 2+).
  */
 export function getDeployableUnits(state: GameState, playerId: string): Unit[] {
@@ -343,11 +343,11 @@ export function getDeployableUnits(state: GameState, playerId: string): Unit[] {
     (u) => u.ownerId === playerId && !u.isDestroyed && u.isDeployed === false
   );
 
-  // Filter out drop-reserve units (held for Round 2+)
-  const eligible = undeployed.filter((u) => !hasTrait(u.specialRules, 'drop-reserve'));
+  // Filter out ambush units (held for Round 2+)
+  const eligible = undeployed.filter((u) => !hasTrait(u.specialRules, 'ambush'));
 
-  // Standard units must deploy before vanguard units
-  const standard = eligible.filter((u) => !hasTrait(u.specialRules, 'vanguard'));
+  // Standard units must deploy before scout units
+  const standard = eligible.filter((u) => !hasTrait(u.specialRules, 'scout'));
   if (standard.length > 0) {
     return standard;
   }
@@ -391,17 +391,17 @@ export function validateDeploymentPosition(
   unit: Unit,
   position: Vector3
 ): { valid: boolean; reason?: string } {
-  if (hasTrait(unit.specialRules, 'drop-reserve')) {
+  if (hasTrait(unit.specialRules, 'ambush')) {
     return { valid: false, reason: 'Drop Reserve units cannot be deployed pre-match (held for Round 2+)' };
   }
 
   const eligibleUnits = getDeployableUnits(state, unit.ownerId);
   if (!eligibleUnits.some((u) => u.id === unit.id)) {
-    return { valid: false, reason: 'Unit is not currently eligible for deployment (vanguard units deploy after standard units)' };
+    return { valid: false, reason: 'Unit is not currently eligible for deployment (scout units deploy after standard units)' };
   }
 
-  const isVanguard = hasTrait(unit.specialRules, 'vanguard');
-  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isVanguard);
+  const isScout = hasTrait(unit.specialRules, 'scout');
+  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
 
   if (
     position.x < bounds.minX - 0.01 ||
@@ -411,8 +411,8 @@ export function validateDeploymentPosition(
   ) {
     return {
       valid: false,
-      reason: isVanguard
-        ? 'Position outside friendly vanguard deployment zone (up to 12" ahead)'
+      reason: isScout
+        ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
         : 'Position outside friendly 12" deployment zone',
     };
   }

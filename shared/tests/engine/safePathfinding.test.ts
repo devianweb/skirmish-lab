@@ -86,7 +86,7 @@ describe('classifySegment', () => {
   it('a drop just over 3" is a jump (2 dice, 3+) and its cost is zero', () => {
     const c = classifySegment(state, P(2, 3.5, 0), P(2.5, 0, 0), unit);
     expect(c).toMatchObject({ kind: 'jump-drop', dice: 2, target: 3, cost: 0 });
-    expect(classifySegment(state, P(2, 3.5, 0), P(2.5, 0, 0), makeUnit('p', P(0, 0, 0), 6, ['pathfinder'])).target).toBe(2);
+    expect(classifySegment(state, P(2, 3.5, 0), P(2.5, 0, 0), makeUnit('p', P(0, 0, 0), 6, ['strider'])).target).toBe(2);
   });
 
   it('a drop of exactly 6" is still a jump; over 6" is a fall with no dice', () => {
@@ -95,8 +95,8 @@ describe('classifySegment', () => {
     expect(fall).toMatchObject({ kind: 'fall', dice: 0, height: 7 });
   });
 
-  it('airborne never needs a jump', () => {
-    const flyer = makeUnit('f', P(0, 0, 0), 6, ['airborne']);
+  it('flying never needs a jump', () => {
+    const flyer = makeUnit('f', P(0, 0, 0), 6, ['flying']);
     expect(classifySegment(state, P(0, 5, 0), P(0.5, 0, 0), flyer).kind).toBe('drop');
   });
 
@@ -217,8 +217,8 @@ describe('fixture: safe pathfinding (testy-mctestface)', () => {
     expect(findJumpOption(state, unit, P(-1.5, 3, 0), P(5.6, 3, -1))).toBeNull();
   });
 
-  it('pathfinder jumps on 2+, airborne needs no dice', () => {
-    const pf = makeUnit('p', P(-0.2, 3, 0), 12, ['pathfinder']);
+  it('pathfinder jumps on 2+, flying needs no dice', () => {
+    const pf = makeUnit('p', P(-0.2, 3, 0), 12, ['strider']);
     expect(findJumpOption(makeState(pf), pf, pf.position, P(5.6, 3, -1))!.target).toBe(2);
   });
 
@@ -377,8 +377,8 @@ describe('host: jumps must be declared', () => {
     purpose,
   });
   const moveAction = (path: Vector3[], traversal?: unknown) =>
-    createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path,
       finalPosition: path[path.length - 1],

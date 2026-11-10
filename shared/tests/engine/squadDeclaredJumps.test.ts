@@ -82,7 +82,7 @@ const roll = (purpose: string, rolls: number[]): DiceResult => ({
 
 const traversal = { kind: 'jump-gap' as const, takeoff, landing };
 
-function squadMove(unit: Unit, type: 'move-unit' | 'rush' = 'move-unit', declare = true) {
+function squadMove(unit: Unit, type: 'advance' | 'rush' = 'advance', declare = true) {
   const alive = unit.models.filter((m) => !m.isDestroyed);
   const jumperIdx = alive.findIndex((m) => m.position!.x === takeoff.x);
   const modelPositions = alive.map((m, i) => (i === jumperIdx ? landing : { ...m.position! }));
@@ -107,7 +107,7 @@ describe('squad declared jumps', () => {
 
   it('still rejects a squad model whose path needs a jump that was not declared', () => {
     const state = makeState(makeSquad());
-    const res = validateAction(state, squadMove(state.units[0], 'move-unit', false));
+    const res = validateAction(state, squadMove(state.units[0], 'advance', false));
     expect(res.valid).toBe(false);
     expect((res as { reason: string }).reason).toMatch(/Squad model 2.*needs a jump/);
   });
@@ -210,8 +210,8 @@ describe('squad declared jumps', () => {
     unit.models[0].position = P(3.0, 3, 1.0);
     unit.position = { ...unit.models[0].position! };
     const state = makeState(unit);
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path: [unit.position, unit.position],
       finalPosition: unit.position,
@@ -246,8 +246,8 @@ describe('squad declared jumps', () => {
     const state = makeState(unit);
     state.terrain = [tall];
     const m = unit.models;
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path: [from, to],
       finalPosition: to,
@@ -295,8 +295,8 @@ describe('squad declared jumps', () => {
       state.units.push(bystander); // keeps the round going so the tally survives the failed activation
       state.units[0].modelMovementSpent = { 'u-m0': 0, 'u-m1': 0, 'u-m2': 0, 'u-m3': 0 };
       const m = unit.models;
-      const action = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const action = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'u',
         path: [unit.position, unit.position],
         finalPosition: unit.position,

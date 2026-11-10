@@ -133,7 +133,7 @@ describe('split charge: declaring', () => {
 
   it('a declared charge cannot become another action', () => {
     const state = ok(makeState([makeUnit('h1', HOST, P(0, 0, 0)), makeUnit('g1', GUEST, P(0, 0, 8))]), begin());
-    for (const type of ['move-unit', 'rush', 'shoot', 'fight', 'hold'] as const) {
+    for (const type of ['advance', 'rush', 'shoot', 'fight', 'hold'] as const) {
       const a = createAction(HOST, type, {
         type,
         unitId: 'h1',

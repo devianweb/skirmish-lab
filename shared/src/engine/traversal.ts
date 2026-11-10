@@ -154,8 +154,8 @@ export function classifySegment(
   const dy = (b.y ?? 0) - (a.y ?? 0);
   const horizontal = distanceHorizontal(a, b);
   const length = Math.hypot(horizontal, dy);
-  const airborne = !!unit && hasTrait(unit.specialRules, 'airborne');
-  const target = unit && hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
+  const flying = !!unit && hasTrait(unit.specialRules, 'flying');
+  const target = unit && hasTrait(unit.specialRules, 'strider') ? 2 : 3;
   const make = (kind: SegmentKind, cost: number, extra: Partial<SegmentClass> = {}): SegmentClass => ({
     kind,
     cost,
@@ -174,7 +174,7 @@ export function classifySegment(
     const onLadder = onSlope && isSegmentOnLadder(state, a, b);
     if (dy > 0) {
       if (onSlope) return make(onLadder ? 'ladder' : 'stairs', length);
-      if (airborne) return make('walk', length);
+      if (flying) return make('walk', length);
       return canClimbBetween(state, a, b) ? make('climb', length) : make('blocked', length);
     }
     const height = -dy;
@@ -186,7 +186,7 @@ export function classifySegment(
       }
       return make(onLadder ? 'ladder' : 'stairs', length);
     }
-    if (airborne) return make('drop', horizontal, { distance: height });
+    if (flying) return make('drop', horizontal, { distance: height });
     const kind = classifyDropHeight(height);
     // A hop that also crosses more than 1" of open air is a gap jump, whatever its height change. A jump is
     // measured like a tape: the straight line from take-off to landing (`length`), and a hop longer than 6"
@@ -203,7 +203,7 @@ export function classifySegment(
   }
 
   // Level movement: open air beneath an elevated stretch is a gap
-  if (airborne) return make('walk', length);
+  if (flying) return make('walk', length);
   if (isSegmentOnRampOrStairs(state, a, b) && !isSegmentOnLadder(state, a, b)) return make('stairs', length);
   const gap = measureElevatedGap(state, [a, b]);
   if (gap <= 0) return make('walk', length);
@@ -248,7 +248,7 @@ interface JumpResult {
 }
 
 /**
- * The jump test: roll one die per full 3" plus one, each needing 3+ (2+ with Pathfinder; Airborne
+ * The jump test: roll one die per full 3" plus one, each needing 3+ (2+ with Strider; Flying
  * auto-passes). All dice must succeed. Distances up to `freeMax` are regular movement (no test);
  * distances above `jumpMax` cannot be jumped.
  */
@@ -263,10 +263,10 @@ function resolveJump(
   if (distance <= freeMax) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
-  if (hasTrait(unit.specialRules, 'airborne')) {
+  if (hasTrait(unit.specialRules, 'flying')) {
     return { requiresTest: false, canJump: true, dice: 0, target: 0, passed: true };
   }
-  const target = hasTrait(unit.specialRules, 'pathfinder') ? 2 : 3;
+  const target = hasTrait(unit.specialRules, 'strider') ? 2 : 3;
   if (distance > jumpMax) {
     return { requiresTest: false, canJump: false, dice: 0, target, passed: false };
   }
@@ -284,7 +284,7 @@ export function resolveDropJump(unit: Unit, drop: number, rolls?: number[], hopL
 /** Human-readable warning for the highest drop on a path (empty when it is regular movement). */
 export function describeDrop(drop: number, unit: Unit): string {
   const kind = classifyDropHeight(drop);
-  if (kind === 'drop' || hasTrait(unit.specialRules, 'airborne')) return '';
+  if (kind === 'drop' || hasTrait(unit.specialRules, 'flying')) return '';
   if (kind === 'fall') {
     return `⚠️ HIGH DROP (${drop.toFixed(1)}"): too far to jump — falls, Falling damage and ends activation!`;
   }
@@ -334,11 +334,11 @@ export function isPathDifficult(
   path: Vector3[],
   unit?: Unit
 ): boolean {
-  if (unit && hasTrait(unit.specialRules, 'pathfinder')) {
-    return false; // Pathfinder ignores difficult terrain
+  if (unit && hasTrait(unit.specialRules, 'strider')) {
+    return false; // Strider ignores difficult terrain
   }
-  if (unit && hasTrait(unit.specialRules, 'airborne')) {
-    return false; // Airborne ignores all terrain effects
+  if (unit && hasTrait(unit.specialRules, 'flying')) {
+    return false; // Flying ignores all terrain effects
   }
   return pathCrossesFlaggedPiece(state, path, isDifficultPiece);
 }
@@ -352,18 +352,18 @@ export function isPathDangerous(
   path: Vector3[],
   unit?: Unit
 ): boolean {
-  if (unit && hasTrait(unit.specialRules, 'airborne')) {
-    return false; // Airborne models fly over dangerous ground terrain
+  if (unit && hasTrait(unit.specialRules, 'flying')) {
+    return false; // Flying models fly over dangerous ground terrain
   }
   return pathCrossesFlaggedPiece(state, path, isDangerousPiece);
 }
 
 /**
  * Living models of `unit` standing (centre) inside a dangerous piece at its level, in unit model order.
- * Each of them rolls the hazard test when the unit activates. Airborne units are exempt.
+ * Each of them rolls the hazard test when the unit activates. Flying units are exempt.
  */
 export function modelsInDangerousTerrain(state: GameState, unit: Unit): Model[] {
-  if (hasTrait(unit.specialRules, 'airborne')) return [];
+  if (hasTrait(unit.specialRules, 'flying')) return [];
   const pieces = state.terrain.filter(isDangerousPiece);
   if (pieces.length === 0) return [];
   return unit.models.filter((m) => {
@@ -414,7 +414,7 @@ export function detectPathFall(
 
 /**
  * Returns the effective maximum movement allowed for an action, considering speed, action type,
- * special rules (Pathfinder, Airborne), and Difficult Terrain capping.
+ * special rules (Strider, Flying), and Difficult Terrain capping.
  */
 export function getEffectiveMaxMovement(
   unit: Unit,
@@ -423,8 +423,8 @@ export function getEffectiveMaxMovement(
 ): number {
   if (
     isDifficult &&
-    !hasTrait(unit.specialRules, 'pathfinder') &&
-    !hasTrait(unit.specialRules, 'airborne')
+    !hasTrait(unit.specialRules, 'strider') &&
+    !hasTrait(unit.specialRules, 'flying')
   ) {
     // Difficult Terrain caps total activation movement at 6.0" maximum.
     // Negates speed bonuses for Rush and Charge.
@@ -593,7 +593,7 @@ export function detectPathGapJump(
   target: number;
 } {
   const none = { isGapJump: false, gapDistance: 0, tooWide: false, dice: 0, target: 0 };
-  if (path.length < 2 || hasTrait(unit.specialRules, 'airborne')) return none;
+  if (path.length < 2 || hasTrait(unit.specialRules, 'flying')) return none;
   const pathRun = measureElevatedGap(state, path);
   if (pathRun <= FREE_GAP_MAX) return none;
   // Jump distance is the straight line of the hop (take-off to landing), like a tape; a run chained over
@@ -690,7 +690,7 @@ export function findJumpOption(
   from: Vector3,
   target: Vector3
 ): JumpOption | null {
-  if (hasTrait(unit.specialRules, 'airborne')) return null;
+  if (hasTrait(unit.specialRules, 'flying')) return null;
   const fromY = from.y ?? 0;
   const targetY = target.y ?? 0;
   if (fromY < 1.0 || targetY - fromY > 0.5) return null;
@@ -730,7 +730,7 @@ export function findTooWideGap(
   from: Vector3,
   target: Vector3
 ): { distance: number } | null {
-  if (hasTrait(unit.specialRules, 'airborne')) return null;
+  if (hasTrait(unit.specialRules, 'flying')) return null;
   const fromY = from.y ?? 0;
   const targetY = target.y ?? 0;
   if (fromY < 1.0 || targetY < 1.0 || Math.abs(targetY - fromY) > 0.5) return null;
@@ -797,7 +797,7 @@ export function resolveDangerousTerrain(
   woundsInflicted: number;
   failedCount: number;
 } {
-  if (hasTrait(unit.specialRules, 'airborne')) {
+  if (hasTrait(unit.specialRules, 'flying')) {
     return { woundsInflicted: 0, failedCount: 0 };
   }
 

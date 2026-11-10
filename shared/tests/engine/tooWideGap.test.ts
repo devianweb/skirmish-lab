@@ -61,8 +61,8 @@ describe('findTooWideGap: the hint for a gap that cannot be jumped', () => {
     expect(findTooWideGap(state, unit, edge, P(-0.2, 0, 9))).toBeNull();
   });
 
-  it('nothing for an airborne model, which crosses gaps freely', () => {
-    const unit = unitAt(edge, ['airborne']);
+  it('nothing for an flying model, which crosses gaps freely', () => {
+    const unit = unitAt(edge, ['flying']);
     expect(findTooWideGap(stateWith(unit), unit, edge, P(6.7, 3, -1))).toBeNull();
   });
 });

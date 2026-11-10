@@ -129,9 +129,9 @@ describe('drops: jump test (3-6" drops)', () => {
     expect(resolveDropJump(trooper, 6, [3, 4, 2]).passed).toBe(false);
   });
 
-  it('Pathfinder needs 2+; Airborne auto-passes; above 6" cannot be jumped', () => {
-    expect(resolveDropJump(makeUnit('p', { x: 0, y: 0, z: 0 }, ['pathfinder']), 4, [2, 2]).passed).toBe(true);
-    expect(resolveDropJump(makeUnit('a', { x: 0, y: 0, z: 0 }, ['airborne']), 5)).toMatchObject({ requiresTest: false, passed: true });
+  it('Strider needs 2+; Flying auto-passes; above 6" cannot be jumped', () => {
+    expect(resolveDropJump(makeUnit('p', { x: 0, y: 0, z: 0 }, ['strider']), 4, [2, 2]).passed).toBe(true);
+    expect(resolveDropJump(makeUnit('a', { x: 0, y: 0, z: 0 }, ['flying']), 5)).toMatchObject({ requiresTest: false, passed: true });
     expect(resolveDropJump(trooper, 7, [6, 6, 6])).toMatchObject({ canJump: false, passed: false });
   });
 
@@ -144,8 +144,8 @@ describe('drops: jump test (3-6" drops)', () => {
 
 describe('drops: resolution through the host', () => {
   const moveAction = (path: Vector3[], traversal?: unknown) =>
-    createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'u',
       path,
       finalPosition: path[path.length - 1],
@@ -243,10 +243,10 @@ describe('gaps: only real open air is a gap', () => {
     expect(detectPathGapJump(far, [{ x: 0, y: 3, z: 0 }, { x: 14, y: 3, z: 0 }], trooper).tooWide).toBe(true);
   });
 
-  it('Airborne never has a gap', () => {
+  it('Flying never has a gap', () => {
     const state = createInitialGameState(HOST, GUEST);
     state.terrain = [deckAt('a', 0, 0), deckAt('b', 14, 0)];
-    const flyer = makeUnit('f', { x: 0, y: 3, z: 0 }, ['airborne']);
+    const flyer = makeUnit('f', { x: 0, y: 3, z: 0 }, ['flying']);
     expect(detectPathGapJump(state, [{ x: 0, y: 3, z: 0 }, { x: 14, y: 3, z: 0 }], flyer).isGapJump).toBe(false);
   });
 });

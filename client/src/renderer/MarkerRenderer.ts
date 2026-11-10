@@ -946,7 +946,7 @@ export class MarkerRenderer {
     // Guest zone (Red)
     addZone(zones.guestZone, 0xef5350, 0.12, 0.85);
 
-    // Preview unit zone (e.g. vanguard extension) if active
+    // Preview unit zone (e.g. scout extension) if active
     if (zones.previewUnitZone) {
       addZone(zones.previewUnitZone, zones.previewUnitZone.color ?? 0xffd54f, 0.18, 0.95);
     }

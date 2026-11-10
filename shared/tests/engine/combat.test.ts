@@ -31,16 +31,16 @@ describe('combat: core Quality / Defense & Cover axioms', () => {
     // Q2+ with Marksman (+1) still misses on natural 1.
     const nat1 = resolveAttack(
       { quality: 2, specialRules: ['marksman'] },
-      { defense: 2, weaponRules: ['pierce(4)'] } as any,
+      { defense: 2, weaponRules: ['ap(4)'] } as any,
       1,
       { toHit: [1], defense: [6] }
     );
     expect(nat1.hitCount).toBe(0);
 
-    // Q6+ against Camouflaged (-1 at >9") still hits on natural 6; D6+ against Pierce(4) still blocks on natural 6.
+    // Q6+ against Stealth (-1 at >9") still hits on natural 6; D6+ against AP(4) still blocks on natural 6.
     const nat6 = resolveAttack(
-      { quality: 6, weaponRules: ['pierce(4)'], distance: 18 },
-      { defense: 6, specialRules: ['camouflaged'] },
+      { quality: 6, weaponRules: ['ap(4)'], distance: 18 },
+      { defense: 6, specialRules: ['stealth'] },
       1,
       { toHit: [6], defense: [6] }
     );
@@ -115,14 +115,14 @@ describe('combat: core Quality / Defense & Cover axioms', () => {
     ).toThrow(/Incomplete dice results/);
   });
 
-  it('extracts to-hit, defense, ward, and trauma rolls from server results by purpose', () => {
+  it('extracts to-hit, defense, regeneration, and trauma rolls from server results by purpose', () => {
     const rolls = extractAttackRolls([
       { rolls: [3, 5], total: 8, finalTotal: 8, purpose: 'to-hit' },
       { rolls: [6, 2], total: 8, finalTotal: 8, purpose: 'defense' },
-      { rolls: [5], total: 5, finalTotal: 5, purpose: 'ward' },
+      { rolls: [5], total: 5, finalTotal: 5, purpose: 'regeneration' },
       { rolls: [4], total: 4, finalTotal: 4, purpose: 'trauma' },
     ]);
-    expect(rolls).toEqual({ toHit: [3, 5], defense: [6, 2], ward: [5], trauma: [4] });
+    expect(rolls).toEqual({ toHit: [3, 5], defense: [6, 2], regeneration: [5], trauma: [4] });
   });
 
   it('throws when results are missing a required purpose', () => {
@@ -133,10 +133,10 @@ describe('combat: core Quality / Defense & Cover axioms', () => {
 });
 
 describe('combat: special rules & weapon traits', () => {
-  it('Pierce(X): subtracts X from defense rolls', () => {
-    // D4+ with Pierce(2) requires a 6 to block (5 - 2 = 3 < 4).
+  it('AP(X): subtracts X from defense rolls', () => {
+    // D4+ with AP(2) requires a 6 to block (5 - 2 = 3 < 4).
     const outcome = resolveAttack(
-      { quality: 4, weaponRules: ['pierce(2)'] },
+      { quality: 4, weaponRules: ['ap(2)'] },
       { defense: 4 },
       2,
       { toHit: [4, 5], defense: [5, 6] }
@@ -157,9 +157,9 @@ describe('combat: special rules & weapon traits', () => {
     expect(outcome.wounds).toBe(2);
   });
 
-  it('Lethal(X): multiplies each unsaved wound by X', () => {
+  it('Deadly(X): multiplies each unsaved wound by X', () => {
     const outcome = resolveAttack(
-      { quality: 4, weaponRules: ['lethal(3)'] },
+      { quality: 4, weaponRules: ['deadly(3)'] },
       { defense: 5 },
       1,
       { toHit: [5], defense: [2] }
@@ -167,9 +167,9 @@ describe('combat: special rules & weapon traits', () => {
     expect(outcome.wounds).toBe(3);
   });
 
-  it('Calibrated (Reliable): always hits on 2+ regardless of unit quality', () => {
+  it('Reliable: always hits on 2+ regardless of unit quality', () => {
     const outcome = resolveAttack(
-      { quality: 6, weaponRules: ['calibrated'] },
+      { quality: 6, weaponRules: ['reliable'] },
       { defense: 6 },
       2,
       { toHit: [2, 1], defense: [2, 2] }
@@ -179,23 +179,23 @@ describe('combat: special rules & weapon traits', () => {
     expect(outcome.wounds).toBe(1);
   });
 
-  it('Shred (Rending): grants Pierce(4) on unmodified 6 to hit and ignores Ward', () => {
-    // D3+ defender with Ward: hit from roll 4 has AP 0 (blocked by 3), hit from roll 6 gets Pierce(4) (5 - 4 = 1 < 3 -> fails!) and bypasses Ward.
+  it('Rending: grants AP(4) on unmodified 6 to hit and ignores Regeneration', () => {
+    // D3+ defender with Regeneration: hit from roll 4 has AP 0 (blocked by 3), hit from roll 6 gets AP(4) (5 - 4 = 1 < 3 -> fails!) and bypasses Regeneration.
     const outcome = resolveAttack(
-      { quality: 4, weaponRules: ['shred'] },
-      { defense: 3, specialRules: ['ward'] },
+      { quality: 4, weaponRules: ['rending'] },
+      { defense: 3, specialRules: ['regeneration'] },
       2,
-      { toHit: [4, 6], defense: [3, 5], ward: [6] }
+      { toHit: [4, 6], defense: [3, 5], regeneration: [6] }
     );
     expect(outcome.blockedRolls).toEqual([true, false]);
-    expect(outcome.wardSavedCount).toBe(0);
+    expect(outcome.regenerationSavedCount).toBe(0);
     expect(outcome.wounds).toBe(1);
   });
 
-  it('Rupture (Crack): grants Pierce(+2) on unmodified 6 to hit', () => {
-    // Base Pierce(1) + Rupture (+2 on 6) = Pierce(3) on a 6. Defender D3+ rolls 5: 5 - 3 = 2 < 3 -> fails!
+  it('Rupture (Crack): grants AP(+2) on unmodified 6 to hit', () => {
+    // Base AP(1) + Rupture (+2 on 6) = AP(3) on a 6. Defender D3+ rolls 5: 5 - 3 = 2 < 3 -> fails!
     const outcome = resolveAttack(
-      { quality: 4, weaponRules: ['pierce(1)', 'rupture'] },
+      { quality: 4, weaponRules: ['ap(1)', 'rupture'] },
       { defense: 3 },
       1,
       { toHit: [6], defense: [5] }
@@ -204,36 +204,36 @@ describe('combat: special rules & weapon traits', () => {
     expect(outcome.wounds).toBe(1);
   });
 
-  it('Sustained (Relentless), Frenzy (Furious), and Overload (Surge): generate +1 bonus hit on natural 6', () => {
-    const sustained = resolveAttack(
-      { quality: 5, specialRules: ['sustained'], distance: 18 },
+  it('Relentless, Furious, and Surge: generate +1 bonus hit on natural 6', () => {
+    const relentless = resolveAttack(
+      { quality: 5, specialRules: ['relentless'], distance: 18 },
       { defense: 6 },
       1,
       { toHit: [6], defense: [1, 1] }
     );
-    expect(sustained.bonusHits).toBe(1);
-    expect(sustained.hitCount).toBe(2);
+    expect(relentless.bonusHits).toBe(1);
+    expect(relentless.hitCount).toBe(2);
 
-    const frenzy = resolveAttack(
-      { quality: 5, specialRules: ['frenzy'], isMelee: true, isCharging: true },
+    const furious = resolveAttack(
+      { quality: 5, specialRules: ['furious'], isMelee: true, isCharging: true },
       { defense: 6 },
       1,
       { toHit: [6], defense: [1, 1] }
     );
-    expect(frenzy.bonusHits).toBe(1);
-    expect(frenzy.hitCount).toBe(2);
+    expect(furious.bonusHits).toBe(1);
+    expect(furious.hitCount).toBe(2);
 
-    const overload = resolveAttack(
-      { quality: 5, weaponRules: ['overload'] },
+    const surge = resolveAttack(
+      { quality: 5, weaponRules: ['surge'] },
       { defense: 6 },
       1,
       { toHit: [6], defense: [1, 1] }
     );
-    expect(overload.bonusHits).toBe(1);
-    expect(overload.hitCount).toBe(2);
+    expect(surge.bonusHits).toBe(1);
+    expect(surge.hitCount).toBe(2);
   });
 
-  it('Marksman (+1), Camouflaged (-1 >9"), Lobbed (-1 if moved), and Unerring (ignores negative mods)', () => {
+  it('Marksman (+1), Stealth (-1 >9"), Indirect (-1 if moved), and Unstoppable (ignores negative mods)', () => {
     // Q5+ with Marksman (+1) hits on 4+.
     const marksman = resolveAttack(
       { quality: 5, specialRules: ['marksman'], distance: 12 },
@@ -243,57 +243,57 @@ describe('combat: special rules & weapon traits', () => {
     );
     expect(marksman.hitCount).toBe(1);
 
-    // Q4+ vs Camouflaged at 15" needs 5+ (4 misses).
+    // Q4+ vs Stealth at 15" needs 5+ (4 misses).
     const camo = resolveAttack(
       { quality: 4, distance: 15 },
-      { defense: 6, specialRules: ['camouflaged'] },
+      { defense: 6, specialRules: ['stealth'] },
       1,
       { toHit: [4], defense: [1] }
     );
     expect(camo.hitCount).toBe(0);
 
-    // Unerring ignores the Camouflaged -1 penalty, so 4 still hits!
-    const unerring = resolveAttack(
-      { quality: 4, distance: 15, weaponRules: ['unerring'] },
-      { defense: 6, specialRules: ['camouflaged', 'ward'] },
+    // Unstoppable ignores the Stealth -1 penalty, so 4 still hits!
+    const unstoppable = resolveAttack(
+      { quality: 4, distance: 15, weaponRules: ['unstoppable'] },
+      { defense: 6, specialRules: ['stealth', 'regeneration'] },
       1,
-      { toHit: [4], defense: [1], ward: [6] }
+      { toHit: [4], defense: [1], regeneration: [6] }
     );
-    expect(unerring.hitCount).toBe(1);
-    expect(unerring.wounds).toBe(1); // Also ignores Ward!
+    expect(unstoppable.hitCount).toBe(1);
+    expect(unstoppable.wounds).toBe(1); // Also ignores Regeneration!
   });
 
-  it('Impale (Thrust): grants +1 to hit and Pierce(+1) when charging in melee', () => {
+  it('Thrust: grants +1 to hit and AP(+1) when charging in melee', () => {
     const outcome = resolveAttack(
-      { quality: 4, weaponRules: ['pierce(1)', 'impale'], isMelee: true, isCharging: true },
+      { quality: 4, weaponRules: ['ap(1)', 'thrust'], isMelee: true, isCharging: true },
       { defense: 4 },
       1,
-      { toHit: [3], defense: [5] } // 3 + 1 >= 4 hits; Pierce(1+1=2) makes defense 5 - 2 = 3 < 4 fail!
+      { toHit: [3], defense: [5] } // 3 + 1 >= 4 hits; AP(1+1=2) makes defense 5 - 2 = 3 < 4 fail!
     );
     expect(outcome.hitCount).toBe(1);
     expect(outcome.wounds).toBe(1);
   });
 
-  it('Hexed (Bane): forces defender to re-roll unmodified defense 6s and ignores Ward', () => {
+  it('Bane: forces defender to re-roll unmodified defense 6s and ignores Regeneration', () => {
     const outcome = resolveAttack(
-      { quality: 4, specialRules: ['hexed'] },
-      { defense: 5, specialRules: ['ward'] },
+      { quality: 4, specialRules: ['bane'] },
+      { defense: 5, specialRules: ['regeneration'] },
       1,
-      { toHit: [5], defense: [6, 3], ward: [6] } // First defense roll is 6 -> forced re-roll into 3 -> fails!
+      { toHit: [5], defense: [6, 3], regeneration: [6] } // First defense roll is 6 -> forced re-roll into 3 -> fails!
     );
     expect(outcome.rerolledDefenseRolls).toEqual([6]);
     expect(outcome.blockedCount).toBe(0);
     expect(outcome.wounds).toBe(1);
   });
 
-  it('Ward (Regeneration): ignores wounds on 5+ when not bypassed', () => {
+  it('Regeneration: ignores wounds on 5+ when not bypassed', () => {
     const outcome = resolveAttack(
       { quality: 4 },
-      { defense: 5, specialRules: ['ward'] },
+      { defense: 5, specialRules: ['regeneration'] },
       2,
-      { toHit: [5, 5], defense: [2, 2], ward: [5, 4] } // 5 saves, 4 fails
+      { toHit: [5, 5], defense: [2, 2], regeneration: [5, 4] } // 5 saves, 4 fails
     );
-    expect(outcome.wardSavedCount).toBe(1);
+    expect(outcome.regenerationSavedCount).toBe(1);
     expect(outcome.wounds).toBe(1);
   });
 
@@ -314,10 +314,10 @@ describe('combat: Trauma Table & Morale resolution', () => {
     expect(resolveTraumaRoll(4, 1).outcome).toBe('shaken');      // 4 + 1 = 5
     expect(resolveTraumaRoll(5, 1).outcome).toBe('knocked-out'); // 5 + 1 = 6
     expect(resolveTraumaRoll(1, 10).outcome).toBe('shaken');     // natural 1 always shaken
-    expect(resolveTraumaRoll(3, 1, 2).outcome).toBe('knocked-out'); // 3 + 1 + Dread(2) = 6
+    expect(resolveTraumaRoll(3, 1, 2).outcome).toBe('knocked-out'); // 3 + 1 + Fear(2) = 6
   });
 
-  it('resolveMoraleTest: handles Steadfast, Commander quality, Stoic, Iron Will, and already-shaken routing', () => {
+  it('resolveMoraleTest: handles Steadfast, Hero quality, Fearless, Iron Will, and already-shaken routing', () => {
     // Already shaken unit auto-fails and routs.
     expect(resolveMoraleTest({ quality: 4, roll: 6, alreadyShaken: true }).outcome).toBe('routed');
 
@@ -326,20 +326,20 @@ describe('combat: Trauma Table & Morale resolution', () => {
       resolveMoraleTest({ quality: 4, roll: 3, specialRules: ['steadfast'] }).outcome
     ).toBe('passed');
 
-    // Commander quality (Q4+) lets a Q6+ Conscript pass on a 4.
+    // Hero quality (Q4+) lets a Q6+ Conscript pass on a 4.
     expect(
-      resolveMoraleTest({ quality: 6, roll: 4, commanderQuality: 4 }).outcome
+      resolveMoraleTest({ quality: 6, roll: 4, heroQuality: 4 }).outcome
     ).toBe('passed');
 
-    // Stoic (Fearless) turns a failed morale roll into passed on a 4+ stoicRoll.
-    const stoicPass = resolveMoraleTest({
+    // Fearless turns a failed morale roll into passed on a 4+ fearlessRoll.
+    const fearlessPass = resolveMoraleTest({
       quality: 4,
       roll: 2,
-      specialRules: ['stoic'],
-      stoicRoll: 4,
+      specialRules: ['fearless'],
+      fearlessRoll: 4,
     });
-    expect(stoicPass.outcome).toBe('passed');
-    expect(stoicPass.stoicSaved).toBe(true);
+    expect(fearlessPass.outcome).toBe('passed');
+    expect(fearlessPass.fearlessSaved).toBe(true);
 
     // Iron Will (No Retreat) counts failed morale as passed and deals self-wounds on 1-3.
     const ironWill = resolveMoraleTest({

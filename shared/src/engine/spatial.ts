@@ -2117,8 +2117,8 @@ export function getStairWaypoints(
 
 /**
  * Validates whether a 3D movement segment is constrained to a physical surface.
- * Airborne models can fly diagonally through open space.
- * Non-airborne models cannot fly diagonally across elevation changes; they must move along
+ * Flying models can fly diagonally through open space.
+ * Non-flying models cannot fly diagonally across elevation changes; they must move along
  * flat surfaces (|dy| <= 0.35), scale vertical walls (|dh| <= 0.7), or traverse stairs/ramps.
  */
 export function isSegmentSurfaceConstrained(
@@ -2127,8 +2127,8 @@ export function isSegmentSurfaceConstrained(
   p2: Vector3,
   unit?: Unit
 ): boolean {
-  if (unit && hasTrait(unit.specialRules, 'airborne')) {
-    return true; // Airborne units can fly diagonally through open air
+  if (unit && hasTrait(unit.specialRules, 'flying')) {
+    return true; // Flying units can fly diagonally through open air
   }
 
   const y1 = p1.y ?? 0;
@@ -2210,17 +2210,17 @@ function settleEnd(
   keep: { keepAway?: boolean; ignoreUnitId?: string } = {}
 ): Vector3[] {
   if (path.length < 2) return path;
-  const airborne = hasTrait(unit.specialRules, 'airborne');
+  const flying = hasTrait(unit.specialRules, 'flying');
   const surfaces = collectWalkableSurfaces(state);
   const bad = (pt: Vector3): boolean =>
     findEndOverlap(state, unit.id, pt) !== null ||
     (keep.keepAway === true && findKeepAwayViolation(state, unit.id, pt, path[0], keep.ignoreUnitId) !== null) ||
-    (!airborne &&
+    (!flying &&
       (isSuspendedInMidAir(state, pt) ||
         isBaseOverhanging(state, pt, surfaces) ||
         state.terrain.some((p) => isLadderPiece(p) && isOnLadderClimbLine(state, p, pt))));
   // Climbed onto a floor but stopped at its lip: step on until the whole base is on the floor, if the budget allows
-  if (budget !== undefined && !airborne && path.length >= 3 && bad(path[path.length - 1])) {
+  if (budget !== undefined && !flying && path.length >= 3 && bad(path[path.length - 1])) {
     const onto = stepFullyOntoFloor(state, unit, path, budget, bad);
     if (onto) return onto;
   }
@@ -2385,8 +2385,8 @@ export function findNavPath(
       // If stopBeforeDifficult is requested, check if the segment enters difficult terrain
       if (
         options.stopBeforeDifficult &&
-        !hasTrait(unit.specialRules, 'pathfinder') &&
-        !hasTrait(unit.specialRules, 'airborne') &&
+        !hasTrait(unit.specialRules, 'strider') &&
+        !hasTrait(unit.specialRules, 'flying') &&
         dist > 6.0
       ) {
         const entered = findEnteredDifficultPiece(state, from, target);
@@ -2735,7 +2735,7 @@ export function findNavPath(
         if (dropTwin.get(current.pos) === neighbor.pos && !isTwinDescent && !isTwinClimb) continue;
       }
 
-      // Surface constraint check: non-airborne cannot fly diagonally across open air
+      // Surface constraint check: non-flying cannot fly diagonally across open air
       if (!isSegmentSurfaceConstrained(state, current.pos, neighbor.pos, unit)) {
         continue;
       }
@@ -2771,7 +2771,7 @@ export function findNavPath(
     rawPath = rev.reverse();
   } else {
     // If no path, clamp along current surface
-    const flatTarget = hasTrait(unit.specialRules, 'airborne')
+    const flatTarget = hasTrait(unit.specialRules, 'flying')
       ? destination
       : { ...destination, y: startY };
     const clamped = clampMoveDestinationWithObstacles(state, unit, flatTarget, maxDistance);
@@ -2800,7 +2800,7 @@ export function findNavPath(
       // Do not shortcut across elevation transitions if it bypasses an intermediate stair/ladder head or wall base
       const curY = rawPath[curIdx].y ?? 0;
       const testY = rawPath[test].y ?? 0;
-      if (Math.abs(curY - testY) > 0.5 && !hasTrait(unit.specialRules, 'airborne')) {
+      if (Math.abs(curY - testY) > 0.5 && !hasTrait(unit.specialRules, 'flying')) {
         continue;
       }
       if (!isSegmentSurfaceConstrained(state, rawPath[curIdx], rawPath[test], unit)) {
@@ -2826,7 +2826,7 @@ export function findNavPath(
   for (let i = 1; i < smoothed.length; i++) {
     const p1 = climbed[climbed.length - 1];
     const p2 = smoothed[i];
-    if (Math.abs((p2.y ?? 0) - (p1.y ?? 0)) > 0.5 && !hasTrait(unit.specialRules, 'airborne')) {
+    if (Math.abs((p2.y ?? 0) - (p1.y ?? 0)) > 0.5 && !hasTrait(unit.specialRules, 'flying')) {
       // A straight fall of up to 3" with clear air below is a free drop, not a ladder descent (the drop spot
       // a base off a deck edge and a ladder foot can share the same column)
       const isFreeFall =
@@ -2880,8 +2880,8 @@ export function findNavPath(
     // before difficult terrain pieces if the full traversal would exceed 6.0".
     if (
       options.stopBeforeDifficult &&
-      !hasTrait(unit.specialRules, 'pathfinder') &&
-      !hasTrait(unit.specialRules, 'airborne')
+      !hasTrait(unit.specialRules, 'strider') &&
+      !hasTrait(unit.specialRules, 'flying')
     ) {
       const entered = findEnteredDifficultPiece(state, p1, p2);
       if (entered && totalSmoothedLen > 6.0) {
@@ -2905,7 +2905,7 @@ export function findNavPath(
       const y2 = p2.y ?? 0;
       const isSheerWallClimb =
         y2 - y1 > 0.5 &&
-        !hasTrait(unit.specialRules, 'airborne') &&
+        !hasTrait(unit.specialRules, 'flying') &&
         !isSegmentOnRampOrStairs(state, p1, p2);
       if (isSheerWallClimb) {
         // Cannot end activation suspended in mid-air on a sheer vertical wall; stop at the wall base (p1)
@@ -2913,7 +2913,7 @@ export function findNavPath(
       }
       const isLadderClimb =
         Math.abs(y2 - y1) > 0.5 &&
-        !hasTrait(unit.specialRules, 'airborne') &&
+        !hasTrait(unit.specialRules, 'flying') &&
         isSegmentOnLadder(state, p1, p2);
       if (isLadderClimb) {
         // Tabletop ladder rules: models scaling vertical ladders must have sufficient movement budget to reach the landing platform deck;
@@ -2924,7 +2924,7 @@ export function findNavPath(
       // and the fall, the model stays at the edge instead of stopping with its base over the air.
       const nextPt = smoothed[i + 1];
       const isStepOffBeforeDrop =
-        !hasTrait(unit.specialRules, 'airborne') &&
+        !hasTrait(unit.specialRules, 'flying') &&
         Math.abs(y1 - y2) <= 0.05 &&
         nextPt !== undefined &&
         classifySegment(state, p2, nextPt, unit).kind === 'drop' &&
@@ -2932,7 +2932,7 @@ export function findNavPath(
       if (isStepOffBeforeDrop) break;
       const isFreeDrop =
         y1 - y2 > 0.5 &&
-        !hasTrait(unit.specialRules, 'airborne') &&
+        !hasTrait(unit.specialRules, 'flying') &&
         classifySegment(state, p1, p2, unit).kind === 'drop';
       if (isFreeDrop) {
         // A drop is a step off an edge, not a slope: a model cannot stop hanging in mid-air part-way

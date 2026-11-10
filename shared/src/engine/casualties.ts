@@ -17,8 +17,8 @@ export const PICK_CASUALTIES_DURATION_MS = 30000;
 export interface WoundApplication {
   wounds: number;
   traumaRolls?: number[];
-  dreadBonus: number;
-  lethalValue: number;
+  fearBonus: number;
+  deadlyValue: number;
 }
 
 /** A unit waiting for its owner's pick, with every wound application to replay on it. */

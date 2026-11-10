@@ -124,7 +124,7 @@ describe('spatial: movement collision & clamping', () => {
     expect(clamped.z).toBeLessThan(2.5);
   });
 
-  it('rejects move-unit in applyAction when path crosses obstacle terrain', () => {
+  it('rejects advance in applyAction when path crosses obstacle terrain', () => {
     const u1 = makeUnit('h1', HOST, { x: 0, y: 0, z: 0 });
     u1.isActivated = true;
     const g1 = makeUnit('g1', GUEST, { x: 10, y: 0, z: 10 });
@@ -132,8 +132,8 @@ describe('spatial: movement collision & clamping', () => {
     const state = makeState([u1, g1], [wall]);
     state.turnState.activeUnitId = 'h1';
 
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 0, y: 0, z: 0 },
@@ -1090,11 +1090,11 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         expect(isSegmentOnRampOrStairs(state, { x: 0, y: 0, z: 0 }, { x: 6, y: 2.5, z: -2 })).toBe(false);
       });
 
-      it('enforces surface constraints prohibiting non-airborne diagonal flight through open air', () => {
+      it('enforces surface constraints prohibiting non-flying diagonal flight through open air', () => {
         const state = makeState([], [platformEast, stairsEast]);
         const groundUnit = makeUnit('ground-1', HOST, { x: 0, y: 0, z: 0 });
-        const airborneUnit = makeUnit('air-1', HOST, { x: 0, y: 0, z: 0 });
-        airborneUnit.specialRules = ['airborne'];
+        const flyingUnit = makeUnit('air-1', HOST, { x: 0, y: 0, z: 0 });
+        flyingUnit.specialRules = ['flying'];
 
         // Ground point to roof point (4" horizontal, 2.5" vertical, no stairs)
         const pGround = { x: 0, y: 0, z: -2 };
@@ -1102,8 +1102,8 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
 
         // Prohibited for ground unit
         expect(isSegmentSurfaceConstrained(state, pGround, pRoof, groundUnit)).toBe(false);
-        // Permitted for airborne unit
-        expect(isSegmentSurfaceConstrained(state, pGround, pRoof, airborneUnit)).toBe(true);
+        // Permitted for flying unit
+        expect(isSegmentSurfaceConstrained(state, pGround, pRoof, flyingUnit)).toBe(true);
 
         // Pure horizontal movement is permitted for ground unit
         expect(isSegmentSurfaceConstrained(state, { x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }, groundUnit)).toBe(true);
@@ -1307,7 +1307,7 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
         expect(isPathDifficult(state, path, unit)).toBe(false);
       });
 
-      it('allows airborne units to fly diagonally directly to elevated platforms', () => {
+      it('allows flying units to fly diagonally directly to elevated platforms', () => {
         const sheerPlatform: TerrainPiece = {
           id: 'plat-sheer-air',
           terrainType: 'platform',
@@ -1321,13 +1321,13 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
           isObstacle: false,
         };
         const airUnit = makeUnit('u-air', HOST, { x: 0, y: 0, z: 0 });
-        airUnit.specialRules = ['airborne'];
+        airUnit.specialRules = ['flying'];
         airUnit.speed = 12;
         airUnit.remainingMovement = 12;
         const state = makeState([airUnit], [sheerPlatform]);
 
         const path = findNavPath(state, airUnit, { x: 4, y: 2.5, z: 0 }, 12.0);
-        // Airborne flies directly in 2 points [from, target]
+        // Flying flies directly in 2 points [from, target]
         expect(path.length).toBe(2);
         expect(path[0]).toEqual({ x: 0, y: 0, z: 0 });
         expect(path[1].y).toBe(2.5);

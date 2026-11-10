@@ -98,7 +98,7 @@ export function createAction(
 
 /**
  * Extract the acting unit ID from an action payload, if any.
- * 'activate-unit', 'move-unit', 'use-ability', and 'hold' carry `unitId`;
+ * 'activate-unit', 'advance', 'use-ability', and 'hold' carry `unitId`;
  * 'shoot', 'charge', and 'fight' carry `attackerId`.
  */
 function getActionUnitId(action: GameAction): string | null {

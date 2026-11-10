@@ -47,7 +47,7 @@ function setup() {
   unit.maxWounds = 3;
   unit.isActivated = true;
   unit.status = [];
-  unit.specialRules = unit.specialRules.filter((r) => r !== 'stationary');
+  unit.specialRules = unit.specialRules.filter((r) => r !== 'immobile');
   state.turnState.activeUnitId = unit.id;
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.currentPlayerId = HOST;

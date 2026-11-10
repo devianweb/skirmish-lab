@@ -846,8 +846,8 @@ describe('GameManager', () => {
         z: targetInGuest.position.z,
       };
       guest.sendAction(
-        createAction(GUEST_PLAYER_ID, 'move-unit', {
-          type: 'move-unit',
+        createAction(GUEST_PLAYER_ID, 'advance', {
+          type: 'advance',
           unitId: guestTarget.id,
           path: [targetInGuest.position, moveDest],
         })

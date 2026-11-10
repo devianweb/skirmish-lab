@@ -119,7 +119,7 @@ export interface Unit {
   traumaTokens?: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
-  /** Whether this unit has been deployed to the board (false during pre-match deployment / drop-reserves). */
+  /** Whether this unit has been deployed to the board (false during pre-match deployment / ambush). */
   isDeployed?: boolean;
 
   // Game State
@@ -262,7 +262,7 @@ export interface WeaponAllocation {
 export type ActionType =
   | 'activate-unit'
   | 'deploy-unit'
-  | 'move-unit'
+  | 'advance'
   | 'rush'
   | 'shoot'
   | 'begin-charge'
@@ -283,7 +283,7 @@ export type ActionType =
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
   | { type: 'deploy-unit', unitId: string, position: Vector3, rotation?: Vector3 }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
+  | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'rush', unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | {
       type: 'shoot';
@@ -334,7 +334,7 @@ export interface RetaliationOutcome {
   bonusHits?: number;
   blockedCount: number;
   blockedRolls?: boolean[];
-  wardSavedCount?: number;
+  regenerationSavedCount?: number;
   wounds: number;
   targetDestroyed: boolean;
   targetShaken?: boolean;
@@ -346,7 +346,7 @@ export interface RetaliationOutcome {
   defenseModifiers?: string[];
   traumaRoll?: number;
   traumaTokens?: number;
-  traumaDreadBonus?: number;
+  traumaFearBonus?: number;
   traumaTotal?: number;
   traumaOutcome?: 'shaken' | 'knocked-out';
 }
@@ -361,7 +361,7 @@ export interface WeaponAttackOutcome {
   bonusHits?: number;
   blockedCount: number;
   blockedRolls?: boolean[];
-  wardSavedCount?: number;
+  regenerationSavedCount?: number;
   wounds: number;
   targetDestroyed: boolean;
   targetShaken?: boolean;
@@ -375,7 +375,7 @@ export interface WeaponAttackOutcome {
   defenseModifiers?: string[];
   traumaRoll?: number;
   traumaTokens?: number;
-  traumaDreadBonus?: number;
+  traumaFearBonus?: number;
   traumaTotal?: number;
   traumaOutcome?: 'shaken' | 'knocked-out';
 }
@@ -415,7 +415,7 @@ export interface DiceResolution {
     bonusHits?: number;
     blockedCount: number;
     blockedRolls?: boolean[];
-    wardSavedCount?: number;
+    regenerationSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
     /** Movement hazards resolved by this action (gap/drop jumps, falls, dangerous terrain). */
@@ -431,7 +431,7 @@ export interface DiceResolution {
     defenseModifiers?: string[];
     traumaRoll?: number;
     traumaTokens?: number;
-    traumaDreadBonus?: number;
+    traumaFearBonus?: number;
     traumaTotal?: number;
     traumaOutcome?: 'shaken' | 'knocked-out';
     moraleRoll?: number;
