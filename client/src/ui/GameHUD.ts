@@ -23,6 +23,8 @@ import {
   findNavPath,
   JumpOption,
   autoPlaceCrossers,
+  autoPlaceSquadFollowers,
+  FollowResult,
   crossingPlacementProblem,
   isBeyondCrossing,
   validateCrossers,
@@ -259,6 +261,8 @@ export class GameHUD {
   private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
   /** Squad models that could not be placed (model id -> why), shown on their chip. */
   private squadBlockedModels: Map<string, string> = new Map();
+  /** Memo of the follow-through plan for the models not yet placed (so mouse moves and re-renders never recompute it). */
+  private squadFollowMemo: { key: string; state: GameState; result: FollowResult } | null = null;
   /** Squad models carried across the leader's crossing (placed within 1" of a model already across, no move spent). */
   private squadCrossers: Set<string> = new Set();
   /** Why the click being handled would not be a legal crossing spot, shown if ordinary placement refuses it too. */
@@ -2332,6 +2336,60 @@ export class GameHUD {
   }
 
   /**
+   * Where the models the player has not placed will go when they confirm (`autoPlaceSquadFollowers`), or null
+   * when follow-through does not apply: nothing placed yet, everything placed, or a jump/crossing is involved
+   * (those legs keep their own flow). Memoised on everything it depends on, so the ghost preview and the
+   * Confirm click share one computation and mouse moves never re-run it.
+   */
+  private squadFollowPlan(actionKind: 'move' | 'rush' | 'charge'): FollowResult | null {
+    const active = this.activeUnit;
+    const state = this.state;
+    if (!active || !state) return null;
+    const alive = this.activeAliveSquadModels;
+    const placedCount = this.stagedSquadModelPositions.size;
+    if (alive.length <= 1 || placedCount === 0 || placedCount >= alive.length) return null;
+    if (this.stagedSquadModelTraversals.size > 0 || this.squadCrossers.size > 0) return null;
+    const target = actionKind === 'charge' ? state.units.find((u) => u.id === this.declaredCharge?.targetId) : undefined;
+    if (actionKind === 'charge' && !target) return null;
+
+    const kind: 'move' | 'rush' | 'charge' = actionKind;
+    const models = alive.map((m, index) => {
+      const budget = this.distanceLeft(active, kind, m);
+      let difficultBudget: number;
+      if (kind === 'charge') {
+        const spent = getEffectiveMaxMovement(active, 'charge', false) - budget;
+        difficultBudget = Math.max(0, getEffectiveMaxMovement(active, 'charge', true) - spent);
+      } else {
+        difficultBudget = Math.min(budget, getEffectiveMaxMovement(active, kind === 'rush' || active.isRushing ? 'rush' : 'move', true));
+      }
+      return { index, start: m.position ?? active.position, budget, difficultBudget };
+    });
+    const placed = alive.flatMap((m, index) =>
+      this.stagedSquadModelPositions.has(m.id) ? [{ index, position: this.stagedSquadModelPositions.get(m.id)! }] : []
+    );
+    const key = JSON.stringify([active.id, kind, target?.id ?? null, models, placed]);
+    if (this.squadFollowMemo && this.squadFollowMemo.key === key && this.squadFollowMemo.state === state) {
+      return this.squadFollowMemo.result;
+    }
+    const result = autoPlaceSquadFollowers(state, active, {
+      kind,
+      models,
+      placed,
+      stopBeforeDifficult: kind !== 'charge' && (kind === 'rush' || !!active.isRushing),
+      ...(target ? { target } : {}),
+    });
+    this.squadFollowMemo = { key, state, result };
+    return result;
+  }
+
+  /** The action the squad staging is for: Advance/Rush from the targeting flow, or a charge placement. */
+  private squadStagingKind(): 'move' | 'rush' | 'charge' | null {
+    if (this.isSquadChargeFlow) return 'charge';
+    if (this.flow.mode === 'targeting' && (this.flow.action === 'move' || this.flow.action === 'rush')) return this.flow.action;
+    return null;
+  }
+
+  /**
    * Build the squad move/rush confirmation from the staged models. Models that were not
    * staged keep their position with a one-point path (they move 0"). Called automatically
    * once every model is placed, or from the early "Confirm move" button.
@@ -2350,7 +2408,25 @@ export class GameHUD {
     );
     // A final charge moves the models the player did not place as close as they can get
     let autoPlaced: number[] = [];
-    if (actionKind === 'charge' && this.stagedSquadModelPositions.size < alive.length) {
+    // The models the player did not place follow the ones they did (formation kept, each on its own legal walk)
+    const plan = this.squadFollowPlan(actionKind);
+    if (plan) {
+      if (!plan.ok) {
+        const model = alive[plan.modelIndex];
+        if (model) this.squadBlockedModels.set(model.id, `Not placed: ${plan.reason}`);
+        this.showToast(plan.reason);
+        this.selectedSquadModelId = model?.id ?? this.selectedSquadModelId;
+        this.render();
+        return;
+      }
+      orderedPositions = [...orderedPositions];
+      orderedPaths = [...orderedPaths];
+      for (const [index, placement] of plan.placements) {
+        orderedPositions[index] = placement.position;
+        orderedPaths[index] = placement.path;
+      }
+      autoPlaced = plan.closedIn;
+    } else if (actionKind === 'charge' && this.stagedSquadModelPositions.size < alive.length) {
       const filled = this.autoPlaceChargers(alive, orderedPositions, orderedPaths);
       if (filled) {
         orderedPositions = filled.positions;
@@ -2358,7 +2434,7 @@ export class GameHUD {
         autoPlaced = filled.autoPlaced;
       }
     }
-    if (this.stagedSquadModelPositions.size < alive.length && autoPlaced.length === 0) {
+    if (!plan && this.stagedSquadModelPositions.size < alive.length && autoPlaced.length === 0) {
       const coherency = validateSquadCoherency(orderedPositions);
       const startPositions = alive.map((m) => m.position ?? active.position);
       if (!coherency.coherent && !isRegroupingMove(startPositions, orderedPositions)) {
@@ -4474,7 +4550,17 @@ export class GameHUD {
         } else if (placedCount === 0) {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowanceText}"`;
         } else {
-          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
+          const kind = this.squadStagingKind();
+          const plan = kind ? this.squadFollowPlan(kind) : null;
+          const left = alive.length - placedCount;
+          const place = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
+          if (plan && plan.ok) {
+            instruction = `${place} · or Confirm move: the other ${left} will follow (rings show where)`;
+          } else if (plan && !plan.ok) {
+            instruction = `${place} · ${plan.reason}`;
+          } else {
+            instruction = place;
+          }
         }
 
         squadChipsHtml = `
@@ -5681,8 +5767,12 @@ export class GameHUD {
           markers.movementRangePosition = currentModel.position ?? this.activeUnit.position;
         }
         if (this.stagedSquadModelPositions.size > 0) {
+          // The rings of the models still to follow (where Confirm will put them) show with the placed ones
+          const kind = this.squadStagingKind();
+          const plan = kind ? this.squadFollowPlan(kind) : null;
+          const ghosts = plan && plan.ok ? Array.from(plan.placements.values()).map((p) => p.position) : [];
           markers.squadCoherency = {
-            positions: Array.from(this.stagedSquadModelPositions.values()),
+            positions: [...Array.from(this.stagedSquadModelPositions.values()), ...ghosts],
             radius: 2.0,
           };
         }
