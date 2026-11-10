@@ -31,6 +31,13 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 7. Movement, rush and shooting
 - All earlier items verified. New (keep-away measured in 3D, 14C-2 bugfix). Setup: F9 in the lobby (Developer mode), army **TEST: Jump Check** for both players, map **Jump Range**, Deploy off or place the squads by hand.
 
+- New (dangerous terrain dice, 14C-2 PR 6). Setup: a map with a hazard pool and a squad of 5 plus a Tough 3 hero (the Standard Battlefield has pools).
+  - [ ] Advance a squad of 5 Tough 1 models across a hazard pool: the log shows one roll of 5 dice (not one die per model) and each 1 removes a model.
+  - [ ] Activate a unit that starts inside a pool: one test at activation (dice = wounds it would take to destroy it); then moving out of that same pool rolls nothing more.
+  - [ ] A hero with Tough 3 and 1 wound taken rolls 2 dice for the same pool.
+  - [ ] Move across two different pools in one activation: two separate tests; walk back over the first pool and there is no new test.
+  - [ ] A Flying unit crossing or standing in a pool rolls nothing.
+
 ## 8. Melee & objectives
 - All earlier items verified.
 

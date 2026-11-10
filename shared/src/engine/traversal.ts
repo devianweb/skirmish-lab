@@ -318,18 +318,27 @@ function pathCrossesFlaggedPiece(
   path: Vector3[],
   flagged: (piece: TerrainPiece) => boolean
 ): boolean {
+  return flaggedPiecesCrossed(state, [path], flagged).length > 0;
+}
+
+/** The flagged pieces any of the paths crosses (segment by segment), in terrain order, each once. */
+function flaggedPiecesCrossed(
+  state: GameState,
+  paths: Vector3[][],
+  flagged: (piece: TerrainPiece) => boolean
+): TerrainPiece[] {
   const pieces = state.terrain.filter(flagged);
-  if (pieces.length === 0 || path.length === 0) return false;
-  for (const piece of pieces) {
-    if (path.length === 1) {
-      if (segmentCrossesFootprintAtLevel(piece, path[0], path[0])) return true;
-      continue;
-    }
-    for (let i = 1; i < path.length; i++) {
-      if (segmentCrossesFootprintAtLevel(piece, path[i - 1], path[i])) return true;
-    }
-  }
-  return false;
+  if (pieces.length === 0) return [];
+  return pieces.filter((piece) =>
+    paths.some((path) => {
+      if (path.length === 0) return false;
+      if (path.length === 1) return segmentCrossesFootprintAtLevel(piece, path[0], path[0]);
+      for (let i = 1; i < path.length; i++) {
+        if (segmentCrossesFootprintAtLevel(piece, path[i - 1], path[i])) return true;
+      }
+      return false;
+    })
+  );
 }
 
 /**
@@ -366,19 +375,33 @@ export function isPathDangerous(
   return pathCrossesFlaggedPiece(state, path, isDangerousPiece);
 }
 
+/** Ids of the dangerous pieces any of the paths crosses, in terrain order. Flying units cross nothing. */
+export function dangerousPieceIdsOnPaths(state: GameState, paths: Vector3[][], unit?: Unit): string[] {
+  if (unit && hasTrait(unit.specialRules, 'flying')) return [];
+  return flaggedPiecesCrossed(state, paths, isDangerousPiece).map((p) => p.id);
+}
+
 /**
- * Living models of `unit` standing (centre) inside a dangerous piece at its level, in unit model order.
- * Each of them rolls the hazard test when the unit activates. Flying units are exempt.
+ * Ids of the dangerous pieces at least one living model of `unit` stands in (centre inside the footprint at
+ * the piece's level), in terrain order. The unit tests once per piece when it activates. Flying units are exempt.
  */
-export function modelsInDangerousTerrain(state: GameState, unit: Unit): Model[] {
+export function dangerousPieceIdsUnderUnit(state: GameState, unit: Unit): string[] {
   if (hasTrait(unit.specialRules, 'flying')) return [];
-  const pieces = state.terrain.filter(isDangerousPiece);
-  if (pieces.length === 0) return [];
-  return unit.models.filter((m) => {
-    if (m.isDestroyed) return false;
-    const pos = m.position ?? unit.position;
-    return pieces.some((piece) => pointInsideFootprintAtLevel(piece, pos));
-  });
+  const living = unit.models.filter((m) => !m.isDestroyed);
+  return state.terrain
+    .filter(isDangerousPiece)
+    .filter((piece) => living.some((m) => pointInsideFootprintAtLevel(piece, m.position ?? unit.position)))
+    .map((p) => p.id);
+}
+
+/**
+ * Wounds it would take to destroy the unit: Tough minus wounds taken, summed over living models
+ * (a model's `wounds` is what it has left). This is how many dice a dangerous terrain test rolls.
+ */
+export function woundsToDestroy(unit: Unit): number {
+  const living = unit.models.filter((m) => !m.isDestroyed);
+  if (living.length === 0) return Math.max(1, unit.wounds);
+  return living.reduce((sum, m) => sum + Math.max(1, m.wounds), 0);
 }
 
 /**
@@ -715,7 +738,7 @@ export function validateDeclaredTraversal(
 }
 
 /**
- * Evaluates Dangerous Terrain hazard tests for a unit (1d6 per living model entering).
+ * Evaluates a Dangerous Terrain test for a unit (one die per wound it would take to destroy it).
  * Every roll of 1 inflicts 1 unsaved wound.
  */
 export function resolveDangerousTerrain(

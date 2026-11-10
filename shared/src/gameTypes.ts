@@ -146,10 +146,10 @@ export interface Unit {
    */
   modelMovementSpent?: Record<string, number>;
   /**
-   * Ids of the models that took the hazard test when this activation began (they stood in dangerous
-   * terrain). They do not roll again for dangerous ground crossed later in the same activation.
+   * Ids of the dangerous terrain pieces this unit has already tested for in the current activation (it
+   * activated in them, or crossed them). A piece tests at most once per activation.
    */
-  activationHazardModelIds?: string[];
+  hazardTestedPieceIds?: string[];
 }
 
 /**
