@@ -17,6 +17,7 @@ import {
   classifySegment,
   findNavPath,
   JumpOption,
+  planFollowerCrossing,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
@@ -223,6 +224,10 @@ export class GameHUD {
   private stagedSquadModelPaths: Map<string, Vector3[]> = new Map();
   /** Jumps/falls declared for individual squad models while staging (model id -> the declared leap). */
   private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
+  /** Squad models that could not be routed to the leader's crossing (model id -> why), shown on their chip. */
+  private squadBlockedModels: Map<string, string> = new Map();
+  /** The squad model the player declared the jump with (its crossing sizes the roll; it falls on a failure). */
+  private squadJumpLeaderId: string | null = null;
   /** ID of the squad model currently selected for placement */
   private selectedSquadModelId: string | null = null;
   /** Defender pile-in staging: spots and walks chosen so far (model id -> value), for one pending reaction. */
@@ -429,6 +434,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = null;
     this.pileInStaged.clear();
     this.pileInPaths.clear();
@@ -1163,6 +1170,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
     this.flow = { mode: 'targeting', action };
 
@@ -1665,9 +1674,16 @@ export class GameHUD {
     // Model placed successfully
     this.stagedSquadModelPositions.set(currentModel.id, destination);
     this.stagedSquadModelPaths.set(currentModel.id, path);
+    this.squadBlockedModels.delete(currentModel.id);
     if (jump) {
       this.stagedSquadModelTraversals.set(currentModel.id, jump);
-      this.showToast(`Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}`);
+      if (!this.squadJumpLeaderId || !this.stagedSquadModelTraversals.has(this.squadJumpLeaderId)) {
+        this.squadJumpLeaderId = currentModel.id;
+      }
+      const followed = this.autoRouteFollowers(actionKind, currentModel, jump);
+      this.showToast(
+        `Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}${followed ? ` · ${followed}` : ''}`
+      );
     } else {
       this.stagedSquadModelTraversals.delete(currentModel.id);
     }
@@ -1689,6 +1705,89 @@ export class GameHUD {
 
     // All living models have been placed!
     this.finishSquadMove(actionKind);
+  }
+
+  /** `{ jumpLeader }` for a squad payload: the living-model index of the model the jump was declared with. */
+  private jumpLeaderPayload(alive: Model[]): { jumpLeader?: number } {
+    const idx = this.squadJumpLeaderId ? alive.findIndex((m) => m.id === this.squadJumpLeaderId) : -1;
+    return idx >= 0 && this.stagedSquadModelTraversals.has(alive[idx].id) ? { jumpLeader: idx } : {};
+  }
+
+  /**
+   * Follow the leader (14C-2 PR 4B): when a squad model declares a jump, route every model not yet placed to the
+   * same crossing: it walks to a spot along the take-off edge with its own move and hops from there. Models
+   * already beyond the crossing (or Flying) are left for the player to move normally; a model that cannot reach
+   * the edge is marked on its chip and left where it stands. The host re-checks every route. Returns a short
+   * note for the toast.
+   */
+  private autoRouteFollowers(actionKind: 'move' | 'rush' | 'charge', leader: Model, jump: JumpOption): string {
+    const active = this.activeUnit;
+    const state = this.state;
+    if (!active || !state || jump.kind === 'fall') return '';
+    const alive = this.activeAliveSquadModels;
+    const isCharge = actionKind === 'charge';
+    const isRush = actionKind === 'rush' || !!active.isRushing;
+    const moveKind: 'move' | 'rush' | 'charge' = isCharge ? 'charge' : isRush ? 'rush' : 'move';
+    const chargeTarget =
+      isCharge && this.declaredCharge ? state.units.find((u) => u.id === this.declaredCharge!.targetId) : undefined;
+    const declared = { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing };
+    const taken: Vector3[] = [jump.takeoff, jump.landing];
+    for (const m of alive) {
+      if (m.id === leader.id) continue;
+      const staged = this.stagedSquadModelPositions.get(m.id);
+      const stagedJump = this.stagedSquadModelTraversals.get(m.id);
+      if (staged) taken.push(staged);
+      if (stagedJump) taken.push(stagedJump.takeoff);
+      if (!staged) taken.push(m.position ?? active.position);
+    }
+    const followed: number[] = [];
+    const blocked: string[] = [];
+    alive.forEach((m, idx) => {
+      if (m.id === leader.id || this.stagedSquadModelPositions.has(m.id)) return;
+      const start = m.position ?? active.position;
+      const remaining = this.distanceLeft(active, moveKind, m);
+      const spent = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - remaining : 0;
+      const budget = Math.min(remaining, getEffectiveMaxMovement(active, moveKind, false) - spent);
+      const difficultBudget = Math.min(remaining, getEffectiveMaxMovement(active, moveKind, true) - spent);
+      // The model's own current spot is not "taken" against itself
+      const others = taken.filter((t) => Math.hypot(t.x - start.x, t.z - start.z) > 1e-6);
+      const plan = planFollowerCrossing(state, active, start, declared, {
+        budget: Math.max(0, budget),
+        difficultBudget: Math.max(0, difficultBudget),
+        taken: others,
+        navOptions: {
+          keepAway: true,
+          stopBeforeDifficult: !isCharge && isRush,
+          ...(chargeTarget ? { ignoreUnitId: chargeTarget.id } : {}),
+        },
+        landingAllowed: (p) =>
+          isCharge
+            ? !chargeTarget || livingModelPositions(chargeTarget).every((t) => boardDistance(t, p) >= 0.9)
+            : !this.enemyUnits.some((e) => !e.isDestroyed && pointEngagesUnit(p, e)),
+      });
+      if (plan.status === 'route') {
+        const { path, option } = plan.route;
+        this.stagedSquadModelPositions.set(m.id, option.landing);
+        this.stagedSquadModelPaths.set(m.id, path);
+        this.stagedSquadModelTraversals.set(m.id, option);
+        this.squadBlockedModels.delete(m.id);
+        taken.push(option.takeoff, option.landing);
+        followed.push(idx + 1);
+      } else if (plan.status === 'unreachable') {
+        this.squadBlockedModels.set(m.id, plan.reason);
+        blocked.push(`Model ${idx + 1} (${plan.reason})`);
+      }
+    });
+    const notes: string[] = [];
+    if (followed.length > 0) {
+      notes.push(
+        `Model${followed.length > 1 ? 's' : ''} ${followed.join(', ')} follow${followed.length > 1 ? '' : 's'} across (one roll for the squad)`
+      );
+    }
+    if (blocked.length > 0) {
+      notes.push(`can't follow: ${blocked.join('; ')}. They stay behind unless you place them`);
+    }
+    return notes.join(' · ');
   }
 
   /**
@@ -1725,7 +1824,14 @@ export class GameHUD {
         this.showToast(
           `Unplaced models stay where they are: ${
             coherency.reason ?? 'the squad would not be in coherency'
-          }. Place more models or reset.`
+          }.${
+            this.squadBlockedModels.size > 0
+              ? ` ${alive
+                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1} cannot reach the take-off edge (${this.squadBlockedModels.get(m.id)})` : ''))
+                  .filter(Boolean)
+                  .join('; ')}.`
+              : ''
+          } Place more models or reset.`
         );
         return;
       }
@@ -1782,6 +1888,7 @@ export class GameHUD {
         modelPositions: orderedPositions,
         modelPaths: orderedPaths,
         ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+        ...this.jumpLeaderPayload(alive),
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
@@ -1885,6 +1992,7 @@ export class GameHUD {
       modelPositions: orderedPositions,
       modelPaths: orderedPaths,
       ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+      ...this.jumpLeaderPayload(alive),
     };
     const action = inContact
       ? createAction(this.localPlayerId, 'charge', {
@@ -2631,6 +2739,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = null;
     this.movePreview = null;
     this.movePathPreview = null;
@@ -2659,6 +2769,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     // A declared charge can't be cancelled: back to choosing its next leg
@@ -3779,18 +3891,22 @@ export class GameHUD {
               .map((m, idx) => {
                 const isPlaced = this.stagedSquadModelPositions.has(m.id);
                 const isSelected = m.id === currentModel?.id;
+                const blockedWhy = !isPlaced ? this.squadBlockedModels.get(m.id) : undefined;
                 return `
                   <button class="sl-hud-btn sl-hud-chip ${isSelected ? 'active' : ''}"
                     data-action="select-squad-model"
                     data-model-id="${m.id}"
+                    ${blockedWhy ? `title="Cannot reach the take-off edge: ${blockedWhy.replace(/"/g, '&quot;')}"` : ''}
                     style="${
-                      isSelected
+                      blockedWhy
+                        ? 'background: rgba(244, 67, 54, 0.25); border-color: #f44336; color: #ef9a9a;'
+                        : isSelected
                         ? 'background: #00bcd4; color: #000; font-weight: bold;'
                         : isPlaced
                         ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
                         : ''
                     }">
-                    ${isPlaced ? '✓ ' : ''}Model ${idx + 1}
+                    ${isPlaced ? '✓ ' : blockedWhy ? '✗ ' : ''}Model ${idx + 1}
                   </button>
                 `;
               })
@@ -4527,6 +4643,8 @@ export class GameHUD {
             this.stagedSquadModelPositions.clear();
             this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
             this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
             this.moveJump = null;

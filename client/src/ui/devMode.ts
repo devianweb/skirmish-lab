@@ -5,7 +5,7 @@
 export const DEV_MODE_STORAGE_KEY = 'skirmish_lab_dev_mode';
 
 /** Army IDs only offered while developer mode is on. */
-export const DEV_ONLY_ARMY_IDS = ['test-army', 'test-squad-army', 'test-rules-army'];
+export const DEV_ONLY_ARMY_IDS = ['test-army', 'test-squad-army', 'test-rules-army', 'test-jump-army'];
 
 export function isDevOnlyArmy(armyId: string): boolean {
   return DEV_ONLY_ARMY_IDS.includes(armyId);
