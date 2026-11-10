@@ -19,6 +19,9 @@ import {
 } from '../../src/index';
 import { WEAPONS } from '../../src/data/weapons';
 import { getBlastParticipants } from '../../src/engine/blast';
+import { deploymentFootprintProblem } from '../../src/engine/activation';
+import { findEndOverlap } from '../../src/engine/spatial';
+import { BUILTIN_MAPS } from '../../src/data/builtinMaps';
 import { legacyScenarioTerrain } from '../fixtures/legacyScenarioTerrain';
 import { getActivatableUnits, isRoundComplete, getDeploymentZoneBounds } from '../../src/engine/activation';
 
@@ -544,4 +547,23 @@ describe('TEST rules-check army', () => {
     expect(hero.specialRules).toContain('hero');
     expect(STARTER_ARMIES['test-rules-army'].name).toMatch(/TEST/);
   });
+});
+
+describe('spawning without a deployment phase', () => {
+  const MAPS = Object.keys(BUILTIN_MAPS);
+  const ARMIES = Object.keys(STARTER_ARMIES);
+
+  it.each(MAPS.flatMap((map) => ARMIES.map((army) => [map, army])))(
+    'map %s with army %s: no model starts in terrain, on stairs or ladders, or within 1" of another unit',
+    (map, army) => {
+      const state = createInitialGameState(HOST, GUEST);
+      applyDefaultScenario(state, { hostArmyId: army, guestArmyId: army, customMap: BUILTIN_MAPS[map]() });
+      for (const unit of state.units) {
+        expect(deploymentFootprintProblem(state, unit, unit.position)).toBeNull();
+        for (const m of unit.models) {
+          expect(findEndOverlap(state, unit.id, m.position!)?.kind).not.toBe('terrain');
+        }
+      }
+    }
+  );
 });

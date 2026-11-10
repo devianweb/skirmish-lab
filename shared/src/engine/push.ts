@@ -267,7 +267,9 @@ export function gatherAroundFallen(state: GameState, unit: Unit, fallen: Model):
     const n = r === 0 ? 1 : Math.max(8, Math.round(r * 16));
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2;
-      candidates.push({ x: round2(anchor.x + Math.cos(a) * r), y: ay, z: round2(anchor.z + Math.sin(a) * r) });
+      const spot = { x: round2(anchor.x + Math.cos(a) * r), y: ay, z: round2(anchor.z + Math.sin(a) * r) };
+      // Rounding must never push a spot past the 1" edge gap
+      if (Math.hypot(spot.x - anchor.x, spot.z - anchor.z) <= reach) candidates.push(spot);
     }
   }
   const placed: Vector3[] = fallen.isDestroyed ? [] : [anchor];

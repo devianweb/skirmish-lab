@@ -4,7 +4,7 @@ import { DiceResult, GameState, TerrainPiece, Unit, Vector3 } from '../../src/ga
 import { TERRAIN_PALETTE_CATALOG } from '../../src/data/mapSchema';
 import { WEAPONS } from '../../src/data/weapons';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
-import { pushBackChargerModels, validateSquadCoherency } from '../../src/engine/spatial';
+import { isBaseOverhanging, isSuspendedInMidAir, pushBackChargerModels, validateSquadCoherency } from '../../src/engine/spatial';
 import { findJumpOption } from '../../src/engine/traversal';
 import { livingModelPositions, modelGap } from '../../src/engine/unitGeometry';
 import { closestApproach } from '../../src/engine/closestApproach';
@@ -318,6 +318,60 @@ describe('squad charge: step back after melee', () => {
     expect(charger.models[0].position!.z).toBeCloseTo(-1, 2);
     expect(anchor.z).toBeCloseTo(-1, 2);
     expect(charger.position.z).toBeCloseTo(-1, 2);
+  });
+
+  describe('on a raised deck', () => {
+    // a 3" deck spanning x -2..2, z -2..2
+    const meta = TERRAIN_PALETTE_CATALOG['platform-small'];
+    const deck = {
+      id: 'deck',
+      terrainType: 'platform-small',
+      position: P(0, 0),
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { ...meta.defaultScale },
+      blocksLineOfSight: meta.blocksLineOfSight,
+      providesCover: meta.providesCover,
+      isObstacle: meta.isObstacle,
+      isWalkable: true,
+    } as TerrainPiece;
+    const onDeck = (state: GameState, id: string) =>
+      state.units
+        .find((u) => u.id === id)!
+        .models.forEach((m) => {
+          expect(isBaseOverhanging(state, m.position!)).toBe(false);
+          expect(isSuspendedInMidAir(state, m.position!)).toBe(false);
+        });
+
+    it('never steps a model off the deck edge: it stays put when no supported spot gives 1"', () => {
+      // the foe is on the deck side; stepping 2" straight away would leave the deck for the charger
+      const charger = mkUnit('h1', HOST, [[0, 1.45], [1, 1.45]].map(([x, z]) => [x, z] as [number, number]));
+      const foe = mkUnit('g1', GUEST, [[0, 0.55], [1, 0.55]]);
+      [charger, foe].forEach((u) => {
+        u.models.forEach((m) => (m.position!.y = 3));
+        u.position.y = 3;
+      });
+      const state = mkState([charger, foe], [deck]);
+      const before = livingModelPositions(charger).map((p) => ({ ...p }));
+      pushBackChargerModels(state, charger, foe);
+      onDeck(state, 'h1');
+      for (const [i, p] of livingModelPositions(charger).entries()) {
+        expect(p.y).toBe(3);
+        expect(Math.abs(p.z)).toBeLessThanOrEqual(2 - 0.5 + 1e-6);
+        expect(p.x).toBeCloseTo(before[i].x, 1);
+      }
+    });
+
+    it('a single model near the edge is not stepped into the air either', () => {
+      const charger = mkUnit('h1', HOST, [[0, 1.45]]);
+      const foe = mkUnit('g1', GUEST, [[0, 0.6]]);
+      [charger, foe].forEach((u) => {
+        u.models.forEach((m) => (m.position!.y = 3));
+        u.position.y = 3;
+      });
+      const state = mkState([charger, foe], [deck]);
+      pushBackChargerModels(state, charger, foe);
+      onDeck(state, 'h1');
+    });
   });
 });
 

@@ -1528,7 +1528,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!path || path.length < 2) {
         return { valid: false, reason: 'Consolidation path is empty' };
       }
-      const distance = pathMovementCost(state, path);
+      const distance = pathMovementCost(state, path, unit);
       const maxDistance = pending.data?.maxDistance ?? 3.0;
       if (distance > maxDistance + 0.05) {
         return { valid: false, reason: `Consolidation move exceeds max distance (${maxDistance}")` };
@@ -2215,12 +2215,16 @@ function applyLegTraversals(
         if (j === faller || !j.entry.declaration || !j.entry.model) continue;
         stopJumperAtTakeoff(state, unit, j.entry.model, j.entry.path, j.entry.declaration.takeoff, events, labelFor(j.entry));
       }
-      if (alive.length > 1) {
-        unit.position = computeSquadCentroid(alive.map((m) => m.position ?? unit.position));
-      }
       if (wounds > 0) {
-        // The model that fell takes the first wound(s) as its casualty; any further wounds follow the usual order
-        applyWounds(unit, wounds, 1, model ? Array(wounds).fill(model.id) : undefined);
+        applyFallWounds(unit, model, wounds);
+      }
+      // A fall of 2" or more brings the rest of the unit down to the fallen model (no dice of their own)
+      if (plan.fallDice > 0 && alive.length > 1 && model && !unit.isDestroyed) {
+        gatherAroundFallen(state, unit, model);
+      }
+      const survivors = livingModels(unit);
+      if (survivors.length > 1) {
+        unit.position = computeSquadCentroid(survivors.map((m) => m.position ?? unit.position));
       }
       fallWounds = wounds;
     }
@@ -3890,7 +3894,7 @@ function applyPush(state: GameState, newState: GameState, action: GameAction, di
           rolls ? `: rolled ${rollsText(rolls)}` : ''
         } → ${wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''}` : 'unhurt'}`,
       });
-      if (wounds > 0) applyWounds(unit, wounds, 1, Array(wounds).fill(model.id));
+      if (wounds > 0) applyFallWounds(unit, model, wounds);
     } else if (plan.fallHeight > 0) {
       events.push({ type: 'fall', wounds: 0, text: `Pushed off an edge: fell ${plan.fallHeight.toFixed(1)}"` });
     }
@@ -3968,6 +3972,20 @@ function applyWounds(unit: Unit, wounds: number, deadlyValue: number = 1, victim
   if (unit.models.length > 1 && surviving.some((m) => m.position)) {
     unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
   }
+}
+
+/**
+ * Fall wounds belong to the model that fell: it takes them until it dies, and any excess is lost (never carried
+ * to the rest of the squad). A unit with no model list takes them as a whole.
+ */
+function applyFallWounds(unit: Unit, fallen: Model | undefined, wounds: number): void {
+  if (wounds <= 0) return;
+  if (!fallen || !unit.models || unit.models.length === 0) {
+    applyWounds(unit, wounds);
+    return;
+  }
+  const taken = Math.min(wounds, Math.max(0, fallen.wounds));
+  applyWounds(unit, taken, 1, Array(taken).fill(fallen.id));
 }
 
 function markUnitDestroyed(unit: Unit): void {

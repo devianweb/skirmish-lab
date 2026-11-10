@@ -129,6 +129,16 @@ function moveAction(type: 'advance' | 'rush', r: ReturnType<typeof routeSquad>) 
   });
 }
 
+/** After a fall of 2" or more every other living model stands on the floor below within 1" (edge to edge) of the faller. */
+function expectGatheredAtBottom(models: any[], fallenIndex: number): void {
+  const anchor = models[fallenIndex].position;
+  models.forEach((m, i) => {
+    if (i === fallenIndex || m.isDestroyed) return;
+    expect(m.position.y).toBeLessThan(0.3);
+    expect(Math.hypot(m.position.x - anchor.x, m.position.z - anchor.z)).toBeLessThanOrEqual(2.0 + 1e-6);
+  });
+}
+
 describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
   it("routes models that start back from the edge to the leader's crossing, walking only to the take-off", () => {
     const state = makeState(makeSquad());
@@ -177,7 +187,7 @@ describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
     expect(spent['u-m3']).toBeLessThan(walkOf3 + 0.2);
   });
 
-  it('a failed roll: the leader falls, the followers stop at their take-off spots, the activation ends', () => {
+  it('a failed roll: the leader falls, the followers are brought down to it, the activation ends', () => {
     const state = makeState(makeSquad());
     state.units[0].modelMovementSpent = { 'u-m0': 0, 'u-m1': 0, 'u-m2': 0, 'u-m3': 0 };
     const r = routeSquad(state, leaderJump, leaderLanding);
@@ -186,14 +196,21 @@ describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
     const u = out.state.units[0];
     const fallen = u.models.findIndex((m) => m.isDestroyed || (m.position!.y ?? 0) === 0);
     expect(fallen).toBe(0); // the leader, whatever the followers' hops measure
-    u.models.forEach((m, i) => {
-      if (i === fallen) return;
-      expect(m.position).toMatchObject({ x: r.traversals[i]!.takeoff.x, z: r.traversals[i]!.takeoff.z });
-      expect(m.position!.y).toBe(3);
-    });
+    expectGatheredAtBottom(u.models, fallen);
     expect(out.state.turnState.activeUnitId).not.toBe('u');
     const texts = out.state.actionLog[out.state.actionLog.length - 1].dice!.outcome.traversal!.map((e) => e.text);
     expect(texts.filter((t) => /jump not attempted/.test(t))).toHaveLength(3);
+  });
+
+  it('fall wounds belong to the faller: three wounds on a Tough 1 model kill only that model', () => {
+    const state = makeState(makeSquad());
+    state.units[0].modelMovementSpent = { 'u-m0': 0, 'u-m1': 0, 'u-m2': 0, 'u-m3': 0 };
+    const r = routeSquad(state, leaderJump, leaderLanding);
+    const out = applyAction(state, moveAction('advance', r), [roll('jump', [1, 6, 6, 6]), roll('fall', [1, 2, 3])]);
+    if (!out.ok) throw new Error(out.reason);
+    const u = out.state.units[0];
+    expect(u.models.map((m) => m.isDestroyed)).toEqual([true, false, false, false]);
+    expect(u.isDestroyed).toBe(false);
   });
 
   it('rush legs follow the leader the same way', () => {
@@ -362,5 +379,91 @@ describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
     const r = routeSquad(state, leaderJump, leaderLanding); // routed as if it had the full 6"
     const res = validateAction(state, moveAction('advance', r));
     expect(res.valid).toBe(false);
+  });
+});
+
+describe('squad follow-the-leader: realistic layouts (playtest fix)', () => {
+  /** Plan every follower for a squad standing at `layout` (model 0 is the leader, at the edge) hopping to `landing`. */
+  function planAll(layout: Vector3[], landing: Vector3, budget = 6) {
+    const unit = makeSquad();
+    unit.models.forEach((m, i) => (m.position = { ...layout[i] }));
+    unit.position = { ...layout[0] };
+    const state = makeState(unit);
+    const option = findJumpOption(state, unit, layout[0], landing);
+    expect(option, 'the leader can declare the hop').not.toBeNull();
+    const leader: DeclaredTraversal = { kind: option!.kind, takeoff: option!.takeoff, landing: option!.landing };
+    const taken: Vector3[] = [leader.takeoff, leader.landing];
+    const plans: FollowerPlan[] = [];
+    for (let i = 1; i < layout.length; i++) {
+      const plan = planFollowerCrossing(state, unit, layout[i], leader, { budget, taken, navOptions: { keepAway: true } });
+      plans.push(plan);
+      if (plan.status === 'route') taken.push(plan.route.option.takeoff, plan.route.option.landing);
+    }
+    return { plans, state, unit };
+  }
+
+  const layouts: Array<{ name: string; layout: Vector3[]; landing: Vector3 }> = [
+    {
+      name: 'a line parallel to the edge, straight hop',
+      layout: [P(-0.55, 3, 3.4), P(-0.55, 3, 2.0), P(-0.55, 3, 0.6), P(-0.55, 3, -0.8)],
+      landing: P(2.05, 3, 3.4),
+    },
+    {
+      name: 'a line parallel to the edge, hop landing diagonally across the gap',
+      layout: [P(-0.55, 3, 3.4), P(-0.55, 3, 2.0), P(-0.55, 3, 0.6), P(-0.55, 3, -0.8)],
+      landing: P(2.4, 3, 1.4),
+    },
+    {
+      name: 'a diagonal line running back from the leader at the corner',
+      layout: [P(-0.55, 3, 3.45), P(-1.85, 3, 2.2), P(-3.15, 3, 1.0), P(-3.45, 3, -0.4)],
+      landing: P(2.05, 3, 3.45),
+    },
+    {
+      name: 'a diagonal line, hop landing diagonally',
+      layout: [P(-0.55, 3, 3.45), P(-1.85, 3, 2.2), P(-3.15, 3, 1.0), P(-3.45, 3, -0.4)],
+      landing: P(2.5, 3, 1.6),
+    },
+    {
+      name: 'the leader at the near corner of the far deck side, line along the edge the other way',
+      layout: [P(-0.55, 3, -3.45), P(-0.55, 3, -2.1), P(-0.55, 3, -0.7), P(-1.6, 3, 0.2)],
+      landing: P(2.05, 3, -3.45),
+    },
+    {
+      name: 'a tight cluster behind the leader',
+      layout: [P(-0.55, 3, 0), P(-1.55, 3, 0.9), P(-1.55, 3, -0.9), P(-2.55, 3, 0)],
+      landing: P(2.05, 3, 0),
+    },
+    {
+      name: 'a cluster in the deck corner away from the edge',
+      layout: [P(-0.55, 3, 3.45), P(-2.6, 3, 3.4), P(-3.45, 3, 3.45), P(-3.45, 3, 2.2)],
+      landing: P(2.05, 3, 3.45),
+    },
+  ];
+
+  for (const { name, layout, landing } of layouts) {
+    it(`routes every follower across: ${name}`, () => {
+      const { plans, unit, state } = planAll(layout, landing);
+      plans.forEach((p, i) => expect(p.status, `model ${i + 2}`).toBe('route'));
+      for (const p of plans) {
+        if (p.status !== 'route') continue;
+        // each route is a walk to a take-off spot that is itself a legal jump to the same kind of landing
+        const { path, option, walkCost } = p.route;
+        expect(option.kind).toBe('jump-gap');
+        expect(walkCost).toBeLessThanOrEqual(6 + 0.05);
+        expect(path[path.length - 1]).toEqual(option.landing);
+        expect(findJumpOption(state, unit, option.takeoff, option.landing)).not.toBeNull();
+      }
+    });
+  }
+
+  it('says why with numbers when a model is out of move', () => {
+    const { plans } = planAll(
+      [P(-0.55, 3, 3.45), P(-0.55, 3, 2.1), P(-3.45, 3, -3.45), P(-3.45, 3, -2.4)],
+      P(2.05, 3, 3.45),
+      2
+    );
+    const far = plans[1];
+    expect(far.status).toBe('unreachable');
+    if (far.status === 'unreachable') expect(far.reason).toMatch(/\d\.\d" away and it has 2.0" of move left/);
   });
 });
