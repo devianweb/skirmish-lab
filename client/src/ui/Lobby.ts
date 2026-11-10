@@ -375,7 +375,8 @@ export class Lobby {
         ? `<option value="test-army" ${selected === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
                 <option value="test-squad-army" ${selected === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
                 <option value="test-rules-army" ${selected === 'test-rules-army' ? 'selected' : ''}>TEST: Rules Check (Hero, Blast, Indirect, multi-weapon) — playtesting</option>
-                <option value="test-jump-army" ${selected === 'test-jump-army' ? 'selected' : ''}>TEST: Jump Check (squad, Strider squad, Flying squad) — playtesting</option>`
+                <option value="test-jump-army" ${selected === 'test-jump-army' ? 'selected' : ''}>TEST: Jump Check (squad, Strider squad, Flying squad) — playtesting</option>
+                <option value="test-hazard-army" ${selected === 'test-hazard-army' ? 'selected' : ''}>TEST: Hazard Check (5-model squad, Tough 3 Hero, Flying squad) — playtesting</option>`
         : '';
       const devBadgeHtml = dev
         ? '<div id="devBadge" style="position: fixed; top: 12px; right: 12px; padding: 3px 8px; background: #ffd54f; color: #12161c; font: 700 11px Arial, sans-serif; border-radius: 4px; letter-spacing: 1px;">DEV</div>'
