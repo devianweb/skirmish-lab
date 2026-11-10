@@ -21,7 +21,10 @@ import {
   classifySegment,
   findNavPath,
   JumpOption,
-  planFollowerCrossing,
+  autoPlaceCrossers,
+  crossingPlacementProblem,
+  isBeyondCrossing,
+  validateCrossers,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
@@ -228,6 +231,8 @@ export class GameHUD {
   private moveJump: JumpOption | null = null;
   /** Set while hovering across a gap over the 6" jump limit (hint only; nothing is offered). */
   private moveTooWide: { distance: number } | null = null;
+  /** Why the spot under the cursor would be refused (a jump breaking the 1" keep-away rule, or a squad model that overlaps / breaks coherency), or null. */
+  private moveJumpRefused: string | null = null;
   /** Engine classification of each leg of the previewed path (for styling and labels). */
   private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
@@ -244,8 +249,12 @@ export class GameHUD {
   private stagedSquadModelPaths: Map<string, Vector3[]> = new Map();
   /** Jumps/falls declared for individual squad models while staging (model id -> the declared leap). */
   private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
-  /** Squad models that could not be routed to the leader's crossing (model id -> why), shown on their chip. */
+  /** Squad models that could not be placed (model id -> why), shown on their chip. */
   private squadBlockedModels: Map<string, string> = new Map();
+  /** Squad models carried across the leader's crossing (placed within 1" of a model already across, no move spent). */
+  private squadCrossers: Set<string> = new Set();
+  /** Why the click being handled would not be a legal crossing spot, shown if ordinary placement refuses it too. */
+  private pickCrossHint: string | null = null;
   /** The squad model the player declared the jump with (its crossing sizes the roll; it falls on a failure). */
   private squadJumpLeaderId: string | null = null;
   /** ID of the squad model currently selected for placement */
@@ -452,6 +461,7 @@ export class GameHUD {
     this.movePreviewDifficult = false;
     this.moveJump = null;
     this.moveTooWide = null;
+    this.moveJumpRefused = null;
     this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
     this.selectedCasualtyModelId = null;
@@ -462,6 +472,7 @@ export class GameHUD {
     this.stagedSquadModelTraversals.clear();
     this.squadBlockedModels.clear();
     this.squadJumpLeaderId = null;
+    this.squadCrossers.clear();
     this.selectedSquadModelId = null;
     this.pileInStaged.clear();
     this.pileInPaths.clear();
@@ -735,6 +746,7 @@ export class GameHUD {
   handleBoardHover(target: PickTarget | null): void {
     if (!this.state || this.state.status === 'game-over') return;
     this.moveTooWide = null;
+    this.moveJumpRefused = null;
 
     const nextTerrainId =
       target?.kind === 'position'
@@ -827,6 +839,12 @@ export class GameHUD {
         const isRush = this.flow.action === 'rush';
         const remainingBudget = this.distanceLeft(active, isRush ? 'rush' : 'move', currentModel);
         const nominalMax = remainingBudget;
+        const cross = currentModel ? this.crossingHover(active, currentModel, target.position) : null;
+        if (cross) {
+          this.applyCrossingHover(cross);
+          this.emitMarkers();
+          return;
+        }
         const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
         const cursor = resolved.target;
         let path = resolved.jump
@@ -881,6 +899,11 @@ export class GameHUD {
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
         this.moveTooWide = this.tooWideHint(resolved, path);
+        this.moveJumpRefused = resolved.refused
+          ? `Cannot jump there: ${resolved.refused}`
+          : currentModel && path.length > 1
+          ? this.squadPlacementProblem(active, alive, currentModel, path[path.length - 1])
+          : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -933,11 +956,19 @@ export class GameHUD {
       let cursor: Vector3 | null = null;
       let jump = null as JumpOption | null;
       let tooWide: { distance: number } | null = null;
+      let jumpRefused: string | null = null;
+      const cross = target?.kind === 'position' && model ? this.crossingHover(active, model, target.position) : null;
+      if (cross) {
+        this.applyCrossingHover(cross);
+        this.emitMarkers();
+        return;
+      }
       if (target?.kind === 'position') {
-        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true);
+        const resolved = resolveMoveTarget(this.state, active, startPos, target.position, true, { ignoreUnitId: declared.targetId });
         cursor = resolved.target;
         jump = resolved.jump;
         tooWide = resolved.tooWide;
+        jumpRefused = resolved.refused ?? null;
       } else if (target?.kind === 'unit' && target.unitId === declared.targetId && enemy) {
         cursor = this.contactSpotFor(startPos, enemy);
       }
@@ -953,6 +984,7 @@ export class GameHUD {
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.moveJump = jump;
         this.moveTooWide = tooWide && cursor ? this.tooWideHint({ target: cursor, jump, tooWide }, path) : null;
+        this.moveJumpRefused = jumpRefused ? `Cannot jump there: ${jumpRefused}` : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePreviewDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.hoveredEngagedTargetId = target?.kind === 'unit' ? declared.targetId : null;
@@ -995,7 +1027,7 @@ export class GameHUD {
         this.updateMoveWarning(isDifficult, this.flow.action);
       } else if (active && declared && target?.kind === 'position') {
         // A leg: walk toward the cursor, or declare a jump when standing at an edge (same as a move)
-        const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true);
+        const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true, { ignoreUnitId: declared.targetId });
         const path = resolved.jump
           ? resolved.jump.path
           : this.hoverNav(active, resolved.target, budget, {
@@ -1006,6 +1038,7 @@ export class GameHUD {
         this.movePreviewDifficult = isDifficult;
         this.moveJump = resolved.jump;
         this.moveTooWide = this.tooWideHint(resolved, path);
+        this.moveJumpRefused = resolved.refused ? `Cannot jump there: ${resolved.refused}` : null;
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
@@ -1260,6 +1293,7 @@ export class GameHUD {
     this.stagedSquadModelTraversals.clear();
     this.squadBlockedModels.clear();
     this.squadJumpLeaderId = null;
+    this.squadCrossers.clear();
     this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
     this.flow = { mode: 'targeting', action };
 
@@ -1814,6 +1848,82 @@ export class GameHUD {
     return `This model cannot move there: the way is blocked or the spot is not reachable (it has ${budget.toFixed(1)}" of move left)`;
   }
 
+  /**
+   * Why the model about to be placed at `destination` would be refused for the squad as a whole (overlapping
+   * another model, too far from the placed ones, or breaking coherency when it is the last one), or null.
+   * The click and the hover preview both use it, so what the preview shows is what the click does.
+   */
+  private squadPlacementProblem(active: Unit, alive: Model[], currentModel: Model, destination: Vector3): string | null {
+    // Minimum model separation check: models cannot physically overlap (bases must not overlap)
+    for (let i = 0; i < alive.length; i++) {
+      const m = alive[i];
+      if (m.id === currentModel.id) continue;
+      const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
+      const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
+      if (dist < 0.90) {
+        return `Cannot place model on top of Model ${i + 1} (bases would overlap)`;
+      }
+    }
+
+    // Coherency checks against other placed models
+    const otherPlaced: Array<{ id: string; pos: Vector3; name: string }> = [];
+    for (let i = 0; i < alive.length; i++) {
+      const m = alive[i];
+      if (m.id !== currentModel.id && this.stagedSquadModelPositions.has(m.id)) {
+        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: `Model ${i + 1}` });
+      }
+    }
+
+    // A squad that started the action out of coherency may end it closer to coherent (regrouping)
+    const startPositions = alive.map((m) => m.position ?? active.position);
+    const startedIncoherent = !validateSquadCoherency(startPositions).coherent;
+
+    if (otherPlaced.length > 0) {
+      // 1. All models must remain within 6" (base edge to base edge) of all other placed models
+      //    (a regrouping squad is judged as a whole when the last model is placed)
+      for (const placed of startedIncoherent ? [] : otherPlaced) {
+        const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
+        if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
+          return `Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`;
+        }
+      }
+
+      // 2. When placing the final model of the squad, full squad coherency must be satisfied
+      const isPlacingLastModel = otherPlaced.length === alive.length - 1;
+      if (isPlacingLastModel) {
+        const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
+        const coherency = validateSquadCoherency(candidatePositions);
+        if (!coherency.coherent) {
+          // Candidate positions are in placement order, not model order: compare as a set of positions
+          const regrouping = startedIncoherent && isRegroupingMove(startPositions, candidatePositions);
+          if (!regrouping) {
+            return (
+              (coherency.reason ??
+                'Each model must be within 1" of another squad member (3" if they are on different levels)') +
+              (startedIncoherent
+                ? ' (the squad started out of coherency: it must end closer to coherent than it began)'
+                : '')
+            );
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /** A refused hand placement: toast the reason and keep it on the model's chip (replacing any older reason). */
+  private refuseSquadPlacement(model: Model, reason: string): void {
+    // A click on the far side of a crossing that is not a legal crossing spot: say why (shared host rule)
+    if (this.pickCrossHint) reason = this.pickCrossHint;
+    this.pickCrossHint = null;
+    this.showToast(reason);
+    if (!this.stagedSquadModelPositions.has(model.id)) {
+      this.squadBlockedModels.set(model.id, `Not placed: ${reason}`);
+      this.render();
+    }
+  }
+
   private handleSquadModelPick(rawDestination: Vector3, actionKind: 'move' | 'rush' | 'charge'): void {
     const active = this.activeUnit;
     if (!active || !this.state) return;
@@ -1825,8 +1935,22 @@ export class GameHUD {
     if (!currentModel) return;
 
     const startPos = currentModel.position ?? active.position;
+    // After a declared jump, a click across the crossing places this model there (no walking to the edge)
+    this.pickCrossHint = null;
+    const cross = this.crossingHover(active, currentModel, rawDestination);
+    if (cross) {
+      if (!cross.problem) {
+        this.stageCrosser(alive, currentModel, cross.spot);
+        return;
+      }
+      this.pickCrossHint = cross.problem;
+    }
     // The cursor snaps to floor edges; a model standing at an edge may declare its own jump or fall
-    const resolved = resolveMoveTarget(this.state, active, startPos, rawDestination, true);
+    const resolved = resolveMoveTarget(this.state, active, startPos, rawDestination, true, actionKind === 'charge' ? { ignoreUnitId: this.declaredCharge?.targetId } : {});
+    if (resolved.refused) {
+      this.refuseSquadPlacement(currentModel, `Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     rawDestination = resolved.target;
 
@@ -1858,13 +1982,13 @@ export class GameHUD {
       path = findNavPath(this.state, active, rawDestination, maxAllowance, navOptions);
     }
     if (path.length < 2) {
-      this.showToast(this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
+      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
       return;
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path, active);
     if (distance < 0.05 && !jump) {
-      this.showToast(this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
+      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
       return;
     }
 
@@ -1875,7 +1999,7 @@ export class GameHUD {
     if (isCharge) {
       // A charging model may end in contact with the target, but not on top of one of its models
       if (livingModelPositions(chargeTarget!).some((t) => boardDistance(t, destination) < 0.9)) {
-        this.showToast('Cannot place a model on top of an enemy model (bases would overlap)');
+        this.refuseSquadPlacement(currentModel, "Cannot place a model on top of an enemy model (bases would overlap)");
         return;
       }
     } else {
@@ -1885,84 +2009,47 @@ export class GameHUD {
           pointEngagesUnit(destination, e)
       );
       if (wouldEngage) {
-        this.showToast(`${actionKind === 'rush' ? 'Rush' : 'Advance'} cannot end in melee contact — use Charge instead`);
+        this.refuseSquadPlacement(currentModel, `${actionKind === "rush" ? "Rush" : "Advance"} cannot end in melee contact — use Charge instead`);
         return;
       }
     }
 
-    // Minimum model separation check: models cannot physically overlap (bases must not overlap)
-    for (let i = 0; i < alive.length; i++) {
-      const m = alive[i];
-      if (m.id === currentModel.id) continue;
-      const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
-      const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
-      if (dist < 0.90) {
-        this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
-        return;
-      }
+    // The leader stepping instead of jumping: the models carried with it are no longer across, so they do not count
+    if (!jump && this.squadJumpLeaderId === currentModel.id) {
+      this.clearCrossers();
+      this.squadJumpLeaderId = null;
     }
-
-    // Coherency checks against other placed models
-    const otherPlaced: Array<{ id: string; pos: Vector3; name: string }> = [];
-    for (let i = 0; i < alive.length; i++) {
-      const m = alive[i];
-      if (m.id !== currentModel.id && this.stagedSquadModelPositions.has(m.id)) {
-        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: `Model ${i + 1}` });
-      }
+    const placementProblem = this.squadPlacementProblem(active, alive, currentModel, destination);
+    if (placementProblem) {
+      this.refuseSquadPlacement(currentModel, placementProblem);
+      return;
     }
-
-    // A squad that started the action out of coherency may end it closer to coherent (regrouping)
-    const startPositions = alive.map((m) => m.position ?? active.position);
-    const startedIncoherent = !validateSquadCoherency(startPositions).coherent;
-
-    if (otherPlaced.length > 0) {
-      // 1. All models must remain within 6" (base edge to base edge) of all other placed models
-      //    (a regrouping squad is judged as a whole when the last model is placed)
-      for (const placed of startedIncoherent ? [] : otherPlaced) {
-        const d = Math.hypot(placed.pos.x - destination.x, placed.pos.z - destination.z);
-        if (d > SQUAD_COHERENCY_SPREAD + 0.02) {
-          this.showToast(`Model spread of ${modelGap(placed.pos, destination).toFixed(1)}" (edge to edge) exceeds max ${SQUAD_COHERENCY_SPREAD_EDGE.toFixed(1)}" coherency limit from ${placed.name}`);
-          return;
-        }
-      }
-
-      // 2. When placing the final model of the squad, full squad coherency must be satisfied
-      const isPlacingLastModel = otherPlaced.length === alive.length - 1;
-      if (isPlacingLastModel) {
-        const candidatePositions = [...otherPlaced.map((p) => p.pos), destination];
-        const coherency = validateSquadCoherency(candidatePositions);
-        if (!coherency.coherent) {
-          // Candidate positions are in placement order, not model order: compare as a set of positions
-          const regrouping = startedIncoherent && isRegroupingMove(startPositions, candidatePositions);
-          if (!regrouping) {
-            this.showToast(
-              (coherency.reason ??
-                'Each model must be within 1" of another squad member (3" if they are on different levels)') +
-                (startedIncoherent
-                  ? ' (the squad started out of coherency: it must end closer to coherent than it began)'
-                  : '')
-            );
-            return;
-          }
-        }
-      }
-    }
-
     // Model placed successfully
+    this.pickCrossHint = null;
     this.stagedSquadModelPositions.set(currentModel.id, destination);
     this.stagedSquadModelPaths.set(currentModel.id, path);
     this.squadBlockedModels.delete(currentModel.id);
+    this.squadCrossers.delete(currentModel.id);
     if (jump) {
       this.stagedSquadModelTraversals.set(currentModel.id, jump);
       if (!this.squadJumpLeaderId || !this.stagedSquadModelTraversals.has(this.squadJumpLeaderId)) {
         this.squadJumpLeaderId = currentModel.id;
       }
-      const followed = this.autoRouteFollowers(actionKind, currentModel, jump);
+      let carried = '';
+      if (this.squadJumpLeaderId === currentModel.id) {
+        this.clearCrossers();
+        carried = this.autoCarryFollowers(actionKind, currentModel, jump);
+      }
       this.showToast(
-        `Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}${followed ? ` · ${followed}` : ''}`
+        `Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}${carried ? ` · ${carried}` : ''}`
       );
     } else {
       this.stagedSquadModelTraversals.delete(currentModel.id);
+      if (this.squadJumpLeaderId === currentModel.id) {
+        // The leader no longer jumps: nobody is carried across
+        this.clearCrossers();
+        this.squadJumpLeaderId = null;
+      }
     }
 
     if (this.stagedSquadModelPositions.size < alive.length) {
@@ -1971,6 +2058,17 @@ export class GameHUD {
       if (nextUnplaced) {
         this.selectedSquadModelId = nextUnplaced.id;
       }
+      this.movePathPreview = null;
+      this.moveJump = null;
+      this.moveSegments = null;
+      this.movePreview = null;
+      this.render();
+      this.emitMarkers();
+      return;
+    }
+
+    // Models carried across stay adjustable (select one and place it by hand): the player confirms
+    if (this.squadCrossers.size > 0) {
       this.movePathPreview = null;
       this.moveJump = null;
       this.moveSegments = null;
@@ -1991,78 +2089,158 @@ export class GameHUD {
   }
 
   /**
-   * Follow the leader (14C-2 PR 4B): when a squad model declares a jump, route every model not yet placed to the
-   * same crossing: it walks to a spot along the take-off edge with its own move and hops from there. Models
-   * already beyond the crossing (or Flying) are left for the player to move normally; a model that cannot reach
-   * the edge is marked on its chip and left where it stands. The host re-checks every route. Returns a short
-   * note for the toast.
+   * Group crossing (14C-2 PR 4C). The context a model carried across the leader's crossing is judged in, or null
+   * when there is no crossing for it (no jump declared, it is the leader or declared its own jump, Flying).
+   * The hover preview, the click and the Auto placement all use it with the shared `crossingPlacementProblem`,
+   * the check the host runs on every placed model.
    */
-  private autoRouteFollowers(actionKind: 'move' | 'rush' | 'charge', leader: Model, jump: JumpOption): string {
+  private crossingContextFor(model: Model): {
+    declared: { kind: JumpOption['kind']; takeoff: Vector3; landing: Vector3 };
+    ignoreUnitId?: string;
+    across: Vector3[];
+    occupied: Vector3[];
+  } | null {
+    const active = this.activeUnit;
+    const leaderId = this.squadJumpLeaderId;
+    if (!active || !this.state || !leaderId || model.id === leaderId) return null;
+    if (hasTrait(active.specialRules, 'flying')) return null;
+    const leaderJump = this.stagedSquadModelTraversals.get(leaderId);
+    if (!leaderJump || leaderJump.kind === 'fall' || this.stagedSquadModelTraversals.has(model.id)) return null;
+    const across: Vector3[] = [];
+    const occupied: Vector3[] = [];
+    for (const [id, pos] of this.stagedSquadModelPositions) {
+      if (id === model.id) continue;
+      occupied.push(pos);
+      const jumped = this.stagedSquadModelTraversals.get(id);
+      if ((jumped && jumped.kind !== 'fall') || this.squadCrossers.has(id)) across.push(pos);
+    }
+    const target = this.flow.mode === 'targeting' && this.flow.action === 'charge' ? this.declaredCharge?.targetId : undefined;
+    return {
+      declared: { kind: leaderJump.kind, takeoff: leaderJump.takeoff, landing: leaderJump.landing },
+      ...(target ? { ignoreUnitId: target } : {}),
+      across,
+      occupied,
+    };
+  }
+
+  /**
+   * What a cursor/click at `position` means for `model` after a declared jump: null when the spot is not across
+   * the crossing (ordinary movement applies), else the spot and why it is not a legal crossing spot (or null).
+   */
+  private crossingHover(active: Unit, model: Model, position: Vector3): { spot: Vector3; problem: string | null } | null {
+    const ctx = this.crossingContextFor(model);
+    if (!ctx || !this.state) return null;
+    const spot: Vector3 = { x: position.x, y: ctx.declared.landing.y ?? 0, z: position.z };
+    if (!isBeyondCrossing(ctx.declared, spot, this.state)) return null;
+    return { spot, problem: crossingPlacementProblem(this.state, active, spot, ctx) };
+  }
+
+  /** Hover state for a spot across the crossing: the spot, and the refusal reason when it is not legal. */
+  private applyCrossingHover(cross: { spot: Vector3; problem: string | null }): void {
+    this.movePreview = cross.spot;
+    this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
+    this.moveTooWide = null;
+    this.movePreviewDifficult = false;
+    this.hoveredEngagedTargetId = null;
+    this.moveJumpRefused = cross.problem;
+    this.showTraversalChip();
+    if (!cross.problem) {
+      const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
+      if (el) {
+        el.textContent = 'Carried across with the leader: no move spent';
+        el.style.display = 'block';
+        el.style.background = 'rgba(41, 182, 246, 0.2)';
+        el.style.borderColor = '#29b6f6';
+        el.style.color = '#81d4fa';
+      }
+    }
+  }
+
+  /** Stage `model` as carried across to `spot` (a hand placement) and move on to the next unplaced model. */
+  private stageCrosser(alive: Model[], model: Model, spot: Vector3): void {
+    const start = model.position ?? this.activeUnit?.position ?? spot;
+    this.stagedSquadModelPositions.set(model.id, spot);
+    this.stagedSquadModelPaths.set(model.id, [start, spot]);
+    this.stagedSquadModelTraversals.delete(model.id);
+    this.squadBlockedModels.delete(model.id);
+    this.squadCrossers.add(model.id);
+    const nextUnplaced = alive.find((m) => !this.stagedSquadModelPositions.has(m.id));
+    if (nextUnplaced) this.selectedSquadModelId = nextUnplaced.id;
+    this.movePathPreview = null;
+    this.moveJump = null;
+    this.moveSegments = null;
+    this.movePreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Forget the models carried across (the leader changed or no longer jumps): they go back to unplaced. */
+  private clearCrossers(): void {
+    for (const id of this.squadCrossers) {
+      this.stagedSquadModelPositions.delete(id);
+      this.stagedSquadModelPaths.delete(id);
+    }
+    this.squadCrossers.clear();
+  }
+
+  /**
+   * Auto placement after the leader declares a jump: every model not yet placed is carried across, keeping the
+   * squad's formation where the leader's own displacement allows and otherwise taking the nearest legal spot
+   * within 1" of a model already across (`autoPlaceCrossers`). The player can re-place any of them by hand
+   * before confirming. Returns a short note for the toast.
+   */
+  private autoCarryFollowers(actionKind: 'move' | 'rush' | 'charge', leader: Model, jump: JumpOption): string {
     const active = this.activeUnit;
     const state = this.state;
-    if (!active || !state || jump.kind === 'fall') return '';
+    if (!active || !state || jump.kind === 'fall' || hasTrait(active.specialRules, 'flying')) return '';
     const alive = this.activeAliveSquadModels;
-    const isCharge = actionKind === 'charge';
-    const isRush = actionKind === 'rush' || !!active.isRushing;
-    const moveKind: 'move' | 'rush' | 'charge' = isCharge ? 'charge' : isRush ? 'rush' : 'move';
-    const chargeTarget =
-      isCharge && this.declaredCharge ? state.units.find((u) => u.id === this.declaredCharge!.targetId) : undefined;
-    const declared = { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing };
-    const taken: Vector3[] = [jump.takeoff, jump.landing];
-    for (const m of alive) {
-      if (m.id === leader.id) continue;
-      const staged = this.stagedSquadModelPositions.get(m.id);
-      const stagedJump = this.stagedSquadModelTraversals.get(m.id);
-      if (staged) taken.push(staged);
-      if (stagedJump) taken.push(stagedJump.takeoff);
-      if (!staged) taken.push(m.position ?? active.position);
+    const models = alive
+      .map((m, index) => ({ m, index }))
+      .filter(({ m }) => m.id !== leader.id && !this.stagedSquadModelPositions.has(m.id))
+      .map(({ m, index }) => ({ index, position: m.position ?? active.position }));
+    if (models.length === 0) return '';
+    const across: Vector3[] = [jump.landing];
+    const occupied: Vector3[] = [];
+    for (const [id, pos] of this.stagedSquadModelPositions) {
+      if (id === leader.id) continue;
+      occupied.push(pos);
+      const other = this.stagedSquadModelTraversals.get(id);
+      if (other && other.kind !== 'fall') across.push(pos);
     }
-    const followed: number[] = [];
-    const blocked: string[] = [];
-    alive.forEach((m, idx) => {
-      if (m.id === leader.id || this.stagedSquadModelPositions.has(m.id)) return;
-      const start = m.position ?? active.position;
-      const remaining = this.distanceLeft(active, moveKind, m);
-      const spent = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - remaining : 0;
-      const budget = Math.min(remaining, getEffectiveMaxMovement(active, moveKind, false) - spent);
-      const difficultBudget = Math.min(remaining, getEffectiveMaxMovement(active, moveKind, true) - spent);
-      // The model's own current spot is not "taken" against itself
-      const others = taken.filter((t) => Math.hypot(t.x - start.x, t.z - start.z) > 1e-6);
-      const plan = planFollowerCrossing(state, active, start, declared, {
-        budget: Math.max(0, budget),
-        difficultBudget: Math.max(0, difficultBudget),
-        taken: others,
-        navOptions: {
-          keepAway: true,
-          stopBeforeDifficult: !isCharge && isRush,
-          ...(chargeTarget ? { ignoreUnitId: chargeTarget.id } : {}),
-        },
-        landingAllowed: (p) =>
-          isCharge
-            ? !chargeTarget || livingModelPositions(chargeTarget).every((t) => boardDistance(t, p) >= 0.9)
-            : !this.enemyUnits.some((e) => !e.isDestroyed && pointEngagesUnit(p, e)),
-      });
-      if (plan.status === 'route') {
-        const { path, option } = plan.route;
-        this.stagedSquadModelPositions.set(m.id, option.landing);
-        this.stagedSquadModelPaths.set(m.id, path);
-        this.stagedSquadModelTraversals.set(m.id, option);
-        this.squadBlockedModels.delete(m.id);
-        taken.push(option.takeoff, option.landing);
-        followed.push(idx + 1);
-      } else if (plan.status === 'unreachable') {
-        this.squadBlockedModels.set(m.id, plan.reason);
-        blocked.push(`Model ${idx + 1} (${plan.reason})`);
-      }
+    const spots = autoPlaceCrossers(state, active, {
+      declared: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing },
+      leaderStart: leader.position ?? active.position,
+      leaderEnd: jump.landing,
+      models,
+      across,
+      occupied,
+      ...(actionKind === 'charge' && this.declaredCharge ? { ignoreUnitId: this.declaredCharge.targetId } : {}),
     });
+    const carried: number[] = [];
+    const left: number[] = [];
+    for (const { index, position } of models) {
+      const spot = spots.get(index);
+      const model = alive[index];
+      if (!spot) {
+        left.push(index + 1);
+        continue;
+      }
+      this.stagedSquadModelPositions.set(model.id, spot);
+      this.stagedSquadModelPaths.set(model.id, [position, spot]);
+      this.squadBlockedModels.delete(model.id);
+      this.squadCrossers.add(model.id);
+      carried.push(index + 1);
+    }
     const notes: string[] = [];
-    if (followed.length > 0) {
+    if (carried.length > 0) {
       notes.push(
-        `Model${followed.length > 1 ? 's' : ''} ${followed.join(', ')} follow${followed.length > 1 ? '' : 's'} across (one roll for the squad)`
+        `Model${carried.length > 1 ? 's' : ''} ${carried.join(', ')} carried across (one roll for the squad). Confirm, or pick a model and click a spot within 1" of a model across to place it yourself`
       );
     }
-    if (blocked.length > 0) {
-      notes.push(`can't follow: ${blocked.join('; ')}. They stay behind unless you place them`);
+    if (left.length > 0) {
+      notes.push(`no legal spot across for Model${left.length > 1 ? 's' : ''} ${left.join(', ')}: ${left.length > 1 ? 'they stay' : 'it stays'} where ${left.length > 1 ? 'they are' : 'it is'}`);
     }
     return notes.join(' · ');
   }
@@ -2104,7 +2282,7 @@ export class GameHUD {
           }.${
             this.squadBlockedModels.size > 0
               ? ` ${alive
-                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1} cannot reach the take-off edge (${this.squadBlockedModels.get(m.id)})` : ''))
+                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1}: ${this.squadBlockedModels.get(m.id)}` : ''))
                   .filter(Boolean)
                   .join('; ')}.`
               : ''
@@ -2137,6 +2315,23 @@ export class GameHUD {
       summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
     }
 
+    const crossers = alive.map((m, i) => (this.squadCrossers.has(m.id) ? i : -1)).filter((i) => i >= 0);
+    if (crossers.length > 0) {
+      const problem = validateCrossers(
+        this.state,
+        active,
+        {
+          crossers,
+          jumpLeader: this.jumpLeaderPayload(alive).jumpLeader,
+          modelTraversals: alive.map((m) => this.stagedSquadModelTraversals.get(m.id) ?? null),
+        },
+        orderedPositions
+      );
+      if (problem) {
+        this.showToast(problem);
+        return;
+      }
+    }
     const orderedJumps = alive.map((m) => this.stagedSquadModelTraversals.get(m.id) ?? null);
     const orderedTraversals = orderedJumps.map((j) =>
       j ? { kind: j.kind, takeoff: j.takeoff, landing: j.landing } : null
@@ -2144,6 +2339,9 @@ export class GameHUD {
     orderedJumps.forEach((j, i) => {
       if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
     });
+    if (crossers.length > 0) {
+      summary += ` · carried across: ${crossers.map((i) => `Model ${i + 1}`).join(', ')} (no move spent)`;
+    }
     orderedPaths.forEach((p, i) => {
       if (orderedTraversals[i]) return; // the declared jump is already described
       const warning = this.dropWarning(active, p, null);
@@ -2165,6 +2363,7 @@ export class GameHUD {
         modelPositions: orderedPositions,
         modelPaths: orderedPaths,
         ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+        ...(crossers.length > 0 ? { crossers } : {}),
         ...this.jumpLeaderPayload(alive),
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
@@ -2269,6 +2468,9 @@ export class GameHUD {
       modelPositions: orderedPositions,
       modelPaths: orderedPaths,
       ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+      ...(alive.some((m) => this.squadCrossers.has(m.id))
+        ? { crossers: alive.map((m, i) => (this.squadCrossers.has(m.id) ? i : -1)).filter((i) => i >= 0) }
+        : {}),
       ...this.jumpLeaderPayload(alive),
     };
     const action = inContact
@@ -2328,6 +2530,10 @@ export class GameHUD {
       : Math.min(active.speed, active.remainingMovement ?? active.speed);
     let maxAllowance = currentBudget;
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    if (resolved.refused) {
+      this.showToast(`Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     rawDestination = resolved.target;
     let path = jump ? jump.path : findNavPath(this.state, active, rawDestination, maxAllowance, { keepAway: true });
@@ -2402,6 +2608,10 @@ export class GameHUD {
     const currentRushBudget = active.isRushing ? active.remainingMovement : active.speed * 2;
     let maxAllowance = currentRushBudget;
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    if (resolved.refused) {
+      this.showToast(`Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     rawDestination = resolved.target;
     let path = jump
@@ -2526,7 +2736,11 @@ export class GameHUD {
     const target = this.state.units.find((u) => u.id === declared.targetId);
     if (!target) return;
 
-    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
+    const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true, { ignoreUnitId: target.id });
+    if (resolved.refused) {
+      this.showToast(`Cannot jump there: ${resolved.refused}`);
+      return;
+    }
     const jump = resolved.jump;
     const dest = resolved.target;
     let allowance = active.remainingMovement;
@@ -3018,6 +3232,7 @@ export class GameHUD {
     this.stagedSquadModelTraversals.clear();
     this.squadBlockedModels.clear();
     this.squadJumpLeaderId = null;
+    this.squadCrossers.clear();
     this.selectedSquadModelId = null;
     this.movePreview = null;
     this.movePathPreview = null;
@@ -3048,6 +3263,7 @@ export class GameHUD {
     this.stagedSquadModelTraversals.clear();
     this.squadBlockedModels.clear();
     this.squadJumpLeaderId = null;
+    this.squadCrossers.clear();
     this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     // A declared charge can't be cancelled: back to choosing its next leg
@@ -4157,6 +4373,8 @@ export class GameHUD {
         if (isSquadChargePlacing && this.declaredCharge) {
           const modelNo = (currentModelIndex >= 0 ? currentModelIndex : 0) + 1;
           instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${this.distanceLeft(active, 'charge', currentModel).toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip move up as close as they can once one of yours touches the target (Confirm charge)`;
+        } else if (this.squadCrossers.size > 0) {
+          instruction = `Group crossing: ${this.squadCrossers.size} model${this.squadCrossers.size > 1 ? 's' : ''} carried across with the leader (one roll, no move spent). Confirm, or select a model and click a spot within 1" of a model that has crossed`;
         } else if (placedCount === 0) {
           instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowanceText}"`;
         } else {
@@ -4175,7 +4393,7 @@ export class GameHUD {
                   <button class="sl-hud-btn sl-hud-chip ${isSelected ? 'active' : ''}"
                     data-action="select-squad-model"
                     data-model-id="${m.id}"
-                    ${blockedWhy ? `title="Cannot reach the take-off edge: ${blockedWhy.replace(/"/g, '&quot;')}"` : ''}
+                    ${blockedWhy ? `title="${blockedWhy.replace(/"/g, '&quot;')}"` : this.squadCrossers.has(m.id) ? 'title="Carried across with the leader: select it and click a spot to place it yourself"' : ''}
                     style="${
                       blockedWhy
                         ? 'background: rgba(244, 67, 54, 0.25); border-color: #f44336; color: #ef9a9a;'
@@ -4185,7 +4403,7 @@ export class GameHUD {
                         ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
                         : ''
                     }">
-                    ${isPlaced ? '✓ ' : blockedWhy ? '✗ ' : ''}Model ${idx + 1}
+                    ${isPlaced ? (this.squadCrossers.has(m.id) ? '↷ ' : '✓ ') : blockedWhy ? '✗ ' : ''}Model ${idx + 1}
                   </button>
                 `;
               })
@@ -4206,7 +4424,7 @@ export class GameHUD {
               ${
                 isSquadMovement && this.stagedSquadModelPositions.size > 0
                   ? `${
-                      this.stagedSquadModelPositions.size < this.activeAliveSquadModels.length
+                      this.stagedSquadModelPositions.size < this.activeAliveSquadModels.length || this.squadCrossers.size > 0
                         ? `<button class="sl-hud-btn primary" data-action="confirm-squad-move">${
                             isSquadChargePlacing ? 'Confirm charge' : 'Confirm move'
                           }</button>`
@@ -4756,6 +4974,14 @@ export class GameHUD {
   private showTraversalChip(): void {
     const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!el) return;
+    if (this.moveJumpRefused && !this.moveJump) {
+      el.textContent = this.moveJumpRefused;
+      el.style.display = 'block';
+      el.style.background = 'rgba(244, 67, 54, 0.25)';
+      el.style.borderColor = '#f44336';
+      el.style.color = '#ff8a80';
+      return;
+    }
     if (this.moveTooWide && !this.moveJump) {
       el.textContent = tooWideText(this.moveTooWide.distance);
       el.style.display = 'block';
@@ -4936,6 +5162,7 @@ export class GameHUD {
     this.stagedSquadModelTraversals.clear();
     this.squadBlockedModels.clear();
     this.squadJumpLeaderId = null;
+    this.squadCrossers.clear();
             this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
             this.moveJump = null;
