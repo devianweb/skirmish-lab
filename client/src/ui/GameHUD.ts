@@ -3534,7 +3534,7 @@ export class GameHUD {
       : '';
 
     const keepAwayLegend = this.keepAwayZonesForFlow()
-      ? '<div class="sl-hud-keepaway-legend" data-keep-away-legend><span class="sl-keepaway-swatch"></span>Red rings: 1" zone around other units — your models\' bases can\'t enter (charges may close on their target, shown green)</div>'
+      ? '<div class="sl-hud-keepaway-legend" data-keep-away-legend title="The 1&quot; is measured in 3D, base to base. A model 1&quot; or more above or below your starting height (for example under a deck) is drawn faint and does not block from there; one at a similar height blocks a smaller ring."><span class="sl-keepaway-swatch"></span>Red rings: 1" zone around other units — your models\' bases can\'t enter (charges may close on their target, shown green)</div>'
       : '';
     return `${alertsHtml}${keepAwayLegend}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
       alerts.length ? '' : toastHtml

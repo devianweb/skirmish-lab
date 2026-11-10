@@ -29,6 +29,21 @@ export function modelGap(
   return Math.max(0, centreDistance(a, b) - radiusA - radiusB);
 }
 
+/**
+ * The 1" keep-away rule measures real 3D distance between bases: the horizontal base-edge gap (floored at 0 once
+ * the bases overlap) combined with the vertical difference of the two models' foot heights, i.e.
+ * sqrt(modelGap^2 + dy^2). A model on a 3" deck is therefore never "within 1"" of one standing on the ground
+ * beneath it, however close they are in plan view. Melee reach and cross-level coherency have their own rules.
+ */
+export function keepAwayGap3D(
+  a: Vector3,
+  b: Vector3,
+  radiusA: number = UNIT_BASE_RADIUS,
+  radiusB: number = UNIT_BASE_RADIUS
+): number {
+  return Math.hypot(modelGap(a, b, radiusA, radiusB), (a.y ?? 0) - (b.y ?? 0));
+}
+
 /** Base-edge gap between a model and a point marker (objectives have no radius). */
 export function markerGap(model: Vector3, marker: Vector3, radius: number = UNIT_BASE_RADIUS): number {
   return Math.max(0, centreDistance(model, marker) - radius);
@@ -150,6 +165,29 @@ export function modelsWithin(
 }
 
 /** True when a model standing at `point` would be within the engagement gap (and level) of a model of `unit`. */
+/**
+ * Horizontal centre-to-centre distance below which two models `dy` apart in height are inside the 1" keep-away
+ * (the 3D rule `keepAwayGap3D < edgeGap`), or null when `dy` alone already keeps them `edgeGap` apart.
+ */
+export function keepAwayCentreRadius(
+  dy: number,
+  edgeGap: number = ENEMY_KEEP_AWAY_GAP,
+  radiusA: number = UNIT_BASE_RADIUS,
+  radiusB: number = UNIT_BASE_RADIUS
+): number | null {
+  const ady = Math.abs(dy);
+  if (ady >= edgeGap) return null;
+  return radiusA + radiusB + Math.sqrt(edgeGap * edgeGap - ady * ady);
+}
+
+/** Smallest 3D keep-away gap (see `keepAwayGap3D`) from a point to any living model of `unit`. */
+export function keepAwayGapToUnit3D(point: Vector3, unit: ModelSource): number {
+  const r = baseRadius(unit);
+  let best = Infinity;
+  for (const pos of livingModelPositions(unit)) best = Math.min(best, keepAwayGap3D(point, pos, UNIT_BASE_RADIUS, r));
+  return best;
+}
+
 export function pointEngagesUnit(point: Vector3, unit: ModelSource): boolean {
   const r = baseRadius(unit);
   return livingModelPositions(unit).some(
