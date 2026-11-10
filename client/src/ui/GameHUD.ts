@@ -711,6 +711,26 @@ export class GameHUD {
     }
   }
 
+  /**
+   * True when a Rush path that stopped short of a higher target was held up by other units: the same route
+   * planned with every other unit removed does reach the target's height. Used to name the real reason.
+   */
+  private routeBlockedByUnits(
+    unit: Unit,
+    start: Vector3,
+    cursor: Vector3,
+    budget: number,
+    path: Vector3[]
+  ): boolean {
+    if (!this.state || this.state.units.every((u) => u.id === unit.id || u.isDestroyed)) return false;
+    const alone: GameState = { ...this.state, units: this.state.units.filter((u) => u.id === unit.id) };
+    const free = findNavPath(alone, unit, cursor, budget, { startPosition: start, stopBeforeDifficult: true });
+    const freeEnd = free.length > 0 ? free[free.length - 1] : null;
+    const gotUp = !!freeEnd && (cursor.y ?? 0) - (freeEnd.y ?? 0) <= 0.5;
+    const myEnd = path.length > 0 ? path[path.length - 1] : null;
+    return gotUp && !!myEnd && (cursor.y ?? 0) - (myEnd.y ?? 0) > 0.5;
+  }
+
   /** Memoised `findNavPath` for the hover preview (see `hoverNavMemo`). */
   private hoverNav(
     unit: Unit,
@@ -925,6 +945,8 @@ export class GameHUD {
                 heightShort: isElevationObstacle,
                 pathCost: pathMovementCost(this.state, path, active),
                 budget: remainingBudget,
+                blockedByUnits:
+                  isElevationObstacle && this.routeBlockedByUnits(active, startPos, cursor, remainingBudget, path),
               })
             )
           : '';
@@ -1842,9 +1864,16 @@ export class GameHUD {
   }
 
   /** Why a squad model's spot was refused: no move left, the spot is the model itself, or the way is blocked. */
-  private refusedSquadSpotReason(start: Vector3, destination: Vector3, budget: number): string {
+  private refusedSquadSpotReason(start: Vector3, destination: Vector3, budget: number, unit?: Unit): string {
     if (budget < 0.05) return 'This model has no move left';
     if (boardDistance(start, destination) < 0.05) return 'Pick a destination away from the model';
+    if (
+      unit &&
+      (destination.y ?? 0) - (start.y ?? 0) > 0.5 &&
+      this.routeBlockedByUnits(unit, start, destination, budget, [start])
+    ) {
+      return 'Blocked by another unit: the way up is within 1" of it, so this model cannot get past';
+    }
     return `This model cannot move there: the way is blocked or the spot is not reachable (it has ${budget.toFixed(1)}" of move left)`;
   }
 
@@ -1982,13 +2011,13 @@ export class GameHUD {
       path = findNavPath(this.state, active, rawDestination, maxAllowance, navOptions);
     }
     if (path.length < 2) {
-      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
+      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget, active));
       return;
     }
     const destination = path[path.length - 1];
     const distance = pathMovementCost(this.state!, path, active);
     if (distance < 0.05 && !jump) {
-      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget));
+      this.refuseSquadPlacement(currentModel, this.refusedSquadSpotReason(startPos, rawDestination, remainingBudget, active));
       return;
     }
 
@@ -2656,7 +2685,11 @@ export class GameHUD {
       });
     }
     if (path.length < 2) {
-      this.showToast('Pick a destination away from the unit');
+      const climbBlocked =
+        !jump &&
+        (rawDestination.y ?? 0) - (active.position.y ?? 0) > 0.5 &&
+        this.routeBlockedByUnits(active, active.position, rawDestination, currentRushBudget, path);
+      this.showToast(climbBlocked ? rushStopText('blocked') : 'Pick a destination away from the unit');
       return;
     }
     const destination = path[path.length - 1];
@@ -2682,6 +2715,9 @@ export class GameHUD {
             heightShort: isElevationObstacle,
             pathCost: pathMovementCost(this.state!, path, active),
             budget: currentRushBudget,
+            blockedByUnits:
+              isElevationObstacle &&
+              this.routeBlockedByUnits(active, active.position, rawDestination, currentRushBudget, path),
           })
         )
       : '';
