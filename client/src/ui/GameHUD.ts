@@ -3120,7 +3120,7 @@ export class GameHUD {
                 ? `<div class="sl-hud-dice-label" style="font-size:10px;">Wound Effect (roll ${alloc.traumaRoll} + ${alloc.traumaTokens ?? 0} WT = ${alloc.traumaTotal}):</div>
                    <div class="sl-hud-dice-row">
                      <span class="sl-die ${alloc.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${alloc.traumaRoll}</span>
-                     <span class="sl-hud-dice-summary">${alloc.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'}</span>
+                     <span class="sl-hud-dice-summary">${alloc.traumaOutcome === 'knocked-out' ? 'KILLED' : 'SHAKEN'}</span>
                    </div>`
                 : '';
 
@@ -3200,7 +3200,7 @@ export class GameHUD {
              <div class="sl-hud-dice-row">
                <span class="sl-die ${outcome.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${outcome.traumaRoll}</span>
                <span class="sl-hud-dice-summary">${
-                 outcome.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
+                 outcome.traumaOutcome === 'knocked-out' ? 'KILLED' : 'SHAKEN'
                }</span>
              </div>`
           : '';
@@ -3273,7 +3273,7 @@ export class GameHUD {
                <div class="sl-hud-dice-row">
                  <span class="sl-die ${ret.traumaOutcome === 'knocked-out' ? 'def-fail' : 'hit-pass'}">${ret.traumaRoll}</span>
                  <span class="sl-hud-dice-summary">${
-                   ret.traumaOutcome === 'knocked-out' ? 'KNOCKED OUT' : 'SHAKEN'
+                   ret.traumaOutcome === 'knocked-out' ? 'KILLED' : 'SHAKEN'
                  }</span>
                </div>`
             : '';
@@ -3971,7 +3971,7 @@ export class GameHUD {
         <div class="sl-hud-datacard-tables">
           <table class="sl-hud-table">
             <thead>
-              <tr><th>Quality</th><th>Defense</th><th>Toughness</th><th>Models</th><th>Move</th><th>Charge</th></tr>
+              <tr><th>Quality</th><th>Defense</th><th>Tough</th><th>Models</th><th>Move</th><th>Charge</th></tr>
             </thead>
             <tbody>
               <tr>

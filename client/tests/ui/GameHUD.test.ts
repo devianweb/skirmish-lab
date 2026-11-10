@@ -1289,7 +1289,7 @@ describe('GameHUD', () => {
     expect(alertsEl).not.toBeNull();
   });
 
-  it('renders data card with Toughness, Move, and Charge (double speed) columns without remaining movement', () => {
+  it('renders data card with Tough, Move, and Charge (double speed) columns without remaining movement', () => {
     const state = scenarioState();
     const leader = state.units.find((u) => u.ownerId === HOST && u.specialRules.some((r) => r.startsWith('tough')))!;
     activateUnit(state, HOST, leader.id);
@@ -1297,7 +1297,9 @@ describe('GameHUD', () => {
 
     const datacard = container.querySelector('.sl-hud-datacard');
     expect(datacard).toBeTruthy();
-    expect(datacard?.textContent).toContain('Toughness');
+    const headers = Array.from(datacard!.querySelectorAll('th')).map((th) => th.textContent);
+    expect(headers).toContain('Tough');
+    expect(datacard?.textContent).not.toContain('Toughness');
     expect(datacard?.textContent).not.toContain('6.0" / 6"');
     // Leader speed is 6, charge is 12"
     expect(datacard?.textContent).toContain('6"');

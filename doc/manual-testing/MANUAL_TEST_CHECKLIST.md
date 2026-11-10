@@ -36,3 +36,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - All items verified.
+- [ ] **14C-1 lobby default:** the lobby footer shows "Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules." plus the "Full rules: onepagerules.com (free)" link, and neither army picker lists a TEST army.
+- [ ] **14C-1 F9 toggle:** F9 on the main menu shows the toast "Developer mode on", a DEV badge and the TEST armies in both pickers. A page reload keeps it. F9 again shows "Developer mode off" and hides them.
+- [ ] **14C-1 F9 in game:** during a match F9 still opens the LoS debugger and does not change developer mode (return to the lobby: the state is as you left it).
+- [ ] **14C-1 smoke game:** play a few activations. Data cards show AP / Tough / Rending where relevant, the button and log say Advance, and nothing reads "Suppressed" or "Toughness".

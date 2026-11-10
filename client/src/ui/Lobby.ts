@@ -3,6 +3,12 @@ import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
+import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
+
+const DEFAULT_HOST_ARMY = 'frontier-wardens-starter';
+const DEFAULT_GUEST_ARMY = 'rust-raiders-starter';
+export const LOBBY_DISCLAIMER =
+  'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.';
 
 /** Fired once the P2P data channel is alive (first heartbeat round-trip). */
 export interface PeerReadyContext {
@@ -47,6 +53,7 @@ export class Lobby {
   private selectedMapSelection: string = 'blank';
   private initialRoomCode: string | null = null;
   private isCreatedRoom: boolean = false;
+  private keydownHandler: (event: KeyboardEvent) => void;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
@@ -55,6 +62,40 @@ export class Lobby {
     this.mapStore = options.mapStore ?? defaultMapStore;
     this.signalingClient = new SignalingClient();
     this.setupSignalingHandlers();
+    // Developer mode toggle: F9 only while the lobby is showing (in game F9 is the LoS debugger).
+    this.keydownHandler = (event: KeyboardEvent) => {
+      if (event.key !== 'F9' || this.container.style.display === 'none') return;
+      event.preventDefault();
+      const on = toggleDevMode();
+      this.sanitizeArmySelection();
+      this.render();
+      this.showToast(on ? 'Developer mode on' : 'Developer mode off');
+    };
+    if (typeof window !== 'undefined') window.addEventListener('keydown', this.keydownHandler);
+  }
+
+  /** Remove the global key listener (tests / teardown). */
+  destroy(): void {
+    if (typeof window !== 'undefined') window.removeEventListener('keydown', this.keydownHandler);
+  }
+
+  /** TEST armies are only valid in developer mode; otherwise fall back to the defaults. */
+  private sanitizeArmySelection(): void {
+    if (isDevMode()) return;
+    if (isDevOnlyArmy(this.hostArmyId)) this.hostArmyId = DEFAULT_HOST_ARMY;
+    if (isDevOnlyArmy(this.guestArmyId)) this.guestArmyId = DEFAULT_GUEST_ARMY;
+  }
+
+  private showToast(text: string): void {
+    if (typeof document === 'undefined') return;
+    document.body.querySelectorAll('.sl-lobby-toast').forEach((e) => e.remove());
+    const toast = document.createElement('div');
+    toast.className = 'sl-lobby-toast';
+    toast.textContent = text;
+    toast.style.cssText =
+      'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:8px 16px;background:#263238;color:#ffd54f;border:1px solid #37474f;border-radius:6px;font:600 13px Arial,sans-serif;z-index:10000;';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
   }
 
   async init(): Promise<void> {
@@ -260,6 +301,7 @@ export class Lobby {
       customMap = BUILTIN_MAPS[this.selectedMapSelection.replace('builtin:', '')]?.();
     }
 
+    this.sanitizeArmySelection();
     this.options.onPeerReady?.({
       webrtcClient: this.webrtcClient,
       signalingClient: this.signalingClient,
@@ -327,7 +369,18 @@ export class Lobby {
           </optgroup>
       `;
 
+      this.sanitizeArmySelection();
+      const dev = isDevMode();
+      const testOptions = (selected: string) => dev
+        ? `<option value="test-army" ${selected === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
+                <option value="test-squad-army" ${selected === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>`
+        : '';
+      const devBadgeHtml = dev
+        ? '<div id="devBadge" style="position: fixed; top: 12px; right: 12px; padding: 3px 8px; background: #ffd54f; color: #12161c; font: 700 11px Arial, sans-serif; border-radius: 4px; letter-spacing: 1px;">DEV</div>'
+        : '';
+
       this.container.innerHTML = `
+        ${devBadgeHtml}
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
           <p style="color: #b0bec5; font-size: 14px; margin-bottom: 24px;">One Page Rules Skirmish Simulator</p>
@@ -351,8 +404,7 @@ export class Lobby {
               <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
-                <option value="test-army" ${this.hostArmyId === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
-                <option value="test-squad-army" ${this.hostArmyId === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
+                ${testOptions(this.hostArmyId)}
               </select>
             </div>
             <div style="margin-bottom: 14px;">
@@ -360,8 +412,7 @@ export class Lobby {
               <select id="guestArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
-                <option value="test-army" ${this.guestArmyId === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
-                <option value="test-squad-army" ${this.guestArmyId === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
+                ${testOptions(this.guestArmyId)}
               </select>
             </div>
             <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ffd54f; cursor: pointer; user-select: none;">
@@ -377,6 +428,11 @@ export class Lobby {
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
             <button id="openMapEditorBtn" style="padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
+          </div>
+
+          <div id="lobbyFooter" style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #2a3442; font-size: 11px; line-height: 1.5; color: #78909c;">
+            <div>${LOBBY_DISCLAIMER}</div>
+            <div style="margin-top: 4px;">Full rules: <a href="https://onepagerules.com" target="_blank" rel="noopener noreferrer" style="color: #90caf9;">onepagerules.com</a> (free)</div>
           </div>
         </div>
       `;

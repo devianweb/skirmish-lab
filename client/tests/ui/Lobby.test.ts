@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionStore } from '../../src/storage/SessionStore';
 import { MapStore } from '../../src/storage/MapStore';
 import { createBlankMap, createStandardBattlefieldMap, BUILTIN_MAPS } from '@skirmish-lab/shared';
@@ -8,9 +8,22 @@ import { Lobby, PeerReadyContext } from '../../src/ui/Lobby';
 describe('Lobby UI', () => {
   let container: HTMLElement;
 
+  // Lobbies register a window keydown listener; remove leftovers from every test.
+  const keydownHandlers: EventListener[] = [];
+  const realAdd = window.addEventListener.bind(window);
+
   beforeEach(() => {
     container = document.createElement('div');
     document.body.appendChild(container);
+    vi.spyOn(window, 'addEventListener').mockImplementation((type: any, fn: any, opts?: any) => {
+      if (type === 'keydown') keydownHandlers.push(fn);
+      realAdd(type, fn, opts);
+    });
+  });
+
+  afterEach(() => {
+    keydownHandlers.splice(0).forEach((fn) => window.removeEventListener('keydown', fn));
+    vi.restoreAllMocks();
   });
 
   function createMockStorage(): Storage {
@@ -304,5 +317,105 @@ describe('Lobby UI', () => {
     (lobby as any).webrtcClient = { isConnected: () => true, close: vi.fn() };
     (lobby as any).maybeFirePeerReady();
     expect(capturedContext!.customMap).toBeUndefined();
+  });
+
+  describe('disclaimer and developer mode', () => {
+    const f9 = () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+    let lobby: Lobby;
+
+    beforeEach(() => {
+      localStorage.clear();
+      document.body.querySelectorAll('.sl-lobby-toast').forEach((e) => e.remove());
+    });
+
+    afterEach(() => lobby?.destroy());
+
+    it('shows the unofficial disclaimer and the free-rules link in the footer', () => {
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      const footer = container.querySelector('#lobbyFooter') as HTMLElement;
+      expect(footer.textContent).toContain(
+        'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.'
+      );
+      expect(footer.textContent).toContain('Full rules: onepagerules.com (free)');
+    });
+
+    it('hides TEST armies and the DEV badge by default', () => {
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      expect(container.querySelector('option[value="test-army"]')).toBeNull();
+      expect(container.querySelector('option[value="test-squad-army"]')).toBeNull();
+      expect(container.querySelector('#devBadge')).toBeNull();
+    });
+
+    it('falls back to the default army when a TEST army is selected with dev mode off', () => {
+      lobby = new Lobby(container);
+      (lobby as any).hostArmyId = 'test-army';
+      (lobby as any).guestArmyId = 'test-squad-army';
+      (lobby as any).render();
+      expect((container.querySelector('#hostArmySelect') as HTMLSelectElement).value).toBe('frontier-wardens-starter');
+      expect((container.querySelector('#guestArmySelect') as HTMLSelectElement).value).toBe('rust-raiders-starter');
+    });
+
+    it('F9 on the lobby turns dev mode on, then off', () => {
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      f9();
+      expect(container.querySelector('#devBadge')).toBeTruthy();
+      for (const id of ['hostArmySelect', 'guestArmySelect']) {
+        expect(container.querySelector(`#${id} option[value="test-army"]`)).toBeTruthy();
+        expect(container.querySelector(`#${id} option[value="test-squad-army"]`)).toBeTruthy();
+      }
+      expect(document.body.querySelector('.sl-lobby-toast')?.textContent).toBe('Developer mode on');
+
+      f9();
+      expect(container.querySelector('#devBadge')).toBeNull();
+      expect(container.querySelector('option[value="test-army"]')).toBeNull();
+      expect(document.body.querySelector('.sl-lobby-toast')?.textContent).toBe('Developer mode off');
+    });
+
+    it('persists dev mode into a new Lobby', () => {
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      f9();
+      lobby.destroy();
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      expect(container.querySelector('#devBadge')).toBeTruthy();
+      expect(container.querySelector('option[value="test-army"]')).toBeTruthy();
+    });
+
+    it('turning dev mode off resets a selected TEST army to the default', () => {
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      f9();
+      const sel = container.querySelector('#hostArmySelect') as HTMLSelectElement;
+      sel.value = 'test-army';
+      sel.dispatchEvent(new Event('change'));
+      f9();
+      expect((lobby as any).hostArmyId).toBe('frontier-wardens-starter');
+    });
+
+    it('does not hand a TEST army to the game when dev mode is off', () => {
+      let ctx: PeerReadyContext | null = null;
+      lobby = new Lobby(container, { onPeerReady: (c) => { ctx = c; } });
+      (lobby as any).hostArmyId = 'test-army';
+      (lobby as any).roomCode = 'X-1';
+      (lobby as any).role = 'host';
+      (lobby as any).webrtcClient = { isConnected: () => true, close: vi.fn() };
+      (lobby as any).maybeFirePeerReady();
+      expect(ctx!.hostArmyId).toBe('frontier-wardens-starter');
+    });
+
+    it('ignores F9 while the lobby is hidden (in-game F9 is the LoS debugger)', () => {
+      lobby = new Lobby(container);
+      (lobby as any).render();
+      lobby.hide();
+      f9();
+      expect(localStorage.getItem('skirmish_lab_dev_mode')).toBeNull();
+      lobby.show();
+      f9();
+      expect(localStorage.getItem('skirmish_lab_dev_mode')).toBe('1');
+    });
   });
 });
