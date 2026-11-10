@@ -181,7 +181,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 - [x] GLB models render at sensible sizes (Kenney figurines/terrain/markers — visual scale check; adjust `assetManifest` scales if needed)
 
 ## Phase 6: OPR Skirmish Rules Engine
-**Goal:** Implement OPR-style skirmish mechanics from first principles
+**Goal:** Implement OPR-style skirmish mechanics
 
 > **Specification:** See **[RULES_SPECIFICATION.md](./RULES_SPECIFICATION.md)** for the complete mathematical definition, action maneuvers, casualty/trauma tables, and the 29-trait special rules engine matrix.
 >
@@ -794,7 +794,7 @@ Planning and research use **Opus** in the main session; implementation uses **So
 - Additional unit types
 
 ## Success Metrics
-- **Compatibility:** OPR-style skirmish mechanics implemented faithfully from first principles
+- **Compatibility:** OPR-style skirmish mechanics implemented faithfully (Firefight v3.6 target)
 - **Stability:** No desyncs in normal play
 - **Usability:** Easy to connect via invite code
 - **Performance:** Runs well on desktop browsers

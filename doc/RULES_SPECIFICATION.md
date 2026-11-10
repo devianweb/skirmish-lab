@@ -1,7 +1,7 @@
 # SkirmishLab Rules Engine Specification
 
-> **Clean-Room Mechanical Specification**
-> This document specifies the complete first-principles mathematical model, state machine, and trait resolution engine for SkirmishLab tabletop skirmish simulation. It aligns 1:1 mechanically with standard 3.5 skirmish rules (Grimdark Future: Firefight compatible) using distinct, independent terminology and schemas.
+> **Mechanical Specification**
+> This document specifies the complete mathematical model, state machine, and trait resolution engine for SkirmishLab tabletop skirmish simulation. It targets the Grimdark Future: Firefight rules and uses their terminology; sections not yet updated for v3.6 still describe the engine as built (14C-2 brings the mechanics in line).
 
 ---
 

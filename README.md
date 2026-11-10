@@ -7,7 +7,7 @@ An unofficial, unendorsed tabletop skirmish simulator for [One Page Rules](https
 
 **Currently targeting:** Grimdark Future: Firefight. Age of Fantasy: Skirmish support is planned (the engine is ruleset-agnostic — rulesets are data packs).
 
-> SkirmishLab is a fan-made community project. It is not affiliated with, endorsed by, or sponsored by One Page Rules. All game mechanics are implemented from first principles; no third-party rulebook text or artwork is bundled.
+> SkirmishLab is a fan-made community project. It is not affiliated with, endorsed by, or sponsored by One Page Rules. It uses One Page Rules' rule names and follows their published Firefight rules, but bundles no rulebook text, army book text, logos or artwork.
 
 ## Tech Stack
 
