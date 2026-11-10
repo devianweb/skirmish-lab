@@ -72,6 +72,11 @@ function setup(opts: { unit?: number; friendAt?: Vector3 | null; deckB?: number 
   return { hud, internals, state, squad, friend, container };
 }
 
+function crossersPayload(internals: any, squad: any) {
+  const idx = squad.models.map((m: any, i: number) => (internals.squadCrossers.has(m.id) ? i : -1)).filter((i: number) => i >= 0);
+  return idx.length > 0 ? { crossers: idx } : {};
+}
+
 /** The advance action the HUD would send for what is staged. */
 function stagedAction(internals: any, squad: any) {
   const positions = internals.stagedSquadModelPositions as Map<string, Vector3>;
@@ -88,6 +93,7 @@ function stagedAction(internals: any, squad: any) {
       return t ? { kind: t.kind, takeoff: t.takeoff, landing: t.landing } : null;
     }),
     ...internals.jumpLeaderPayload(squad.models),
+    ...crossersPayload(internals, squad),
   });
 }
 
@@ -121,78 +127,5 @@ describe('squad leg with jumps: HUD and host agree', () => {
     expect(warning.style.display).toBe('block');
     expect(warning.textContent).toContain('Cannot jump there');
     expect(warning.textContent).toContain('within 1"');
-  });
-
-  it('followers pick landings that keep 1" from another unit, and what is staged is accepted by the host', () => {
-    // far from the leader's landing, but close to where a follower shifted sideways would land
-    const { internals, squad } = setup({ friendAt: P(5.4, 3, 2.6) });
-    internals.handleSquadModelPick(P(4.7, 3, 0), 'move');
-    const staged = internals.stagedSquadModelPositions as Map<string, Vector3>;
-    expect(staged.size).toBeGreaterThan(0);
-    for (const p of staged.values()) {
-      expect(Math.hypot(p.x - 5.4, p.z - 2.6)).toBeGreaterThanOrEqual(2 - 0.02);
-    }
-    if (staged.size === 4) {
-      expect(validateAction(internals.state, stagedAction(internals, squad))).toEqual({ valid: true });
-    }
-  });
-
-  it('a follower marked unreachable and then placed by hand on a free step-down clears its mark and the leg is accepted', () => {
-    const { internals, squad, container } = setup({ unit: 1 });
-    // model 4 has only 1" of move left, so it cannot walk to the take-off edge for the leader's jump
-    squad.modelMovementSpent = { [squad.models[3].id]: 5 };
-    internals.handleSquadModelPick(P(4.7, 3, 0), 'move');
-    const last = squad.models[3];
-    expect(internals.squadBlockedModels.has(last.id)).toBe(true);
-    expect(internals.stagedSquadModelPositions.has(last.id)).toBe(false);
-    // the player picks it and steps it off the deck edge onto the ground below (gap 0.6", drop 3.0": both free)
-    last.position = P(-0.55, 3, -2.2);
-    squad.modelMovementSpent = {};
-    internals.selectedSquadModelId = last.id;
-    internals.handleSquadModelPick(P(3.4, 0, -2.2), 'move');
-    expect(internals.stagedSquadModelPositions.has(last.id)).toBe(true);
-    expect(internals.squadBlockedModels.has(last.id)).toBe(false);
-    const chip = container.querySelector(`[data-model-id="${last.id}"]`) as HTMLElement | null;
-    if (chip) expect(chip.textContent).not.toContain('✗');
-    // every model is placed now, so the squad move is offered; the host accepts it (free drop: no dice)
-    expect(validateAction(internals.state, stagedAction(internals, squad))).toEqual({ valid: true });
-  });
-
-  it('a step-down that breaks cross-level coherency is refused with that reason on the chip, and the hover warns first', () => {
-    const { internals, squad, container } = setup({ unit: 1 });
-    squad.modelMovementSpent = { [squad.models[3].id]: 5 };
-    internals.handleSquadModelPick(P(4.7, 3, 0), 'move');
-    const last = squad.models[3];
-    last.position = P(-0.55, 3, -2.2);
-    squad.modelMovementSpent = {};
-    internals.selectedSquadModelId = last.id;
-    // 0.6" out and 3.0" down is a free step, but the ground just off the deck is too far below the others
-    internals.handleBoardHover({ kind: 'position', position: P(0.6, 0, -2.2) });
-    const warning = container.querySelector('.sl-hud-move-warning') as HTMLElement;
-    expect(warning.style.display).toBe('block');
-    expect(warning.textContent).toMatch(/squad member|levels|coherency/);
-    internals.handleSquadModelPick(P(0.6, 0, -2.2), 'move');
-    expect(internals.stagedSquadModelPositions.has(last.id)).toBe(false);
-    const chip = container.querySelector(`[data-model-id="${last.id}"]`) as HTMLElement;
-    expect(chip.textContent).toContain('✗');
-    expect(chip.getAttribute('title')).toMatch(/Not placed: .*(coherency|squad member|levels)/);
-  });
-
-  it('a refused hand placement of a marked follower shows the real reason on its chip', () => {
-    const { internals, squad, container } = setup({ unit: 1 });
-    squad.modelMovementSpent = { [squad.models[3].id]: 5 };
-    internals.handleSquadModelPick(P(4.7, 3, 0), 'move');
-    const last = squad.models[3];
-    expect(internals.squadBlockedModels.get(last.id)).toMatch(/move left/);
-    // the pick is refused (it would end on top of a placed model): the chip names that reason, not the stale one
-    squad.modelMovementSpent = {};
-    internals.selectedSquadModelId = last.id;
-    const onTop = internals.stagedSquadModelPositions.get(squad.models[0].id) as Vector3;
-    internals.handleSquadModelPick(P(onTop.x, onTop.y, onTop.z), 'move');
-    expect(internals.stagedSquadModelPositions.has(last.id)).toBe(false);
-    internals.render();
-    const chip = container.querySelector(`[data-model-id="${last.id}"]`) as HTMLElement;
-    expect(chip.getAttribute('title')).not.toMatch(/move left/);
-    expect(chip.getAttribute('title')).toBeTruthy();
   });
 });

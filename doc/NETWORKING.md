@@ -101,6 +101,8 @@ type GameMessage =
 ### Concede
 `request-rematch` is an ordinary `action-request` (payload `{}`), accepted only once the game is over and only from the host or guest. The first request is recorded in `rematchRequestedBy` and the updated game-over state is broadcast; when both players have asked, the host broadcasts the fresh starting state (new `gameId`, empty log) in its place. No dice.
 
+A squad's `advance`, `rush`, `charge-leg` and `charge` may carry `jumpLeader` and `crossers` (group crossing, 14C-2 PR 4C; see DATA_MODEL): the host recomputes and validates every carried model's landing spot (far side, within 1" of a model already across, supported, clear, 1" from other units) and never trusts the client's list beyond that. No extra messages or dice: the single `jump` roll is sized by the leader's declared crossing.
+
 `concede` is an ordinary `action-request` (payload `{}`). The host accepts it at any time until the game is over, ignoring the turn, reaction and charge-lock gates, and broadcasts the resulting `game-over` state to both peers; no dice are involved. Nobody is disconnected: both stay in the room on the results screen.
 
 ### Charge action types
