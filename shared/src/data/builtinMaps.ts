@@ -155,8 +155,48 @@ export function createJumpRangeMap(): CustomMapDefinition {
   };
 }
 
+/**
+ * Half of the Hazard Range (the host's side, z < 0): two 4"x4" hazard pools side by side with a 2" strip of clear
+ * ground between them (pools A and B, so one Rush can cross two different pieces and walk back over the first),
+ * and a lone pool C to the east. All three sit just outside the deployment zone, so a unit reaches one in its
+ * first move and can start its next activation standing in it.
+ */
+const HAZARD_RANGE_HALF: Placement[] = [
+  { type: 'hazard-pool', x: -9, z: -8 }, // pool A, x -11..-7
+  { type: 'hazard-pool', x: -3, z: -8 }, // pool B, x -5..-1: 2" clear strip from A
+  { type: 'hazard-pool', x: 9, z: -8 }, // pool C, x 7..11
+];
+
+/**
+ * Hazard Range: a practice table for dangerous terrain tests, point-symmetric like the Standard Battlefield so
+ * both players get the same pools next to their deployment zone.
+ */
+export function createHazardRangeMap(): CustomMapDefinition {
+  const counts: Record<string, number> = {};
+  const nextId = (type: string) => {
+    counts[type] = (counts[type] ?? 0) + 1;
+    return `hr-${type}-${counts[type]}`;
+  };
+  const placements: Placement[] = [];
+  for (const a of HAZARD_RANGE_HALF) {
+    placements.push(a);
+    placements.push({ ...a, x: -a.x, z: -a.z, yaw: (a.yaw ?? 0) + HALF_TURN });
+  }
+  return {
+    id: 'hazard-range',
+    name: 'Hazard Range',
+    version: 1,
+    description:
+      'A practice table for dangerous terrain: two hazard pools 2" apart and a lone pool just outside each deployment zone. Use it with the TEST: Hazard Check army.',
+    board: { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE },
+    terrain: placements.map((p) => buildPiece(nextId(p.type), p)),
+    objectives: createBalancedObjectives({ width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE }),
+  };
+}
+
 /** Built-in maps by id. Each call returns a fresh copy. */
 export const BUILTIN_MAPS: Record<string, () => CustomMapDefinition> = {
   'standard-battlefield': createStandardBattlefieldMap,
   'jump-range': createJumpRangeMap,
+  'hazard-range': createHazardRangeMap,
 };
