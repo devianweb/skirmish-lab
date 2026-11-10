@@ -32,7 +32,6 @@ function scenarioState(): GameState {
 function activateUnit(state: GameState, playerId: string, unitId: string): void {
   const unit = state.units.find((u) => u.id === unitId)!;
   unit.isActivated = true;
-  unit.status = unit.status.filter((s) => s !== 'stunned');
   state.turnState.activeUnitId = unitId;
   state.turnState.unitsActivatedThisRound.push(unitId);
   state.turnState.currentPlayerId = playerId;
@@ -516,14 +515,14 @@ describe('GameHUD', () => {
     expect(container.textContent).not.toContain('Confirm');
   });
 
-  it('prompts a stunned unit with a one-step Hold (clears stun) instead of normal activation', () => {
+  it('prompts a Shaken unit with a one-step idle end of activation (clears Shaken) instead of normal activation', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;
-    unit.status = ['stunned'];
+    unit.status = ['shaken'];
     const { hud, container, controller } = setup(HOST, state);
 
     hud.handleBoardPick({ kind: 'unit', unitId: unit.id });
-    expect(container.textContent).toContain('clears stun');
+    expect(container.textContent).toContain('clears Shaken');
     clickByText(container, 'Confirm');
 
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
@@ -575,6 +574,56 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('1 hit');
     expect(container.textContent).toContain('0 blocked');
     expect(container.textContent).toContain('1 unsaved wound');
+  });
+
+  it('an active Shaken unit can only end its activation idle', () => {
+    const state = scenarioState();
+    const unit = state.units.find((u) => u.ownerId === HOST)!;
+    activateUnit(state, HOST, unit.id);
+    unit.status = ['shaken'];
+    const { container } = setup(HOST, state);
+
+    expect(container.textContent).toContain('End Activation (idle)');
+    const disabled = (action: string) =>
+      (container.querySelector(`[data-action="${action}"]`) as HTMLButtonElement).disabled;
+    expect(disabled('move')).toBe(true);
+    expect(disabled('rush')).toBe(true);
+    expect(disabled('shoot')).toBe(true);
+    expect(disabled('charge')).toBe(true);
+    expect(container.querySelector('[data-action="hold"]')).toBeNull();
+  });
+
+  it('shows the Morale Tests of an activation end (rolls, Fearless die, result) from state', () => {
+    const state = scenarioState();
+    const [a, b] = state.units.filter((u) => u.ownerId === GUEST);
+    const action = createAction(HOST, 'end-activation', { type: 'end-activation' });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [{ count: 1, sides: 6, purpose: 'morale' }],
+        results: [{ rolls: [2], total: 2, finalTotal: 2, purpose: 'morale' }],
+        context: { attackerId: a.id, targetId: a.id, actionId: action.id },
+        outcome: {
+          attackCount: 0,
+          hitCount: 0,
+          blockedCount: 0,
+          wounds: 0,
+          targetDestroyed: false,
+          moraleTests: [
+            { unitId: a.id, unitName: a.name, roll: 2, effectiveQuality: 4, passed: false, outcome: 'shaken' },
+            { unitId: b?.id ?? a.id, unitName: 'Second Squad', effectiveQuality: 5, passed: false, outcome: 'shaken' },
+          ],
+        },
+      },
+    });
+    const { container } = setup(GUEST, state);
+    expect(container.textContent).toContain('Morale');
+    expect(container.textContent).toContain(`${a.name} Morale (need Q4+)`);
+    expect(container.textContent).toContain('Second Squad Morale (need Q5+) (already Shaken: fails without a roll)');
+    expect(container.textContent).toContain('Shaken');
   });
 
   it('surfaces host rejections and stops waiting', () => {
@@ -1306,14 +1355,14 @@ describe('GameHUD', () => {
     expect(datacard?.textContent).toContain('12"');
   });
 
-  it('renders wound progress badge (e.g. 1/3 WT) for multi-wound units with damage below threshold', () => {
+  it('renders wound progress badge (e.g. 1/3 W) for a Tough model with damage below Tough', () => {
     const state = scenarioState();
     const boss = state.units.find((u) => u.specialRules.includes('tough(3)'))!;
-    boss.traumaTokens = 1;
+    boss.models[0].wounds = 2;
+    boss.wounds = 2;
     const { container } = setup(HOST, state);
 
-    expect(container.textContent).toContain('1/3 WT');
-    expect(container.textContent).not.toContain('+1W');
+    expect(container.textContent).toContain('1/3 W');
   });
 
   it('renders Rupture badge and reflects blockedRolls accurately in dice resolution log', () => {
