@@ -40,5 +40,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - All items verified.
+- [ ] **Deployment spacing:** during deployment, try to place a squad so one of its ring models would sit within 1" of a unit you already deployed (friendly or enemy): the placement is refused ("Cannot deploy within 1\" of another friendly unit" / "...of enemy models"), even when the click point itself is clear. With deployment off, the TEST: Rules Check squads start about 2.5" apart (not touching), still close enough for a Blast spill.
 - [x] **14C-1 F9 in game:** during a match F9 still opens the LoS debugger and does not change developer mode (return to the lobby: the state is as you left it).
 - [x] **14C-1 smoke game:** play a few activations. Data cards show AP / Tough / Rending where relevant, the button and log say Advance, and nothing reads "Suppressed" or "Toughness".
