@@ -37,7 +37,9 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [ ] **14C-2 round end:** ending a round with half your army dead triggers no morale tests.
 
 ## 8. Melee & objectives
-- All items verified.
+- All earlier items verified.
+- [ ] **14C-2 melee reach:** a charged or fighting squad strikes with every model whose base edge is within 3" of an enemy model (the attack count in the dice panel matches), not only those within 2".
+- [ ] **14C-2 melee result:** charge a unit, let it strike back, then End Activation. The log and dice panel show a line like "X took 3 wounds, Y took 1 (+1 Fear): X loses". The loser rolls Morale: a pass changes nothing, a fail Shakes it, and a fail while it is at half strength or less removes it ("Routed"). An even exchange shows "tied, nobody tests Morale".
 
 ## 9. Multiplayer & custom maps
 - All items verified.

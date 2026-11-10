@@ -5,6 +5,7 @@ import {
   ActionLogEntry,
   DiceResolution,
   GameAction,
+  MeleeResultRecord,
   MoraleTestRecord,
   GameState,
   TraversalEvent,
@@ -25,6 +26,7 @@ import {
   getUnitsRequiringMorale,
   isRoundComplete,
   markInMelee,
+  getMeleeResults,
   moraleDiceCounts,
   recordWoundBaseline,
   validateDeploymentPosition,
@@ -3516,6 +3518,8 @@ function beginActivation(state: GameState, unit: Unit): void {
 
 /** Morale Tests taken at the end of each action's activation, so the log entry can show them. */
 const moraleLog = new WeakMap<GameAction, MoraleTestRecord[]>();
+/** Melee results compared at the end of an action's activation. */
+const meleeLog = new WeakMap<GameAction, MeleeResultRecord[]>();
 
 /**
  * End the active unit's activation: units that took a wound and are at half strength or less test Morale
@@ -3533,10 +3537,13 @@ function finishActivation(state: GameState, dice?: DiceResult[], action?: GameAc
   if (active && active.status.includes('shaken')) {
     active.status = active.status.filter((s) => s !== 'shaken');
   }
+  const meleeResults = getMeleeResults(state);
   const tests = applyEndOfActivationMorale(state, moraleRolls, fearlessRolls);
   if (tests.length > 0 && action) moraleLog.set(action, tests);
+  if (meleeResults.length > 0 && action) meleeLog.set(action, meleeResults);
   delete state.turnState.woundBaseline;
   delete state.turnState.meleeUnitIds;
+  delete state.turnState.meleePairs;
   advanceActivation(state);
 }
 
@@ -3770,16 +3777,19 @@ function checkGameEnd(state: GameState): void {
 
 function acceptedEntry(action: GameAction, dice?: DiceResolution): ActionLogEntry {
   const morale = moraleLog.get(action);
+  const melee = meleeLog.get(action);
   const entry = acceptedEntryBase(action, dice);
-  if (morale && morale.length > 0) {
+  if ((morale && morale.length > 0) || (melee && melee.length > 0)) {
+    const first = morale?.[0]?.unitId ?? melee![0].sides[0].unitId;
     const resolution: DiceResolution = entry.dice ?? {
       rollId: action.id,
       specs: [],
       results: [],
-      context: { attackerId: morale[0].unitId, targetId: morale[0].unitId, actionId: action.id },
+      context: { attackerId: first, targetId: first, actionId: action.id },
       outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, targetDestroyed: false },
     };
-    resolution.outcome.moraleTests = morale;
+    if (morale && morale.length > 0) resolution.outcome.moraleTests = morale;
+    if (melee && melee.length > 0) resolution.outcome.meleeResults = melee;
     entry.dice = resolution;
   }
   return entry;

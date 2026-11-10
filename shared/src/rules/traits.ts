@@ -107,7 +107,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   fear: {
     displayName: 'Fear',
-    description: 'Counts as X extra wounds against its enemy when melee results are compared.',
+    description: 'When melee results are compared, the enemy counts as having taken X extra wounds (once per unit, using the highest Fear among its living models).',
   },
   fearless: {
     displayName: 'Fearless',

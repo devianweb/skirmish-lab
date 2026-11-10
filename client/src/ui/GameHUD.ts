@@ -10,6 +10,7 @@ import {
   createAction,
   describeTerrainPiece,
   describeTrait,
+  MeleeResultRecord,
   MoraleTestRecord,
   classifySegment,
   findNavPath,
@@ -3011,6 +3012,20 @@ export class GameHUD {
       </div>`;
   }
 
+  /** "X took 3 wounds, Y took 1 (+1 Fear): X loses" for one melee result. */
+  private meleeResultText(r: MeleeResultRecord): string {
+    const side = (x: MeleeResultRecord['sides'][number]) =>
+      `${x.unitName} took ${x.wounds} wound${x.wounds === 1 ? '' : 's'}${x.fearBonus ? ` (+${x.fearBonus} Fear)` : ''}`;
+    const loser = r.sides.find((x) => x.unitId === r.loserId);
+    return `${side(r.sides[0])}, ${side(r.sides[1])}: ${loser ? `${loser.unitName} loses` : 'tied, nobody tests Morale'}`;
+  }
+
+  private meleeResultsHtml(results: MeleeResultRecord[]): string {
+    return results
+      .map((r) => `<div class="sl-hud-dice-label">Melee: ${this.meleeResultText(r)}</div>`)
+      .join('');
+  }
+
   /** One line per Morale Test: the die, the Quality it needed and the result (Passed, Shaken, Routed). */
   private moraleTestsHtml(tests: MoraleTestRecord[]): string {
     return tests
@@ -3066,12 +3081,16 @@ export class GameHUD {
           </div>`;
       }
 
-      // End of an activation: the Morale Tests it triggered (no attack in this entry)
-      if (entry.dice.outcome.moraleTests?.length && entry.dice.outcome.attackCount === 0) {
+      // End of an activation: the melee results and Morale Tests it triggered (no attack in this entry)
+      if (
+        (entry.dice.outcome.moraleTests?.length || entry.dice.outcome.meleeResults?.length) &&
+        entry.dice.outcome.attackCount === 0
+      ) {
         return `
           <div class="sl-hud-dice">
-            <div class="sl-hud-dice-title">Morale</div>
-            ${this.moraleTestsHtml(entry.dice.outcome.moraleTests)}
+            <div class="sl-hud-dice-title">${entry.dice.outcome.meleeResults?.length ? 'Melee result & Morale' : 'Morale'}</div>
+            ${this.meleeResultsHtml(entry.dice.outcome.meleeResults ?? [])}
+            ${this.moraleTestsHtml(entry.dice.outcome.moraleTests ?? [])}
           </div>`;
       }
 
@@ -3334,7 +3353,9 @@ export class GameHUD {
                 .map((t) => `${t.unitName} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
                 .join(', ')}`
             : '';
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${moraleText}</div>`;
+        const melee = entry.dice?.outcome.meleeResults;
+        const meleeText = melee && melee.length > 0 ? ` — ${melee.map((r) => this.meleeResultText(r)).join('; ')}` : '';
+        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${meleeText}${moraleText}</div>`;
       })
       .join('');
   }

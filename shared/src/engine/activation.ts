@@ -1,6 +1,7 @@
 import {
   GameState,
   MAX_ROUNDS,
+  MeleeResultRecord,
   MoraleTestRecord,
   Objective,
   OBJECTIVE_CONTROL_MAX_VERTICAL,
@@ -9,7 +10,7 @@ import {
 } from '../gameTypes';
 import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
-import { hasTrait } from '../rules/traits';
+import { getTraitValue, hasTrait } from '../rules/traits';
 import { resolveMoraleTest } from './combat';
 import { findTerrainAtPosition } from './spatial';
 import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
@@ -205,12 +206,74 @@ export function recordWoundBaseline(state: GameState): void {
   }
   state.turnState.woundBaseline = baseline;
   state.turnState.meleeUnitIds = [];
+  state.turnState.meleePairs = [];
 }
 
 /** Note that units were in melee during this activation (they skip the wound-based Morale Test). */
 export function markInMelee(state: GameState, ...unitIds: string[]): void {
   const list = state.turnState.meleeUnitIds ?? (state.turnState.meleeUnitIds = []);
   for (const id of unitIds) if (!list.includes(id)) list.push(id);
+  if (unitIds.length === 2) {
+    const pairs = state.turnState.meleePairs ?? (state.turnState.meleePairs = []);
+    const [a, b] = unitIds;
+    if (!pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a))) pairs.push([a, b]);
+  }
+}
+
+/** Wounds a unit lost since the activation began (a unit wiped out lost everything it had). */
+function woundsTakenThisActivation(state: GameState, unit: Unit): number {
+  const before = state.turnState.woundBaseline?.[unit.id];
+  if (before === undefined) return 0;
+  return Math.max(0, before - unitWoundsLeft(unit));
+}
+
+/** The Fear(X) a unit exerts: its highest value, and only while it still has living models. */
+function fearValue(unit: Unit): number {
+  if (unit.isDestroyed || unit.status.includes('routed')) return 0;
+  if ((unit.models ?? []).length > 0 && unit.models.every((m) => m.isDestroyed)) return 0;
+  return getTraitValue(unit.specialRules, 'fear') ?? 0;
+}
+
+/**
+ * Compare the wounds each side of every melee of this activation took. A unit with Fear(X) adds X wounds to
+ * the enemy's total, once per unit however many melees it was in. The higher total loses; a tie has no loser.
+ */
+export function getMeleeResults(state: GameState): MeleeResultRecord[] {
+  const pairs = state.turnState.meleePairs ?? [];
+  const fearUsed = new Set<string>();
+  const results: MeleeResultRecord[] = [];
+  for (const [aId, bId] of pairs) {
+    const a = state.units.find((u) => u.id === aId);
+    const b = state.units.find((u) => u.id === bId);
+    if (!a || !b) continue;
+    const fearAgainstA = fearUsed.has(b.id) ? 0 : fearValue(b);
+    const fearAgainstB = fearUsed.has(a.id) ? 0 : fearValue(a);
+    if (fearAgainstA > 0) fearUsed.add(b.id);
+    if (fearAgainstB > 0) fearUsed.add(a.id);
+    const woundsA = woundsTakenThisActivation(state, a);
+    const woundsB = woundsTakenThisActivation(state, b);
+    const totalA = woundsA + fearAgainstA;
+    const totalB = woundsB + fearAgainstB;
+    results.push({
+      sides: [
+        { unitId: a.id, unitName: a.name, wounds: woundsA, ...(fearAgainstA > 0 ? { fearBonus: fearAgainstA } : {}) },
+        { unitId: b.id, unitName: b.name, wounds: woundsB, ...(fearAgainstB > 0 ? { fearBonus: fearAgainstB } : {}) },
+      ],
+      ...(totalA === totalB ? {} : { loserId: totalA > totalB ? a.id : b.id }),
+    });
+  }
+  return results;
+}
+
+/** Units that lost a melee and are still standing: they owe a Morale Test. */
+function meleeLosers(state: GameState): Unit[] {
+  const losers: Unit[] = [];
+  for (const result of getMeleeResults(state)) {
+    if (!result.loserId) continue;
+    const unit = state.units.find((u) => u.id === result.loserId);
+    if (unit && !unit.isDestroyed && !unit.status.includes('routed') && !losers.includes(unit)) losers.push(unit);
+  }
+  return losers;
 }
 
 /** The Tough value of a single-model unit (its model's maximum wounds, at least 1). */
@@ -240,13 +303,15 @@ export function getUnitsRequiringMorale(state: GameState): Unit[] {
   const baseline = state.turnState.woundBaseline;
   if (!baseline) return [];
   const melee = state.turnState.meleeUnitIds ?? [];
-  return state.units.filter((u) => {
+  const woundTests = state.units.filter((u) => {
     if (u.isDestroyed || u.status.includes('routed')) return false;
     if (melee.includes(u.id)) return false;
     const before = baseline[u.id];
     if (before === undefined || unitWoundsLeft(u) >= before) return false;
     return isAtHalfOrLess(u);
   });
+  // Units in melee skip the wound test; the loser of each melee tests instead
+  return [...woundTests, ...meleeLosers(state)];
 }
 
 /** Fearless is a unit rule here, so a Fearless unit is one where most (all) models have it. */
@@ -279,6 +344,17 @@ export function heroQualityFor(state: GameState, unit: Unit): number | undefined
   return heroes.length > 0 ? Math.min(...heroes.map((c) => c.quality)) : undefined;
 }
 
+/** A Routed unit is removed as destroyed by morale: every model goes and it is marked `routed`. */
+function routUnit(unit: Unit): void {
+  unit.wounds = 0;
+  unit.isDestroyed = true;
+  for (const m of unit.models ?? []) {
+    m.wounds = 0;
+    m.isDestroyed = true;
+  }
+  unit.status = ['routed'];
+}
+
 /**
  * Take the end-of-activation Morale Tests with pre-rolled server dice (`morale`, plus `fearless`), in the
  * order `getUnitsRequiringMorale` lists the units. A failed test makes the unit Shaken.
@@ -291,8 +367,12 @@ export function applyEndOfActivationMorale(
   const records: MoraleTestRecord[] = [];
   let rollIdx = 0;
   let fearlessIdx = 0;
+  const meleeLoserIds = meleeLosers(state).map((u) => u.id);
 
   for (const unit of getUnitsRequiringMorale(state)) {
+    const lostMelee = meleeLoserIds.includes(unit.id);
+    // Decided before the test changes anything: a failure at half strength or less is a Rout
+    const wouldRout = lostMelee && isAtHalfOrLess(unit);
     const alreadyShaken = unit.status.includes('shaken');
     const roll = alreadyShaken ? undefined : moraleRolls[rollIdx++];
     if (!alreadyShaken && roll === undefined) break;
@@ -313,7 +393,13 @@ export function applyEndOfActivationMorale(
       unit.specialRules = unit.specialRules.filter((r) => r !== 'morale-debuff');
     }
 
-    if (result.outcome === 'shaken' && !unit.status.includes('shaken')) unit.status.push('shaken');
+    let outcome = result.outcome;
+    if (outcome === 'shaken' && wouldRout) {
+      outcome = 'routed';
+      routUnit(unit);
+    } else if (outcome === 'shaken' && !unit.status.includes('shaken')) {
+      unit.status.push('shaken');
+    }
 
     // The Fearless die only matters (and is only shown) when the test itself failed.
     const testFailed = alreadyShaken || result.fearlessSaved || !result.passed;
@@ -324,7 +410,7 @@ export function applyEndOfActivationMorale(
       effectiveQuality: result.effectiveQuality,
       ...(fearlessRoll !== undefined && testFailed ? { fearlessRoll } : {}),
       passed: result.passed,
-      outcome: result.outcome,
+      outcome,
     });
   }
 

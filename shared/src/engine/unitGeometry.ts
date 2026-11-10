@@ -106,7 +106,7 @@ export function unitDistance(
 /** Models at heights further apart than this (inches) are not engaged / do not keep each other away. */
 export const ENGAGEMENT_MAX_DY = 1.5;
 /** A model strikes in melee when its base edge is at most this far (horizontally) from an enemy model's. */
-export const MELEE_STRIKE_EDGE_GAP = 2;
+export const MELEE_STRIKE_EDGE_GAP = 3;
 /** ...and at most this far apart vertically. */
 export const MELEE_STRIKE_MAX_DY = 4;
 const GEOMETRY_TOLERANCE = 0.001;
@@ -165,7 +165,7 @@ export function unitsInContact(a: ModelSource, b: ModelSource): boolean {
 }
 
 /**
- * Number of `striker`'s living models that can strike `foe` in melee: within 2" (base edge, horizontal) and 4"
+ * Number of `striker`'s living models that can strike `foe` in melee: within 3" (base edge, horizontal) and 4"
  * (vertical) of some living model of `foe`. Attacks are pooled by the caller (weapon attacks x this count).
  */
 export function strikingModelCount(striker: ModelSource, foe: ModelSource): number {
