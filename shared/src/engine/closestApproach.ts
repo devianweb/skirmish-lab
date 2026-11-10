@@ -58,7 +58,7 @@ const MAX_CHECKED = 80;
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** The point `distance` along the polyline from its start (clamped to its end), with interpolated height. */
-function pointAlong(path: Vector3[], distance: number): { point: Vector3; upTo: Vector3[] } {
+export function pointAlong(path: Vector3[], distance: number): { point: Vector3; upTo: Vector3[] } {
   const upTo: Vector3[] = [path[0]];
   let left = distance;
   for (let i = 1; i < path.length; i++) {
@@ -81,7 +81,7 @@ function pointAlong(path: Vector3[], distance: number): { point: Vector3; upTo: 
   return { point: path[path.length - 1], upTo };
 }
 
-function polylineLength(path: Vector3[]): number {
+export function polylineLength(path: Vector3[]): number {
   let total = 0;
   for (let i = 1; i < path.length; i++) {
     total += Math.hypot(path[i].x - path[i - 1].x, (path[i].y ?? 0) - (path[i - 1].y ?? 0), path[i].z - path[i - 1].z);

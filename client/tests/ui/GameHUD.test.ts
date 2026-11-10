@@ -2242,7 +2242,8 @@ describe('GameHUD', () => {
       // Model 1 placed! Should now prompt for Model 2 and display coherency circle around Model 1
       expect(container.textContent).toContain('Place Model 2 of 2');
       expect(lastMarkers?.squadCoherency).toBeDefined();
-      expect(lastMarkers?.squadCoherency?.positions).toHaveLength(1);
+      // The placed model's ring first, then the ring of where Model 2 will follow to
+      expect(lastMarkers?.squadCoherency?.positions).toHaveLength(2);
       expect(lastMarkers?.squadCoherency?.positions[0].z).toBeCloseTo(-1, 1);
       expect(lastMarkers?.squadCoherency?.radius).toBe(2.0);
 
@@ -2319,7 +2320,7 @@ describe('GameHUD', () => {
         return { state, squad };
       }
 
-      it('offers Confirm move after the first staged model and keeps unplaced models in place', () => {
+      it('offers Confirm move after the first staged model and moves the unplaced models after it', () => {
         const { state } = fourModelSquad();
         const { hud, container, controller } = setup(HOST, state);
         clickByText(container, 'Advance');
@@ -2337,13 +2338,16 @@ describe('GameHUD', () => {
         expect(action.type).toBe('advance');
         expect(action.payload.modelPositions).toHaveLength(4);
         expect(action.payload.modelPositions[0]).toEqual({ x: 0, y: 0, z: -6 });
-        expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -5 });
-        expect(action.payload.modelPaths[1]).toEqual([{ x: 1, y: 0, z: -5 }]);
-        expect(action.payload.modelPaths[3]).toEqual([{ x: 1, y: 0, z: -4 }]);
+        // The other three keep the formation: each steps the same 1" forward on its own path
+        expect(action.payload.modelPositions[1]).toEqual({ x: 1, y: 0, z: -6 });
+        expect(action.payload.modelPaths[1]).toEqual([{ x: 1, y: 0, z: -5 }, { x: 1, y: 0, z: -6 }]);
+        expect(action.payload.modelPositions[3]).toEqual({ x: 1, y: 0, z: -5 });
       });
 
-      it('refuses to confirm early when the unmoved models would leave the squad incoherent', () => {
-        const { state } = fourModelSquad();
+      it('refuses to confirm early when models that cannot move would leave the squad incoherent', () => {
+        const { state, squad } = fourModelSquad();
+        // The other three have no move left, so they cannot follow the model that steps ahead
+        squad.modelMovementSpent = { m2: 6, m3: 6, m4: 6 };
         const { hud, container, controller } = setup(HOST, state);
         clickByText(container, 'Advance');
         hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: -9 } });

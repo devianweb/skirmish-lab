@@ -14,6 +14,7 @@ export * from './engine/unitGeometry';
 export * from './engine/squadTargeting';
 export * from './engine/traversal';
 export * from './engine/crossing';
+export * from './engine/squadFollow';
 export { worldToLocal, localToWorldXZ } from './engine/terrainStructure';
 export * from './engine/actions';
 export * from './engine/matchSummary';
