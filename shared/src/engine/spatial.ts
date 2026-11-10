@@ -477,12 +477,21 @@ export function findMoveBlocker(
   path: Vector3[],
   options: { ignoreUnitId?: string; keepAway?: boolean } = {}
 ): { blocked: true; reason: string } | { blocked: false } {
+  const flying = hasTrait(movingUnit.specialRules, 'flying');
   for (let i = 1; i < path.length; i++) {
     const from = path[i - 1];
     const to = path[i];
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const segLen = Math.hypot(dx, dz);
+    if (flying) {
+      // Flying moves through terrain and over/through other units: only the spot it stops on matters
+      if (i === path.length - 1) {
+        const stop = findFlyerStopBlocker(state, movingUnit, path, options);
+        if (stop) return stop;
+      }
+      continue;
+    }
     if (segLen < 1e-6) {
       // A vertical drop has no horizontal length: sweep the base circle down the fall column instead.
       if (isFallColumnBlocked(state, from, to)) {
@@ -696,6 +705,37 @@ export function findMoveBlocker(
     }
   }
   return { blocked: false };
+}
+
+/**
+ * Flying units pass over and through terrain and other models, so only their final spot is checked here: it may
+ * not overlap another unit's base and, with `keepAway`, may not sit closer than the 1" keep-away limit (a
+ * model that started closer may not end closer than it began). The charge target (`ignoreUnitId`) may be touched.
+ */
+function findFlyerStopBlocker(
+  state: GameState,
+  movingUnit: Unit,
+  path: Vector3[],
+  options: { ignoreUnitId?: string; keepAway?: boolean }
+): { blocked: true; reason: string } | null {
+  const to = path[path.length - 1];
+  const toY = to.y ?? 0;
+  for (const other of state.units) {
+    if (other.isDestroyed || other.id === movingUnit.id || other.id === options.ignoreUnitId) continue;
+    for (const m of livingModelPositions(other)) {
+      // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
+      if (Math.abs(toY - (m.y ?? 0)) >= 1.8) continue;
+      const endDist = Math.hypot(to.x - m.x, to.z - m.z);
+      if (endDist < UNIT_SEPARATION_DISTANCE - 0.01) {
+        return { blocked: true, reason: 'Move path is blocked by another fighter' };
+      }
+      if (options.keepAway) {
+        const limit = keepAwayLimit(Math.hypot(path[0].x - m.x, path[0].z - m.z));
+        if (endDist < limit - KEEP_AWAY_TOLERANCE) return { blocked: true, reason: KEEP_AWAY_REASON };
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -2775,9 +2815,15 @@ export function findNavPath(
       ? destination
       : { ...destination, y: startY };
     const clamped = clampMoveDestinationWithObstacles(state, unit, flatTarget, maxDistance);
-    // Never plan across a gap or off an edge: shorten the straight line to its ordinary (test-free) prefix
+    // Never plan across a gap, off an edge or through a blocker: shorten the straight line to its legal prefix
     let end: Vector3 = clamped;
-    for (let t = 1; t > 0 && !isOrdinarySegment(state, from, end, unit); t -= 0.05) {
+    // (Units are left to `settleEnd`, which pulls the end back to a legal spot beside them.)
+    const throughTerrain = (e: Vector3): boolean => {
+      const blk = findMoveBlocker(state, unit, [from, e], options);
+      return blk.blocked && blk.reason !== KEEP_AWAY_REASON && !blk.reason.includes('fighter');
+    };
+    const stuck = (e: Vector3): boolean => !isOrdinarySegment(state, from, e, unit) || throughTerrain(e);
+    for (let t = 1; t > 0 && stuck(end); t -= 0.05) {
       end = {
         x: Math.round((from.x + (clamped.x - from.x) * t) * 100) / 100,
         y: clamped.y ?? startY,
