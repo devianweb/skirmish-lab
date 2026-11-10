@@ -243,21 +243,53 @@ describe('squad declared jumps', () => {
     return { state, action };
   }
 
-  it('two jumpers share one roll sized by the longest jump; on a failure the longest jumper falls and the other stays at its take-off', () => {
+  it('two jumpers share one roll sized by the leader; on a failure the leader falls and the other stays at its take-off', () => {
     const { state, action } = twoJumpers();
     expect(validateAction(state, action)).toEqual({ valid: true });
     const specs = getDiceSpecs(state, action)!;
     expect(specs.map((s) => s.purpose)).toEqual(['jump', 'fall', 'morale']);
-    expect(specs[0].count).toBe(4); // 3.63" hop: ceil(3.58)
+    expect(specs[0].count).toBe(4); // the leader's 3.1" hop: ceil(3.05)
     const out = applyAction(state, action, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
-    expect(u.models.map((m) => m.isDestroyed)).toEqual([false, false, true]); // model 3 (the longest hop) fell
-    expect(u.models[1].position).toMatchObject(takeoff); // the other jumper never left the edge
+    expect(u.models.map((m) => m.isDestroyed)).toEqual([false, true, false]); // model 2 (the leader, the lowest-index jumper) fell
+    expect(u.models[2].position).toMatchObject(takeoff2); // the other jumper never left the edge
     expect(out.state.turnState.activeUnitId).not.toBe('u');
   });
 
-  it('when the longest jumps tie, the lowest living-model index falls', () => {
+  it('an explicit jumpLeader sizes the roll and falls, even when another hop is longer', () => {
+    const { state, action } = twoJumpers();
+    (action.payload as any).jumpLeader = 2; // the 3.6" hop
+    expect(validateAction(state, action)).toEqual({ valid: true });
+    expect(getDiceSpecs(state, action)![0].count).toBe(4); // 3.63": ceil(3.58)
+    const out = applyAction(state, action, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
+    if (!out.ok) throw new Error(out.reason);
+    const u = out.state.units[0];
+    expect(u.models.map((m) => m.isDestroyed)).toEqual([false, false, true]);
+    expect(u.models[1].position).toMatchObject(takeoff);
+  });
+
+  it('the dice follow the leader, not the longest follower hop', () => {
+    const { state, action } = twoJumpers();
+    // model 3 lands far away (a 5.5" hop = 6 dice); the leader's 3.1" hop still sizes the roll
+    const far = P(4.4, 3, 1.5);
+    (action.payload as any).modelPositions[2] = far;
+    (action.payload as any).modelPaths[2] = [takeoff2, far];
+    (action.payload as any).modelTraversals[2] = { kind: 'jump-gap', takeoff: takeoff2, landing: far };
+    expect(getDiceSpecs(state, action)![0].count).toBe(4);
+    (action.payload as any).jumpLeader = 2;
+    expect(getDiceSpecs(state, action)![0].count).toBeGreaterThan(4);
+  });
+
+  it('rejects a jump leader that does not declare a jump', () => {
+    const { state, action } = twoJumpers();
+    (action.payload as any).jumpLeader = 0;
+    const res = validateAction(state, action);
+    expect(res.valid).toBe(false);
+    expect((res as { reason: string }).reason).toMatch(/jump leader/);
+  });
+
+  it('with equal hops the lowest living-model index (the default leader) falls', () => {
     const unit = makeSquad(3);
     const t0 = P(-0.1, 3, 0.9);
     const t1 = takeoff2;
@@ -373,6 +405,7 @@ describe('squad declared jumps', () => {
           [m[3].position, walkEnd],
         ],
         modelTraversals: [null, traversal, { kind: 'jump-gap', takeoff: takeoff3, landing: landing3 }, null],
+        jumpLeader: 2, // model 3 is the one the player declared the jump with
       });
       return { state, action };
     }
@@ -383,7 +416,7 @@ describe('squad declared jumps', () => {
       expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['jump', 'fall', 'morale']);
     });
 
-    it('the longest jumper falls, the other jumper stays at its take-off, walkers finish, the log says why', () => {
+    it('the leader falls, the other jumper stays at its take-off, walkers finish, the log says why', () => {
       const { state, action } = fourModel();
       const out = applyAction(state, action, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
       if (!out.ok) throw new Error(out.reason);
@@ -454,6 +487,7 @@ describe('squad declared jumps', () => {
           [takeoff3, landing3],
         ],
         modelTraversals: [null, traversal, { kind: 'jump-gap', takeoff: takeoff3, landing: landing3 }],
+        jumpLeader: 2,
       });
       const v = validateAction(state, leg);
       if (!v.valid) throw new Error((v as { reason: string }).reason);

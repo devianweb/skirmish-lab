@@ -20,17 +20,27 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 4. Drops, jumps and movement cost
-- All items verified.
+- All items verified except the squad follow-the-leader jumps below (14C-2 PR 4B). Setup for all of them: press F9 in the lobby (Developer mode), pick the army **TEST: Jump Check (squad, Strider squad, Flying squad)** for both players and the built-in map **Jump Range**. Deploy "Test Jumpers" near the stairs at x -9, z -12 (host side), then walk it up the stairs onto the first 3" deck (deck A, x -11..-7, z -10..-2).
+- [ ] **Group gap jump.** With "Test Jumpers" on deck A, move one model to deck A's east edge (x about -7.5) so it is the only one at the edge, then click the far side on deck B (x about -4.5, a 2" gap). The other three models should snap into the preview and be staged automatically (toast: "Models 2, 3, 4 follow across (one roll for the squad)"), each at its own spot along the edge. Confirm: one jump roll (2 dice+) in the dice panel, all four models land on deck B, and the activation continues.
+- [ ] **Failed group jump.** Repeat until a roll fails (or use a larger gap: deck B east edge x -1.5 to deck C x 3.5, a 4" gap, about 5 dice). The model you declared the jump with falls to the ground (fall dice shown); the other three stay standing at their edge spots on the deck; the activation ends.
+- [ ] **A model that cannot reach the edge.** Rush "Test Jumpers" first (leave one model about 5" of its move used), then declare the jump: that model's chip turns red with a cross and a tooltip explaining why, and the squad is not split silently. Confirming with the squad split across the gap is refused with a message naming the model.
+- [ ] **Drop.** Walk "Test Jumpers" up the ladder on the tall deck (x -20, z -6; the ladder is on its west face) and jump down from its east edge (x about -16): the 4.5" drop rolls about 5 dice for the group; the followers drop with the leader.
+- [ ] **Strider and Flying.** Repeat the 4" gap with "Test Striders" (half the dice, rounded up) and with "Test Flyers" (no jump option appears and nothing is rolled).
+- [ ] **Charge leg.** Put an enemy squad on deck C and declare a charge from deck B across the 4" gap; the leg carries all models across with one roll.
 
 ## 5. Low cover & scatter
 - All items verified.
+
+- Push prompt (14C-2 PR 5). Setup: press F9 in the lobby (Developer mode), pick the army **TEST: Rules Check (Hero, Blast, Indirect, multi-weapon)** for both players and the built-in map **Jump Range**. The two "Test Squad" units are Quality 6+, so they fail Morale on a 1-5. The guest walks "Test Squad A" (4 models) up the stairs onto the nearest 3" deck (the mirror of deck A: x 7..11, z 2..10; stairs at x 9, z 12), or up the ladder to the 4.5" deck (x 16..20, z 2..10; ladder on its east face) for a 5-dice fall. Then, on the host's turn, shoot that squad with "Test Squad B", the Hero and the Heavy Gunner (keep shooting over a few rounds if needed) until it has 2 models left (half strength), and end the activation. The squad fails Morale and becomes Shaken, but the attacker's push die is random (needs 4+), so it may take several tries (repeat with the other squad, or rematch).
+- [ ] **Push prompt buttons.** When the push die shows 4+, the attacker's dock shows "Push" with **Auto**, **Confirm** and **Don't push** and a countdown; the other player sees "Waiting for opponent: Push". Don't push: nothing moves, the log says the push was declined, play continues. Letting the timer run out applies Auto.
+- [ ] **Confirm: pick a model and a spot.** Press Confirm, click one model of the Shaken squad (or its button): an amber ring of 2" shows around it. Hover a spot: a line from the model to the spot (pulled back onto the ring if you are further), and the dock says "Push 1.5"". Click the spot, then **Push**: the model moves, only the models cut off from it step in. A spot on top of another model or inside terrain is refused with a message. **Back** returns to the buttons.
+- [ ] **Push off an edge.** With the squad on the 3" deck, hover a spot 1-2" past the deck edge: the dock says it falls 3.0" (3 dice, 1-3 wound). Push it: the dice panel shows the fall dice and wounds (the log entry carries them for both players), and every other living model of the squad ends at the bottom within 1" (edge to edge) of the fallen model. Nobody's activation ends. Repeat from the 4.5" deck (5 dice).
 
 ## 6. Squads
 - All items verified.
 
 ## 7. Movement, rush and shooting
 - All items verified.
-- [ ] **Blast dice panel:** fire a Blast weapon at a squad with another enemy squad within 3": under the to-hit dice a yellow line reads like "Frag Launcher Blast(3): 1 hit × 3 = 3 hits → Test Squad A 2 · Test Squad B 1", the target's Defense row is labelled with its name, and the spill unit gets its own "Blast spill on …: Defense (need D5+)" row with its dice. A lone target shows "(max N: one per model)" and, when the shot outnumbers its models, "N hits lost".
 
 ## 8. Melee & objectives
 - All earlier items verified.

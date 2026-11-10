@@ -87,13 +87,17 @@ import {
   distance3D,
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
+import { describeLeftBehind, takeoffSpotProblem } from './followLeader';
 import type { ChargeState } from '../gameTypes';
 import {
+  PUSH_AUTO_CHOICE,
+  PUSH_DECLINE_CHOICE,
   PUSH_TARGET,
   PushData,
   PushQueueEntry,
   autoPush,
   createPushReaction,
+  gatherAroundFallen,
   planPush,
   pushAttackerFor,
   regroupAfterPush,
@@ -258,12 +262,21 @@ function livingModelPositionsNow(unit: Unit): Vector3[] {
  * Coherency of a squad's end positions. A squad that started coherent must end coherent; one that started
  * (the action or leg) out of coherency may also end measurably closer to coherent ("closer counts").
  */
-function squadEndCoherency(unit: Unit, end: Vector3[]): { valid: true } | { valid: false; reason: string } {
+function squadEndCoherency(
+  unit: Unit,
+  end: Vector3[],
+  traversals?: ReadonlyArray<DeclaredTraversal | null | undefined>
+): { valid: true } | { valid: false; reason: string } {
   const coherency = validateSquadCoherency(end);
   if (coherency.coherent) return { valid: true };
   const before = livingModelPositionsNow(unit);
   if (before.length === end.length && isRegroupingMove(before, end)) return { valid: true };
-  const base = coherency.reason ?? 'Squad models lose coherency';
+  let base = coherency.reason ?? 'Squad models lose coherency';
+  // Some models crossed a gap or drop and others did not: say who was left behind (14C-2 PR 4B)
+  const behind = describeLeftBehind(traversals, end);
+  if (behind.length > 0) {
+    base += ` (${behind.length > 1 ? 'models' : 'model'} ${behind.join(', ')} did not cross with the squad: the jump carries every model only if each can reach the take-off edge with its own move)`;
+  }
   const wasOut = before.length === end.length && coherencyShortfall(before) > 0;
   return {
     valid: false,
@@ -279,6 +292,8 @@ interface SquadChargePayload {
   modelPositions?: Vector3[];
   modelPaths?: Vector3[][];
   modelTraversals?: (DeclaredTraversal | null)[];
+  /** Index of the model whose declared jump the others follow (default: the lowest-index jumper). */
+  jumpLeader?: number;
 }
 
 function livingModels(unit: Unit): Model[] {
@@ -333,8 +348,10 @@ function validateSquadChargeMove(
   ) {
     return { valid: false, reason: 'More model paths or declared jumps than squad models' };
   }
-  const coherency = squadEndCoherency(unit, positions);
+  const coherency = squadEndCoherency(unit, positions, payload.modelTraversals);
   if (!coherency.valid) return coherency;
+  const spotProblem = takeoffSpotProblem(payload.modelTraversals, positions, payload.jumpLeader);
+  if (spotProblem) return { valid: false, reason: spotProblem };
   for (let i = 0; i < positions.length; i++) {
     for (let j = i + 1; j < positions.length; j++) {
       if (boardDistance(positions[i], positions[j]) < 0.9) {
@@ -816,8 +833,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
-      const coherency = squadEndCoherency(unit.result, modelPositions!);
+      const coherency = squadEndCoherency(unit.result, modelPositions!, modelTraversals);
       if (!coherency.valid) return coherency;
+      const spotProblem = takeoffSpotProblem(modelTraversals, modelPositions!, (action.payload as { jumpLeader?: number }).jumpLeader);
+      if (spotProblem) return { valid: false, reason: spotProblem };
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -1295,8 +1314,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
-      const coherency = squadEndCoherency(unit, modelPositions!);
+      const coherency = squadEndCoherency(unit, modelPositions!, modelTraversals);
       if (!coherency.valid) return coherency;
+      const spotProblem = takeoffSpotProblem(modelTraversals, modelPositions!, (action.payload as { jumpLeader?: number }).jumpLeader);
+      if (spotProblem) return { valid: false, reason: spotProblem };
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -1440,6 +1461,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const option = pending.options.find((o) => o.id === choiceId);
       if (!option) {
         return { valid: false, reason: `Invalid reaction choice: ${choiceId}` };
+      }
+      // Confirm on a push is the HUD's pick-a-spot mode: the move itself arrives as a `push-move`
+      if (pending.type === 'push' && choiceId !== PUSH_AUTO_CHOICE && choiceId !== PUSH_DECLINE_CHOICE) {
+        return { valid: false, reason: 'Choose Auto, Don\'t push, or send a push-move' };
       }
       return { valid: true };
     }
@@ -1589,6 +1614,7 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
       modelPaths?: Vector3[][];
       modelPositions?: Vector3[];
       modelTraversals?: (DeclaredTraversal | null)[];
+      jumpLeader?: number;
     };
     const unit = payload.unitId ? getUnit(state, payload.unitId) : undefined;
     const path = payload.path;
@@ -1628,6 +1654,7 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
   if (action.type === 'pile-in-move') return pileInStrikeSpecs(state, action);
 
   if (action.type === 'push-move' || (action.type === 'respond-reaction' && state.turnState.pendingReaction?.type === 'push')) {
+    if (action.type === 'respond-reaction' && (action.payload as { choiceId?: string }).choiceId === PUSH_DECLINE_CHOICE) return null;
     const resolved = pushResolution(state, action);
     return resolved?.model && resolved.plan.ok && resolved.plan.fallDice > 0
       ? [{ count: resolved.plan.fallDice, sides: 6, purpose: 'fall' }]
@@ -1847,6 +1874,8 @@ interface LegEntry {
   /** The model walking this route (undefined when the whole unit moves along one path). */
   model?: Model;
   declaration?: DeclaredTraversal | null;
+  /** The model whose declared jump the squad follows: its crossing sizes the roll and it falls on a failure. */
+  leader?: boolean;
 }
 
 /** A jump or fall a model's route contains. */
@@ -1878,6 +1907,7 @@ function moveLegEntries(
     modelPositions?: Vector3[];
     modelPaths?: Vector3[][];
     modelTraversals?: (DeclaredTraversal | null)[];
+    jumpLeader?: number;
   }
 ): LegEntry[] {
   const living = livingModels(unit);
@@ -1887,6 +1917,7 @@ function moveLegEntries(
       path,
       model: living[index],
       declaration: payload.modelTraversals?.[index] ?? null,
+      leader: payload.jumpLeader === index,
     }));
   }
   if (payload.path && payload.path.length > 0) {
@@ -1896,7 +1927,7 @@ function moveLegEntries(
 }
 
 /** Routes of a charge or charge leg. */
-function chargeLegEntries(unit: Unit, payload: { path?: Vector3[] } & SquadChargePayload): LegEntry[] {
+function chargeLegEntries(unit: Unit, payload: { path?: Vector3[]; jumpLeader?: number } & SquadChargePayload): LegEntry[] {
   const living = livingModels(unit);
   if (isSquadChargePayload(unit, payload)) {
     return squadChargePaths(unit, payload).map((path, index) => ({
@@ -1904,6 +1935,7 @@ function chargeLegEntries(unit: Unit, payload: { path?: Vector3[] } & SquadCharg
       path,
       model: living[index],
       declaration: payload.modelTraversals?.[index] ?? null,
+      leader: payload.jumpLeader === index,
     }));
   }
   return payload.path && payload.path.length > 0
@@ -1966,7 +1998,10 @@ function planLegJumps(state: GameState, unit: Unit, entries: LegEntry[]): LegJum
   const jumps = legJumps(state, unit, entries);
   const sure = jumps.filter((j) => j.kind === 'fall');
   const tests = jumps.filter((j) => j.kind !== 'fall');
-  const faller = longestJump(sure.length > 0 ? sure : tests);
+  // A certain fall (over 6") is that model's. Otherwise the leader (the model the player declared the jump with;
+  // default: the lowest-index jumper) sizes the roll and is the one that falls on a failure.
+  const leaderJump = tests.find((j) => j.entry.leader) ?? tests.slice().sort((a, b) => a.entry.index - b.entry.index)[0] ?? null;
+  const faller = sure.length > 0 ? longestJump(sure) : leaderJump;
   const plan: LegJumpPlan = { jumps, testDice: 0, faller, fallPosition: null, fallHeight: 0, fallDice: 0 };
   if (!faller) return plan;
   if (sure.length === 0) {
@@ -2035,11 +2070,13 @@ function applyModelPathTraversals(
   dice?: DiceResult[]
 ): void {
   const declared = (action.payload as { modelTraversals?: (DeclaredTraversal | null)[] }).modelTraversals;
+  const leaderIndex = (action.payload as { jumpLeader?: number }).jumpLeader;
   const entries: LegEntry[] = modelPaths.map((path, index) => ({
     index,
     path,
     model: models[index],
     declaration: declared?.[index] ?? null,
+    leader: leaderIndex === index,
   }));
   applyLegTraversals(state, unit, entries, action, dice);
 }
@@ -3816,6 +3853,7 @@ function pushResolution(
   const attacker = getUnit(state, pending.sourceUnitId);
   if (!unit || !attacker) return null;
   const none = { pending, unit, attacker, model: null, plan: { ok: false, reason: 'No legal push' } as ReturnType<typeof planPush> };
+  if (action.type === 'respond-reaction' && (action.payload as { choiceId?: string }).choiceId === PUSH_DECLINE_CHOICE) return none;
   if (action.type === 'push-move') {
     const payload = action.payload as { modelId?: string; destination?: Vector3 };
     const model = livingModels(unit).find((m) => m.id === payload.modelId);
@@ -3856,12 +3894,17 @@ function applyPush(state: GameState, newState: GameState, action: GameAction, di
     } else if (plan.fallHeight > 0) {
       events.push({ type: 'fall', wounds: 0, text: `Pushed off an edge: fell ${plan.fallHeight.toFixed(1)}"` });
     }
-    if (!unit.isDestroyed && !model.isDestroyed) regroupAfterPush(newState, unit, model);
+    if (!unit.isDestroyed) {
+      // A real fall (dice rolled) brings the whole unit down to the fallen model; a short drop just keeps the unit together
+      if (plan.fallDice > 0) gatherAroundFallen(newState, unit, model);
+      if (!model.isDestroyed) regroupAfterPush(newState, unit, model);
+    }
     const alive = livingModels(unit);
     if (alive.length > 1) unit.position = computeSquadCentroid(alive.map((m) => m.position ?? unit.position));
     else if (alive.length === 1) unit.position = { ...(alive[0].position ?? unit.position) };
   } else {
-    events.push({ type: 'push', wounds: 0, text: `${unit.name}: no legal push` });
+    const declined = action.type === 'respond-reaction' && (action.payload as { choiceId?: string }).choiceId === PUSH_DECLINE_CHOICE;
+    events.push({ type: 'push', wounds: 0, text: declined ? `${unit.name}: push declined` : `${unit.name}: no legal push` });
   }
   recordTraversal(action, unit, events, dice);
 

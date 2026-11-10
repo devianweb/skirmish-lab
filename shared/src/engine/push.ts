@@ -14,10 +14,11 @@ import { fallDiceCount, floorHeightBelow } from './traversal';
 
 /**
  * Pushing: when an attack leaves an enemy unit Shaken, the attacking player rolls a die; on a 4+ they move
- * one model of that unit up to `PUSH_RANGE` inches. The host sets a `push` reaction for the attacker. Its only
- * button is Auto (the model nearest the attacker moves directly away, as far as is legal); a custom move is the
- * `push-move` action. A model pushed off an edge falls like any other (`fallDiceCount`). The unit's other
- * models then step in, the least they must, to keep it together.
+ * one model of that unit up to `PUSH_RANGE` inches. The host sets a `push` reaction for the attacker. It offers
+ * Auto (the model nearest the attacker moves directly away, as far as is legal), Confirm (the attacker picks the
+ * model and spot: the `push-move` action) and Don't push. A model pushed off an edge falls like any other (`fallDiceCount`) and the rest of the unit is placed
+ * around it at the bottom (`gatherAroundFallen`); after a push that does not fall, the other models step in, the
+ * least they must, to keep the unit together (`regroupAfterPush`).
  */
 
 export const PUSH_RANGE = 2.0;
@@ -25,6 +26,10 @@ export const PUSH_RANGE = 2.0;
 export const PUSH_TARGET = 4;
 /** Reaction choice that lets the host push (the timeout default). */
 export const PUSH_AUTO_CHOICE = 'auto-push';
+/** Reaction choice that declines the push: pushing is optional, so the attacker may leave the unit where it is. */
+export const PUSH_DECLINE_CHOICE = 'no-push';
+/** The Confirm button: the attacker picks the model and the spot on the board (sent as a `push-move`). */
+export const PUSH_CONFIRM_CHOICE = 'confirm-push';
 export const PUSH_DURATION_MS = 30000;
 
 /** A queued push: the Shaken unit and who attacked it. */
@@ -77,7 +82,11 @@ export function createPushReaction(
     targetUnitId: shaken.id,
     title: 'Push',
     description: `${shaken.name} is Shaken: move one of its models up to ${PUSH_RANGE}". Auto pushes the model nearest ${attacker.name} straight away from it.`,
-    options: [{ id: PUSH_AUTO_CHOICE, label: 'Auto push', isDefault: true, style: 'primary' }],
+    options: [
+      { id: PUSH_AUTO_CHOICE, label: 'Auto', isDefault: true, style: 'primary' },
+      { id: PUSH_CONFIRM_CHOICE, label: 'Confirm', style: 'secondary' },
+      { id: PUSH_DECLINE_CHOICE, label: "Don't push", style: 'danger' },
+    ],
     expiresAt: Date.now() + PUSH_DURATION_MS,
     durationMs: PUSH_DURATION_MS,
     data: { actionId, rest } as unknown as Record<string, any>,
@@ -235,6 +244,59 @@ export function regroupAfterPush(state: GameState, unit: Unit, pushed: Model): v
     }
     if (!bestSpot) return;
     mover.position = bestSpot;
+  }
+}
+
+/**
+ * After a push-fall: every other living model of the unit is placed within 1" (base edge to base edge) of the
+ * fallen model at the bottom, on the floor where it landed. Each takes the legal spot (supported, clear of terrain
+ * and of models already placed) closest to where it stood; a model already there and in reach stays. Models that
+ * find no spot are left for the usual regroup. `fallen` may be a casualty of the fall: its landing spot anchors.
+ */
+export function gatherAroundFallen(state: GameState, unit: Unit, fallen: Model): void {
+  const anchor = fallen.position ?? unit.position;
+  const others = living(unit).filter((m) => m.id !== fallen.id);
+  if (others.length === 0) return;
+  const surfaces = collectWalkableSurfaces(state);
+  const halfW = (state.board.width * state.board.gridSize) / 2 - UNIT_COLLISION_RADIUS;
+  const halfH = (state.board.height * state.board.gridSize) / 2 - UNIT_COLLISION_RADIUS;
+  const reach = SQUAD_COHERENCY_SAME_LEVEL_CENTRE;
+  const ay = anchor.y ?? 0;
+  const candidates: Vector3[] = [];
+  for (let r = 0; r <= reach + 1e-9; r += 0.25) {
+    const n = r === 0 ? 1 : Math.max(8, Math.round(r * 16));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      candidates.push({ x: round2(anchor.x + Math.cos(a) * r), y: ay, z: round2(anchor.z + Math.sin(a) * r) });
+    }
+  }
+  const placed: Vector3[] = fallen.isDestroyed ? [] : [anchor];
+  // Nearest to the fallen model first, so the closest keep their places
+  const order = [...others].sort((a, b) => {
+    const pa = a.position ?? unit.position;
+    const pb = b.position ?? unit.position;
+    return Math.hypot(pa.x - anchor.x, pa.z - anchor.z) - Math.hypot(pb.x - anchor.x, pb.z - anchor.z);
+  });
+  for (const model of order) {
+    const here = model.position ?? unit.position;
+    let best: Vector3 | null = null;
+    let bestDist = Infinity;
+    for (const spot of candidates) {
+      if (Math.abs(spot.x) > halfW || Math.abs(spot.z) > halfH) continue;
+      if (isBaseOverhanging(state, spot, surfaces) || findEndOverlap(state, unit.id, spot)) continue;
+      if (placed.some((p) => Math.abs((p.y ?? 0) - ay) < 1.0 && Math.hypot(p.x - spot.x, p.z - spot.z) < MODEL_OVERLAP_DISTANCE)) continue;
+      const d = Math.hypot(spot.x - here.x, spot.z - here.z) + Math.abs((here.y ?? 0) - ay) * 0.01;
+      if (d < bestDist - 1e-9) {
+        bestDist = d;
+        best = spot;
+      }
+    }
+    if (best) {
+      model.position = best;
+      placed.push(best);
+    } else {
+      placed.push(here);
+    }
   }
 }
 

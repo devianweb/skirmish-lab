@@ -3,11 +3,12 @@ import { createAction, createInitialGameState } from '../../src/gameState';
 import { DiceResult, GameState, TerrainPiece, Unit, Vector3, Weapon } from '../../src/gameTypes';
 import { DiceSpec } from '../../src/types';
 import { WEAPONS } from '../../src/data/weapons';
+import { createJumpRangeMap } from '../../src/data/builtinMaps';
 import { TERRAIN_PALETTE_CATALOG } from '../../src/data/mapSchema';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
 import { recordWoundBaseline } from '../../src/engine/activation';
 import { validateSquadCoherency } from '../../src/engine/spatial';
-import { PUSH_AUTO_CHOICE, autoPush, planPush } from '../../src/engine/push';
+import { PUSH_AUTO_CHOICE, PUSH_CONFIRM_CHOICE, PUSH_DECLINE_CHOICE, autoPush, createPushReaction, planPush } from '../../src/engine/push';
 
 const HOST = 'host-1';
 const GUEST = 'guest-1';
@@ -150,7 +151,7 @@ describe('push: when it is offered', () => {
     expect(out.logEntry.dice?.outcome.moraleTests?.[0]).toMatchObject({ outcome: 'shaken', pushRoll: 3 });
   });
 
-  it('Shaken and the push die is exactly 4: the attacker gets a push prompt with only the Auto button', () => {
+  it('Shaken and the push die is exactly 4: the attacker gets a push prompt with Auto, Confirm and Don\'t push', () => {
     const out = endWith(squadScenario(), { morale: [1], push: [4] });
     const pending = out.state!.turnState.pendingReaction!;
     expect(pending).toMatchObject({
@@ -159,7 +160,7 @@ describe('push: when it is offered', () => {
       sourceUnitId: 'h1',
       targetUnitId: 'g1',
     });
-    expect(pending.options.map((o) => o.id)).toEqual([PUSH_AUTO_CHOICE]);
+    expect(pending.options.map((o) => o.id)).toEqual([PUSH_AUTO_CHOICE, PUSH_CONFIRM_CHOICE, PUSH_DECLINE_CHOICE]);
     expect(pending.options[0].isDefault).toBe(true);
     expect(out.logEntry.dice?.outcome.moraleTests?.[0]).toMatchObject({ pushRoll: 4 });
   });
@@ -394,5 +395,108 @@ describe('push: several Shaken units in one end of activation', () => {
     expect(next.state!.turnState.pendingReaction).toMatchObject({ targetUnitId: 'g2' });
     const last = resolve(next.state!, respondAuto(next.state!));
     expect(last.state!.turnState.pendingReaction ?? null).toBeNull();
+  });
+});
+
+function tallDeck(): TerrainPiece {
+  const meta = TERRAIN_PALETTE_CATALOG['platform-small'];
+  return {
+    id: 'deck',
+    terrainType: 'platform-small',
+    position: P(-2, 0),
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { ...meta.defaultScale, y: 6 },
+    blocksLineOfSight: meta.blocksLineOfSight,
+    providesCover: meta.providesCover,
+    isObstacle: meta.isObstacle,
+    isWalkable: true,
+  } as TerrainPiece; // x -4..0, top at 6"
+}
+
+/** h1 (host) with a Shaken four-model g1 along the 6" deck, the push prompt pending. */
+function deckScenario(): GameState {
+  const h1 = mkUnit('h1', HOST, -9, 0);
+  const g1 = mkUnit('g1', GUEST, -3.5, 0, 4, 6);
+  const state = endOfActivation([h1, g1], { g1: 0 }, [tallDeck()]);
+  unitOf(state, 'g1').status = ['shaken'];
+  state.turnState.pendingReaction = createPushReaction('a1', unitOf(state, 'g1'), unitOf(state, 'h1'), []);
+  return state;
+}
+
+describe('push: declining and falling', () => {
+  const afterShaken = () => endWith(squadScenario(), { morale: [1], push: [5] }).state!;
+  const respond = (state: GameState, choiceId: string, actor = HOST) =>
+    createAction(actor, 'respond-reaction', { type: 'respond-reaction', reactionId: state.turnState.pendingReaction!.id, choiceId });
+
+  it("Don't push leaves every model where it was, needs no dice and moves play on", () => {
+    const state = afterShaken();
+    const before = JSON.stringify(unitOf(state, 'g1').models.map((m) => m.position));
+    const act = respond(state, PUSH_DECLINE_CHOICE);
+    expect(validateAction(state, act)).toEqual({ valid: true });
+    expect(getDiceSpecs(state, act) ?? []).toEqual([]);
+    const out = resolve(state, act);
+    expect(JSON.stringify(unitOf(out.state!, 'g1').models.map((m) => m.position))).toBe(before);
+    expect(out.state!.turnState.pendingReaction ?? null).toBeNull();
+    expect(out.logEntry.dice?.outcome.traversal?.[0].text).toMatch(/declined/);
+  });
+
+  it('Confirm is not an answer on its own: the move must arrive as a push-move', () => {
+    const state = afterShaken();
+    expect(validateAction(state, respond(state, PUSH_CONFIRM_CHOICE)).valid).toBe(false);
+  });
+
+  it('a model pushed 2" off a 6" edge rolls 6 fall dice (1-3 wound) and the rest of its squad ends within 1" of it at the bottom', () => {
+    const state = deckScenario();
+    const act = createAction(HOST, 'push-move', { type: 'push-move', modelId: 'g1-m3', destination: { x: 1.5, y: 6, z: 0 } });
+    expect(validateAction(state, act)).toEqual({ valid: true });
+    expect(getDiceSpecs(state, act)).toEqual([{ count: 6, sides: 6, purpose: 'fall' }]);
+    const out = resolve(state, act, { fall: [1, 2, 3, 4, 5, 6] });
+    const events = out.logEntry.dice!.outcome.traversal!;
+    expect(events.find((e) => e.type === 'fall')).toMatchObject({ wounds: 3, rolls: [1, 2, 3, 4, 5, 6] });
+    const g = unitOf(out.state!, 'g1');
+    const fallen = g.models.find((m) => m.id === 'g1-m3')!;
+    expect(fallen.position!.y).toBe(0);
+    const alive = g.models.filter((m) => !m.isDestroyed);
+    expect(alive.length).toBe(1);
+    for (const m of alive) {
+      expect(m.position!.y).toBe(0);
+      expect(Math.hypot(m.position!.x - fallen.position!.x, m.position!.z - fallen.position!.z)).toBeLessThanOrEqual(2.0 + 1e-6);
+    }
+    expect(out.state!.turnState.pendingReaction ?? null).toBeNull();
+  });
+
+  it('with no wounds from the fall, all four models stand within 1" of the fallen one at the bottom, not overlapping', () => {
+    const state = deckScenario();
+    const act = createAction(HOST, 'push-move', { type: 'push-move', modelId: 'g1-m3', destination: { x: 1.5, y: 6, z: 0 } });
+    const out = resolve(state, act, { fall: [6, 5, 4, 6, 5, 4] });
+    const g = unitOf(out.state!, 'g1');
+    const fallen = g.models.find((m) => m.id === 'g1-m3')!;
+    for (const m of g.models) {
+      expect(m.isDestroyed).toBe(false);
+      expect(m.position!.y).toBe(0);
+      if (m !== fallen) expect(Math.hypot(m.position!.x - fallen.position!.x, m.position!.z - fallen.position!.z)).toBeLessThanOrEqual(2.0 + 1e-6);
+      for (const o of g.models) {
+        if (o !== m) expect(Math.hypot(m.position!.x - o.position!.x, m.position!.z - o.position!.z)).toBeGreaterThanOrEqual(0.9);
+      }
+    }
+  });
+});
+
+describe('push: the built-in Jump Range map supports hand-testing a push-fall', () => {
+  it('a model at the east edge of the 4.5" deck pushed 2" east falls 4.5" (5 dice); a 3.0" deck edge is 3 dice', () => {
+    const map = createJumpRangeMap();
+    const mk = (x: number, z: number, y: number) => {
+      const g1 = mkUnit('g1', GUEST, x, z, 1, y);
+      const state = endOfActivation([mkUnit('h1', HOST, x - 12, z), g1], { g1: 0 }, map.terrain as TerrainPiece[]);
+      return { state, g1: unitOf(state, 'g1') };
+    };
+    // deck D spans x -20..-16 (z -10..-2), top at 4.5"
+    const tall = mk(-16.5, -6, 4.5);
+    const tallPlan = planPush(tall.state, tall.g1, tall.g1.models[0], { x: -14.5, z: -6 });
+    expect(tallPlan).toMatchObject({ ok: true, fallHeight: 4.5, fallDice: 5 });
+    // deck A spans x -11..-7, top at 3.0"
+    const low = mk(-7.5, -6, 3);
+    const lowPlan = planPush(low.state, low.g1, low.g1.models[0], { x: -5.5, z: -6 });
+    expect(lowPlan.ok && lowPlan.fallDice).toBe(3);
   });
 });

@@ -20,6 +20,8 @@ interface Placement {
   yaw?: number;
   /** Override for fittings that snap to a deck (ladders): the rise to the deck top. */
   scaleY?: number;
+  /** Override for the deck depth (z): a long edge so a whole squad can stand along it to jump. */
+  scaleZ?: number;
 }
 
 /** Piece from the catalog at its default scale and flags (the same fields the editor writes on placement). */
@@ -31,7 +33,11 @@ function buildPiece(id: string, placement: Placement): TerrainPiece {
     terrainType: placement.type,
     position: { x: placement.x, y: 0, z: placement.z },
     rotation: { x: 0, y: placement.yaw ?? 0, z: 0 },
-    scale: { ...meta.defaultScale, ...(placement.scaleY !== undefined ? { y: placement.scaleY } : {}) },
+    scale: {
+      ...meta.defaultScale,
+      ...(placement.scaleY !== undefined ? { y: placement.scaleY } : {}),
+      ...(placement.scaleZ !== undefined ? { z: placement.scaleZ } : {}),
+    },
     blocksLineOfSight: meta.blocksLineOfSight,
     providesCover: meta.providesCover,
     isObstacle: meta.isObstacle,
@@ -106,7 +112,51 @@ export function createStandardBattlefieldMap(): CustomMapDefinition {
   };
 }
 
+/**
+ * Half of the Jump Range (the host's side, z < 0): three 8"-deep decks in a row with 2" and 4" gaps between them,
+ * and a 4.5" deck with a ladder up its west face whose east edge is a 4.5" drop (a jump-down). Every deck is
+ * 8" deep, so a whole 4-model squad fits along any edge. Stairs lead up to the three 3.0" decks and a ladder to the tall one.
+ */
+const JUMP_RANGE_HALF: Placement[] = [
+  { type: 'platform-small', x: -9, z: -6, scaleZ: 8 }, // deck A, x -11..-7
+  { type: 'platform-small', x: -3, z: -6, scaleZ: 8 }, // deck B, x -5..-1: 2" gap from A
+  { type: 'platform-small', x: 5, z: -6, scaleZ: 8 }, // deck C, x 3..7: 4" gap from B
+  { type: 'platform-small', x: -18, z: -6, scaleY: 4.5, scaleZ: 8 }, // tall deck D, x -20..-16: 4.5" drop
+  { type: 'ladder', x: -20, z: -6, yaw: Math.atan2(1, 0), scaleY: 4.5 },
+  { type: 'stairs', x: -9, z: -12 }, // up to deck A from the host's side
+  { type: 'stairs', x: -3, z: -12 }, // up to deck B
+  { type: 'stairs', x: 5, z: -12 }, // up to deck C
+];
+
+/**
+ * Jump Range: a practice table for jumps and drops (gaps of 2" and 4", a 4.5" drop), point-symmetric like the
+ * Standard Battlefield so both players get the same range next to their deployment zone.
+ */
+export function createJumpRangeMap(): CustomMapDefinition {
+  const counts: Record<string, number> = {};
+  const nextId = (type: string) => {
+    counts[type] = (counts[type] ?? 0) + 1;
+    return `jr-${type}-${counts[type]}`;
+  };
+  const placements: Placement[] = [];
+  for (const a of JUMP_RANGE_HALF) {
+    placements.push(a);
+    placements.push({ ...a, x: -a.x, z: -a.z, yaw: (a.yaw ?? 0) + HALF_TURN });
+  }
+  return {
+    id: 'jump-range',
+    name: 'Jump Range',
+    version: 1,
+    description:
+      'A practice table for jumps: 8"-deep decks with 2" and 4" gaps and a 4.5" deck with a ladder, next to each deployment zone. Use it with the TEST: Jump Check army, or with TEST: Rules Check to try a push off an edge.',
+    board: { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE },
+    terrain: placements.map((p) => buildPiece(nextId(p.type), p)),
+    objectives: createBalancedObjectives({ width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE }),
+  };
+}
+
 /** Built-in maps by id. Each call returns a fresh copy. */
 export const BUILTIN_MAPS: Record<string, () => CustomMapDefinition> = {
   'standard-battlefield': createStandardBattlefieldMap,
+  'jump-range': createJumpRangeMap,
 };

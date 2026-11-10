@@ -9,6 +9,10 @@ import {
   computeSquadCentroid,
   createAction,
   describeTerrainPiece,
+  PUSH_CONFIRM_CHOICE,
+  PUSH_DECLINE_CHOICE,
+  PUSH_RANGE,
+  planPush,
   describeTrait,
   MeleeResultRecord,
   MoraleTestRecord,
@@ -17,6 +21,7 @@ import {
   classifySegment,
   findNavPath,
   JumpOption,
+  planFollowerCrossing,
   findTerrainAtPosition,
   formatTraitLabel,
   GameState,
@@ -149,6 +154,14 @@ interface PileInContext {
   maxDistance: number;
 }
 
+/** What the push prompt works from (see GameHUD.pushContext). */
+interface PushContext {
+  pending: PendingReaction;
+  shaken: Unit;
+  attacker: Unit;
+  alive: Model[];
+}
+
 /** What the casualty-pick prompt works from (see GameHUD.casualtyContext). */
 interface CasualtyContext {
   pending: PendingReaction;
@@ -223,6 +236,10 @@ export class GameHUD {
   private stagedSquadModelPaths: Map<string, Vector3[]> = new Map();
   /** Jumps/falls declared for individual squad models while staging (model id -> the declared leap). */
   private stagedSquadModelTraversals: Map<string, JumpOption> = new Map();
+  /** Squad models that could not be routed to the leader's crossing (model id -> why), shown on their chip. */
+  private squadBlockedModels: Map<string, string> = new Map();
+  /** The squad model the player declared the jump with (its crossing sizes the roll; it falls on a failure). */
+  private squadJumpLeaderId: string | null = null;
   /** ID of the squad model currently selected for placement */
   private selectedSquadModelId: string | null = null;
   /** Defender pile-in staging: spots and walks chosen so far (model id -> value), for one pending reaction. */
@@ -230,6 +247,12 @@ export class GameHUD {
   private pileInPaths: Map<string, Vector3[]> = new Map();
   private pileInSelectedId: string | null = null;
   private pileInReactionId: string | null = null;
+  /** Push prompt (attacker): Confirm pressed, the model picked, the spot staged, and what the host will make of it. */
+  private pushReactionId: string | null = null;
+  private pushPicking = false;
+  private pushModelId: string | null = null;
+  private pushStaged: Vector3 | null = null;
+  private pushNote: { text: string; ok: boolean } | null = null;
   private casualtyPicked: string[] = [];
   private casualtyReactionId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
@@ -429,11 +452,14 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = null;
     this.pileInStaged.clear();
     this.pileInPaths.clear();
     this.pileInSelectedId = null;
     this.pileInReactionId = null;
+    this.resetPushState(null);
     this.casualtyPicked = [];
     this.casualtyReactionId = null;
     this.lastSeenLogIndex = 0;
@@ -559,6 +585,17 @@ export class GameHUD {
       return;
     }
 
+    const pushing = this.pushContext();
+    if (pushing) {
+      if (!this.pushPicking) return;
+      if (target.kind === 'unit' && target.unitId === pushing.shaken.id && target.modelId) {
+        this.selectPushModel(target.modelId);
+      } else if (target.kind === 'position') {
+        this.stagePushSpot(target.position);
+      }
+      return;
+    }
+
     const pileIn = this.pileInContext();
     if (pileIn) {
       if (target.kind === 'unit' && target.unitId === pileIn.defender.id && target.modelId) {
@@ -676,6 +713,25 @@ export class GameHUD {
         (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
+
+    const pushHover = this.pushContext();
+    if (pushHover) {
+      const model = this.pushSelectedModel(pushHover);
+      if (this.pushPicking && model && !this.pushStaged && target?.kind === 'position') {
+        const note = this.previewPush(pushHover, model, target.position);
+        this.movePathPreview = note.spot ? [model.position ?? pushHover.shaken.position, note.spot] : null;
+        this.movePreview = note.spot;
+        if (this.pushNote?.text !== note.text) {
+          this.pushNote = { text: note.text, ok: note.ok };
+          this.render();
+        }
+      } else if (!this.pushStaged) {
+        this.movePathPreview = null;
+        this.movePreview = null;
+      }
+      this.emitMarkers();
+      return;
+    }
 
     const pileInHover = this.pileInContext();
     if (pileInHover) {
@@ -1163,6 +1219,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
     this.flow = { mode: 'targeting', action };
 
@@ -1289,6 +1347,188 @@ export class GameHUD {
             <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
             <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
           </div>
+        </div>
+      </div>`;
+  }
+
+  // --- push prompt (attacker) -----------------------------------------------
+
+  private resetPushState(reactionId: string | null): void {
+    this.pushReactionId = reactionId;
+    this.pushPicking = false;
+    this.pushModelId = null;
+    this.pushStaged = null;
+    this.pushNote = null;
+  }
+
+  /** The pending push when the local player is the attacker who may move a model, else null. */
+  private pushContext(): PushContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'push' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const shaken = this.state.units.find((u) => u.id === pending.targetUnitId);
+    const attacker = this.state.units.find((u) => u.id === pending.sourceUnitId);
+    if (!shaken || !attacker) return null;
+    if (this.pushReactionId !== pending.id) this.resetPushState(pending.id);
+    return { pending, shaken, attacker, alive: (shaken.models ?? []).filter((m) => !m.isDestroyed) };
+  }
+
+  private pushSelectedModel(ctx: PushContext): Model | null {
+    return ctx.alive.find((m) => m.id === this.pushModelId) ?? (ctx.alive.length === 1 ? ctx.alive[0] : null);
+  }
+
+  /** Clamp a hovered spot to the push ring and say what the host would make of it (including a fall). */
+  private previewPush(ctx: PushContext, model: Model, raw: Vector3): { spot: Vector3 | null; text: string; ok: boolean } {
+    if (!this.state) return { spot: null, text: '', ok: false };
+    const from = model.position ?? ctx.shaken.position;
+    const dx = raw.x - from.x;
+    const dz = raw.z - from.z;
+    const len = Math.hypot(dx, dz);
+    const k = len > PUSH_RANGE ? PUSH_RANGE / len : 1;
+    const dest = { x: from.x + dx * k, z: from.z + dz * k };
+    const plan = planPush(this.state, ctx.shaken, model, dest);
+    if (!plan.ok) return { spot: null, text: plan.reason, ok: false };
+    const fall =
+      plan.fallHeight > 0
+        ? plan.fallDice > 0
+          ? ` · falls ${plan.fallHeight.toFixed(1)}" (${plan.fallDice} dice, 1-3 wound; the rest of the unit comes down with it)`
+          : ` · drops ${plan.fallHeight.toFixed(1)}" (no fall dice)`
+        : '';
+    return { spot: plan.position, text: `Push ${Math.hypot(dest.x - from.x, dest.z - from.z).toFixed(1)}"${fall}`, ok: true };
+  }
+
+  private beginPushPicking(): void {
+    const ctx = this.pushContext();
+    if (!ctx) return;
+    this.pushPicking = true;
+    this.pushModelId = ctx.alive.length === 1 ? ctx.alive[0].id : null;
+    this.pushStaged = null;
+    this.pushNote = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private selectPushModel(modelId: string): void {
+    const ctx = this.pushContext();
+    if (!ctx || !ctx.alive.some((m) => m.id === modelId)) return;
+    this.pushModelId = modelId;
+    this.pushStaged = null;
+    this.pushNote = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private stagePushSpot(raw: Vector3): void {
+    const ctx = this.pushContext();
+    if (!ctx) return;
+    const model = this.pushSelectedModel(ctx);
+    if (!model) {
+      this.showToast('Pick a model of the Shaken unit first');
+      return;
+    }
+    const note = this.previewPush(ctx, model, raw);
+    if (!note.spot) {
+      this.showToast(note.text || 'That spot is not allowed');
+      return;
+    }
+    this.pushStaged = note.spot;
+    this.pushNote = { text: note.text, ok: true };
+    this.movePreview = note.spot;
+    this.movePathPreview = [model.position ?? ctx.shaken.position, note.spot];
+    this.render();
+    this.emitMarkers();
+  }
+
+  private backFromPush(): void {
+    const ctx = this.pushContext();
+    if (!ctx) return;
+    if (this.pushStaged) this.pushStaged = null;
+    else this.pushPicking = false;
+    this.pushNote = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Run the host's check on the staged push; show its refusal as a toast, or send `push-move`. */
+  private confirmPush(): void {
+    const ctx = this.pushContext();
+    if (!ctx || !this.state || !this.pushStaged) return;
+    const model = this.pushSelectedModel(ctx);
+    if (!model) return;
+    const action = createAction(this.localPlayerId, 'push-move', {
+      type: 'push-move',
+      modelId: model.id,
+      destination: this.pushStaged,
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'That push is not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  private pushPromptHtml(ctx: PushContext, remainingSec: number, dataCardSlot: string): string {
+    const reactionId = ctx.pending.id;
+    const choiceBtn = (id: string, label: string, cls = '') =>
+      `<button class="sl-hud-btn ${cls}" data-reaction-choice="${id}" data-reaction-id="${reactionId}">${label}</button>`;
+    let body: string;
+    if (!this.pushPicking) {
+      body = `
+          <div class="sl-hud-reaction-desc">${ctx.pending.description}</div>
+          <div class="sl-hud-reaction-actions">
+            ${ctx.pending.options
+              .map((o) =>
+                o.id === PUSH_CONFIRM_CHOICE
+                  ? `<button class="sl-hud-btn" data-action="push-confirm">${o.label}</button>`
+                  : choiceBtn(o.id, o.label, o.style === 'primary' ? 'primary' : o.style === 'danger' ? 'danger' : '')
+              )
+              .join('')}
+          </div>`;
+    } else {
+      const model = this.pushSelectedModel(ctx);
+      const chips = ctx.alive
+        .map(
+          (m, idx) =>
+            `<button class="sl-hud-btn sl-hud-chip ${m.id === model?.id ? 'active' : ''}" data-action="select-push-model" data-model-id="${m.id}" style="${
+              m.id === model?.id ? 'background: #00bcd4; color: #000; font-weight: bold;' : ''
+            }">Model ${idx + 1}</button>`
+        )
+        .join('');
+      const hint = !model
+        ? 'Pick one model of the Shaken unit: click it on the board or a button below.'
+        : this.pushStaged
+        ? 'Spot chosen. Push to apply it, or Back to pick another spot.'
+        : `Click a spot within ${PUSH_RANGE}" of the highlighted model (the ring).`;
+      const note = this.pushNote
+        ? `<div class="sl-hud-reaction-desc" style="color: ${this.pushNote.ok ? '#a5d6a7' : '#ef9a9a'};">${this.pushNote.text}</div>`
+        : '';
+      body = `
+          <div class="sl-hud-reaction-desc">${hint}</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">${chips}</div>
+          ${note}
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn primary" data-action="push-send" ${this.pushStaged ? '' : 'disabled'}>Push</button>
+            <button class="sl-hud-btn" data-action="push-back">Back</button>
+            ${choiceBtn(PUSH_DECLINE_CHOICE, "Don't push", 'danger')}
+          </div>`;
+    }
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">${ctx.pending.title}</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          ${body}
         </div>
       </div>`;
   }
@@ -1665,9 +1905,16 @@ export class GameHUD {
     // Model placed successfully
     this.stagedSquadModelPositions.set(currentModel.id, destination);
     this.stagedSquadModelPaths.set(currentModel.id, path);
+    this.squadBlockedModels.delete(currentModel.id);
     if (jump) {
       this.stagedSquadModelTraversals.set(currentModel.id, jump);
-      this.showToast(`Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}`);
+      if (!this.squadJumpLeaderId || !this.stagedSquadModelTraversals.has(this.squadJumpLeaderId)) {
+        this.squadJumpLeaderId = currentModel.id;
+      }
+      const followed = this.autoRouteFollowers(actionKind, currentModel, jump);
+      this.showToast(
+        `Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}${followed ? ` · ${followed}` : ''}`
+      );
     } else {
       this.stagedSquadModelTraversals.delete(currentModel.id);
     }
@@ -1689,6 +1936,89 @@ export class GameHUD {
 
     // All living models have been placed!
     this.finishSquadMove(actionKind);
+  }
+
+  /** `{ jumpLeader }` for a squad payload: the living-model index of the model the jump was declared with. */
+  private jumpLeaderPayload(alive: Model[]): { jumpLeader?: number } {
+    const idx = this.squadJumpLeaderId ? alive.findIndex((m) => m.id === this.squadJumpLeaderId) : -1;
+    return idx >= 0 && this.stagedSquadModelTraversals.has(alive[idx].id) ? { jumpLeader: idx } : {};
+  }
+
+  /**
+   * Follow the leader (14C-2 PR 4B): when a squad model declares a jump, route every model not yet placed to the
+   * same crossing: it walks to a spot along the take-off edge with its own move and hops from there. Models
+   * already beyond the crossing (or Flying) are left for the player to move normally; a model that cannot reach
+   * the edge is marked on its chip and left where it stands. The host re-checks every route. Returns a short
+   * note for the toast.
+   */
+  private autoRouteFollowers(actionKind: 'move' | 'rush' | 'charge', leader: Model, jump: JumpOption): string {
+    const active = this.activeUnit;
+    const state = this.state;
+    if (!active || !state || jump.kind === 'fall') return '';
+    const alive = this.activeAliveSquadModels;
+    const isCharge = actionKind === 'charge';
+    const isRush = actionKind === 'rush' || !!active.isRushing;
+    const moveKind: 'move' | 'rush' | 'charge' = isCharge ? 'charge' : isRush ? 'rush' : 'move';
+    const chargeTarget =
+      isCharge && this.declaredCharge ? state.units.find((u) => u.id === this.declaredCharge!.targetId) : undefined;
+    const declared = { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing };
+    const taken: Vector3[] = [jump.takeoff, jump.landing];
+    for (const m of alive) {
+      if (m.id === leader.id) continue;
+      const staged = this.stagedSquadModelPositions.get(m.id);
+      const stagedJump = this.stagedSquadModelTraversals.get(m.id);
+      if (staged) taken.push(staged);
+      if (stagedJump) taken.push(stagedJump.takeoff);
+      if (!staged) taken.push(m.position ?? active.position);
+    }
+    const followed: number[] = [];
+    const blocked: string[] = [];
+    alive.forEach((m, idx) => {
+      if (m.id === leader.id || this.stagedSquadModelPositions.has(m.id)) return;
+      const start = m.position ?? active.position;
+      const remaining = this.distanceLeft(active, moveKind, m);
+      const spent = isCharge ? getEffectiveMaxMovement(active, 'charge', false) - remaining : 0;
+      const budget = Math.min(remaining, getEffectiveMaxMovement(active, moveKind, false) - spent);
+      const difficultBudget = Math.min(remaining, getEffectiveMaxMovement(active, moveKind, true) - spent);
+      // The model's own current spot is not "taken" against itself
+      const others = taken.filter((t) => Math.hypot(t.x - start.x, t.z - start.z) > 1e-6);
+      const plan = planFollowerCrossing(state, active, start, declared, {
+        budget: Math.max(0, budget),
+        difficultBudget: Math.max(0, difficultBudget),
+        taken: others,
+        navOptions: {
+          keepAway: true,
+          stopBeforeDifficult: !isCharge && isRush,
+          ...(chargeTarget ? { ignoreUnitId: chargeTarget.id } : {}),
+        },
+        landingAllowed: (p) =>
+          isCharge
+            ? !chargeTarget || livingModelPositions(chargeTarget).every((t) => boardDistance(t, p) >= 0.9)
+            : !this.enemyUnits.some((e) => !e.isDestroyed && pointEngagesUnit(p, e)),
+      });
+      if (plan.status === 'route') {
+        const { path, option } = plan.route;
+        this.stagedSquadModelPositions.set(m.id, option.landing);
+        this.stagedSquadModelPaths.set(m.id, path);
+        this.stagedSquadModelTraversals.set(m.id, option);
+        this.squadBlockedModels.delete(m.id);
+        taken.push(option.takeoff, option.landing);
+        followed.push(idx + 1);
+      } else if (plan.status === 'unreachable') {
+        this.squadBlockedModels.set(m.id, plan.reason);
+        blocked.push(`Model ${idx + 1} (${plan.reason})`);
+      }
+    });
+    const notes: string[] = [];
+    if (followed.length > 0) {
+      notes.push(
+        `Model${followed.length > 1 ? 's' : ''} ${followed.join(', ')} follow${followed.length > 1 ? '' : 's'} across (one roll for the squad)`
+      );
+    }
+    if (blocked.length > 0) {
+      notes.push(`can't follow: ${blocked.join('; ')}. They stay behind unless you place them`);
+    }
+    return notes.join(' · ');
   }
 
   /**
@@ -1725,7 +2055,14 @@ export class GameHUD {
         this.showToast(
           `Unplaced models stay where they are: ${
             coherency.reason ?? 'the squad would not be in coherency'
-          }. Place more models or reset.`
+          }.${
+            this.squadBlockedModels.size > 0
+              ? ` ${alive
+                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1} cannot reach the take-off edge (${this.squadBlockedModels.get(m.id)})` : ''))
+                  .filter(Boolean)
+                  .join('; ')}.`
+              : ''
+          } Place more models or reset.`
         );
         return;
       }
@@ -1782,6 +2119,7 @@ export class GameHUD {
         modelPositions: orderedPositions,
         modelPaths: orderedPaths,
         ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+        ...this.jumpLeaderPayload(alive),
         ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
@@ -1885,6 +2223,7 @@ export class GameHUD {
       modelPositions: orderedPositions,
       modelPaths: orderedPaths,
       ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
+      ...this.jumpLeaderPayload(alive),
     };
     const action = inContact
       ? createAction(this.localPlayerId, 'charge', {
@@ -2631,6 +2970,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = null;
     this.movePreview = null;
     this.movePathPreview = null;
@@ -2659,6 +3000,8 @@ export class GameHUD {
     this.stagedSquadModelPositions.clear();
     this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
     this.selectedSquadModelId = null;
     this.selectedUnitId = this.state?.turnState.activeUnitId ?? null;
     // A declared charge can't be cancelled: back to choosing its next leg
@@ -3630,6 +3973,8 @@ export class GameHUD {
           </div>
         </div>`;
       }
+      const pushPrompt = this.pushContext();
+      if (pushPrompt) return this.pushPromptHtml(pushPrompt, remainingSec, dataCardSlot);
       const pileInPrompt = this.pileInContext();
       if (pileInPrompt) return this.pileInPromptHtml(pileInPrompt, remainingSec, dataCardSlot);
       if (pendingReaction.type === 'pile-in' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
@@ -3779,18 +4124,22 @@ export class GameHUD {
               .map((m, idx) => {
                 const isPlaced = this.stagedSquadModelPositions.has(m.id);
                 const isSelected = m.id === currentModel?.id;
+                const blockedWhy = !isPlaced ? this.squadBlockedModels.get(m.id) : undefined;
                 return `
                   <button class="sl-hud-btn sl-hud-chip ${isSelected ? 'active' : ''}"
                     data-action="select-squad-model"
                     data-model-id="${m.id}"
+                    ${blockedWhy ? `title="Cannot reach the take-off edge: ${blockedWhy.replace(/"/g, '&quot;')}"` : ''}
                     style="${
-                      isSelected
+                      blockedWhy
+                        ? 'background: rgba(244, 67, 54, 0.25); border-color: #f44336; color: #ef9a9a;'
+                        : isSelected
                         ? 'background: #00bcd4; color: #000; font-weight: bold;'
                         : isPlaced
                         ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
                         : ''
                     }">
-                    ${isPlaced ? '✓ ' : ''}Model ${idx + 1}
+                    ${isPlaced ? '✓ ' : blockedWhy ? '✗ ' : ''}Model ${idx + 1}
                   </button>
                 `;
               })
@@ -4504,6 +4853,18 @@ export class GameHUD {
           case 'confirm-casualties':
             this.confirmCasualties();
             break;
+          case 'push-confirm':
+            this.beginPushPicking();
+            break;
+          case 'select-push-model':
+            if (el.dataset.modelId) this.selectPushModel(el.dataset.modelId);
+            break;
+          case 'push-send':
+            this.confirmPush();
+            break;
+          case 'push-back':
+            this.backFromPush();
+            break;
           case 'select-pile-in-model':
             if (el.dataset.modelId) this.selectPileInModel(el.dataset.modelId);
             break;
@@ -4527,6 +4888,8 @@ export class GameHUD {
             this.stagedSquadModelPositions.clear();
             this.stagedSquadModelPaths.clear();
     this.stagedSquadModelTraversals.clear();
+    this.squadBlockedModels.clear();
+    this.squadJumpLeaderId = null;
             this.selectedSquadModelId = this.activeAliveSquadModels[0]?.id ?? null;
             this.movePathPreview = null;
             this.moveJump = null;
@@ -4841,6 +5204,22 @@ export class GameHUD {
       markers.casualtyPicks = casualtyMarkers.alive
         .filter((m) => this.casualtyPicked.includes(m.id))
         .map((m) => m.position ?? casualtyMarkers.unit.position);
+    }
+
+    const pushMarkers = this.pushContext();
+    const pushModel = pushMarkers ? this.pushSelectedModel(pushMarkers) : null;
+    if (pushMarkers && this.pushPicking) {
+      markers.selectedUnitId = pushMarkers.shaken.id;
+      if (pushModel) {
+        markers.movementRangeUnitId = pushMarkers.shaken.id;
+        markers.movementRangeRadius = PUSH_RANGE;
+        markers.movementRangePosition = pushModel.position ?? pushMarkers.shaken.position;
+        markers.movementRangeColor = 0xffb74d;
+      }
+      const path = this.movePathPreview;
+      if (path && path.length >= 2) {
+        markers.movePath = { from: path[0], to: path[path.length - 1], waypoints: path };
+      }
     }
 
     const pileInMarkers = this.pileInContext();
