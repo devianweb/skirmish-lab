@@ -225,7 +225,7 @@ describe('single-model regression', () => {
 
   it('split fire across two targets still validates and counts per weapon group', () => {
     const a = squad('a', HOST, [pt(0, 0), pt(2, 0)]);
-    a.weapons = [rifle(), { ...WEAPONS.rifle, id: 'rifle2', profile: { ...WEAPONS.rifle.profile } }];
+    a.weapons = [rifle(), { ...WEAPONS.rifle, id: 'rifle2', name: 'Rifle B', profile: { ...WEAPONS.rifle.profile } }];
     const state = makeState([a, squad('t1', GUEST, [pt(0, 10)]), squad('t2', GUEST, [pt(5, 12)])]);
     const action = createAction(HOST, 'shoot', {
       type: 'shoot', attackerId: 'a', targetId: 't1', weaponId: 'rifle',

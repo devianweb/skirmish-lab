@@ -87,7 +87,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   blast: {
     displayName: 'Blast',
-    description: 'Ignores cover and multiplies each hit by up to X models in the target unit.',
+    description: 'Ignores cover. Each hit becomes X hits, shared out between the target and enemy units close to it; no unit takes more hits than it has models.',
   },
   caster: {
     displayName: 'Caster',
@@ -135,7 +135,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   indirect: {
     displayName: 'Indirect',
-    description: 'Can fire without line of sight and ignores sight blockers (-1 to hit if the unit moved).',
+    description: 'If the unit held (did not move), this weapon can fire without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon.',
   },
   limited: {
     displayName: 'Limited',

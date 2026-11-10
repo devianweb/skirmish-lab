@@ -353,6 +353,23 @@ export interface RetaliationOutcome {
   defenseModifiers?: string[];
 }
 
+/** The share of a Blast shot that landed on a unit other than the aimed-at target (its own defense batch). */
+export interface BlastSplashOutcome {
+  weaponId: string;
+  targetId: string;
+  targetName?: string;
+  hitCount: number;
+  blockedCount: number;
+  blockedRolls?: boolean[];
+  regenerationSavedCount?: number;
+  wounds: number;
+  targetDestroyed: boolean;
+  targetShaken?: boolean;
+  effectiveDefense?: number;
+  baseDefense?: number;
+  defenseModifiers?: string[];
+}
+
 export interface WeaponAttackOutcome {
   weaponId: string;
   weaponName?: string;
@@ -463,6 +480,8 @@ export interface DiceResolution {
     meleeResults?: MeleeResultRecord[];
     retaliation?: RetaliationOutcome;
     allocations?: WeaponAttackOutcome[];
+    /** Blast hits that spilled onto other enemy units near the target (totals above count the target only). */
+    blastSplash?: BlastSplashOutcome[];
     pushedBack?: boolean;
     pushBackPosition?: Vector3;
   };

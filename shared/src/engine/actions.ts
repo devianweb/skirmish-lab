@@ -16,6 +16,7 @@ import {
   Weapon,
   WeaponAllocation,
   WeaponAttackOutcome,
+  BlastSplashOutcome,
 } from '../gameTypes';
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
@@ -32,13 +33,18 @@ import {
   validateDeploymentPosition,
 } from './activation';
 import {
+  BlastShare,
   CombatOutcome,
+  blastPurpose,
+  countShotHits,
   extractAllocationRolls,
   extractAttackRolls,
+  extractBlastRolls,
   extractRetaliationRolls,
   getAttackDiceSpecs,
   resolveAttack,
 } from './combat';
+import { autoSplitForParticipants, getBlastParticipants } from './blast';
 import {
   computeSquadCentroid,
   pushBackChargerModels,
@@ -96,7 +102,7 @@ import {
   modelGap,
   livingModelPositions,
 } from './unitGeometry';
-import { firingModels, targetCoverByMajority } from './squadTargeting';
+import { firingModels, ignoresSight, targetCoverByMajority } from './squadTargeting';
 import {
   PILE_IN_AUTO_CHOICE,
   PILE_IN_DISTANCE,
@@ -932,6 +938,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
 
       const weaponIds = new Set<string>();
       const targetIds = new Set<string>();
+      const targetByWeaponName = new Map<string, string>();
 
       for (const alloc of allocations) {
         if (weaponIds.has(alloc.weaponId)) {
@@ -944,6 +951,12 @@ export function validateAction(state: GameState, action: GameAction): Validation
         if (!weapon || weapon.profile.type !== 'ranged') {
           return { valid: false, reason: `Unit has no such ranged weapon (${alloc.weaponId})` };
         }
+        // Weapons of the same name are one group: they cannot be split over different targets
+        const groupTarget = targetByWeaponName.get(weapon.name);
+        if (groupTarget !== undefined && groupTarget !== alloc.targetId) {
+          return { valid: false, reason: `All ${weapon.name} weapons must shoot the same target` };
+        }
+        targetByWeaponName.set(weapon.name, alloc.targetId);
 
         const target = requireTarget(state, action.actorId, alloc.targetId);
         if ('reason' in target) return target;
@@ -1669,6 +1682,33 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
           }))
         );
       }
+
+      // Blast spills onto other enemy units near the target: each gets its own defense batch (sized for the
+      // most hits its models could take; the split itself is only known once the to-hit dice are rolled).
+      if (hasTrait(weapon.profile.specialRules, 'blast')) {
+        for (const spill of getBlastParticipants(state, attacker, target).slice(1)) {
+          const spillSpecs = getAttackDiceSpecs(totalAttacks, {
+            attackerRules: attacker.specialRules,
+            weaponRules: weapon.profile.specialRules,
+            defenderRules: spill.unit.specialRules ?? [],
+            defenderModelCount: spill.cap,
+            isMelee: false,
+            isCharging: false,
+            distance,
+          });
+          for (const s of spillSpecs) {
+            if (s.purpose === 'to-hit') continue;
+            allSpecs.push({
+              ...s,
+              purpose: blastPurpose(
+                spill.unit.id,
+                s.purpose === 'regeneration' ? 'regeneration' : 'defense',
+                isSingle ? undefined : index
+              ),
+            });
+          }
+        }
+      }
     });
 
     return allSpecs.length > 0 ? allSpecs : null;
@@ -2385,6 +2425,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let primaryTargetDestroyed = false;
       let primaryTargetShaken = false;
       const ledger: WoundLedger = new Map();
+      const blastSplash: BlastSplashOutcome[] = [];
 
       // Turn attacker to face the primary target
       const primaryTarget = getUnit(newState, allocations[0].targetId);
@@ -2415,38 +2456,87 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         const weapon = getWeapon(attacker, alloc.weaponId)!;
         const target = getUnit(newState, alloc.targetId)!;
         const distance = unitDistance(attacker, target);
-        const isIndirect = hasTrait(weapon.profile.specialRules, 'indirect');
+        // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
+        const sightless = ignoresSight(attacker, weapon);
         const firing = firingModels(newState, attacker, target, weapon);
         const inCover =
           target.status.includes('in-cover') ||
-          (!isIndirect && targetCoverByMajority(newState, firing, attacker, target));
+          (!sightless && targetCoverByMajority(newState, firing, attacker, target));
         const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
         const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
+
+        const attackerStats = {
+          quality: attacker.quality,
+          specialRules: attacker.specialRules,
+          weaponRules: weapon.profile.specialRules,
+          isMelee: false,
+          isCharging: false,
+          hasMoved: attacker.hasMoved,
+          isFatigued: false,
+          distance,
+        };
+        const targetStats = {
+          defense: target.defense,
+          inCover,
+          specialRules: target.specialRules,
+          modelCount: aliveModels,
+          hasMoved: target.hasMoved,
+        };
+        const isBlast = hasTrait(weapon.profile.specialRules, 'blast');
+        const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
 
         let outcome: CombatOutcome;
         try {
           const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
-          outcome = resolveAttack(
-            {
-              quality: attacker.quality,
-              specialRules: attacker.specialRules,
-              weaponRules: weapon.profile.specialRules,
-              isMelee: false,
-              isCharging: false,
-              hasMoved: attacker.hasMoved,
-              isFatigued: false,
-              distance,
-            },
-            {
-              defense: target.defense,
-              inCover,
-              specialRules: target.specialRules,
-              modelCount: aliveModels,
-              hasMoved: target.hasMoved,
-            },
-            totalAttacks,
-            rolls
-          );
+          if (isBlast) {
+            // Spread the shot's hits over the target and its neighbours; each unit rolls its own defense batch
+            const participants = getBlastParticipants(newState, attacker, target);
+            const shares = autoSplitForParticipants(
+              countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit),
+              participants
+            );
+            let offset = 0;
+            const share = (count: number): BlastShare => ({ offset, count, aimedAt: targetStats });
+            outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls, share(shares[0]));
+            offset += shares[0];
+            for (let k = 1; k < participants.length; k++) {
+              const spill = participants[k].unit;
+              const count = shares[k];
+              if (count === 0) continue;
+              const spillOutcome = resolveAttack(
+                attackerStats,
+                {
+                  defense: spill.defense,
+                  inCover: false,
+                  specialRules: spill.specialRules,
+                  modelCount: participants[k].cap,
+                  hasMoved: spill.hasMoved,
+                },
+                totalAttacks,
+                extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i),
+                share(count)
+              );
+              offset += count;
+              applyTrackedWounds(ledger, spill, spillOutcome.wounds, deadlyValue);
+              blastSplash.push({
+                weaponId: weapon.id,
+                targetId: spill.id,
+                targetName: spill.name,
+                hitCount: spillOutcome.hitCount,
+                blockedCount: spillOutcome.blockedCount,
+                blockedRolls: spillOutcome.blockedRolls,
+                regenerationSavedCount: spillOutcome.regenerationSavedCount,
+                wounds: spillOutcome.wounds,
+                targetDestroyed: spill.isDestroyed,
+                targetShaken: spill.status.includes('shaken'),
+                effectiveDefense: spillOutcome.effectiveDefense,
+                baseDefense: spillOutcome.baseDefense,
+                defenseModifiers: spillOutcome.defenseModifiers,
+              });
+            }
+          } else {
+            outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls);
+          }
         } catch (error) {
           return { ok: false, reason: (error as Error).message };
         }
@@ -2455,7 +2545,6 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           weapon.isEquipped = false;
         }
 
-        const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
         applyTrackedWounds(ledger, target, outcome.wounds, deadlyValue);
 
         totalAttackCount += outcome.attackCount;
@@ -2532,6 +2621,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           coverApplied: firstAlloc.coverApplied,
           apApplied: firstAlloc.apApplied,
           allocations: allocationOutcomes,
+          ...(blastSplash.length > 0 ? { blastSplash } : {}),
         },
       };
 
