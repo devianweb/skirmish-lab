@@ -12,6 +12,8 @@ import {
   createBlankMap,
   createPushReaction,
   PUSH_AUTO_CHOICE,
+  PUSH_DECLINE_CHOICE,
+  PUSH_CONFIRM_CHOICE,
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 
@@ -1133,21 +1135,102 @@ describe('GameHUD', () => {
     expect(submitted.payload.choiceId).toBe('strike-back');
   });
 
-  it('push prompt (engine only until the push HUD): the attacker gets one Auto button that answers with the Auto choice', () => {
+  /** A Shaken three-model guest squad on open ground, with the host unit as the attacker and the push prompt pending. */
+  function pushSetup(localPlayerId: string = HOST) {
     const state = scenarioState();
     const attacker = state.units.find((u) => u.ownerId === HOST)!;
     const shaken = state.units.find((u) => u.ownerId === GUEST)!;
+    const spots = [10, 11, 12];
+    shaken.models = spots.map((x, i) => ({
+      id: `${shaken.id}-m${i}`,
+      wounds: 1,
+      maxWounds: 1,
+      isDestroyed: false,
+      position: { x, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+    }));
+    shaken.position = { x: 11, y: 0, z: 0 };
+    shaken.status = ['shaken'];
     state.turnState.pendingReaction = createPushReaction('end-1', shaken, attacker, []);
-    const { controller, container } = setup(HOST, state);
-    const buttons = container.querySelectorAll('button[data-reaction-choice]');
-    expect(buttons).toHaveLength(1);
-    (buttons[0] as HTMLElement).click();
-    const submitted = controller.submitAction.mock.calls[0][0];
-    expect(submitted.type).toBe('respond-reaction');
-    expect(submitted.payload.choiceId).toBe(PUSH_AUTO_CHOICE);
-    // the other player just waits
+    return { shaken, attacker, ...setup(localPlayerId, state) };
+  }
+
+  it('push prompt: the attacker gets Auto, Confirm and Don\'t push; Auto and Don\'t push answer with their choice', () => {
+    const { controller, container } = pushSetup();
+    const ids = Array.from(container.querySelectorAll('button[data-reaction-choice]')).map((b) => (b as HTMLElement).dataset.reactionChoice);
+    expect(ids).toEqual([PUSH_AUTO_CHOICE, PUSH_DECLINE_CHOICE]);
+    expect(container.querySelector('button[data-action="push-confirm"]')).toBeTruthy();
+    (container.querySelector(`button[data-reaction-choice="${PUSH_AUTO_CHOICE}"]`) as HTMLElement).click();
+    expect(controller.submitAction.mock.calls[0][0].payload.choiceId).toBe(PUSH_AUTO_CHOICE);
+
+    const again = pushSetup();
+    (again.container.querySelector(`button[data-reaction-choice="${PUSH_DECLINE_CHOICE}"]`) as HTMLElement).click();
+    expect(again.controller.submitAction.mock.calls[0][0].payload.choiceId).toBe(PUSH_DECLINE_CHOICE);
+  });
+
+  it('push prompt: the opponent just waits', () => {
+    const { state } = pushSetup();
     const other = setup(GUEST, state);
     expect(other.container.querySelector('.sl-hud-reaction-waiting')?.textContent).toContain('Push');
+    expect(other.container.querySelector('button[data-action="push-confirm"]')).toBeNull();
+  });
+
+  it('push prompt: Confirm lets the attacker pick a model, stage a spot (ring shown) and send a push-move', () => {
+    const { hud, controller, container, shaken } = pushSetup();
+    const emitted: MarkerSnapshot[] = [];
+    hud.onMarkers((m) => emitted.push(m));
+    (container.querySelector('button[data-action="push-confirm"]') as HTMLElement).click();
+    expect((container.querySelector('button[data-action="push-send"]') as HTMLButtonElement).disabled).toBe(true);
+
+    // A spot before a model is picked does nothing
+    hud.handleBoardPick({ kind: 'position', position: { x: 11, y: 0, z: 3 } });
+    expect((container.querySelector('button[data-action="push-send"]') as HTMLButtonElement).disabled).toBe(true);
+
+    hud.handleBoardPick({ kind: 'unit', unitId: shaken.id, modelId: shaken.models[2].id });
+    expect(emitted.at(-1)?.movementRangeRadius).toBe(2);
+    expect(emitted.at(-1)?.movementRangePosition).toMatchObject({ x: 12, z: 0 });
+
+    // Further than 2" is pulled back onto the ring
+    hud.handleBoardPick({ kind: 'position', position: { x: 12, y: 0, z: 5 } });
+    expect(container.textContent).toContain('Push 2.0"');
+    (container.querySelector('button[data-action="push-send"]') as HTMLElement).click();
+    const sent = controller.submitAction.mock.calls[0][0];
+    expect(sent.type).toBe('push-move');
+    expect(sent.payload.modelId).toBe(shaken.models[2].id);
+    expect(sent.payload.destination).toMatchObject({ x: 12, z: 2 });
+  });
+
+  it('push prompt: a spot on top of another model is refused and nothing is staged', () => {
+    const { hud, container, shaken } = pushSetup();
+    (container.querySelector('button[data-action="push-confirm"]') as HTMLElement).click();
+    hud.handleBoardPick({ kind: 'unit', unitId: shaken.id, modelId: shaken.models[2].id });
+    hud.handleBoardPick({ kind: 'position', position: { x: 11, y: 0, z: 0.1 } });
+    expect((container.querySelector('button[data-action="push-send"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('push prompt: hovering a spot off an elevated edge says how far the model falls', () => {
+    const { hud, container, shaken, state } = pushSetup();
+    state.terrain = [
+      {
+        id: 'deck',
+        terrainType: 'platform-small',
+        position: { x: 10, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 6, z: 4 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        isWalkable: true,
+      } as any,
+    ];
+    // deck spans x 8..12; models stand on top at 6"
+    shaken.models.forEach((m, i) => (m.position = { x: 9 + i, y: 6, z: 0 }));
+    shaken.position = { x: 10, y: 6, z: 0 };
+    hud.syncFromState(state);
+    (container.querySelector('button[data-action="push-confirm"]') as HTMLElement).click();
+    hud.handleBoardPick({ kind: 'unit', unitId: shaken.id, modelId: shaken.models[2].id });
+    hud.handleBoardHover({ kind: 'position', position: { x: 13.5, y: 0, z: 0 } });
+    expect(container.textContent).toContain('falls 6.0"');
   });
 
   it('renders waiting banner for opponent during reaction', () => {

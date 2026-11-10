@@ -90,11 +90,14 @@ import {
 import { describeLeftBehind, takeoffSpotProblem } from './followLeader';
 import type { ChargeState } from '../gameTypes';
 import {
+  PUSH_AUTO_CHOICE,
+  PUSH_DECLINE_CHOICE,
   PUSH_TARGET,
   PushData,
   PushQueueEntry,
   autoPush,
   createPushReaction,
+  gatherAroundFallen,
   planPush,
   pushAttackerFor,
   regroupAfterPush,
@@ -1459,6 +1462,10 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!option) {
         return { valid: false, reason: `Invalid reaction choice: ${choiceId}` };
       }
+      // Confirm on a push is the HUD's pick-a-spot mode: the move itself arrives as a `push-move`
+      if (pending.type === 'push' && choiceId !== PUSH_AUTO_CHOICE && choiceId !== PUSH_DECLINE_CHOICE) {
+        return { valid: false, reason: 'Choose Auto, Don\'t push, or send a push-move' };
+      }
       return { valid: true };
     }
 
@@ -1647,6 +1654,7 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
   if (action.type === 'pile-in-move') return pileInStrikeSpecs(state, action);
 
   if (action.type === 'push-move' || (action.type === 'respond-reaction' && state.turnState.pendingReaction?.type === 'push')) {
+    if (action.type === 'respond-reaction' && (action.payload as { choiceId?: string }).choiceId === PUSH_DECLINE_CHOICE) return null;
     const resolved = pushResolution(state, action);
     return resolved?.model && resolved.plan.ok && resolved.plan.fallDice > 0
       ? [{ count: resolved.plan.fallDice, sides: 6, purpose: 'fall' }]
@@ -3845,6 +3853,7 @@ function pushResolution(
   const attacker = getUnit(state, pending.sourceUnitId);
   if (!unit || !attacker) return null;
   const none = { pending, unit, attacker, model: null, plan: { ok: false, reason: 'No legal push' } as ReturnType<typeof planPush> };
+  if (action.type === 'respond-reaction' && (action.payload as { choiceId?: string }).choiceId === PUSH_DECLINE_CHOICE) return none;
   if (action.type === 'push-move') {
     const payload = action.payload as { modelId?: string; destination?: Vector3 };
     const model = livingModels(unit).find((m) => m.id === payload.modelId);
@@ -3885,12 +3894,17 @@ function applyPush(state: GameState, newState: GameState, action: GameAction, di
     } else if (plan.fallHeight > 0) {
       events.push({ type: 'fall', wounds: 0, text: `Pushed off an edge: fell ${plan.fallHeight.toFixed(1)}"` });
     }
-    if (!unit.isDestroyed && !model.isDestroyed) regroupAfterPush(newState, unit, model);
+    if (!unit.isDestroyed) {
+      // A real fall (dice rolled) brings the whole unit down to the fallen model; a short drop just keeps the unit together
+      if (plan.fallDice > 0) gatherAroundFallen(newState, unit, model);
+      if (!model.isDestroyed) regroupAfterPush(newState, unit, model);
+    }
     const alive = livingModels(unit);
     if (alive.length > 1) unit.position = computeSquadCentroid(alive.map((m) => m.position ?? unit.position));
     else if (alive.length === 1) unit.position = { ...(alive[0].position ?? unit.position) };
   } else {
-    events.push({ type: 'push', wounds: 0, text: `${unit.name}: no legal push` });
+    const declined = action.type === 'respond-reaction' && (action.payload as { choiceId?: string }).choiceId === PUSH_DECLINE_CHOICE;
+    events.push({ type: 'push', wounds: 0, text: declined ? `${unit.name}: push declined` : `${unit.name}: no legal push` });
   }
   recordTraversal(action, unit, events, dice);
 

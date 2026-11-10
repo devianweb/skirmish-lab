@@ -31,6 +31,11 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ## 5. Low cover & scatter
 - All items verified.
 
+- Push prompt (14C-2 PR 5). Setup: press F9 in the lobby (Developer mode), pick the army **TEST: Rules Check (Hero, Blast, Indirect, multi-weapon)** for both players and the built-in map **Jump Range**. The two "Test Squad" units are Quality 6+, so they fail Morale on a 1-5. The guest walks "Test Squad A" (4 models) up the stairs onto the nearest 3" deck (the mirror of deck A: x 7..11, z 2..10; stairs at x 9, z 12), or up the ladder to the 4.5" deck (x 16..20, z 2..10; ladder on its east face) for a 5-dice fall. Then, on the host's turn, shoot that squad with "Test Squad B", the Hero and the Heavy Gunner (keep shooting over a few rounds if needed) until it has 2 models left (half strength), and end the activation. The squad fails Morale and becomes Shaken, but the attacker's push die is random (needs 4+), so it may take several tries (repeat with the other squad, or rematch).
+- [ ] **Push prompt buttons.** When the push die shows 4+, the attacker's dock shows "Push" with **Auto**, **Confirm** and **Don't push** and a countdown; the other player sees "Waiting for opponent: Push". Don't push: nothing moves, the log says the push was declined, play continues. Letting the timer run out applies Auto.
+- [ ] **Confirm: pick a model and a spot.** Press Confirm, click one model of the Shaken squad (or its button): an amber ring of 2" shows around it. Hover a spot: a line from the model to the spot (pulled back onto the ring if you are further), and the dock says "Push 1.5"". Click the spot, then **Push**: the model moves, only the models cut off from it step in. A spot on top of another model or inside terrain is refused with a message. **Back** returns to the buttons.
+- [ ] **Push off an edge.** With the squad on the 3" deck, hover a spot 1-2" past the deck edge: the dock says it falls 3.0" (3 dice, 1-3 wound). Push it: the dice panel shows the fall dice and wounds (the log entry carries them for both players), and every other living model of the squad ends at the bottom within 1" (edge to edge) of the fallen model. Nobody's activation ends. Repeat from the 4.5" deck (5 dice).
+
 ## 6. Squads
 - All items verified.
 

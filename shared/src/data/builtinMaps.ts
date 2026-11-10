@@ -148,7 +148,7 @@ export function createJumpRangeMap(): CustomMapDefinition {
     name: 'Jump Range',
     version: 1,
     description:
-      'A practice table for jumps: 8"-deep decks with 2" and 4" gaps and a 4.5" deck with a ladder, next to each deployment zone. Use it with the TEST: Jump Check army.',
+      'A practice table for jumps: 8"-deep decks with 2" and 4" gaps and a 4.5" deck with a ladder, next to each deployment zone. Use it with the TEST: Jump Check army, or with TEST: Rules Check to try a push off an edge.',
     board: { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE },
     terrain: placements.map((p) => buildPiece(nextId(p.type), p)),
     objectives: createBalancedObjectives({ width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE }),
