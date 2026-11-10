@@ -33,6 +33,12 @@ Reference: `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6
 16. **Falling:** a fall (failed jump, walking off > 6", or a push off an edge) of **2" or more** rolls one die per started inch fallen; each 1–3 is one wound (no Defense roll; goes through casualty picking for squads). Landing placement stays (within 2" of the bottom, clear, supported; other models within 1" of it where the existing helpers already do this). The activation ends (if it was the falling unit's activation).
 17. **Pushing** replaces the old ledge knockback (`calculateLedgeKnockback`): whenever a unit becomes Shaken (or Routs — no push then, it's gone) after being attacked (shooting or melee, including morale at end of activation caused by that attack), the attacking unit's player rolls one die; on 4+ they may move one model of the Shaken unit up to 2" horizontally in any direction to a legal spot (no overlap, on the board, not inside solids). The other models of that unit are then placed within 1" of it by the host's auto placement (closest legal spot to each model's current position) — a digital simplification of "the opponent places". If the pushed model ends off an elevated edge with a drop ≥ 2", it falls (Decision 16) without ending anyone's activation. Engine prompt: a pending reaction `push` for the attacker with **Auto** (push the model closest to the attacker 2" directly away from the attacker, to the farthest legal point up to 2") and **Confirm** (attacker picks model + destination) — no "skip" button; timeout = Auto. PR 4 adds the engine with Auto applied immediately when there is no HUD yet; PR 5 adds the HUD prompt.
 
+### Squad follow-the-leader jumps (PR 4B; owner, 2026-11-10, after the 14C-2 playtest)
+37. **Follow the leader.** In a squad's Advance, Rush or charge leg, the player declares the jump with one model (the leader). Every other model moved in that leg whose path reaches the same gap or drop edge is routed across it too: it walks to the take-off edge using its own move, crosses without the crossing counting toward its move (Decision 15), then continues. The single roll (Decision 15) is sized by the longest crossing among the models that cross. The HUD routes the other models to the leader's gap automatically and its preview marks any model that cannot reach the take-off edge with its remaining move.
+38. **Failure:** the model with the longest crossing falls (Decision 16); every other crossing model stops at the take-off spot it walked to (it has moved); the activation ends.
+39. **Unreachable models:** if a model cannot reach the take-off edge and the squad would end the leg split across the gap out of coherency, the host rejects the leg (the HUD shows why and who can't make it), so the player shortens or reroutes the move. Models that don't need to cross (e.g. already beyond the gap) move normally.
+40. **Applies to drops and gaps alike** (jump-drops over 3" up to 6" as well as gaps over 1" up to 6"), and to charge legs as well as Advance and Rush. Flying models never roll and simply move; Strider halves the dice as usual.
+
 ### Dangerous terrain (PR 6)
 18. A unit whose models move across dangerous terrain, or which activates with any model in it, rolls as many dice as the **wounds it would take to destroy it** (sum over living models of Tough − wounds taken); each 1 is a wound (casualty picking for squads). At most **one** dangerous test per unit per activation (activating in it and then moving through it doesn't roll twice). Flying is immune. Replaces the one-die-per-model hazard test.
 
@@ -101,6 +107,11 @@ Reference: `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6
 - **Tests first:** dice counts (1.1" gap = 2 dice, 6.0" = 6, Strider 5→3), 2+ target; one roll for the longest jump; fail → longest jumper falls, others at take-off, activation ends; fall 1.9" = no dice, 2.0" = 2 dice, wounds on 1–3; push only on Shaken after an attack, 4+, ≤2", others within 1", push off an edge falls; Auto push picks closest model and moves directly away.
 - **Manual checks:** squad jump shows one dice roll; a pushed unit moves.
 
+## PR 4B: Squad follow-the-leader jumps  (branch: `14C-2-core-4b`)
+- **Layer:** shared engine + client HUD (the routing preview is UX; the host re-checks every model's path, reach and coherency).
+- **Tests first:** a 4-model squad where only the leader starts at the edge: the others walk to the edge and cross on one roll, their move spent only on the walk; failure leaves them at their take-off spots and the longest crosser falls; a model that can't reach the edge with its remaining move makes the leg invalid when the end positions break coherency, valid when it doesn't need to cross; a 4" drop as a group jump (5 dice); a charge leg with a group jump; Strider dice halved; Flying no roll.
+- **Manual checks:** move a 4-model squad across a 3" gap from a starting position where only one model is at the edge: one roll, all cross; a failed roll leaves the others at the edge.
+
 ## PR 5: Push prompt HUD  (branch: `14C-2-core-5`)
 - **Layer:** client HUD (+ renderer preview ring if cheap).
 - Attacker's dock: Auto / Confirm, pick model then destination within a 2" ring; timeout Auto.
@@ -123,4 +134,4 @@ Reference: `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6
 - **Layer:** shared reaction + client HUD.
 
 ## Open questions
-None blocking. Opus-made choices to confirm with the owner: Decisions 9 (Fear once per unit), 12 (auto-split order), 15 (tie-break for the faller), 17 (push auto-placement of the other models, Auto behaviour), 18 (one dangerous test per activation), 21 (Counter after Impact), 27 (roll-off encoding), 32 (Scouts always set aside), 33 (Ambush skip).
+None blocking. Decisions 37–40 were agreed with the owner on 2026-11-10. Opus-made choices to confirm with the owner: Decisions 9 (Fear once per unit), 12 (auto-split order), 15 (tie-break for the faller), 17 (push auto-placement of the other models, Auto behaviour), 18 (one dangerous test per activation), 21 (Counter after Impact), 27 (roll-off encoding), 32 (Scouts always set aside), 33 (Ambush skip).
