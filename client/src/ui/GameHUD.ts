@@ -13,6 +13,7 @@ import {
   MeleeResultRecord,
   MoraleTestRecord,
   BlastSplashOutcome,
+  BlastSplitRecord,
   classifySegment,
   findNavPath,
   JumpOption,
@@ -3066,17 +3067,43 @@ export class GameHUD {
       .join('');
   }
 
-  /** Blast hits that spilled onto other units: one line per unit with its own Defense result. */
+  /**
+   * How each Blast weapon's hits were multiplied and shared out, e.g.
+   * "Frag Launcher Blast(3): 1 hit × 3 = 3 hits → Test Squad A 2 · Test Squad B 1".
+   */
+  private blastSplitHtml(splits: BlastSplitRecord[] | undefined): string {
+    if (!splits || splits.length === 0) return '';
+    const plural = (n: number) => `${n} hit${n === 1 ? '' : 's'}`;
+    return splits
+      .map((s) => {
+        const base = s.multiplier > 0 ? Math.round(s.totalHits / s.multiplier) : s.totalHits;
+        const shares = s.shares
+          .map((p) => `${p.targetName} <strong>${p.hits}</strong>${p.hits >= p.cap && s.shares.length > 1 ? ` (max ${p.cap})` : ''}`)
+          .join(' · ');
+        const where = s.shares.length > 1 ? ` → ${shares}` : ` (max ${s.shares[0]?.cap ?? 0}: one per model)`;
+        const lost = s.lostHits > 0 ? ` · ${plural(s.lostHits)} lost (every unit at its max)` : '';
+        return `<div class="sl-hud-dice-summary sl-hud-blast-split" style="font-size: 11px; color: #fbbf24;">${s.weaponName} Blast(${s.multiplier}): ${plural(base)} × ${s.multiplier} = ${plural(s.totalHits)}${where}${lost}</div>`;
+      })
+      .join('');
+  }
+
+  /** Blast hits that spilled onto other units: one block per unit with its own Defense dice and result. */
   private blastSplashHtml(splash: BlastSplashOutcome[] | undefined): string {
     if (!splash || splash.length === 0) return '';
     const lines = splash
       .map((b) => {
         const status = b.targetDestroyed ? ' · down' : b.targetShaken ? ' · shaken' : '';
-        return `<div class="sl-hud-dice-summary" style="font-size: 11px;">Blast spill: ${b.targetName ?? b.targetId} · ${b.hitCount} hit${
+        const dice = (b.defenseRolls ?? [])
+          .map((r, di) => {
+            const blocked = b.blockedRolls ? (b.blockedRolls[di] ?? false) : r > 1 && r >= (b.effectiveDefense ?? 5);
+            return `<span class="sl-die ${blocked ? 'def-pass' : 'def-fail'}">${r}</span>`;
+          })
+          .join('');
+        return `<div class="sl-hud-dice-label">Blast spill on ${b.targetName ?? b.targetId}: Defense (need D${b.effectiveDefense ?? '?'}+):</div>
+          ${dice ? `<div class="sl-hud-dice-row">${dice}</div>` : ''}
+          <div class="sl-hud-dice-summary" style="font-size: 11px;">${b.hitCount} hit${
           b.hitCount === 1 ? '' : 's'
-        } (D${b.effectiveDefense ?? '?'}+) · ${b.blockedCount} blocked · <strong>${b.wounds} wound${
-          b.wounds === 1 ? '' : 's'
-        }</strong>${status}</div>`;
+        } · ${b.blockedCount} blocked · <strong>${b.wounds} wound${b.wounds === 1 ? '' : 's'}</strong>${status}</div>`;
       })
       .join('');
     return `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.2);">${lines}</div>`;
@@ -3223,6 +3250,7 @@ export class GameHUD {
             <div class="sl-hud-dice-summary" style="margin-top: 6px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 4px;">
               Total: ${outcome.hitCount} hits · ${outcome.blockedCount} blocked · ${outcome.wounds} unsaved wounds
             </div>
+            ${this.blastSplitHtml(outcome.blastSplits)}
             ${this.blastSplashHtml(outcome.blastSplash)}
           </div>`;
       }
@@ -3357,7 +3385,8 @@ export class GameHUD {
           <div class="sl-hud-dice-title">${titleText}</div>
           <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
-          <div class="sl-hud-dice-label">Defense (need D${targetD}+${defMods}):</div>
+          ${this.blastSplitHtml(outcome.blastSplits)}
+          <div class="sl-hud-dice-label">${outcome.blastSplash?.length ? `${target?.name ?? 'Target'} ` : ''}Defense (need D${targetD}+${defMods}):</div>
           <div class="sl-hud-dice-row">${defDiceHtml}</div>
           <div class="sl-hud-dice-summary">
             ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
