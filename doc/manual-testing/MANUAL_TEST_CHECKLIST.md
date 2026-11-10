@@ -27,20 +27,13 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 6. Squads
 - All items verified.
+- [ ] **Squad follow-through** (Developer mode, `TEST: Jump Check` map or the TEST squad army, any squad of 3+ models on open ground): Advance, place ONE model, and the other models show rings where they will go; the instruction line says the others will follow. Click Confirm move: the confirmation lists every model and the move is accepted. Repeat with Rush (12") and with a charge on a distant target (a leg: nobody ends touching by accident).
+- [ ] Squad follow-through keeps formation: place one model 5" ahead and the rest end 5" ahead of where each stood, in the same shape. Select a chip and place another model by hand before Confirm: that model is exactly where you put it, and the rest re-form around the two.
+- [ ] Squad follow-through with an obstacle (an enemy unit or a wall in a follower's lane): the follower stops at the farthest legal point (never within 1" of the enemy, never overlapping), or takes a spot next to a squad-mate. If a model really cannot follow and the squad would lose coherency, Confirm is refused with a message naming that model and its chip turns red.
+- [ ] Squad follow-through with a jump: declaring a jump with one model still carries the others across (group crossing); unplaced models do not follow on their own in that case.
 
 ## 7. Movement, rush and shooting
 - All earlier items verified. New (keep-away measured in 3D, 14C-2 bugfix). Setup: F9 in the lobby (Developer mode), army **TEST: Jump Check** for both players, map **Jump Range**, Deploy off or place the squads by hand.
-- New (flying indicator and stop note, UI only). Same setup (F9 in the lobby, army **TEST: Jump Check**, map **Jump Range**), run from either side:
-- [ ] Flying: activate "Test Flyers" and Advance, then Rush, hovering over a gap, a deck and another unit: the hover note starts "Flying · X\" · over terrain" with X the path length, and the path line is dashed cyan (not solid green). Do the same with a single flyer model pick in the squad and with a charge leg. Test Jumpers or Test Striders show a plain solid line and no Flying chip.
-- [ ] Stairs blocked by a friendly unit: stand "Test Jumpers" on the first 3" deck within 1" of the head of a 2"-wide stair (host stairs at x -9, z -12), then Rush / Advance a "Test Striders" model toward the deck at the stair head: the model stops short, the hover note reads "Stopped: within 1\" of <that unit's name> (keep-away)", and a blue ring with the same text sits at the stop point. Move the friendly unit away and the note disappears.
-- [ ] Same with an enemy unit standing there (the note names the enemy), and with a charge leg (the declared target is exempt, any other unit is named).
-- [ ] Aim a move past its allowance: the note is "Stopped: out of movement" with the marker at the end of the path. Rush out of rubble or other difficult ground toward a far point: "Stopped: difficult terrain caps the move at 6\"". Rush toward a point on the far side of rubble: the existing "Rush stops at the edge of difficult terrain" shows once, with the marker. Point at a 3" deck from open ground with no stairs or ladder in reach: "Stopped: can't climb there (use stairs or a ladder)".
-- [ ] Both players: the guest sees the same notes and markers when moving on their side.
-- [ ] Put the host's TEST: Jump Check squad on the ground under a 3" deck (the host-side deck at x -9, z -10..-2), then activate the guest's squad (or another host unit) and Move it up the stairs and across the deck above the squad: the preview is not red and the move is accepted.
-- [ ] Same setup: a path that really passes within 1" in 3D (walking on the ground right beside the models under the deck, or climbing the stairs while a model stands right at their foot) is still refused with the 1" message.
-- [ ] Select a unit standing on the 3" deck above the ground squad: no red ring is drawn solid around the under-deck models (they show faint); hover the "Red rings" legend: the tooltip explains that the 1" is measured in 3D. Select a unit on the ground beside the stairs: models on the deck are faint too.
-- [ ] Deploy (Deployment on) a unit on a deck directly above a deployed friendly unit on the ground (and the reverse): accepted; one inch beside it on the same level: still "within 1"".
-- [ ] A squad crossing a gap (group crossing) can land carried models over/under another unit's models at a different level; the same spot at the same level within 1" is still refused.
 
 ## 8. Melee & objectives
 - All earlier items verified.

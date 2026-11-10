@@ -152,7 +152,7 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     expect(res.state!.units.find((u) => u.id === action.payload.attackerId)!.remainingMovement).toBeCloseTo(9, 1);
   });
 
-  it('Confirm charge early keeps unplaced models where they stand when the squad is still coherent', () => {
+  it('Confirm charge early on a leg moves the unplaced models the same way, keeping the formation', () => {
     const ctx = setup();
     declare(ctx);
     ctx.hud.handleBoardPick({ kind: 'position', position: P(-1, 0, -9) }); // model 1 steps 1" forward
@@ -160,8 +160,8 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
     clickByText(ctx.container, 'Confirm');
     const action = ctx.controller.submitAction.mock.calls[0][0];
     expect(action.type).toBe('charge-leg');
-    expect(action.payload.modelPositions[1]).toEqual(P(0, 0, -10));
-    expect(action.payload.modelPositions[2]).toEqual(P(1, 0, -10));
+    expect(action.payload.modelPositions[1]).toEqual(P(0, 0, -9));
+    expect(action.payload.modelPositions[2]).toEqual(P(1, 0, -9));
   });
 
   it('Confirm charge with one model touching the target moves the unplaced models up as close as they can', () => {
@@ -195,7 +195,10 @@ describe('GameHUD per-model squad charges (batch 1D PR 11)', () => {
 
   it('refuses a placement that would leave the squad out of coherency, with the host reason', () => {
     const ctx = setup();
-    declare(ctx);
+    // Models 2 and 3 have walked their whole charge already, so they cannot follow model 1
+    const declared = declare(ctx);
+    declared.units.find((u) => u.id === ctx.unit.id)!.modelMovementSpent = { 'sq-m1': 12, 'sq-m2': 12 };
+    ctx.hud.syncFromState(declared);
     ctx.hud.handleBoardPick({ kind: 'position', position: P(-1, 0, -4) }); // model 1 runs 6" ahead of the rest
     clickByText(ctx.container, 'Confirm charge');
     expect(ctx.controller.submitAction).not.toHaveBeenCalled();
