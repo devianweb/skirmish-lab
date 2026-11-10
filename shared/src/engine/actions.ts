@@ -2215,11 +2215,16 @@ function applyLegTraversals(
         if (j === faller || !j.entry.declaration || !j.entry.model) continue;
         stopJumperAtTakeoff(state, unit, j.entry.model, j.entry.path, j.entry.declaration.takeoff, events, labelFor(j.entry));
       }
-      if (alive.length > 1) {
-        unit.position = computeSquadCentroid(alive.map((m) => m.position ?? unit.position));
-      }
       if (wounds > 0) {
         applyFallWounds(unit, model, wounds);
+      }
+      // A fall of 2" or more brings the rest of the unit down to the fallen model (no dice of their own)
+      if (plan.fallDice > 0 && alive.length > 1 && model && !unit.isDestroyed) {
+        gatherAroundFallen(state, unit, model);
+      }
+      const survivors = livingModels(unit);
+      if (survivors.length > 1) {
+        unit.position = computeSquadCentroid(survivors.map((m) => m.position ?? unit.position));
       }
       fallWounds = wounds;
     }

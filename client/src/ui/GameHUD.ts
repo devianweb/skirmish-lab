@@ -209,6 +209,14 @@ export class GameHUD {
   private keydownHandler: (event: KeyboardEvent) => void;
   /** Action button currently hovered in the action bar (e.g. 'move'). */
   private hoveredAction: string | null = null;
+  /**
+   * Hover-only memo of `findNavPath` results. The pathfinder costs tens of milliseconds, mouse moves arrive far
+   * faster than that, and a squad charge leg with a jump preview repeated it on every pixel of movement (owner
+   * report: frame rate drops when jumping and charging). Keyed by state object, unit, start, budget, options and
+   * the cursor on a 0.1" grid; cleared whenever the state object changes. Clicks never use it.
+   */
+  private hoverNavMemo = new Map<string, Vector3[]>();
+  private hoverNavMemoState: GameState | null = null;
   /** Clamped move destination previewed under the cursor during move targeting. */
   private movePreview: Vector3 | null = null;
   /** Multi-segment waypoints previewed under cursor during move / rush / charge. */
@@ -692,6 +700,37 @@ export class GameHUD {
     }
   }
 
+  /** Memoised `findNavPath` for the hover preview (see `hoverNavMemo`). */
+  private hoverNav(
+    unit: Unit,
+    cursor: Vector3,
+    budget: number,
+    options: Parameters<typeof findNavPath>[4] = {}
+  ): Vector3[] {
+    const state = this.state!;
+    if (this.hoverNavMemoState !== state) {
+      this.hoverNavMemo.clear();
+      this.hoverNavMemoState = state;
+    }
+    const q = (v: number): number => Math.round(v * 10);
+    const start = options.startPosition ?? unit.position;
+    const key = [
+      unit.id,
+      q(start.x), q(start.z), q(start.y ?? 0),
+      q(cursor.x), q(cursor.z), q(cursor.y ?? 0),
+      Math.round(budget * 100),
+      options.keepAway ? 1 : 0,
+      options.stopBeforeDifficult ? 1 : 0,
+      options.ignoreUnitId ?? '',
+    ].join('|');
+    const hit = this.hoverNavMemo.get(key);
+    if (hit) return hit;
+    const path = findNavPath(state, unit, cursor, budget, options);
+    if (this.hoverNavMemo.size > 64) this.hoverNavMemo.clear();
+    this.hoverNavMemo.set(key, path);
+    return path;
+  }
+
   /** Board hover events from GameView (for live movement path preview, target hover & terrain debug). */
   handleBoardHover(target: PickTarget | null): void {
     if (!this.state || this.state.status === 'game-over') return;
@@ -792,7 +831,7 @@ export class GameHUD {
         const cursor = resolved.target;
         let path = resolved.jump
           ? resolved.jump.path
-          : findNavPath(this.state, active, cursor, nominalMax, {
+          : this.hoverNav(active, cursor, nominalMax, {
               keepAway: true,
               startPosition: startPos,
               stopBeforeDifficult: isRush || !!active.isRushing,
@@ -832,7 +871,7 @@ export class GameHUD {
         );
         const cappedAllowance = Math.min(effectiveCap, remainingBudget);
         if (isDifficult && nominalMax > cappedAllowance) {
-          path = findNavPath(this.state, active, cursor, cappedAllowance, {
+          path = this.hoverNav(active, cursor, cappedAllowance, {
             keepAway: true,
             startPosition: startPos,
             stopBeforeDifficult: isRush || !!active.isRushing,
@@ -905,7 +944,7 @@ export class GameHUD {
       if (cursor && model) {
         const path = jump
           ? jump.path
-          : findNavPath(this.state, active, cursor, this.distanceLeft(active, 'charge', model), {
+          : this.hoverNav(active, cursor, this.distanceLeft(active, 'charge', model), {
               ignoreUnitId: declared.targetId,
               keepAway: true,
               startPosition: startPos,
@@ -942,7 +981,7 @@ export class GameHUD {
 
       if (active && enemy && (!declared || enemy.id === declared.targetId) && this.activeAliveSquadModels.length <= 1) {
         const contactTarget = chargeDestination(active, enemy);
-        const path = findNavPath(this.state, active, contactTarget, budget, {
+        const path = this.hoverNav(active, contactTarget, budget, {
           ignoreUnitId: enemy.id,
           keepAway: true,
         });
@@ -959,7 +998,7 @@ export class GameHUD {
         const resolved = resolveMoveTarget(this.state, active, active.position, target.position, true);
         const path = resolved.jump
           ? resolved.jump.path
-          : findNavPath(this.state, active, resolved.target, budget, {
+          : this.hoverNav(active, resolved.target, budget, {
               ignoreUnitId: declared.targetId,
               keepAway: true,
             });

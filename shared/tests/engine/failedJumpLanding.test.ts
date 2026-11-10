@@ -96,6 +96,16 @@ function failJump(state: GameState, fallDice: number[]) {
   return { state: out.state, unit: out.state.units[0], events };
 }
 
+/** After a fall of 2" or more every other living model stands on the floor below within 1" (edge to edge) of the faller. */
+function expectGatheredAtBottom(models: any[], fallenIndex: number): void {
+  const anchor = models[fallenIndex].position;
+  models.forEach((m, i) => {
+    if (i === fallenIndex || m.isDestroyed) return;
+    expect(m.position.y).toBeLessThan(0.3);
+    expect(Math.hypot(m.position.x - anchor.x, m.position.z - anchor.z)).toBeLessThanOrEqual(2.0 + 1e-6);
+  });
+}
+
 describe('failed gap jump: landing', () => {
   it('requests the jump roll (one die per started inch of the 2.9" hop) and the fall dice for a jump off a 3" deck', () => {
     const state = makeState(makeUnit(takeoff));
@@ -184,13 +194,12 @@ describe('failed jump-down: lands on the floor below', () => {
 });
 
 describe('failed gap jump: squads', () => {
-  it('the faller takes the wound as its casualty; the others stay where they were', () => {
+  it('the faller takes the wound as its casualty; the others are brought down around where it landed', () => {
     // Drives the traversal step directly (the declared-jump path is covered in squadDeclaredJumps.test.ts).
     const unit = makeUnit(takeoff, 3);
     unit.models[0].position = P(-1.5, 3, 0.5);
     unit.models[2].position = P(-1.5, 3, -0.5);
     unit.models[1].position = { ...takeoff }; // the jumper is the middle model
-    const before = [unit.models[0].position!, unit.models[2].position!].map((p) => ({ ...p }));
     const state = makeState(unit);
     const u = state.units[0];
     const res = applyTraversalHazardsAndFalls(
@@ -206,8 +215,42 @@ describe('failed gap jump: squads', () => {
     expect(u.models[1].position).toMatchObject({ y: 0 });
     expect(u.models[0].isDestroyed).toBe(false);
     expect(u.models[2].isDestroyed).toBe(false);
-    expect([u.models[0].position, u.models[2].position]).toEqual(before);
+    expectGatheredAtBottom(u.models, 1);
     expect(state.turnState.activeUnitId).not.toBe('u');
+  });
+
+  it('a surviving faller on the 3" deck: the other models are brought down within 1" of it, with no dice of their own', () => {
+    const unit = makeUnit(takeoff, 3);
+    unit.models[0].position = P(-1.5, 3, 0.5);
+    unit.models[2].position = P(-1.5, 3, -0.5);
+    unit.models[1].position = { ...takeoff };
+    const state = makeState(unit);
+    const u = state.units[0];
+    applyTraversalHazardsAndFalls(state, u, [takeoff, landing], jumpAction(), [roll('jump', [1, 1, 1]), roll('fall', [4, 5, 6])], u.models[1]);
+    expect(u.models.every((m) => !m.isDestroyed)).toBe(true);
+    expect(u.models[1].position!.y).toBe(0);
+    expectGatheredAtBottom(u.models, 1);
+    // no overlap between bases
+    for (let i = 0; i < 3; i++)
+      for (let j = i + 1; j < 3; j++) {
+        const a = u.models[i].position!;
+        const b = u.models[j].position!;
+        expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(0.9);
+      }
+  });
+
+  it('a fall under 2" leaves the other models at their take-off spots', () => {
+    const lower = piece('lower', 'platform-small', P(-0.3, 0, 0), 1.5); // a 1.5" fall
+    const unit = makeUnit(takeoff, 3);
+    unit.models[0].position = P(-1.5, 3, 0.5);
+    unit.models[2].position = P(-1.5, 3, -0.5);
+    unit.models[1].position = { ...takeoff };
+    const state = makeState(unit, [lower]);
+    const u = state.units[0];
+    applyTraversalHazardsAndFalls(state, u, [takeoff, landing], jumpAction(), [roll('jump', [1, 1, 1])], u.models[1]);
+    expect(u.models[1].position!.y).toBeCloseTo(1.5);
+    expect(u.models[0].position).toMatchObject({ x: -1.5, y: 3, z: 0.5 });
+    expect(u.models[2].position).toMatchObject({ x: -1.5, y: 3, z: -0.5 });
   });
 
   it('a fall whose dice all show 4+ leaves the faller alive on the floor below', () => {
