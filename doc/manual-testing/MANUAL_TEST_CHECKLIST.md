@@ -47,3 +47,4 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 9. Multiplayer & custom maps
 - All items verified.
+- [ ] **Spawn off terrain (deployment off):** untick the deployment phase, pick the built-in map **Jump Range** and any army (e.g. TEST: Jump Check): every model starts on open ground inside its 12" zone (none inside stairs, ladders, deck legs or under a deck leg), squads keep more than 1" from each other. During a normal deployment, a squad that would put a model on stairs or a deck leg is refused ("Cannot deploy inside a terrain obstacle").

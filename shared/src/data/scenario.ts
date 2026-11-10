@@ -7,6 +7,7 @@ import {
   createUnitsFromStarterArmy,
 } from './armies';
 import { CustomMapDefinition, DEFAULT_BOARD_SIZE, getDeploymentZoneDepth } from './mapSchema';
+import { settleSpawnPositions } from '../engine/activation';
 
 /**
  * Default v1 scenario data: each player deploys a five-fighter force on
@@ -223,6 +224,9 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
       facing: Math.PI,
     });
     state.units = [...hostUnits, ...guestUnits];
+    // No deployment phase: move any unit whose spawn spot collides with the map's terrain to the nearest clear spot
+    state.terrain = mapTerrain;
+    settleSpawnPositions(state, state.units);
   } else {
     state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
   }
