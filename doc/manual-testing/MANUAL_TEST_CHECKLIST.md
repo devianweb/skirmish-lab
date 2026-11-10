@@ -27,13 +27,16 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 6. Squads
 - All items verified.
-- [ ] **Squad follow-through** (Developer mode, `TEST: Jump Check` map or the TEST squad army, any squad of 3+ models on open ground): Advance, place ONE model, and the other models show rings where they will go; the instruction line says the others will follow. Click Confirm move: the confirmation lists every model and the move is accepted. Repeat with Rush (12") and with a charge on a distant target (a leg: nobody ends touching by accident).
-- [ ] Squad follow-through keeps formation: place one model 5" ahead and the rest end 5" ahead of where each stood, in the same shape. Select a chip and place another model by hand before Confirm: that model is exactly where you put it, and the rest re-form around the two.
-- [ ] Squad follow-through with an obstacle (an enemy unit or a wall in a follower's lane): the follower stops at the farthest legal point (never within 1" of the enemy, never overlapping), or takes a spot next to a squad-mate. If a model really cannot follow and the squad would lose coherency, Confirm is refused with a message naming that model and its chip turns red.
-- [ ] Squad follow-through with a jump: declaring a jump with one model still carries the others across (group crossing); unplaced models do not follow on their own in that case.
 
 ## 7. Movement, rush and shooting
 - All earlier items verified. New (keep-away measured in 3D, 14C-2 bugfix). Setup: F9 in the lobby (Developer mode), army **TEST: Jump Check** for both players, map **Jump Range**, Deploy off or place the squads by hand.
+
+- New (dangerous terrain dice, 14C-2 PR 6). Setup: Developer mode, the **Hazard Range** map and **TEST: Hazard Check** for both players (a 5-model Tough 1 squad, a Tough 3 Hero and a Flying squad). Each side has pools A and B side by side (2" apart) and a lone pool C, just outside the deployment zone. To give the Hero a wound, shoot it with the other side first, or let a pool test wound it.
+  - [ ] Advance a squad of 5 Tough 1 models across a hazard pool: the log shows one roll of 5 dice (not one die per model) and each 1 removes a model.
+  - [ ] Activate a unit that starts inside a pool: one test at activation (dice = wounds it would take to destroy it); then moving out of that same pool rolls nothing more.
+  - [ ] A hero with Tough 3 and 1 wound taken rolls 2 dice for the same pool.
+  - [ ] Move across two different pools in one activation: two separate tests; walk back over the first pool and there is no new test.
+  - [ ] A Flying unit crossing or standing in a pool rolls nothing.
 
 ## 8. Melee & objectives
 - All earlier items verified.

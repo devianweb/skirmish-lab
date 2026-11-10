@@ -71,8 +71,9 @@ import {
   fallDiceCount,
   countFallWounds,
   getEffectiveMaxMovement,
-  isPathDangerous,
-  modelsInDangerousTerrain,
+  dangerousPieceIdsOnPaths,
+  dangerousPieceIdsUnderUnit,
+  woundsToDestroy,
   isPathDifficult,
   pathMovementCost,
   resolveDangerousTerrain,
@@ -83,7 +84,6 @@ import {
   detectPathGapJump,
   validateDeclaredTraversal,
   DeclaredTraversal,
-  allocateSquadCasualties,
   distance3D,
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
@@ -506,89 +506,76 @@ function placeSquadModels(unit: Unit, positions: Vector3[]): Vector3[] {
   return prev;
 }
 
-/** Living models that have not yet taken this activation's hazard test (see `activationHazardSpecs`). */
-function untestedLivingCount(unit: Unit): number {
-  const tested = unit.activationHazardModelIds ?? [];
-  const alive = livingModels(unit);
-  return Math.max(0, (alive.length || 1) - alive.filter((m) => tested.includes(m.id)).length);
+/** Purpose tag of the dice for the dangerous terrain test of one piece (one test per piece per activation). */
+const hazardPurpose = (pieceId: string) => `hazard_${pieceId}`;
+
+/** The pieces that still call for a test this activation: not yet tested by this unit. */
+function untestedPieces(unit: Unit, pieceIds: string[]): string[] {
+  const tested = unit.hazardTestedPieceIds ?? [];
+  return pieceIds.filter((id, i) => !tested.includes(id) && pieceIds.indexOf(id) === i);
 }
 
-/** Whether the living model at `index` (living-model order) already took this activation's hazard test. */
-function modelWasHazardTested(unit: Unit, index: number): boolean {
-  const model = livingModels(unit)[index];
-  return !!model && (unit.activationHazardModelIds ?? []).includes(model.id);
+/** One test per piece: as many dice as the wounds it would take to destroy the unit. */
+function hazardSpecsForPieces(unit: Unit, pieceIds: string[]): DiceSpec[] {
+  const count = woundsToDestroy(unit);
+  return untestedPieces(unit, pieceIds).map((id) => ({ count, sides: 6, purpose: hazardPurpose(id) }));
 }
 
-/**
- * Dice for the hazard test of models that start their activation inside dangerous terrain: one die per such
- * model (a single-model unit rolls plain `activation_hazard`, a squad tags `m<index>_activation_hazard` in
- * living-model order).
- */
+/** Dice for the tests of the dangerous pieces the unit starts its activation in (one test per piece). */
 function activationHazardSpecs(state: GameState, unit: Unit): DiceSpec[] {
-  const inside = modelsInDangerousTerrain(state, unit);
-  if (inside.length === 0) return [];
-  const alive = livingModels(unit);
-  if (alive.length <= 1) return [{ count: 1, sides: 6, purpose: 'activation_hazard' }];
-  return inside.map((m) => ({ count: 1, sides: 6, purpose: `m${alive.indexOf(m)}_activation_hazard` }));
+  // A new activation starts with a clean list (beginActivation clears it), whatever a past activation left
+  const count = woundsToDestroy(unit);
+  return dangerousPieceIdsUnderUnit(state, unit).map((id) => ({ count, sides: 6, purpose: hazardPurpose(id) }));
 }
 
 /**
- * Resolves the activation hazard test: each model standing in dangerous terrain rolls one die, every 1 wounds
- * the unit (the model that rolled it is the casualty in a squad). Remembers who was tested so a move across
- * dangerous ground later in the same activation does not roll for them again.
+ * Rolls the test for each piece in `pieceIds` the unit has not tested yet and has dice for: every 1 is a wound,
+ * allocated like other wounds (the player's casualty priority, else wounded models first). Marks the pieces
+ * tested, so crossing them again, or leaving the piece the unit activated in, does not roll again.
  */
+function resolveHazardTests(
+  unit: Unit,
+  pieceIds: string[],
+  dice: DiceResult[] | undefined,
+  events: TraversalEvent[],
+  title: string,
+  priority?: string[]
+): void {
+  for (const id of untestedPieces(unit, pieceIds)) {
+    if (unit.isDestroyed) return;
+    // Only as many dice as wounds still needed to destroy the unit count (earlier pieces may have wounded it)
+    const rolls = dice?.find((d) => d.purpose === hazardPurpose(id))?.rolls?.slice(0, woundsToDestroy(unit));
+    if (!rolls || rolls.length === 0) continue;
+    unit.hazardTestedPieceIds = [...(unit.hazardTestedPieceIds ?? []), id];
+    const wounds = resolveDangerousTerrain(unit, rolls).woundsInflicted;
+    events.push({
+      type: 'hazard',
+      rolls,
+      wounds,
+      text: `${title}: rolled ${rolls.length} ${rolls.length === 1 ? 'die' : 'dice'} (${rollsText(rolls)}) → ${
+        wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''} (each 1)` : 'no wounds'
+      }`,
+    });
+    if (wounds > 0) applyWounds(unit, wounds, 1, priority && livingModels(unit).length > 1 ? [...priority] : undefined);
+  }
+}
+
+/** Resolves the activation test: one per dangerous piece the unit starts in. */
 function applyActivationHazard(state: GameState, unit: Unit, action: GameAction, dice?: DiceResult[]): void {
   if (!dice || dice.length === 0) return;
-  const inside = modelsInDangerousTerrain(state, unit);
-  const alive = livingModels(unit);
-  const squad = alive.length > 1;
   const events: TraversalEvent[] = [];
-  const victims: string[] = [];
-  const tested: string[] = [];
-  const allRolls: number[] = [];
-  for (const model of inside) {
-    const purpose = squad ? `m${alive.indexOf(model)}_activation_hazard` : 'activation_hazard';
-    const rolls = dice.find((d) => d.purpose === purpose)?.rolls;
-    if (!rolls || rolls.length === 0) continue;
-    tested.push(model.id);
-    allRolls.push(...rolls);
-    if (rolls.some((r) => r === 1)) victims.push(model.id);
-  }
-  if (tested.length === 0) return;
-  const wounds = allRolls.filter((r) => r === 1).length;
-  unit.activationHazardModelIds = tested;
-  events.push({
-    type: 'hazard',
-    rolls: allRolls,
-    wounds,
-    text: `Hazard (activated in dangerous terrain): rolled ${rollsText(allRolls)} → ${
-      wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''} (each 1)` : 'no wounds'
-    }`,
-  });
+  resolveHazardTests(unit, dangerousPieceIdsUnderUnit(state, unit), dice, events, 'Hazard (activated in dangerous terrain)');
   recordTraversal(action, unit, events, dice);
-  if (wounds > 0) applyWounds(unit, wounds, 1, squad ? victims : undefined);
 }
 
-/** Jump, fall and hazard dice a squad charge (leg) needs: one `jump` roll for the squad, hazards per model. */
+/** Jump, fall and hazard dice a squad charge (leg) needs: one `jump` roll for the squad, one test per new piece. */
 function squadChargeTraversalSpecs(state: GameState, unit: Unit, payload: SquadChargePayload): DiceSpec[] {
-  const paths = squadChargePaths(unit, payload);
   const carried = crosserSet(payload);
-  const jumpers = paths.map((_, i) => (payload.modelTraversals?.[i] ? i : -1)).filter((i) => i >= 0);
-  const specs: DiceSpec[] = [...legJumpSpecs(state, unit, chargeLegEntries(unit, payload))];
-  // Models that walk share one hazard roll for the squad; jumpers carry their own (carried models roll nothing)
-  if (paths.some((p, i) => !jumpers.includes(i) && !carried.has(i) && isPathDangerous(state, p, unit)) && untestedLivingCount(unit) > 0) {
-    specs.push({ count: untestedLivingCount(unit), sides: 6, purpose: 'hazard' });
-  }
-  for (const i of jumpers) {
-    specs.push(
-      ...pathTraversalSpecs(state, unit, paths[i], {
-        prefix: `m${i}_`,
-        singleModel: true,
-        skipHazard: modelWasHazardTested(unit, i),
-      })
-    );
-  }
-  return specs;
+  const paths = squadChargePaths(unit, payload).filter((_, i) => !carried.has(i));
+  return [
+    ...legJumpSpecs(state, unit, chargeLegEntries(unit, payload)),
+    ...pathTraversalSpecs(state, unit, paths),
+  ];
 }
 
 /** Action types allowed while a charge is declared (Decision 22: no undo, no switching to another action). */
@@ -1649,21 +1636,16 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
     const path = payload.path;
     const specs: DiceSpec[] = [];
     if (unit) specs.push(...legJumpSpecs(state, unit, moveLegEntries(unit, payload)));
-    if (unit && path && path.length > 0) specs.push(...pathTraversalSpecs(state, unit, path));
-    // Squad models that declared a jump keep their own hazard dice, tagged `m<index>_hazard` in model order
-    if (unit && payload.modelTraversals && payload.modelPaths) {
-      const jumpers = payload.modelTraversals
-        .map((t, i) => (t ? i : -1))
-        .filter((i) => i >= 0 && payload.modelPaths![i]?.length >= 2);
-      for (const i of jumpers) {
-        specs.push(
-          ...pathTraversalSpecs(state, unit, payload.modelPaths[i], {
-            prefix: `m${i}_`,
-            singleModel: true,
-            skipHazard: modelWasHazardTested(unit, i),
-          })
-        );
-      }
+    if (unit) {
+      // Mirrors the apply path: a squad move is judged on its model paths, a single model on its path
+      const carried = crosserSet(payload as { crossers?: number[] });
+      const paths =
+        payload.modelPaths && payload.modelPaths.length > 0
+          ? payload.modelPaths.filter((_, i) => !carried.has(i))
+          : path && path.length > 0
+            ? [path]
+            : [];
+      specs.push(...pathTraversalSpecs(state, unit, paths));
     }
     return specs.length > 0 ? specs : null;
   }
@@ -1676,7 +1658,7 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
       return squadSpecs.length > 0 ? squadSpecs : null;
     }
     if (!unit || !payload.path || payload.path.length === 0) return null;
-    const specs = [...legJumpSpecs(state, unit, chargeLegEntries(unit, payload)), ...pathTraversalSpecs(state, unit, payload.path)];
+    const specs = [...legJumpSpecs(state, unit, chargeLegEntries(unit, payload)), ...pathTraversalSpecs(state, unit, [payload.path])];
     return specs.length > 0 ? specs : null;
   }
 
@@ -1840,7 +1822,7 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
             : chargePayload.path && chargePayload.path.length > 0
               ? [
                   ...legJumpSpecs(state, attacker, chargeLegEntries(attacker, chargePayload)),
-                  ...pathTraversalSpecs(state, attacker, chargePayload.path),
+                  ...pathTraversalSpecs(state, attacker, [chargePayload.path]),
                 ]
               : [];
           return moveSpecs.length > 0 ? moveSpecs : null;
@@ -1874,7 +1856,7 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
       // is checked to match it), so a charge and a charge leg roll identically.
       const traversalSpecs = [
         ...legJumpSpecs(state, attacker, chargeLegEntries(attacker, chargePayload)),
-        ...pathTraversalSpecs(state, attacker, chargePayload.path),
+        ...pathTraversalSpecs(state, attacker, [chargePayload.path]),
       ];
       if (traversalSpecs.length > 0) {
         return [...traversalSpecs, ...attackSpecs];
@@ -2065,38 +2047,15 @@ function legJumpSpecs(state: GameState, unit: Unit, entries: LegEntry[]): DiceSp
 }
 
 /**
- * Dice a path's dangerous terrain needs. `prefix` tags the purposes (squad models) and `singleModel`
- * rolls one hazard die instead of one per living model. (Jumps and falls: see `legJumpSpecs`.)
+ * Dice the dangerous terrain along a move needs: one test (as many dice as wounds to destroy the unit) for each
+ * dangerous piece the paths cross that the unit has not already tested this activation. Flying units cross
+ * nothing. (Jumps and falls: see `legJumpSpecs`.)
  */
-function pathTraversalSpecs(
-  state: GameState,
-  unit: Unit,
-  path: Vector3[],
-  opts: { prefix?: string; singleModel?: boolean; skipHazard?: boolean } = {}
-): DiceSpec[] {
-  const prefix = opts.prefix ?? '';
-  const specs: DiceSpec[] = [];
-  if (isPathDangerous(state, path, unit)) {
-    // Models that already took the activation test (standing in dangerous terrain) do not roll again
-    const hazardCount = opts.singleModel
-      ? opts.skipHazard
-        ? 0
-        : 1
-      : untestedLivingCount(unit);
-    if (hazardCount > 0) specs.push({ count: hazardCount, sides: 6, purpose: `${prefix}hazard` });
-  }
-  return specs;
+function pathTraversalSpecs(state: GameState, unit: Unit, paths: Vector3[][]): DiceSpec[] {
+  return hazardSpecsForPieces(unit, dangerousPieceIdsOnPaths(state, paths, unit));
 }
 
-/** The rolls a squad model uses: its own `m<index>_` dice (prefix removed) plus the untagged ones. */
-function diceForModel(dice: DiceResult[] | undefined, index: number): DiceResult[] | undefined {
-  if (!dice) return dice;
-  const prefix = `m${index}_`;
-  const own = dice.filter((d) => (d.purpose ?? '').startsWith(prefix)).map((d) => ({ ...d, purpose: (d.purpose ?? '').slice(prefix.length) }));
-  return [...own, ...dice.filter((d) => !/^m\d+_/.test((d.purpose ?? '')))];
-}
-
-/** Resolves a squad leg: its jumps (one roll), then each model's dangerous-terrain test. */
+/** Resolves a squad leg: its jumps (one roll), then the unit's dangerous terrain tests. */
 function applyModelPathTraversals(
   state: GameState,
   unit: Unit,
@@ -2159,36 +2118,6 @@ function recordTraversal(action: GameAction, unit: Unit, events: TraversalEvent[
 }
 
 const rollsText = (rolls: number[]) => rolls.join(', ');
-
-/** Dangerous terrain along one route (rolled with server dice; every 1 is a wound). */
-function applyPathHazard(
-  unit: Unit,
-  path: Vector3[],
-  state: GameState,
-  payload: any,
-  events: TraversalEvent[],
-  dice: DiceResult[] | undefined,
-  label: string
-): void {
-  if (!isPathDangerous(state, path, unit)) return;
-  const hazardDice = dice?.find((d) => d.purpose === 'hazard')?.rolls ?? payload.hazardDice;
-  if (!hazardDice || hazardDice.length === 0) return;
-  const hazardRes = resolveDangerousTerrain(unit, hazardDice);
-  events.push({
-    type: 'hazard',
-    rolls: hazardDice,
-    wounds: hazardRes.woundsInflicted,
-    text: `${label}Dangerous terrain: rolled ${rollsText(hazardDice)} → ${
-      hazardRes.woundsInflicted > 0 ? `${hazardRes.woundsInflicted} wound${hazardRes.woundsInflicted > 1 ? 's' : ''} (each 1)` : 'no wounds'
-    }`,
-  });
-  if (hazardRes.woundsInflicted > 0) {
-    if (payload.casualtyModelIds && unit.models && unit.models.length > 1) {
-      allocateSquadCasualties(unit, hazardRes.woundsInflicted, payload.casualtyModelIds);
-    }
-    applyWounds(unit, hazardRes.woundsInflicted);
-  }
-}
 
 /**
  * Resolve a leg's traversals: the jump roll (one for the whole unit, sized by the longest jump), the fall if
@@ -2281,11 +2210,10 @@ function applyLegTraversals(
     }
   }
 
-  // Dangerous terrain on each route (a model that fell never walked the rest of its route)
-  for (const e of entries) {
-    if (fallen && fallen.entry === e) continue;
-    applyPathHazard(unit, e.path, state, payload, events, diceForModel(dice, e.index), labelFor(e));
-  }
+  // Dangerous terrain along the routes: one test for the unit per new piece (a model that fell never walked
+  // the rest of its route)
+  const walked = entries.filter((e) => !(fallen && fallen.entry === e)).map((e) => e.path);
+  resolveHazardTests(unit, dangerousPieceIdsOnPaths(state, walked, unit), dice, events, 'Dangerous terrain', payload.casualtyModelIds);
 
   recordTraversal(action, unit, events, dice);
   if (fallen) {
@@ -3831,7 +3759,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   unit.hasAttacked = false;
   unit.isRushing = false;
   unit.remainingMovement = unit.speed;
-  delete unit.activationHazardModelIds;
+  delete unit.hazardTestedPieceIds;
   resetModelMovement(unit);
   recordWoundBaseline(state);
   state.turnState.unitsActivatedThisRound.push(unit.id);

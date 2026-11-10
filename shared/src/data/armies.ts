@@ -402,6 +402,61 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
       },
     ],
   },
+  /**
+   * TEST force for checking dangerous terrain dice by hand (14C-2 PR 6): a 5-model Tough 1 squad (5 dice), a
+   * Tough 3 Hero (3 dice, 2 once it has taken a wound) and a Flying squad (never tests). Use it on the Hazard
+   * Range map. Speed 12" so one Rush crosses both side-by-side pools and back. Not a balanced army.
+   */
+  'test-hazard-army': {
+    id: 'test-hazard-army',
+    name: 'TEST: Hazard Check (5-model squad, Tough 3 Hero, Flying squad)',
+    factionId: 'test',
+    theme: 'Playtesting only: dangerous terrain dice per unit, Tough and Flying',
+    totalPoints: 0,
+    fighters: [
+      {
+        id: 'test-hazard-squad',
+        name: 'Test Waders',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 12,
+        modelType: 'trooper',
+        modelCount: 5,
+        weapons: ['rifle', 'blade'],
+        specialRules: [],
+      },
+      {
+        id: 'test-hazard-hero',
+        name: 'Test Hazard Hero',
+        faction: 'test',
+        points: 0,
+        quality: 3,
+        defense: 4,
+        wounds: 3,
+        speed: 12,
+        modelType: 'leader',
+        weapons: ['rifle', 'blade'],
+        specialRules: ['hero', 'tough(3)'],
+      },
+      {
+        id: 'test-hazard-flyers',
+        name: 'Test Hazard Flyers',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 12,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['rifle', 'blade'],
+        specialRules: ['flying'],
+      },
+    ],
+  },
   'test-army': {
     id: 'test-army',
     name: 'TEST: Single Runner (speed 24")',

@@ -238,9 +238,9 @@ describe('GameManager', () => {
       );
     });
 
-    it('requests server dice for the activation hazard test of a unit standing in a hazard pool', async () => {
+    it('requests server dice for the dangerous terrain test of a unit (a die per wound to destroy it) standing in a hazard pool', async () => {
       const diceProvider = {
-        requestRoll: vi.fn().mockResolvedValue([{ rolls: [1], total: 1, finalTotal: 1, purpose: 'activation_hazard' }]),
+        requestRoll: vi.fn().mockResolvedValue([{ rolls: [1, 5, 5], total: 11, finalTotal: 11, purpose: 'hazard_pool' }]),
       };
       const manager = startedHost(diceProvider);
       const state = (manager as any).gameState;
@@ -269,7 +269,7 @@ describe('GameManager', () => {
       await new Promise((r) => setTimeout(r, 0));
 
       expect(diceProvider.requestRoll).toHaveBeenCalledWith(action.id, [
-        { count: 1, sides: 6, purpose: 'activation_hazard' },
+        { count: 3, sides: 6, purpose: 'hazard_pool' },
       ]);
       const after = manager.getGameState()!;
       expect(after.units.find((u) => u.id === unit.id)!.wounds).toBe(2);

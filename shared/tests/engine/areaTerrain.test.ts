@@ -262,16 +262,16 @@ describe('dangerous terrain along the whole path', () => {
     expect(isPathDangerous(s, [P(-6, 0, 0), P(6, 0, 0)], makeUnit('a', P(-6, 0, 0), { rules: ['flying'] }))).toBe(false);
   });
 
-  it('a single model crossing asks for one hazard die; a squad of 3 asks for 3', () => {
+  it('a single model crossing asks for one hazard die; a squad of 3 Tough 1 asks for 3', () => {
     const single = makeState([makeUnit('u', P(-6, 0, 0))], [pool]);
     single.turnState.activeUnitId = 'u';
     const move = (unitId: string) =>
       createAction(HOST, 'advance', { type: 'advance', unitId, path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0) });
-    expect(getDiceSpecs(single, move('u'))).toEqual([{ count: 1, sides: 6, purpose: 'hazard' }]);
+    expect(getDiceSpecs(single, move('u'))).toEqual([{ count: 1, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' }]);
 
     const squad = makeState([makeUnit('s', P(-6, 0, 0), { models: 3 })], [pool]);
     squad.turnState.activeUnitId = 's';
-    expect(getDiceSpecs(squad, move('s'))).toEqual([{ count: 3, sides: 6, purpose: 'hazard' }]);
+    expect(getDiceSpecs(squad, move('s'))).toEqual([{ count: 3, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' }]);
   });
 
   it('crossing rubble needs no hazard dice', () => {
@@ -281,7 +281,7 @@ describe('dangerous terrain along the whole path', () => {
     expect(getDiceSpecs(s, act)).toBeNull();
   });
 
-  it('a squad model that declares a jump still tags its own dice m<index>_', () => {
+  it('a squad move with model paths rolls one test for the unit, not one per model path', () => {
     const s = makeState([makeUnit('s', P(-6, 0, 0), { models: 2 })], [pool]);
     s.turnState.activeUnitId = 's';
     const squadMove = createAction(HOST, 'advance', {
@@ -295,8 +295,7 @@ describe('dangerous terrain along the whole path', () => {
         [P(-4.8, 0, 0), P(7.2, 0, 0)],
       ],
     });
-    // walking squad: one shared hazard roll of one die per living model
-    expect(getDiceSpecs(s, squadMove)).toEqual([{ count: 2, sides: 6, purpose: 'hazard' }]);
+    expect(getDiceSpecs(s, squadMove)).toEqual([{ count: 2, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' }]);
   });
 
   it('a legacy toxic piece (no flags) still asks for hazard dice', () => {
@@ -313,7 +312,7 @@ describe('dangerous terrain along the whole path', () => {
     const s = makeState([makeUnit('u', P(-6, 0, 0))], [toxic]);
     s.turnState.activeUnitId = 'u';
     const act = createAction(HOST, 'advance', { type: 'advance', unitId: 'u', path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0) });
-    expect(getDiceSpecs(s, act)).toEqual([{ count: 1, sides: 6, purpose: 'hazard' }]);
+    expect(getDiceSpecs(s, act)).toEqual([{ count: 1, sides: 6, purpose: 'hazard_legacy-toxic' }]);
   });
 });
 
@@ -454,28 +453,30 @@ describe('activation hazard test', () => {
     expect(getDiceSpecs(s, activate('u'))).toBeNull();
   });
 
-  it('a single model inside rolls one activation_hazard die, and a 1 wounds it', () => {
+  it('a Tough 3 model inside rolls 3 dice, and each 1 is a wound', () => {
     const u = makeUnit('u', P(0, 0, 0));
     u.wounds = 3;
     u.maxWounds = 3;
     u.models[0].wounds = 3;
     u.models[0].maxWounds = 3;
     const s = makeState([u, makeUnit('e', P(0, 0, 30), { owner: GUEST })], [pool]);
-    expect(getDiceSpecs(s, activate('u'))).toEqual([{ count: 1, sides: 6, purpose: 'activation_hazard' }]);
+    expect(getDiceSpecs(s, activate('u'))).toEqual([{ count: 3, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' }]);
 
-    const hit = applyAction(s, activate('u'), [roll('activation_hazard', [1])]);
+    const hit = applyAction(s, activate('u'), [roll('hazard_hazard-pool-0-0-0', [1, 4, 1])]);
     expect(hit.ok).toBe(true);
-    expect(hit.state!.units[0].wounds).toBe(2);
+    expect(hit.state!.units[0].wounds).toBe(1);
     const ev = hit.state!.actionLog[hit.state!.actionLog.length - 1].dice!.outcome.traversal!;
     expect(ev).toHaveLength(1);
     expect(ev[0].text).toContain('Hazard (activated in dangerous terrain)');
-    expect(ev[0].wounds).toBe(1);
+    expect(ev[0].text).toContain('3 dice');
+    expect(ev[0].text).toContain('2 wounds');
+    expect(ev[0].wounds).toBe(2);
 
-    const safe = applyAction(s, activate('u'), [roll('activation_hazard', [2])]);
+    const safe = applyAction(s, activate('u'), [roll('hazard_hazard-pool-0-0-0', [2, 3, 6])]);
     expect(safe.state!.units[0].wounds).toBe(3);
   });
 
-  it('only the models standing inside roll, tagged m<index>_ in living-model order; the roller is the casualty', () => {
+  it('a squad rolls one test for the piece (one die per wound to destroy it), however many models stand in it', () => {
     const squad = makeUnit('s', P(0, 0, 0), { models: 3 });
     squad.models[0].position = P(8, 0, 0);
     squad.models[1].position = P(0, 0, 0);
@@ -485,16 +486,12 @@ describe('activation hazard test', () => {
     squad.models[1].id = 'm-a';
     squad.models[2].id = 'm-b';
     const s = makeState([squad, makeUnit('e', P(0, 0, 30), { owner: GUEST })], [pool]);
-    expect(getDiceSpecs(s, activate('s'))).toEqual([
-      { count: 1, sides: 6, purpose: 'm1_activation_hazard' },
-      { count: 1, sides: 6, purpose: 'm2_activation_hazard' },
-    ]);
-    const out = applyAction(s, activate('s'), [roll('m1_activation_hazard', [3]), roll('m2_activation_hazard', [1])]);
+    expect(getDiceSpecs(s, activate('s'))).toEqual([{ count: 3, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' }]);
+    const out = applyAction(s, activate('s'), [roll('hazard_hazard-pool-0-0-0', [3, 1, 1])]);
     expect(out.ok).toBe(true);
     const after = out.state!.units[0];
-    expect(after.models.find((m) => m.id === 'm-b')!.isDestroyed).toBe(true);
-    expect(after.models.find((m) => m.id === 'm-a')!.isDestroyed).toBe(false);
-    expect(after.models.find((m) => m.id === 'm-out')!.isDestroyed).toBe(false);
+    expect(after.models.filter((m) => m.isDestroyed)).toHaveLength(2);
+    expect(after.wounds).toBe(1);
   });
 
   it('flying units are exempt', () => {
@@ -512,40 +509,25 @@ describe('activation hazard test', () => {
     expect(getDiceSpecs(s, activate('u'))).toBeNull();
   });
 
-  it('a unit that is tested and then crosses dangerous ground the same activation rolls only once', () => {
+  it('activating in a piece and then moving out across it is one test', () => {
     const u = makeUnit('u', P(0, 0, 0));
     u.wounds = 3;
     u.maxWounds = 3;
     u.models[0].wounds = 3;
     u.models[0].maxWounds = 3;
     const s = makeState([u, makeUnit('e', P(0, 0, 30), { owner: GUEST })], [pool]);
-    const activated = applyAction(s, activate('u'), [roll('activation_hazard', [4])]).state!;
-    expect(activated.units[0].activationHazardModelIds).toEqual(['u-m0']);
+    const activated = applyAction(s, activate('u'), [roll('hazard_hazard-pool-0-0-0', [4, 4, 4])]).state!;
+    expect(activated.units[0].hazardTestedPieceIds).toEqual(['hazard-pool-0-0-0']);
     const move = createAction(HOST, 'advance', { type: 'advance', unitId: 'u', path: [P(0, 0, 0), P(5, 0, 0)], finalPosition: P(5, 0, 0) });
     expect(getDiceSpecs(activated, move)).toBeNull();
   });
 
-  it('a squad model not yet tested still rolls for a crossing; tested ones do not', () => {
-    const squad = makeUnit('s', P(-6, 0, 0), { models: 3 });
-    squad.models[0].position = P(0, 0, 0); // inside the pool
-    squad.models[1].position = P(-6, 0, 1);
-    squad.models[2].position = P(-6, 0, -1);
-    const s = makeState([squad], [pool]);
-    const activated = applyAction(s, activate('s'), [roll('m0_activation_hazard', [4])]).state!;
-    activated.turnState.activeUnitId = 's';
-    const move = createAction(HOST, 'advance', {
-      type: 'advance', unitId: 's', path: [P(-6, 0, 0), P(6, 0, 0)], finalPosition: P(6, 0, 0),
-    });
-    expect(getDiceSpecs(activated, move)).toEqual([{ count: 2, sides: 6, purpose: 'hazard' }]);
-  });
-
   it('the tested list is cleared when the unit next activates', () => {
     const u = makeUnit('u', P(8, 0, 0));
-    u.activationHazardModelIds = ['u-m0'];
+    u.hazardTestedPieceIds = ['hazard-pool-0-0-0'];
     const s = makeState([u], [pool]);
     const out = applyAction(s, activate('u')).state!;
-    expect(out.units[0].activationHazardModelIds).toBeUndefined();
-    expect('activationHazardModelIds' in out.units[0]).toBe(false);
+    expect('hazardTestedPieceIds' in out.units[0]).toBe(false);
   });
 
   it('a hold that starts the activation is tested too', () => {
@@ -553,7 +535,7 @@ describe('activation hazard test', () => {
     const hold = createAction(HOST, 'hold', { type: 'hold', unitId: 'u' });
     // A hold ends the activation at once, so the hazard wound can owe the unit a Morale Test (one spare die)
     expect(getDiceSpecs(s, hold)).toEqual([
-      { count: 1, sides: 6, purpose: 'activation_hazard' },
+      { count: 1, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' },
       { count: 1, sides: 6, purpose: 'morale' },
     ]);
   });
