@@ -149,9 +149,9 @@ describe('squad shooting: who can fire', () => {
     expect(validateAction(state, shootAction()).valid).toBe(false);
   });
 
-  it('a lobbed weapon needs range only, no sight', () => {
+  it('a indirect weapon needs range only, no sight', () => {
     const shooter = squad('a', HOST, [pt(0, 0)]);
-    const lob = { ...WEAPONS.rifle, profile: { ...WEAPONS.rifle.profile, specialRules: ['lobbed'] } };
+    const lob = { ...WEAPONS.rifle, profile: { ...WEAPONS.rifle.profile, specialRules: ['indirect'] } };
     const target = squad('t', GUEST, [pt(0, 10)]);
     const state = makeState([shooter, target], [wall(0, 5)]);
     expect(firingModels(state, shooter, target, lob)).toHaveLength(1);

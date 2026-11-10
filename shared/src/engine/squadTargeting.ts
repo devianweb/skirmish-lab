@@ -27,12 +27,12 @@ export interface FiringModel {
 /**
  * Attacker models that can fire `weapon` at `target`: the model sees at least one living target model
  * (3D line of sight from its eye; own squad-mates never block, other units' models do) and that same
- * target model is within the weapon's range by base-edge gap. Lobbed weapons need range only.
+ * target model is within the weapon's range by base-edge gap. Indirect weapons need range only.
  * A target is valid when this list is non-empty; its length is the number of models whose attacks count.
  */
 export function firingModels(state: GameState, attacker: Unit, target: Unit, weapon: Weapon): FiringModel[] {
   const range = weapon.profile.range;
-  const lobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+  const indirect = hasTrait(weapon.profile.specialRules, 'indirect');
   const rA = baseRadius(attacker);
   const rT = baseRadius(target);
   const targetModels = livingModelPositions(target);
@@ -41,7 +41,7 @@ export function firingModels(state: GameState, attacker: Unit, target: Unit, wea
     const shooter = modelAsUnit(attacker, from);
     const canFire = targetModels.some((to) => {
       if (modelGap(from, to, rA, rT) > range + 0.01) return false;
-      if (lobbed) return true;
+      if (indirect) return true;
       return traceLineOfSight(state, shooter, modelAsUnit(target, to)).clear;
     });
     if (canFire) result.push({ position: from });
@@ -121,13 +121,13 @@ export function squadAim(
   aimedModelId?: string
 ): SquadAim {
   const range = weapon.profile.range;
-  const lobbed = hasTrait(weapon.profile.specialRules, 'lobbed');
+  const indirect = hasTrait(weapon.profile.specialRules, 'indirect');
   const rA = baseRadius(attacker);
   const rT = baseRadius(target);
   const targetModels = livingModelPositions(target);
   const sees = (from: Vector3, to: Vector3): boolean => {
     if (modelGap(from, to, rA, rT) > range + 0.01) return false;
-    if (lobbed) return true;
+    if (indirect) return true;
     return traceLineOfSight(state, modelAsUnit(attacker, from), modelAsUnit(target, to)).clear;
   };
 

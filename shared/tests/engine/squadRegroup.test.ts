@@ -101,7 +101,7 @@ describe('coherencyShortfall', () => {
 
 describe('regrouping an out-of-coherency squad (host)', () => {
   const stray = (x: number): Array<[number, number]> => [[0, 0], [1, 0], [0, 1], [x, 0]];
-  const move = (type: 'move-unit' | 'rush', ends: Vector3[], starts: Vector3[]) =>
+  const move = (type: 'advance' | 'rush', ends: Vector3[], starts: Vector3[]) =>
     createAction(HOST, type, {
       type, unitId: 'h1', path: [starts[0], ends[0]], finalPosition: ends[0],
       modelPositions: ends, modelPaths: starts.map((s, i) => [s, ends[i]]),
@@ -114,7 +114,7 @@ describe('regrouping an out-of-coherency squad (host)', () => {
     const starts = startsOf(state);
     const ends = [starts[0], starts[1], starts[2], P(8, 0)];
     expect(validateSquadCoherency(ends).coherent).toBe(false);
-    const action = move('move-unit', ends, starts);
+    const action = move('advance', ends, starts);
     expect(validateAction(state, action)).toEqual({ valid: true });
     const out = applyAction(state, action);
     expect(out.ok).toBe(true);
@@ -125,16 +125,16 @@ describe('regrouping an out-of-coherency squad (host)', () => {
     const state = withStray(7);
     const starts = startsOf(state);
     const ends = [starts[0], starts[1], starts[2], P(2, 1)];
-    expect(validateAction(state, move('move-unit', ends, starts)).valid).toBe(true);
+    expect(validateAction(state, move('advance', ends, starts)).valid).toBe(true);
   });
 
   it('rejects a move that leaves the shortfall the same or larger', () => {
     const state = withStray(14);
     const starts = startsOf(state);
     const same = [starts[0], starts[1], starts[2], P(14, 0.01)];
-    expect(validateAction(state, move('move-unit', same, starts)).valid).toBe(false);
+    expect(validateAction(state, move('advance', same, starts)).valid).toBe(false);
     const worse = [starts[0], starts[1], starts[2], P(14, 4)];
-    const res = validateAction(state, move('move-unit', worse, starts));
+    const res = validateAction(state, move('advance', worse, starts));
     expect(res.valid).toBe(false);
     expect(res.reason).toMatch(/closer to coherent|coheren|spread/i);
   });
@@ -149,20 +149,20 @@ describe('regrouping an out-of-coherency squad (host)', () => {
   it('compares a second move with the positions before it', () => {
     const state = withStray(14);
     const starts = startsOf(state);
-    const first = applyAction(state, move('move-unit', [starts[0], starts[1], starts[2], P(10, 0)], starts));
+    const first = applyAction(state, move('advance', [starts[0], starts[1], starts[2], P(10, 0)], starts));
     expect(first.ok).toBe(true);
     const mid = first.state!;
     const midStarts = startsOf(mid);
     // going back out is not closer than where the first move left it
-    expect(validateAction(mid, move('move-unit', [midStarts[0], midStarts[1], midStarts[2], P(12, 0)], midStarts)).valid).toBe(false);
-    expect(validateAction(mid, move('move-unit', [midStarts[0], midStarts[1], midStarts[2], P(9, 0)], midStarts)).valid).toBe(true);
+    expect(validateAction(mid, move('advance', [midStarts[0], midStarts[1], midStarts[2], P(12, 0)], midStarts)).valid).toBe(false);
+    expect(validateAction(mid, move('advance', [midStarts[0], midStarts[1], midStarts[2], P(9, 0)], midStarts)).valid).toBe(true);
   });
 
   it('a squad that started coherent must still end coherent', () => {
     const state = mkState([mkUnit('h1', HOST, [[0, 0], [1, 0], [0, 1], [1, 1]], { speed: 6 }), mkUnit('g1', GUEST, [[0, 40]])]);
     const starts = startsOf(state);
     const ends = [starts[0], starts[1], starts[2], P(5, 1)];
-    const res = validateAction(state, move('move-unit', ends, starts));
+    const res = validateAction(state, move('advance', ends, starts));
     expect(res.valid).toBe(false);
     expect(res.reason).toMatch(/coheren|nearest|split/i);
   });
@@ -242,8 +242,8 @@ describe('no shooting in place for an out-of-coherency squad', () => {
     const ends = [starts[0], starts[1], starts[2], P(3, 4)];
     const moved = applyAction(
       state,
-      createAction(HOST, 'move-unit', {
-        type: 'move-unit', unitId: 'h1', path: [starts[0], ends[0]], finalPosition: ends[0],
+      createAction(HOST, 'advance', {
+        type: 'advance', unitId: 'h1', path: [starts[0], ends[0]], finalPosition: ends[0],
         modelPositions: ends, modelPaths: starts.map((s, i) => [s, ends[i]]),
       } as any)
     );

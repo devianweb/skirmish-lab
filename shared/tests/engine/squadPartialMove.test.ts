@@ -34,7 +34,7 @@ function squadState(startActive = true): GameState {
   return state;
 }
 
-function moveAction(positions: Vector3[], paths?: Vector3[][], type: 'move-unit' | 'rush' = 'move-unit') {
+function moveAction(positions: Vector3[], paths?: Vector3[][], type: 'advance' | 'rush' = 'advance') {
   const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
   const cz = positions.reduce((s, p) => s + p.z, 0) / positions.length;
   return createAction(HOST, type, {

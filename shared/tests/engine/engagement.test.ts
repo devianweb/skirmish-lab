@@ -64,7 +64,7 @@ function makeState(units: Unit[], activeId = 'h1'): GameState {
   return state;
 }
 
-const move = (unitId: string, path: Array<[number, number]>, type: 'move-unit' | 'rush' = 'move-unit') =>
+const move = (unitId: string, path: Array<[number, number]>, type: 'advance' | 'rush' = 'advance') =>
   createAction(HOST, type, {
     type,
     unitId,
@@ -128,8 +128,8 @@ describe('1" keep-away rule (non-charge moves)', () => {
     const units = [squad('h1', HOST, [[0, 0], [1.5, 0]], { speed: 6 }), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 6 } })];
     const state = makeState(units);
     const action = (z: number) =>
-      createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0.75, y: 0, z: 0 }, { x: 0.75, y: 0, z: z }],
         finalPosition: { x: 0.75, y: 0, z },

@@ -80,7 +80,7 @@ const repro = [a, b, c];
 const takeoff = P(0, 4.5, 0.6);
 const landing = P(0, 2.25, 5.5); // 0.575" inside c's near edge (z 4.925)
 
-const moveAction = (path: Vector3[], traversal?: object, type: 'move-unit' | 'rush' = 'move-unit') =>
+const moveAction = (path: Vector3[], traversal?: object, type: 'advance' | 'rush' = 'advance') =>
   createAction(HOST, type, {
     type,
     unitId: 'u',
@@ -118,7 +118,7 @@ describe('gap jump that also drops (4.5" stack to a 2.25" container)', () => {
     expect(detectPathGapJump(state, [takeoff, landing], unit).isGapJump).toBe(true);
   });
 
-  for (const type of ['move-unit', 'rush'] as const) {
+  for (const type of ['advance', 'rush'] as const) {
     it(`the host accepts the declared ${type}`, () => {
       const opt = findJumpOption(state, unit, takeoff, landing)!;
       const act = moveAction(opt.path, { kind: opt.kind, takeoff: opt.takeoff, landing: opt.landing }, type);
@@ -232,7 +232,7 @@ describe('every offered jump is accepted by the host (fixtures + repro)', () => 
   ];
 
   for (const [name, terrain] of cases) {
-    it(`${name}: findJumpOption results validate as move-unit and rush`, () => {
+    it(`${name}: findJumpOption results validate as advance and rush`, () => {
       const probe = makeState(makeUnit(P(0, 0, 0)), terrain);
       const tops = [...new Set(collectWalkableSurfaces(probe).map((s) => Math.round(s.topY * 100) / 100))];
       const xs = terrain.map((p) => p.position.x);
@@ -260,7 +260,7 @@ describe('every offered jump is accepted by the host (fixtures + repro)', () => 
           offered++;
           if (opt.kind === 'jump-gap' && Math.abs((from.y ?? 0) - (to.y ?? 0)) > 0.5) gapWithDrop++;
           const traversal = { kind: opt.kind, takeoff: opt.takeoff, landing: opt.landing };
-          for (const type of ['move-unit', 'rush'] as const) {
+          for (const type of ['advance', 'rush'] as const) {
             const v = validateAction(state, moveAction(opt.path, traversal, type));
             // other legit rejections (move allowance, etc.) are not what this guards: only the jump check is
             if (!v.valid && /jump|edge|Declared/i.test(v.reason ?? '')) {

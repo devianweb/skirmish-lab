@@ -155,10 +155,10 @@ describe('scenario data pack', () => {
         const calculatedPoints = force.fighters.reduce((acc, f) => acc + f.points, 0);
         expect(calculatedPoints).toBe(300);
 
-        // Contains vanguard and drop-reserve
+        // Contains scout and ambush
         const allRules = force.fighters.flatMap((f) => f.specialRules);
-        expect(allRules).toContain('vanguard');
-        expect(allRules).toContain('drop-reserve');
+        expect(allRules).toContain('scout');
+        expect(allRules).toContain('ambush');
 
         // Contains at least one unit equipped with multiple ranged weapons (for split fire and multi-weapon chips)
         const multiRangedFighter = force.fighters.find((f) => {
@@ -188,7 +188,7 @@ describe('scenario data pack', () => {
       // Check multi-model squad
       const patrol = units.find((u) => u.models.length === 4);
       expect(patrol).toBeDefined();
-      expect(patrol!.specialRules).toContain('drop-reserve');
+      expect(patrol!.specialRules).toContain('ambush');
     });
 
     it('applies deployment phase scenario with starter armies in undeployed state', () => {
@@ -388,7 +388,7 @@ describe('deployment zones keep armies 24" apart', () => {
     return {
       host: getDeploymentZoneBounds(state, state.hostId),
       guest: getDeploymentZoneBounds(state, state.guestId),
-      vanguard: getDeploymentZoneBounds(state, state.hostId, true),
+      scout: getDeploymentZoneBounds(state, state.hostId, true),
     };
   };
   it('48" deep: the usual 12" zones', () => {
@@ -402,7 +402,7 @@ describe('deployment zones keep armies 24" apart', () => {
     expect(z.host.minZ).toBe(-15);
     expect(z.host.maxZ).toBe(-12);
     expect(z.guest.minZ - z.host.maxZ).toBe(24);
-    expect(z.vanguard.maxZ).toBe(0);
+    expect(z.scout.maxZ).toBe(0);
   });
   it('60" deep: still 12" zones (36" apart)', () => {
     const z = zones(48, 60);

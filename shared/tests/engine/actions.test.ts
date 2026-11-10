@@ -231,7 +231,7 @@ describe('applyAction: deploy-unit', () => {
   });
 });
 
-describe('applyAction: move-unit', () => {
+describe('applyAction: advance', () => {
   function moveState(): GameState {
     const state = makeState([makeUnit('h1', HOST), makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } as Vector3 })]);
     state.turnState.activeUnitId = 'h1';
@@ -245,8 +245,8 @@ describe('applyAction: move-unit', () => {
       { x: 0, y: 0, z: 0 },
       { x: 3, y: 0, z: 4 },
     ];
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path,
       finalPosition: { x: 3, y: 0, z: 4 },
@@ -261,8 +261,8 @@ describe('applyAction: move-unit', () => {
     expect(unit.remainingMovement).toBe(1);
 
     // Second micro-move spending the remaining 1 inch
-    const action2 = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action2 = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 3, y: 0, z: 4 },
@@ -279,8 +279,8 @@ describe('applyAction: move-unit', () => {
 
   it('rejects moving further than unit speed', () => {
     const state = moveState();
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 7 }],
       finalPosition: { x: 0, y: 0, z: 7 },
@@ -291,8 +291,8 @@ describe('applyAction: move-unit', () => {
   it('rejects moving when remaining movement is exhausted', () => {
     const state = moveState();
     state.units.find((u) => u.id === 'h1')!.remainingMovement = 0;
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
       finalPosition: { x: 0, y: 0, z: 2 },
@@ -307,8 +307,8 @@ describe('applyAction: move-unit', () => {
     state.units.find((u) => u.id === 'g1')!.position = { x: 5, y: 0, z: 5 };
 
     // Move 1: 2.0"
-    const move1 = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const move1 = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 0, y: 0, z: 0 },
@@ -320,8 +320,8 @@ describe('applyAction: move-unit', () => {
     expect(s1.units.find((u) => u.id === 'h1')!.remainingMovement).toBe(4);
 
     // Move 2: 1.5"
-    const move2 = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const move2 = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 2, y: 0, z: 0 },
@@ -346,8 +346,8 @@ describe('applyAction: move-unit', () => {
     expect(postShooter.remainingMovement).toBe(0);
 
     // Further move is now rejected
-    const move3 = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const move3 = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 3.5, y: 0, z: 0 },
@@ -361,8 +361,8 @@ describe('applyAction: move-unit', () => {
   it('rejects moving if the unit has already attacked this activation', () => {
     const state = moveState();
     state.units.find((u) => u.id === 'h1')!.hasAttacked = true;
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }],
       finalPosition: { x: 0, y: 0, z: 2 },
@@ -373,8 +373,8 @@ describe('applyAction: move-unit', () => {
   it('rejects moves that leave the board', () => {
     const state = moveState();
     state.units.find((u) => u.id === 'h1')!.position = { x: 0, y: 0, z: -29.5 };
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: -29.5 }, { x: 0, y: 0, z: -30.5 }],
       finalPosition: { x: 0, y: 0, z: -30.5 },
@@ -385,8 +385,8 @@ describe('applyAction: move-unit', () => {
   it('rejects moving a unit that is not the active unit', () => {
     const state = makeState([makeUnit('h1', HOST, { isActivated: true }), makeUnit('h2', HOST, { isActivated: true })]);
     state.turnState.activeUnitId = 'h1';
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h2',
       path: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }],
       finalPosition: { x: 1, y: 0, z: 0 },
@@ -397,8 +397,8 @@ describe('applyAction: move-unit', () => {
   it('rejects moving an engaged unit away', () => {
     const state = moveState();
     state.units.find((u) => u.id === 'h1')!.status = ['engaged'];
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }],
       finalPosition: { x: 1, y: 0, z: 0 },
@@ -408,8 +408,8 @@ describe('applyAction: move-unit', () => {
 
   it('rejects a move path that does not start at the unit position', () => {
     const state = moveState();
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 10, y: 0, z: 10 }, { x: 10, y: 0, z: 11 }],
       finalPosition: { x: 10, y: 0, z: 11 },
@@ -420,8 +420,8 @@ describe('applyAction: move-unit', () => {
   it('updates unit rotation.y toward the direction of movement', () => {
     const state = moveState();
     // Move from (0,0,0) to (3,0,0) -> +X direction -> yaw = Math.atan2(3, 0) = PI/2
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }],
       finalPosition: { x: 3, y: 0, z: 0 },
@@ -439,8 +439,8 @@ describe('applyAction: move-unit', () => {
       { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
       { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.8, y: 0, z: 0 } },
     ];
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4 }],
       finalPosition: { x: 0, y: 0, z: 4 },
@@ -464,8 +464,8 @@ describe('applyAction: move-unit', () => {
       { x: 0, y: 0, z: 3 },
       { x: 0, y: 0, z: 4 },
     ];
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.5 }],
       finalPosition: { x: 0, y: 0, z: 3.5 },
@@ -479,7 +479,7 @@ describe('applyAction: move-unit', () => {
     expect(moved.models[1].position).toEqual({ x: 0, y: 0, z: 4 });
   });
 
-  it('rejects move-unit when explicit modelPositions violate coherency', () => {
+  it('rejects advance when explicit modelPositions violate coherency', () => {
     const state = moveState();
     const unit = state.units.find((u) => u.id === 'h1')!;
     unit.models = [
@@ -490,8 +490,8 @@ describe('applyAction: move-unit', () => {
       { x: 0, y: 0, z: 3 },
       { x: 2.5, y: 0, z: 3 }, // 2.5" apart > 1.0"
     ];
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [{ x: 0, y: 0, z: 0 }, { x: 1.25, y: 0, z: 3 }],
       finalPosition: { x: 1.25, y: 0, z: 3 },
@@ -542,8 +542,8 @@ describe('applyAction: move-unit', () => {
       ],
     ];
 
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 0, y: 0, z: 0 },
@@ -561,7 +561,7 @@ describe('applyAction: move-unit', () => {
     expect(postUnit.models[1].position).toEqual({ x: 1.0, y: 0, z: 4 });
   });
 
-  it('rejects move-unit if an individual squad model path intersects an obstacle', () => {
+  it('rejects advance if an individual squad model path intersects an obstacle', () => {
     const state = moveState();
     state.terrain = [
       {
@@ -599,8 +599,8 @@ describe('applyAction: move-unit', () => {
       ],
     ];
 
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 0.45, y: 0, z: 0 },
@@ -627,8 +627,8 @@ describe('applyAction: move-unit', () => {
       { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.9, y: 0, z: 0 } },
     ];
 
-    const action = createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    const action = createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'h1',
       path: [
         { x: 0, y: 0, z: 0 },
@@ -1435,7 +1435,7 @@ describe('applyAction: charge', () => {
     state.units[1].weapons = [weapon('rifle')];
     state.units[1].wounds = 3;
     state.units[1].maxWounds = 3;
-    state.units[1].specialRules = ['resilient(3)'];
+    state.units[1].specialRules = ['tough(3)'];
 
     const action = createAction(HOST, 'charge', {
       type: 'charge',
@@ -1916,14 +1916,14 @@ describe('applyAction invariants', () => {
     expect(shot3.logEntry.dice?.outcome.traumaOutcome).toBe('knocked-out');
   });
 
-  it('Tough(3) / Resilient(3) accumulates wounds without rolling until 3 wounds, and uses KO threshold 8+', () => {
+  it('Tough(3) accumulates wounds without rolling until 3 wounds, and uses KO threshold 8+', () => {
     const state = makeState([
       makeUnit('h1', HOST, { weapons: [weapon('carbine')] }),
       makeUnit('g-boss', GUEST, {
         position: { x: 0, y: 0, z: 10 } as Vector3,
         wounds: 3,
         maxWounds: 3,
-        specialRules: ['resilient(3)'],
+        specialRules: ['tough(3)'],
       }),
     ]);
     state.turnState.activeUnitId = 'h1';
@@ -1978,7 +1978,7 @@ describe('applyAction invariants', () => {
     expect(shot3.logEntry.dice?.outcome.traumaOutcome).toBe('knocked-out');
   });
 
-  it('allows Lobbed (Indirect) weapons to fire without Line of Sight', () => {
+  it('allows Indirect weapons to fire without Line of Sight', () => {
     const state = makeState([
       makeUnit('h1', HOST, { weapons: [weapon('trench-mortar')] }),
       makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 10 } as Vector3 }),
@@ -2122,7 +2122,7 @@ describe('applyAction invariants', () => {
       expect(retSpecs?.find((s) => s.purpose === 'to-hit')?.count).toBe(2);
     });
 
-    it('rejects move-unit advance when ending within 1.0" engagement range of an enemy', () => {
+    it('rejects advance when ending within 1.0" engagement range of an enemy', () => {
       const state = makeState([
         makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } as Vector3, speed: 6 }),
         makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 5 } as Vector3 }),
@@ -2131,8 +2131,8 @@ describe('applyAction invariants', () => {
       state.units[0].isActivated = true;
 
       // Moving to z = 4.2 leaves distance 0.8" <= 1.0" -> rejected!
-      const invalidMove = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const invalidMove = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4.2 }],
         finalPosition: { x: 0, y: 0, z: 4.2 },
@@ -2143,8 +2143,8 @@ describe('applyAction invariants', () => {
 
       // Engagement is an edge gap of 0.5" (centre 1.5"): ending 0.6" away is no longer melee contact, but the
       // 1" keep-away rule still rejects it (with its own reason)
-      const edgeNear = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const edgeNear = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.4 }],
         finalPosition: { x: 0, y: 0, z: 3.4 },
@@ -2152,8 +2152,8 @@ describe('applyAction invariants', () => {
       const near = validateAction(state, edgeNear);
       expect(near.valid).toBe(false);
       expect(near.reason).not.toBe('Move cannot end in melee contact (use Charge instead)');
-      const edgeBad = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const edgeBad = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.5 }],
         finalPosition: { x: 0, y: 0, z: 3.5 },
@@ -2161,8 +2161,8 @@ describe('applyAction invariants', () => {
       expect(validateAction(state, edgeBad).reason).toBe('Move cannot end in melee contact (use Charge instead)');
 
       // Moving to z = 3.0 leaves distance 2.0" > 1.5" -> allowed!
-      const validMove = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const validMove = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 3.0 }],
         finalPosition: { x: 0, y: 0, z: 3.0 },
@@ -2203,8 +2203,8 @@ describe('applyAction invariants', () => {
       state.units[0].isActivated = true;
 
       // Ending at y = 1.5 (suspended midway on the climb line above the foot) is rejected
-      const midRungMove = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const midRungMove = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1.45 }, { x: 0, y: 1.5, z: 1.45 }],
         finalPosition: { x: 0, y: 1.5, z: 1.45 },
@@ -2214,8 +2214,8 @@ describe('applyAction invariants', () => {
       expect(res.reason).toMatch(/suspended on ladder rungs/i);
 
       // Ending at the foot is valid
-      const footMove = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const footMove = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1.45 }],
         finalPosition: { x: 0, y: 0, z: 1.45 },
@@ -2223,8 +2223,8 @@ describe('applyAction invariants', () => {
       expect(validateAction(state, footMove).valid).toBe(true);
 
       // Ending at the head, standing on the deck (y = 3.0) is valid
-      const deckMove = createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      const deckMove = createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [
           { x: 0, y: 0, z: 0 },

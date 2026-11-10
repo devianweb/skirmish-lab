@@ -101,11 +101,11 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(getEffectiveMaxMovement(normalFighter, 'charge', false)).toBe(12.0);
     });
 
-    it('exempts units with pathfinder or airborne from difficult terrain capping', () => {
-      const pathfinder: Unit = { ...dummyUnit, speed: 6, specialRules: ['pathfinder'] };
+    it('exempts units with pathfinder or flying from difficult terrain capping', () => {
+      const pathfinder: Unit = { ...dummyUnit, speed: 6, specialRules: ['strider'] };
       expect(getEffectiveMaxMovement(pathfinder, 'rush', true)).toBe(12.0);
 
-      const flyer: Unit = { ...dummyUnit, speed: 6, specialRules: ['airborne'] };
+      const flyer: Unit = { ...dummyUnit, speed: 6, specialRules: ['flying'] };
       expect(getEffectiveMaxMovement(flyer, 'charge', true)).toBe(12.0);
     });
 
@@ -254,15 +254,15 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(resolveGapJump(7, dummyUnit, [6, 6, 6])).toMatchObject({ canJump: false, passed: false });
     });
 
-    it('airborne units auto-pass gap jumps without testing', () => {
-      const flyer: Unit = { ...dummyUnit, specialRules: ['airborne'] };
+    it('flying units auto-pass gap jumps without testing', () => {
+      const flyer: Unit = { ...dummyUnit, specialRules: ['flying'] };
       const res = resolveGapJump(4.0, flyer);
       expect(res.requiresTest).toBe(false);
       expect(res.passed).toBe(true);
     });
 
     it('pathfinder units pass gap jumps on 2+', () => {
-      const scout: Unit = { ...dummyUnit, quality: 5, specialRules: ['pathfinder'] };
+      const scout: Unit = { ...dummyUnit, quality: 5, specialRules: ['strider'] };
       expect(resolveGapJump(3.5, scout, [2, 2]).passed).toBe(true);
       expect(resolveGapJump(3.5, scout, [2, 1]).passed).toBe(false);
     });
@@ -341,8 +341,8 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       expect(outcome.failedCount).toBe(2);
     });
 
-    it('airborne units ignore dangerous terrain', () => {
-      const flyer: Unit = { ...dummyUnit, specialRules: ['airborne'] };
+    it('flying units ignore dangerous terrain', () => {
+      const flyer: Unit = { ...dummyUnit, specialRules: ['flying'] };
       const outcome = resolveDangerousTerrain(flyer, [1, 1, 1]);
       expect(outcome.woundsInflicted).toBe(0);
     });
@@ -415,7 +415,7 @@ describe('Phase 11A: Shared Traversal Engine', () => {
         },
       ];
 
-      const moveAction = createAction('host-1', 'move-unit', {
+      const moveAction = createAction('host-1', 'advance', {
         unitId: unit.id,
         path: [
           { x: 0, y: 4.0, z: 0 },

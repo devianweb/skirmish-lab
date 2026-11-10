@@ -216,8 +216,8 @@ describe('ruin ledge, long way round', () => {
 
 describe('host validation', () => {
   const moveAction = (path: Vector3[]) =>
-    createAction(HOST, 'move-unit', {
-      type: 'move-unit',
+    createAction(HOST, 'advance', {
+      type: 'advance',
       unitId: 'm',
       path,
       finalPosition: path[path.length - 1],

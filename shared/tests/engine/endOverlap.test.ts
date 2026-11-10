@@ -223,8 +223,8 @@ describe('host rejects overlapping ends', () => {
     const state = makeState([unit], [crate]);
     const res = validateAction(
       state,
-      createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'u',
         path: [{ x: 5, y: 0, z: 0 }, { x: 5, y: 0, z: 0 }],
         finalPosition: { x: 5, y: 0, z: 0 },
@@ -238,9 +238,9 @@ describe('host rejects overlapping ends', () => {
     const unit = makeUnit('u', { x: 2, y: 0, z: 0 });
     const state = makeState([unit, makeUnit('e', { x: 0, y: 0, z: 8 }, GUEST)], [crate]);
     for (const [type, end] of [
-      ['move-unit', { x: 5, y: 0, z: 0 }],
+      ['advance', { x: 5, y: 0, z: 0 }],
       ['rush', { x: 5, y: 0, z: 0 }],
-      ['move-unit', { x: 0, y: 0, z: 8 }],
+      ['advance', { x: 0, y: 0, z: 8 }],
     ] as const) {
       const res = validateAction(
         state,
@@ -261,7 +261,7 @@ describe('host rejects overlapping ends', () => {
       { x: 5, y: 0, z: 0 },
       { x: 6.2, y: 0, z: 0 },
     ];
-    for (const type of ['move-unit', 'rush'] as const) {
+    for (const type of ['advance', 'rush'] as const) {
       const res = validateAction(
         state,
         createAction(HOST, type, {
@@ -317,8 +317,8 @@ describe('host rejects overlapping ends', () => {
     for (const end of [{ x: 0, y: 0, z: face - 0.46 }, { x: 7, y: 0, z: 0 }]) {
       const res = validateAction(
         state,
-        createAction(HOST, 'move-unit', {
-          type: 'move-unit',
+        createAction(HOST, 'advance', {
+          type: 'advance',
           unitId: 'u',
           path: [{ x: 0, y: 0, z: 0 }, end],
           finalPosition: end,

@@ -226,8 +226,8 @@ describe('host rejects ending part-way up a ladder', () => {
   const move = (state: GameState, path: Vector3[]) =>
     validateAction(
       state,
-      createAction(HOST, 'move-unit', {
-        type: 'move-unit',
+      createAction(HOST, 'advance', {
+        type: 'advance',
         unitId: 'h1',
         path: [{ x: 0, y: 0, z: 0 }, ...path],
         finalPosition: path[path.length - 1],

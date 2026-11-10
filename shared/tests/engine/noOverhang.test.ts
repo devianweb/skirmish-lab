@@ -66,7 +66,7 @@ const deckAt = (id: string, x: number): TerrainPiece => ({
 });
 
 const moveAction = (path: Vector3[]) =>
-  createAction(HOST, 'move-unit', { type: 'move-unit', unitId: 'm', path, finalPosition: path[path.length - 1] });
+  createAction(HOST, 'advance', { type: 'advance', unitId: 'm', path, finalPosition: path[path.length - 1] });
 
 const kindsOf = (state: GameState, unit: Unit, path: Vector3[]) =>
   path.slice(1).map((b, i) => classifySegment(state, path[i], b, unit, path[i - 1], path[i + 2]).kind);

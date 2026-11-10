@@ -76,8 +76,8 @@ describe('step over low terrain (<= 1")', () => {
   it('the host accepts a move across a barricade that ends clear of it', () => {
     const unit = makeUnit('u', pt(-3, 0, 0));
     const state = makeState([unit, makeUnit('e', pt(0, 0, 20), GUEST)], [piece('barricade', 0, 0, 0, Math.PI / 2)]);
-    const act = createAction(HOST, 'move-unit', {
-      type: 'move-unit', unitId: 'u', path: [pt(-3, 0, 0), pt(3, 0, 0)], finalPosition: pt(3, 0, 0),
+    const act = createAction(HOST, 'advance', {
+      type: 'advance', unitId: 'u', path: [pt(-3, 0, 0), pt(3, 0, 0)], finalPosition: pt(3, 0, 0),
     });
     expect(validateAction(state, act).valid).toBe(true);
   });
@@ -86,8 +86,8 @@ describe('step over low terrain (<= 1")', () => {
     const unit = makeUnit('u', pt(-3, 0, 0));
     const state = makeState([unit, makeUnit('e', pt(0, 0, 20), GUEST)], [piece('barricade', 0, 0, 0, Math.PI / 2)]);
     expect(findEndOverlap(state, 'u', pt(0, 0, 0))).toMatchObject({ kind: 'terrain' });
-    const act = createAction(HOST, 'move-unit', {
-      type: 'move-unit', unitId: 'u', path: [pt(-3, 0, 0), pt(0, 0, 0)], finalPosition: pt(0, 0, 0),
+    const act = createAction(HOST, 'advance', {
+      type: 'advance', unitId: 'u', path: [pt(-3, 0, 0), pt(0, 0, 0)], finalPosition: pt(0, 0, 0),
     });
     const res = validateAction(state, act);
     expect(res.valid).toBe(false);

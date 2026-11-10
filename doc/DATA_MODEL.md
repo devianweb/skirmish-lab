@@ -100,7 +100,7 @@ interface PendingReaction {
 }
 
 // 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
-// CasualtyEntry = { unitId, count, remainingWounds, applications: { wounds, traumaRolls?, dreadBonus, lethalValue }[] }
+// CasualtyEntry = { unitId, count, remainingWounds, applications: { wounds, traumaRolls?, fearBonus, deadlyValue }[] }
 // CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
 
 interface ReactionOption {
@@ -154,7 +154,7 @@ interface Unit {
   maxWounds: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
-  isDeployed?: boolean;      // Deployed to board (false during placement / drop-reserves)
+  isDeployed?: boolean;      // Deployed to board (false during placement / ambush)
   
   // Game State
   models: Model[];
@@ -308,7 +308,7 @@ interface GameAction {
 ```typescript
 type ActionType =
   | 'activate-unit'
-  | 'move-unit'
+  | 'advance'
   | 'rush'
   | 'shoot'
   | 'begin-charge'   // Declare a charge on a target (split charge)
@@ -338,7 +338,7 @@ interface WeaponAllocation {
  * A jump or fall the player chose to make, sent with the move that contains it. The pathfinder never plans one.
  * The host recomputes everything: the path must contain exactly one segment from `takeoff` to `landing` whose
  * classification matches `kind`, and `takeoff` must be at the edge of a floor (within 0.5", heading out).
- * - 'jump-gap': landing across 1-6" of open air at the same height (X+1 dice, 3+ each; 2+ Pathfinder)
+ * - 'jump-gap': landing across 1-6" of open air at the same height (X+1 dice, 3+ each; 2+ Strider)
  * - 'jump-drop': landing 3-6" below
  * - 'fall': landing more than 6" below (no jump dice; Falling damage, activation ends)
  * A path with a jump/fall but no matching declaration (or a declaration with no jump) is rejected.
@@ -353,7 +353,7 @@ type ActionPayload =
   | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living models of the damaged unit
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
-  | { type: 'move-unit', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
+  | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model
   | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
@@ -425,8 +425,8 @@ interface DiceResolution {
     hitCount: number;
     bonusHits?: number;
     blockedCount: number;
-    blockedRolls?: boolean[];  // Authoritative per-hit block result (preserves Rupture/Shred AP)
-    wardSavedCount?: number;
+    blockedRolls?: boolean[];  // Authoritative per-hit block result (preserves Rupture/Rending AP)
+    regenerationSavedCount?: number;
     wounds: number;
     targetDestroyed: boolean;
     targetShaken?: boolean;
@@ -440,7 +440,7 @@ interface DiceResolution {
     defenseModifiers?: string[];
     traumaRoll?: number;
     traumaTokens?: number;
-    traumaDreadBonus?: number;
+    traumaFearBonus?: number;
     traumaTotal?: number;
     traumaOutcome?: 'shaken' | 'knocked-out';
     retaliation?: RetaliationOutcome;

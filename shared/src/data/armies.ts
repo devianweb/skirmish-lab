@@ -49,7 +49,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'leader',
       weapons: ['handcannon', 'blade'],
-      specialRules: ['commander', 'steadfast', 'resilient(3)'],
+      specialRules: ['hero', 'steadfast', 'tough(3)'],
     },
     {
       id: 'warden-trooper',
@@ -75,7 +75,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'specialist',
       weapons: ['rifle', 'sidearm'],
-      specialRules: ['steadfast', 'marksman', 'camouflaged'],
+      specialRules: ['steadfast', 'marksman', 'stealth'],
     },
     {
       id: 'warden-breacher',
@@ -88,7 +88,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'specialist',
       weapons: ['scattergun', 'sidearm', 'fists'],
-      specialRules: ['steadfast', 'sustained'],
+      specialRules: ['steadfast', 'relentless'],
     },
     {
       id: 'warden-gun-crew',
@@ -101,7 +101,7 @@ export const ARMY_FRONTIER_WARDENS: ArmyDefinition = {
       speed: 6,
       modelType: 'heavy',
       weapons: ['cannon'],
-      specialRules: ['steadfast', 'resilient(2)'],
+      specialRules: ['steadfast', 'tough(2)'],
     },
   ],
 };
@@ -122,7 +122,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 6,
       modelType: 'leader',
       weapons: ['handcannon', 'blade'],
-      specialRules: ['commander', 'frenzy', 'resilient(3)'],
+      specialRules: ['hero', 'furious', 'tough(3)'],
     },
     {
       id: 'raider-trooper',
@@ -135,7 +135,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 6,
       modelType: 'trooper',
       weapons: ['rifle'],
-      specialRules: ['frenzy'],
+      specialRules: ['furious'],
     },
     {
       id: 'raider-skirmisher',
@@ -148,7 +148,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 6,
       modelType: 'specialist',
       weapons: ['rifle', 'sidearm'],
-      specialRules: ['marksman', 'camouflaged'],
+      specialRules: ['marksman', 'stealth'],
     },
     {
       id: 'raider-sapper',
@@ -161,7 +161,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 6,
       modelType: 'specialist',
       weapons: ['scattergun', 'sidearm', 'fists'],
-      specialRules: ['sustained'],
+      specialRules: ['relentless'],
     },
     {
       id: 'raider-bruiser',
@@ -174,7 +174,7 @@ export const ARMY_RUST_RAIDERS: ArmyDefinition = {
       speed: 6,
       modelType: 'heavy',
       weapons: ['cannon'],
-      specialRules: ['stoic', 'frenzy', 'resilient(2)'],
+      specialRules: ['fearless', 'furious', 'tough(2)'],
     },
   ],
 };
@@ -318,7 +318,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         speed: 6,
         modelType: 'leader',
         weapons: ['rifle', 'handcannon', 'blade'],
-        specialRules: ['commander', 'steadfast', 'resilient(3)'],
+        specialRules: ['hero', 'steadfast', 'tough(3)'],
       },
       {
         id: 'warden-marksman',
@@ -331,7 +331,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         speed: 6,
         modelType: 'specialist',
         weapons: ['carbine', 'sidearm'],
-        specialRules: ['steadfast', 'marksman', 'camouflaged', 'vanguard'],
+        specialRules: ['steadfast', 'marksman', 'stealth', 'scout'],
       },
       {
         id: 'warden-breacher',
@@ -344,7 +344,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         speed: 6,
         modelType: 'specialist',
         weapons: ['scattergun', 'fists'],
-        specialRules: ['steadfast', 'sustained'],
+        specialRules: ['steadfast', 'relentless'],
       },
       {
         id: 'warden-patrol-squad',
@@ -358,7 +358,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         modelType: 'trooper',
         modelCount: 4,
         weapons: ['rifle'],
-        specialRules: ['steadfast', 'drop-reserve'],
+        specialRules: ['steadfast', 'ambush'],
       },
     ],
   },
@@ -380,7 +380,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         speed: 6,
         modelType: 'leader',
         weapons: ['rifle', 'handcannon', 'blade'],
-        specialRules: ['commander', 'frenzy', 'resilient(3)'],
+        specialRules: ['hero', 'furious', 'tough(3)'],
       },
       {
         id: 'raider-skirmisher',
@@ -393,7 +393,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         speed: 6,
         modelType: 'specialist',
         weapons: ['carbine', 'sidearm'],
-        specialRules: ['frenzy', 'marksman', 'camouflaged', 'vanguard'],
+        specialRules: ['furious', 'marksman', 'stealth', 'scout'],
       },
       {
         id: 'raider-sapper',
@@ -406,7 +406,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         speed: 6,
         modelType: 'specialist',
         weapons: ['scattergun', 'fists'],
-        specialRules: ['frenzy', 'sustained'],
+        specialRules: ['furious', 'relentless'],
       },
       {
         id: 'raider-mob-squad',
@@ -420,7 +420,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         modelType: 'trooper',
         modelCount: 4,
         weapons: ['rifle'],
-        specialRules: ['frenzy', 'drop-reserve'],
+        specialRules: ['furious', 'ambush'],
       },
     ],
   },
