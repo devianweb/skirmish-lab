@@ -99,6 +99,16 @@ function squadMove(unit: Unit, type: 'advance' | 'rush' = 'advance', declare = t
   });
 }
 
+/** After a fall of 2" or more every other living model stands on the floor below within 1" (edge to edge) of the faller. */
+function expectGatheredAtBottom(models: any[], fallenIndex: number): void {
+  const anchor = models[fallenIndex].position;
+  models.forEach((m, i) => {
+    if (i === fallenIndex || m.isDestroyed) return;
+    expect(m.position.y).toBeLessThan(0.3);
+    expect(Math.hypot(m.position.x - anchor.x, m.position.z - anchor.z)).toBeLessThanOrEqual(2.0 + 1e-6);
+  });
+}
+
 describe('squad declared jumps', () => {
   it('validates a squad where one model declares a jump', () => {
     const state = makeState(makeSquad());
@@ -253,7 +263,7 @@ describe('squad declared jumps', () => {
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
     expect(u.models.map((m) => m.isDestroyed)).toEqual([false, true, false]); // model 2 (the leader, the lowest-index jumper) fell
-    expect(u.models[2].position).toMatchObject(takeoff2); // the other jumper never left the edge
+    expectGatheredAtBottom(u.models, 1); // the other jumper is brought down to the faller
     expect(out.state.turnState.activeUnitId).not.toBe('u');
   });
 
@@ -266,7 +276,7 @@ describe('squad declared jumps', () => {
     if (!out.ok) throw new Error(out.reason);
     const u = out.state.units[0];
     expect(u.models.map((m) => m.isDestroyed)).toEqual([false, false, true]);
-    expect(u.models[1].position).toMatchObject(takeoff);
+    expectGatheredAtBottom(u.models, 2);
   });
 
   it('the dice follow the leader, not the longest follower hop', () => {
@@ -315,7 +325,7 @@ describe('squad declared jumps', () => {
     const out = applyAction(state, action, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
     if (!out.ok) throw new Error(out.reason);
     expect(out.state.units[0].models.map((m) => m.isDestroyed)).toEqual([false, true, false]);
-    expect(out.state.units[0].models[2].position).toMatchObject({ x: -0.1, y: 3, z: -0.9 });
+    expectGatheredAtBottom(out.state.units[0].models, 1);
   });
 
   it('both jumpers pass on one roll: both cross and the activation continues', () => {
@@ -416,15 +426,13 @@ describe('squad declared jumps', () => {
       expect(getDiceSpecs(state, action)!.map((s) => s.purpose)).toEqual(['jump', 'fall', 'morale']);
     });
 
-    it('the leader falls, the other jumper stays at its take-off, walkers finish, the log says why', () => {
+    it('the leader falls, everyone else is brought down to it, the log says why', () => {
       const { state, action } = fourModel();
       const out = applyAction(state, action, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
       if (!out.ok) throw new Error(out.reason);
       const u = out.state.units[0];
       expect(u.models.map((m) => m.isDestroyed)).toEqual([false, false, true, false]);
-      expect(u.models[1].position).toMatchObject(takeoff);
-      expect(u.models[0].position).toMatchObject({ x: 3.0, z: 1.0 });
-      expect(u.models[3].position).toMatchObject({ x: 4.8, z: 0 });
+      expectGatheredAtBottom(u.models, 2);
       expect(out.state.turnState.activeUnitId).not.toBe('u');
       const entry = out.state.actionLog[out.state.actionLog.length - 1];
       const texts = entry.dice!.outcome.traversal!.map((e) => e.text);
@@ -442,7 +450,7 @@ describe('squad declared jumps', () => {
       const out = applyAction(state, action, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
       if (!out.ok) throw new Error(out.reason);
       const u = out.state.units[0];
-      expect(u.models[1].position).toMatchObject(takeoff);
+      expectGatheredAtBottom(u.models, 2);
       expect(u.modelMovementSpent!['u-m1']).toBeCloseTo(1.0, 1);
     });
 
@@ -461,7 +469,7 @@ describe('squad declared jumps', () => {
       const rush = createAction(HOST, 'rush', { ...(action.payload as object), type: 'rush' });
       const out = applyAction(state, rush, [roll('jump', [1, 1, 1, 1]), roll('fall', [1, 6, 6])]);
       if (!out.ok) throw new Error(out.reason);
-      expect(out.state.units[0].models[1].position).toMatchObject(takeoff);
+      expectGatheredAtBottom(out.state.units[0].models, 2);
     });
 
     it('a failed jump in a charge leg also stops the other jumper', () => {
@@ -495,7 +503,7 @@ describe('squad declared jumps', () => {
       expect(specs.map((s) => s.purpose)).toEqual(['jump', 'fall', 'morale']);
       const out = applyAction(state, leg, [roll('jump', [1, 1, 1, 1]), roll('fall', [4, 4, 4])]);
       if (!out.ok) throw new Error(out.reason);
-      expect(out.state.units[0].models[1].position).toMatchObject(takeoff);
+      expectGatheredAtBottom(out.state.units[0].models, 2);
       expect(out.state.turnState.activeUnitId).not.toBe('u');
     });
   });

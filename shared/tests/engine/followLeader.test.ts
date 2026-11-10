@@ -129,6 +129,16 @@ function moveAction(type: 'advance' | 'rush', r: ReturnType<typeof routeSquad>) 
   });
 }
 
+/** After a fall of 2" or more every other living model stands on the floor below within 1" (edge to edge) of the faller. */
+function expectGatheredAtBottom(models: any[], fallenIndex: number): void {
+  const anchor = models[fallenIndex].position;
+  models.forEach((m, i) => {
+    if (i === fallenIndex || m.isDestroyed) return;
+    expect(m.position.y).toBeLessThan(0.3);
+    expect(Math.hypot(m.position.x - anchor.x, m.position.z - anchor.z)).toBeLessThanOrEqual(2.0 + 1e-6);
+  });
+}
+
 describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
   it("routes models that start back from the edge to the leader's crossing, walking only to the take-off", () => {
     const state = makeState(makeSquad());
@@ -177,7 +187,7 @@ describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
     expect(spent['u-m3']).toBeLessThan(walkOf3 + 0.2);
   });
 
-  it('a failed roll: the leader falls, the followers stop at their take-off spots, the activation ends', () => {
+  it('a failed roll: the leader falls, the followers are brought down to it, the activation ends', () => {
     const state = makeState(makeSquad());
     state.units[0].modelMovementSpent = { 'u-m0': 0, 'u-m1': 0, 'u-m2': 0, 'u-m3': 0 };
     const r = routeSquad(state, leaderJump, leaderLanding);
@@ -186,11 +196,7 @@ describe('squad follow-the-leader jumps (14C-2 PR 4B)', () => {
     const u = out.state.units[0];
     const fallen = u.models.findIndex((m) => m.isDestroyed || (m.position!.y ?? 0) === 0);
     expect(fallen).toBe(0); // the leader, whatever the followers' hops measure
-    u.models.forEach((m, i) => {
-      if (i === fallen) return;
-      expect(m.position).toMatchObject({ x: r.traversals[i]!.takeoff.x, z: r.traversals[i]!.takeoff.z });
-      expect(m.position!.y).toBe(3);
-    });
+    expectGatheredAtBottom(u.models, fallen);
     expect(out.state.turnState.activeUnitId).not.toBe('u');
     const texts = out.state.actionLog[out.state.actionLog.length - 1].dice!.outcome.traversal!.map((e) => e.text);
     expect(texts.filter((t) => /jump not attempted/.test(t))).toHaveLength(3);
