@@ -18,6 +18,7 @@ import {
   validateMapDefinition,
 } from '../../src/index';
 import { WEAPONS } from '../../src/data/weapons';
+import { getBlastParticipants } from '../../src/engine/blast';
 import { legacyScenarioTerrain } from '../fixtures/legacyScenarioTerrain';
 import { getActivatableUnits, isRoundComplete, getDeploymentZoneBounds } from '../../src/engine/activation';
 
@@ -511,5 +512,36 @@ describe('TEST squad army', () => {
     expect(host[0].models.filter((m) => !m.isDestroyed)).toHaveLength(4);
     expect(guest[0].models.filter((m) => !m.isDestroyed)).toHaveLength(4);
     expect(STARTER_ARMIES['test-squad-army'].name).toMatch(/TEST/);
+  });
+});
+
+describe('TEST rules-check army', () => {
+  const setup = () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { hostArmyId: 'test-rules-army', guestArmyId: 'test-rules-army' });
+    return state;
+  };
+
+  it('starts the two enemy squads within Blast spread of each other', () => {
+    const state = setup();
+    const gunner = state.units.find((u) => u.ownerId === HOST && u.name.startsWith('Test Heavy Gunner'))!;
+    const squadA = state.units.find((u) => u.ownerId === GUEST && u.name.startsWith('Test Squad A'))!;
+    const squadB = state.units.find((u) => u.ownerId === GUEST && u.name.startsWith('Test Squad B'))!;
+    const ids = getBlastParticipants(state, gunner, squadA).map((p) => p.unit.id);
+    expect(ids[0]).toBe(squadA.id);
+    expect(ids).toContain(squadB.id);
+  });
+
+  it('gives the gunner Blast, Indirect Blast and two distinct weapons named Rifle', () => {
+    const state = setup();
+    const gunner = state.units.find((u) => u.ownerId === HOST && u.name.startsWith('Test Heavy Gunner'))!;
+    const rifles = gunner.weapons.filter((w) => w.name === 'Rifle');
+    expect(rifles.map((w) => w.id).sort()).toEqual(['rifle', 'rifle-twin']);
+    const rules = (id: string) => gunner.weapons.find((w) => w.id === id)!.profile.specialRules;
+    expect(rules('frag-launcher')).toContain('blast(3)');
+    expect(rules('trench-mortar')).toEqual(expect.arrayContaining(['blast(3)', 'indirect']));
+    const hero = state.units.find((u) => u.ownerId === HOST && u.name.startsWith('Test Hero'))!;
+    expect(hero.specialRules).toContain('hero');
+    expect(STARTER_ARMIES['test-rules-army'].name).toMatch(/TEST/);
   });
 });
