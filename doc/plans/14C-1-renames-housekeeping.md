@@ -1,5 +1,5 @@
 # 14C-1: Renames to OPR terms, disclaimer, developer mode, project rules
-Status: approved
+Status: done
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C (part 1 of 3). Umbrella: `doc/plans/14C-opr-v3.6-alignment.md`.
 
 ## Goal
