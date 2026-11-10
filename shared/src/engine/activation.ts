@@ -13,7 +13,7 @@ import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { getTraitValue, hasTrait } from '../rules/traits';
 import { resolveMoraleTest } from './combat';
 import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
-import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
+import { baseRadius, markerGap, unitDistance, keepAwayGapToUnit3D, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -578,7 +578,7 @@ export function deploymentFootprintProblem(
       continue;
     }
     for (const point of footprint) {
-      if (gapToUnit(point, other) <= ENEMY_KEEP_AWAY_GAP) {
+      if (keepAwayGapToUnit3D(point, other) <= ENEMY_KEEP_AWAY_GAP) {
         return other.ownerId === unit.ownerId
           ? 'Cannot deploy within 1" of another friendly unit'
           : 'Cannot deploy within 1" of enemy models';

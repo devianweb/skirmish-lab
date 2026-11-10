@@ -1,7 +1,7 @@
 import { GameState, TerrainPiece, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { edgeGapToCentre, ENEMY_KEEP_AWAY_GAP, livingModelPositions } from './unitGeometry';
+import { edgeGapToCentre, ENEMY_KEEP_AWAY_GAP, keepAwayGap3D, livingModelPositions } from './unitGeometry';
 import {
   EYE_HEIGHT,
   FLANK_RAY_HEIGHT,
@@ -428,9 +428,53 @@ const PASS_THROUGH_DISTANCE = 0.88;
 export const KEEP_AWAY_REASON =
   'Models cannot come within 1" of another unit (only a charge may close in on its target)';
 
-/** Centre distance a moving model must keep from another unit's model: 1" edge gap, or no closer than it started. */
-function keepAwayLimit(startCentreDistance: number): number {
-  return Math.min(KEEP_AWAY_CENTRE_DISTANCE, Math.max(UNIT_SEPARATION_DISTANCE, startCentreDistance));
+/** Models whose feet are at least this far apart vertically never overlap physically (different tiers). */
+export const TIER_OVERLAP_DY = 1.8;
+/** Step (inches) at which a path segment is sampled when measuring the 3D keep-away gap along it. */
+const KEEP_AWAY_SAMPLE_STEP = 0.1;
+
+/**
+ * Smallest 3D base gap (`keepAwayGap3D`) a moving model must keep from another unit's model: 1", or, for a model
+ * that started closer, no closer than it started (never below the separation distance).
+ */
+function keepAwayLimitGap(startGap3D: number): number {
+  return Math.min(ENEMY_KEEP_AWAY_GAP, Math.max(UNIT_SEPARATION_DISTANCE - edgeGapToCentre(0), startGap3D));
+}
+
+/** Smallest |y - otherY| over a segment whose height runs linearly from fromY to toY. */
+function minVerticalOffset(fromY: number, toY: number, otherY: number): number {
+  const lo = Math.min(fromY, toY);
+  const hi = Math.max(fromY, toY);
+  if (otherY >= lo && otherY <= hi) return 0;
+  return Math.min(Math.abs(lo - otherY), Math.abs(hi - otherY));
+}
+
+/**
+ * True when a model walking the segment from -> to (height changing linearly from `fromY` to `toY`, as a climb,
+ * stair or drop does) comes closer than `limitGap` (3D, base edge to base edge) to a model at `other`. The moving
+ * model's real height is sampled along the segment, not the segment's min/max.
+ */
+function segmentViolatesKeepAway3D(
+  from: Vector3,
+  to: Vector3,
+  fromY: number,
+  toY: number,
+  other: Vector3,
+  limitGap: number
+): boolean {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const segLen = Math.hypot(dx, dz);
+  // Cheap reject: the horizontal edge gap already exceeds the limit along the whole segment
+  const minCentre = distancePointToSegmentXZ(other, from, to);
+  if (minCentre - edgeGapToCentre(0) >= limitGap) return false;
+  const steps = Math.max(1, Math.ceil(segLen / KEEP_AWAY_SAMPLE_STEP));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const p: Vector3 = { x: from.x + dx * t, y: fromY + (toY - fromY) * t, z: from.z + dz * t };
+    if (keepAwayGap3D(p, other) < limitGap - KEEP_AWAY_TOLERANCE) return true;
+  }
+  return false;
 }
 
 function distancePointToSegmentXZ(p: Vector3, a: Vector3, b: Vector3): number {
@@ -443,7 +487,7 @@ function distancePointToSegmentXZ(p: Vector3, a: Vector3, b: Vector3): number {
 
 /**
  * The 1" keep-away rule for a point a model would stand at: the first model of another unit (friendly or enemy,
- * except `ignoreUnitId`, the declared charge target) closer than 1" edge to edge, or null. `start` is where the
+ * except `ignoreUnitId`, the declared charge target) closer than 1" in 3D (`keepAwayGap3D`), or null. `start` is where the
  * move began; a model that already stood closer may not end closer than it began.
  */
 export function findKeepAwayViolation(
@@ -453,13 +497,11 @@ export function findKeepAwayViolation(
   start: Vector3,
   ignoreUnitId?: string
 ): { unitId: string } | null {
-  const y = point.y ?? 0;
   for (const other of state.units) {
     if (other.isDestroyed || other.id === unitId || other.id === ignoreUnitId) continue;
     for (const pos of livingModelPositions(other)) {
-      if (Math.abs((pos.y ?? 0) - y) >= 1.8) continue;
-      const limit = keepAwayLimit(Math.hypot(start.x - pos.x, start.z - pos.z));
-      if (Math.hypot(point.x - pos.x, point.z - pos.z) < limit - KEEP_AWAY_TOLERANCE) {
+      const limit = keepAwayLimitGap(keepAwayGap3D(start, pos));
+      if (keepAwayGap3D(point, pos) < limit - KEEP_AWAY_TOLERANCE) {
         return { unitId: other.id };
       }
     }
@@ -660,44 +702,37 @@ export function findMoveBlocker(
       for (const m of otherModels) {
         const mPos = m.position ?? other.position;
         const otherY = mPos.y ?? other.position.y ?? 0;
-        // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
-        if (Math.abs(minSegY - otherY) >= 1.8 && Math.abs(maxSegY - otherY) >= 1.8) {
-          continue;
-        }
-
         if (isIgnored) {
           // The charge target may be touched (that is the point), but never walked through.
-          if (distancePointToSegmentXZ(mPos, from, to) < PASS_THROUGH_DISTANCE) {
+          if (
+            minVerticalOffset(fromY, toY, otherY) < TIER_OVERLAP_DY &&
+            distancePointToSegmentXZ(mPos, from, to) < PASS_THROUGH_DISTANCE
+          ) {
             return { blocked: true, reason: 'Move path is blocked by another fighter' };
           }
           continue;
         }
 
-        const hit = intersectRayCircle(
-          from,
-          dirX,
-          dirZ,
-          segLen,
-          mPos,
-          UNIT_SEPARATION_DISTANCE
-        );
+        // Physical overlap: bases intersecting at a similar height (the stretch of path inside the circle)
+        const hit = intersectRayCircle(from, dirX, dirZ, segLen, mPos, UNIT_SEPARATION_DISTANCE);
         const endDist = Math.hypot(to.x - mPos.x, to.z - mPos.z);
+        const segY = (d: number) => fromY + (toY - fromY) * (segLen > 1e-6 ? d / segLen : 0);
         if (
-          endDist < UNIT_SEPARATION_DISTANCE - 0.01 ||
-          (hit && hit.tExit > 0.02 && hit.tEntry > 0.001)
+          (endDist < UNIT_SEPARATION_DISTANCE - 0.01 && Math.abs(toY - otherY) < TIER_OVERLAP_DY) ||
+          (hit &&
+            hit.tExit > 0.02 &&
+            hit.tEntry > 0.001 &&
+            minVerticalOffset(segY(Math.max(0, hit.tEntry)), segY(Math.min(segLen, hit.tExit)), otherY) <
+              TIER_OVERLAP_DY)
         ) {
           return { blocked: true, reason: 'Move path is blocked by another fighter' };
         }
 
         if (options.keepAway) {
-          // The 1" rule: stay this far (base edge) from every model of another unit. A model that starts closer
-          // may not get any closer than it began.
-          const limit = keepAwayLimit(Math.hypot(path[0].x - mPos.x, path[0].z - mPos.z));
-          const keepHit = intersectRayCircle(from, dirX, dirZ, segLen, mPos, limit - KEEP_AWAY_TOLERANCE);
-          if (
-            endDist < limit - KEEP_AWAY_TOLERANCE ||
-            (keepHit && keepHit.tExit > 0.02 && keepHit.tEntry > 0.001)
-          ) {
+          // The 1" rule, in 3D: stay this far (base edge to base edge, height included) from every model of
+          // another unit. A model that starts closer may not get any closer than it began.
+          const limit = keepAwayLimitGap(keepAwayGap3D(path[0], mPos));
+          if (segmentViolatesKeepAway3D(from, to, fromY, toY, mPos, limit)) {
             return { blocked: true, reason: KEEP_AWAY_REASON };
           }
         }
@@ -723,15 +758,14 @@ function findFlyerStopBlocker(
   for (const other of state.units) {
     if (other.isDestroyed || other.id === movingUnit.id || other.id === options.ignoreUnitId) continue;
     for (const m of livingModelPositions(other)) {
-      // Fighters on separate vertical tiers (> 1.8" difference) don't block each other
-      if (Math.abs(toY - (m.y ?? 0)) >= 1.8) continue;
+      // Physical overlap only counts at a similar height; the 1" keep-away is measured in 3D
       const endDist = Math.hypot(to.x - m.x, to.z - m.z);
-      if (endDist < UNIT_SEPARATION_DISTANCE - 0.01) {
+      if (endDist < UNIT_SEPARATION_DISTANCE - 0.01 && Math.abs(toY - (m.y ?? 0)) < TIER_OVERLAP_DY) {
         return { blocked: true, reason: 'Move path is blocked by another fighter' };
       }
       if (options.keepAway) {
-        const limit = keepAwayLimit(Math.hypot(path[0].x - m.x, path[0].z - m.z));
-        if (endDist < limit - KEEP_AWAY_TOLERANCE) return { blocked: true, reason: KEEP_AWAY_REASON };
+        const limit = keepAwayLimitGap(keepAwayGap3D(path[0], m));
+        if (keepAwayGap3D(to, m) < limit - KEEP_AWAY_TOLERANCE) return { blocked: true, reason: KEEP_AWAY_REASON };
       }
     }
   }
@@ -868,7 +902,7 @@ export function clampMoveDestinationWithObstacles(
     for (const other of state.units) {
       if (other.isDestroyed || other.id === unit.id) continue;
       const otherY = other.position.y ?? 0;
-      if (Math.abs(startY - otherY) >= 1.8 && Math.abs(y - otherY) >= 1.8) {
+      if (minVerticalOffset(startY, y, otherY) >= TIER_OVERLAP_DY) {
         continue;
       }
       const hit = intersectRayCircle(
@@ -3081,9 +3115,7 @@ export function pushBackChargerModels(
   const wasCoherent = validateSquadCoherency(starts).coherent;
   const surfaces = collectWalkableSurfaces(state);
   const tooClose = (p: Vector3): boolean =>
-    foes.some(
-      (f) => Math.abs((f.y ?? 0) - (p.y ?? 0)) <= 1.5 && Math.hypot(p.x - f.x, p.z - f.z) < minCentre - 0.005
-    );
+    foes.some((f) => keepAwayGap3D(p, f) < edgeGap - 0.005);
 
   const usable = (candidates: Vector3[]): boolean => {
     for (let i = 0; i < candidates.length; i++) {

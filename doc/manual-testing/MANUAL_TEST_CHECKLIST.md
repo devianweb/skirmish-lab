@@ -29,7 +29,12 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - All items verified.
 
 ## 7. Movement, rush and shooting
-- All items verified.
+- All earlier items verified. New (keep-away measured in 3D, 14C-2 bugfix). Setup: F9 in the lobby (Developer mode), army **TEST: Jump Check** for both players, map **Jump Range**, Deploy off or place the squads by hand.
+- [ ] Put the host's TEST: Jump Check squad on the ground under a 3" deck (the host-side deck at x -9, z -10..-2), then activate the guest's squad (or another host unit) and Move it up the stairs and across the deck above the squad: the preview is not red and the move is accepted.
+- [ ] Same setup: a path that really passes within 1" in 3D (walking on the ground right beside the models under the deck, or climbing the stairs while a model stands right at their foot) is still refused with the 1" message.
+- [ ] Select a unit standing on the 3" deck above the ground squad: no red ring is drawn solid around the under-deck models (they show faint); hover the "Red rings" legend: the tooltip explains that the 1" is measured in 3D. Select a unit on the ground beside the stairs: models on the deck are faint too.
+- [ ] Deploy (Deployment on) a unit on a deck directly above a deployed friendly unit on the ground (and the reverse): accepted; one inch beside it on the same level: still "within 1"".
+- [ ] A squad crossing a gap (group crossing) can land carried models over/under another unit's models at a different level; the same spot at the same level within 1" is still refused.
 
 ## 8. Melee & objectives
 - All earlier items verified.

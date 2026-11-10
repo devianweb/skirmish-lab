@@ -1014,7 +1014,7 @@ export class MarkerRenderer {
 
   /**
    * The 1" keep-away no-go discs: red for a model another unit's base can't enter, green for the declared charge
-   * target (allowed), faint for models on another tier (they don't block). Rebuilt only when the zone list
+   * target (allowed), faint for models 1" or more above/below the mover's start height (3D keep-away: they don't block from there). Rebuilt only when the zone list
    * changes, so a mouse-move re-emit of identical markers costs nothing.
    */
   setKeepAwayZones(zones: KeepAwayZoneMarker[] | null): void {
