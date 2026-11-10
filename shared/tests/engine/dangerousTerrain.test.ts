@@ -205,6 +205,20 @@ describe('one test per piece per activation', () => {
     expect(ev.filter((e) => e.type === 'hazard')).toHaveLength(2);
   });
 
+  it('a later piece uses only as many dice as wounds still needed to destroy the unit', () => {
+    const s = makeState([makeUnit('u', P(-3, 0, 0), 2), enemy()], [A, B]);
+    const started = applyAction(s, activate('u')).state!;
+    const move = advance('u', [P(-3, 0, 0), P(4, 0, 0), P(11, 0, 0)]);
+    const out = applyAction(started, move, [roll('hazard_pool-0-0', [1, 6]), roll('hazard_pool-8-0', [6, 1])]);
+    expect(out.ok).toBe(true);
+    const u = out.state!.units[0];
+    expect(u.isDestroyed).toBe(false);
+    expect(u.wounds).toBe(1);
+    const ev = out.state!.actionLog[out.state!.actionLog.length - 1].dice!.outcome.traversal!.filter((e) => e.type === 'hazard');
+    expect(ev[1].rolls).toEqual([6]);
+    expect(ev[1].wounds).toBe(0);
+  });
+
   it('the activation tests are not repeated on the next activation (the list resets)', () => {
     const u = makeUnit('u', P(0, 0, 0), 1);
     u.hazardTestedPieceIds = ['pool-0-0'];

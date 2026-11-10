@@ -543,7 +543,8 @@ function resolveHazardTests(
 ): void {
   for (const id of untestedPieces(unit, pieceIds)) {
     if (unit.isDestroyed) return;
-    const rolls = dice?.find((d) => d.purpose === hazardPurpose(id))?.rolls;
+    // Only as many dice as wounds still needed to destroy the unit count (earlier pieces may have wounded it)
+    const rolls = dice?.find((d) => d.purpose === hazardPurpose(id))?.rolls?.slice(0, woundsToDestroy(unit));
     if (!rolls || rolls.length === 0) continue;
     unit.hazardTestedPieceIds = [...(unit.hazardTestedPieceIds ?? []), id];
     const wounds = resolveDangerousTerrain(unit, rolls).woundsInflicted;
