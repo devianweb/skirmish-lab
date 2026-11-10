@@ -30,12 +30,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 7. Movement, rush and shooting
 - All earlier items verified. New (keep-away measured in 3D, 14C-2 bugfix). Setup: F9 in the lobby (Developer mode), army **TEST: Jump Check** for both players, map **Jump Range**, Deploy off or place the squads by hand.
-- New (flying indicator and stop note, UI only). Same setup (F9 in the lobby, army **TEST: Jump Check**, map **Jump Range**), run from either side:
-- [ ] Flying: activate "Test Flyers" and Advance, then Rush, hovering over a gap, a deck and another unit: the hover note starts "Flying · X\" · over terrain" with X the path length, and the path line is dashed cyan (not solid green). Do the same with a single flyer model pick in the squad and with a charge leg. Test Jumpers or Test Striders show a plain solid line and no Flying chip.
-- [ ] Stairs blocked by a friendly unit: stand "Test Jumpers" on the first 3" deck within 1" of the head of a 2"-wide stair (host stairs at x -9, z -12), then Rush / Advance a "Test Striders" model toward the deck at the stair head: the model stops short, the hover note reads "Stopped: within 1\" of <that unit's name> (keep-away)", and a blue ring with the same text sits at the stop point. Move the friendly unit away and the note disappears.
-- [ ] Same with an enemy unit standing there (the note names the enemy), and with a charge leg (the declared target is exempt, any other unit is named).
-- [ ] Aim a move past its allowance: the note is "Stopped: out of movement" with the marker at the end of the path. Rush out of rubble or other difficult ground toward a far point: "Stopped: difficult terrain caps the move at 6\"". Rush toward a point on the far side of rubble: the existing "Rush stops at the edge of difficult terrain" shows once, with the marker. Point at a 3" deck from open ground with no stairs or ladder in reach: "Stopped: can't climb there (use stairs or a ladder)".
-- [ ] Both players: the guest sees the same notes and markers when moving on their side.
 
 ## 8. Melee & objectives
 - All earlier items verified.
