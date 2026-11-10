@@ -9,6 +9,10 @@ import {
   computeSquadCentroid,
   createAction,
   describeTerrainPiece,
+  PUSH_CONFIRM_CHOICE,
+  PUSH_DECLINE_CHOICE,
+  PUSH_RANGE,
+  planPush,
   describeTrait,
   MeleeResultRecord,
   MoraleTestRecord,
@@ -150,6 +154,14 @@ interface PileInContext {
   maxDistance: number;
 }
 
+/** What the push prompt works from (see GameHUD.pushContext). */
+interface PushContext {
+  pending: PendingReaction;
+  shaken: Unit;
+  attacker: Unit;
+  alive: Model[];
+}
+
 /** What the casualty-pick prompt works from (see GameHUD.casualtyContext). */
 interface CasualtyContext {
   pending: PendingReaction;
@@ -235,6 +247,12 @@ export class GameHUD {
   private pileInPaths: Map<string, Vector3[]> = new Map();
   private pileInSelectedId: string | null = null;
   private pileInReactionId: string | null = null;
+  /** Push prompt (attacker): Confirm pressed, the model picked, the spot staged, and what the host will make of it. */
+  private pushReactionId: string | null = null;
+  private pushPicking = false;
+  private pushModelId: string | null = null;
+  private pushStaged: Vector3 | null = null;
+  private pushNote: { text: string; ok: boolean } | null = null;
   private casualtyPicked: string[] = [];
   private casualtyReactionId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
@@ -441,6 +459,7 @@ export class GameHUD {
     this.pileInPaths.clear();
     this.pileInSelectedId = null;
     this.pileInReactionId = null;
+    this.resetPushState(null);
     this.casualtyPicked = [];
     this.casualtyReactionId = null;
     this.lastSeenLogIndex = 0;
@@ -566,6 +585,17 @@ export class GameHUD {
       return;
     }
 
+    const pushing = this.pushContext();
+    if (pushing) {
+      if (!this.pushPicking) return;
+      if (target.kind === 'unit' && target.unitId === pushing.shaken.id && target.modelId) {
+        this.selectPushModel(target.modelId);
+      } else if (target.kind === 'position') {
+        this.stagePushSpot(target.position);
+      }
+      return;
+    }
+
     const pileIn = this.pileInContext();
     if (pileIn) {
       if (target.kind === 'unit' && target.unitId === pileIn.defender.id && target.modelId) {
@@ -683,6 +713,25 @@ export class GameHUD {
         (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
+
+    const pushHover = this.pushContext();
+    if (pushHover) {
+      const model = this.pushSelectedModel(pushHover);
+      if (this.pushPicking && model && !this.pushStaged && target?.kind === 'position') {
+        const note = this.previewPush(pushHover, model, target.position);
+        this.movePathPreview = note.spot ? [model.position ?? pushHover.shaken.position, note.spot] : null;
+        this.movePreview = note.spot;
+        if (this.pushNote?.text !== note.text) {
+          this.pushNote = { text: note.text, ok: note.ok };
+          this.render();
+        }
+      } else if (!this.pushStaged) {
+        this.movePathPreview = null;
+        this.movePreview = null;
+      }
+      this.emitMarkers();
+      return;
+    }
 
     const pileInHover = this.pileInContext();
     if (pileInHover) {
@@ -1298,6 +1347,188 @@ export class GameHUD {
             <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
             <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
           </div>
+        </div>
+      </div>`;
+  }
+
+  // --- push prompt (attacker) -----------------------------------------------
+
+  private resetPushState(reactionId: string | null): void {
+    this.pushReactionId = reactionId;
+    this.pushPicking = false;
+    this.pushModelId = null;
+    this.pushStaged = null;
+    this.pushNote = null;
+  }
+
+  /** The pending push when the local player is the attacker who may move a model, else null. */
+  private pushContext(): PushContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'push' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const shaken = this.state.units.find((u) => u.id === pending.targetUnitId);
+    const attacker = this.state.units.find((u) => u.id === pending.sourceUnitId);
+    if (!shaken || !attacker) return null;
+    if (this.pushReactionId !== pending.id) this.resetPushState(pending.id);
+    return { pending, shaken, attacker, alive: (shaken.models ?? []).filter((m) => !m.isDestroyed) };
+  }
+
+  private pushSelectedModel(ctx: PushContext): Model | null {
+    return ctx.alive.find((m) => m.id === this.pushModelId) ?? (ctx.alive.length === 1 ? ctx.alive[0] : null);
+  }
+
+  /** Clamp a hovered spot to the push ring and say what the host would make of it (including a fall). */
+  private previewPush(ctx: PushContext, model: Model, raw: Vector3): { spot: Vector3 | null; text: string; ok: boolean } {
+    if (!this.state) return { spot: null, text: '', ok: false };
+    const from = model.position ?? ctx.shaken.position;
+    const dx = raw.x - from.x;
+    const dz = raw.z - from.z;
+    const len = Math.hypot(dx, dz);
+    const k = len > PUSH_RANGE ? PUSH_RANGE / len : 1;
+    const dest = { x: from.x + dx * k, z: from.z + dz * k };
+    const plan = planPush(this.state, ctx.shaken, model, dest);
+    if (!plan.ok) return { spot: null, text: plan.reason, ok: false };
+    const fall =
+      plan.fallHeight > 0
+        ? plan.fallDice > 0
+          ? ` · falls ${plan.fallHeight.toFixed(1)}" (${plan.fallDice} dice, 1-3 wound; the rest of the unit comes down with it)`
+          : ` · drops ${plan.fallHeight.toFixed(1)}" (no fall dice)`
+        : '';
+    return { spot: plan.position, text: `Push ${Math.hypot(dest.x - from.x, dest.z - from.z).toFixed(1)}"${fall}`, ok: true };
+  }
+
+  private beginPushPicking(): void {
+    const ctx = this.pushContext();
+    if (!ctx) return;
+    this.pushPicking = true;
+    this.pushModelId = ctx.alive.length === 1 ? ctx.alive[0].id : null;
+    this.pushStaged = null;
+    this.pushNote = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private selectPushModel(modelId: string): void {
+    const ctx = this.pushContext();
+    if (!ctx || !ctx.alive.some((m) => m.id === modelId)) return;
+    this.pushModelId = modelId;
+    this.pushStaged = null;
+    this.pushNote = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  private stagePushSpot(raw: Vector3): void {
+    const ctx = this.pushContext();
+    if (!ctx) return;
+    const model = this.pushSelectedModel(ctx);
+    if (!model) {
+      this.showToast('Pick a model of the Shaken unit first');
+      return;
+    }
+    const note = this.previewPush(ctx, model, raw);
+    if (!note.spot) {
+      this.showToast(note.text || 'That spot is not allowed');
+      return;
+    }
+    this.pushStaged = note.spot;
+    this.pushNote = { text: note.text, ok: true };
+    this.movePreview = note.spot;
+    this.movePathPreview = [model.position ?? ctx.shaken.position, note.spot];
+    this.render();
+    this.emitMarkers();
+  }
+
+  private backFromPush(): void {
+    const ctx = this.pushContext();
+    if (!ctx) return;
+    if (this.pushStaged) this.pushStaged = null;
+    else this.pushPicking = false;
+    this.pushNote = null;
+    this.movePreview = null;
+    this.movePathPreview = null;
+    this.render();
+    this.emitMarkers();
+  }
+
+  /** Run the host's check on the staged push; show its refusal as a toast, or send `push-move`. */
+  private confirmPush(): void {
+    const ctx = this.pushContext();
+    if (!ctx || !this.state || !this.pushStaged) return;
+    const model = this.pushSelectedModel(ctx);
+    if (!model) return;
+    const action = createAction(this.localPlayerId, 'push-move', {
+      type: 'push-move',
+      modelId: model.id,
+      destination: this.pushStaged,
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'That push is not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  private pushPromptHtml(ctx: PushContext, remainingSec: number, dataCardSlot: string): string {
+    const reactionId = ctx.pending.id;
+    const choiceBtn = (id: string, label: string, cls = '') =>
+      `<button class="sl-hud-btn ${cls}" data-reaction-choice="${id}" data-reaction-id="${reactionId}">${label}</button>`;
+    let body: string;
+    if (!this.pushPicking) {
+      body = `
+          <div class="sl-hud-reaction-desc">${ctx.pending.description}</div>
+          <div class="sl-hud-reaction-actions">
+            ${ctx.pending.options
+              .map((o) =>
+                o.id === PUSH_CONFIRM_CHOICE
+                  ? `<button class="sl-hud-btn" data-action="push-confirm">${o.label}</button>`
+                  : choiceBtn(o.id, o.label, o.style === 'primary' ? 'primary' : o.style === 'danger' ? 'danger' : '')
+              )
+              .join('')}
+          </div>`;
+    } else {
+      const model = this.pushSelectedModel(ctx);
+      const chips = ctx.alive
+        .map(
+          (m, idx) =>
+            `<button class="sl-hud-btn sl-hud-chip ${m.id === model?.id ? 'active' : ''}" data-action="select-push-model" data-model-id="${m.id}" style="${
+              m.id === model?.id ? 'background: #00bcd4; color: #000; font-weight: bold;' : ''
+            }">Model ${idx + 1}</button>`
+        )
+        .join('');
+      const hint = !model
+        ? 'Pick one model of the Shaken unit: click it on the board or a button below.'
+        : this.pushStaged
+        ? 'Spot chosen. Push to apply it, or Back to pick another spot.'
+        : `Click a spot within ${PUSH_RANGE}" of the highlighted model (the ring).`;
+      const note = this.pushNote
+        ? `<div class="sl-hud-reaction-desc" style="color: ${this.pushNote.ok ? '#a5d6a7' : '#ef9a9a'};">${this.pushNote.text}</div>`
+        : '';
+      body = `
+          <div class="sl-hud-reaction-desc">${hint}</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">${chips}</div>
+          ${note}
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn primary" data-action="push-send" ${this.pushStaged ? '' : 'disabled'}>Push</button>
+            <button class="sl-hud-btn" data-action="push-back">Back</button>
+            ${choiceBtn(PUSH_DECLINE_CHOICE, "Don't push", 'danger')}
+          </div>`;
+    }
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">${ctx.pending.title}</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          ${body}
         </div>
       </div>`;
   }
@@ -3742,6 +3973,8 @@ export class GameHUD {
           </div>
         </div>`;
       }
+      const pushPrompt = this.pushContext();
+      if (pushPrompt) return this.pushPromptHtml(pushPrompt, remainingSec, dataCardSlot);
       const pileInPrompt = this.pileInContext();
       if (pileInPrompt) return this.pileInPromptHtml(pileInPrompt, remainingSec, dataCardSlot);
       if (pendingReaction.type === 'pile-in' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
@@ -4620,6 +4853,18 @@ export class GameHUD {
           case 'confirm-casualties':
             this.confirmCasualties();
             break;
+          case 'push-confirm':
+            this.beginPushPicking();
+            break;
+          case 'select-push-model':
+            if (el.dataset.modelId) this.selectPushModel(el.dataset.modelId);
+            break;
+          case 'push-send':
+            this.confirmPush();
+            break;
+          case 'push-back':
+            this.backFromPush();
+            break;
           case 'select-pile-in-model':
             if (el.dataset.modelId) this.selectPileInModel(el.dataset.modelId);
             break;
@@ -4959,6 +5204,22 @@ export class GameHUD {
       markers.casualtyPicks = casualtyMarkers.alive
         .filter((m) => this.casualtyPicked.includes(m.id))
         .map((m) => m.position ?? casualtyMarkers.unit.position);
+    }
+
+    const pushMarkers = this.pushContext();
+    const pushModel = pushMarkers ? this.pushSelectedModel(pushMarkers) : null;
+    if (pushMarkers && this.pushPicking) {
+      markers.selectedUnitId = pushMarkers.shaken.id;
+      if (pushModel) {
+        markers.movementRangeUnitId = pushMarkers.shaken.id;
+        markers.movementRangeRadius = PUSH_RANGE;
+        markers.movementRangePosition = pushModel.position ?? pushMarkers.shaken.position;
+        markers.movementRangeColor = 0xffb74d;
+      }
+      const path = this.movePathPreview;
+      if (path && path.length >= 2) {
+        markers.movePath = { from: path[0], to: path[path.length - 1], waypoints: path };
+      }
     }
 
     const pileInMarkers = this.pileInContext();
