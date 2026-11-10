@@ -30,7 +30,6 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 7. Movement, rush and shooting
 - All items verified.
-- [ ] **Blast dice panel:** fire a Blast weapon at a squad with another enemy squad within 3": under the to-hit dice a yellow line reads like "Frag Launcher Blast(3): 1 hit × 3 = 3 hits → Test Squad A 2 · Test Squad B 1", the target's Defense row is labelled with its name, and the spill unit gets its own "Blast spill on …: Defense (need D5+)" row with its dice. A lone target shows "(max N: one per model)" and, when the shot outnumbers its models, "N hits lost".
 
 ## 8. Melee & objectives
 - All earlier items verified.
