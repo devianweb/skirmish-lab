@@ -10,6 +10,7 @@ import {
   classifySegment,
   collectWalkableSurfaces,
   findJumpOption,
+  findMoveBlocker,
   findTooWideGap,
   findWalkableSurfaceIn,
   localToWorldXZ,
@@ -171,6 +172,8 @@ export interface MoveTarget {
   jump: JumpOption | null;
   /** Set when the cursor is across a gap from the edge that is too wide to jump (never alongside `jump`). */
   tooWide: { distance: number } | null;
+  /** Set when a jump exists but its hop breaks the 1" keep-away rule (the host would reject it): why. */
+  refused?: string;
 }
 
 /** The one-line hint for a gap over the 6" jump limit. */
@@ -187,10 +190,20 @@ export function resolveMoveTarget(
   unit: Unit,
   from: Vector3,
   cursor: Vector3,
-  allowJump: boolean
+  allowJump: boolean,
+  options: { ignoreUnitId?: string } = {}
 ): MoveTarget {
   const target = snapCursorToEdge(state, cursor);
-  const jump = allowJump ? findJumpOption(state, unit, from, target) : null;
-  const tooWide = allowJump && !jump ? findTooWideGap(state, unit, from, target) : null;
-  return { target, jump, tooWide };
+  let jump = allowJump ? findJumpOption(state, unit, from, target) : null;
+  let refused: string | undefined;
+  if (jump) {
+    // The host applies the 1" keep-away rule to the hop too: a landing next to another unit is not offered
+    const blocker = findMoveBlocker(state, unit, jump.path, { keepAway: true, ...options });
+    if (blocker.blocked) {
+      refused = blocker.reason;
+      jump = null;
+    }
+  }
+  const tooWide = allowJump && !jump && !refused ? findTooWideGap(state, unit, from, target) : null;
+  return refused ? { target, jump, tooWide, refused } : { target, jump, tooWide };
 }

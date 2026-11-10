@@ -1,7 +1,7 @@
 import { GameState, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { findNavPath, findWalkableSurfaceAt } from './spatial';
+import { findMoveBlocker, findNavPath, findWalkableSurfaceAt } from './spatial';
 import {
   DeclaredTraversal,
   JumpOption,
@@ -129,6 +129,7 @@ export function planFollowerCrossing(
   }
   spots.sort((a, b) => a.rank - b.rank);
 
+  let blockedReason: string | null = null; // why the last otherwise-usable route was refused by the host's rules
   let anyValid = false;
   let nearestValid = Infinity; // straight-line distance to the nearest legal take-off spot
   let shortest = Infinity; // walking distance of the cheapest walk that was found but too long
@@ -150,7 +151,22 @@ export function planFollowerCrossing(
     shortest = Math.min(shortest, walkCost);
     if (walkCost > allowed + 0.05) continue;
     const path = [...walk.slice(0, -1), c.takeoff, c.landing];
+    // The host checks the whole route, hop included, against the 1" keep-away rule: a landing close to another
+    // unit's model is not a spot this model can use (try the next spot along the edge)
+    if (options.navOptions?.keepAway) {
+      const blocker = findMoveBlocker(state, unit, path, {
+        keepAway: true,
+        ...(options.navOptions.ignoreUnitId ? { ignoreUnitId: options.navOptions.ignoreUnitId } : {}),
+      });
+      if (blocker.blocked) {
+        blockedReason = blocker.reason;
+        continue;
+      }
+    }
     return { status: 'route', route: { path, option, walkCost } };
+  }
+  if (blockedReason) {
+    return { status: 'unreachable', reason: 'every landing spot it can reach is within 1" of another unit (or the way there is blocked)' };
   }
   if (!anyValid) {
     return { status: 'unreachable', reason: 'there is no free spot along that edge to jump from' };
