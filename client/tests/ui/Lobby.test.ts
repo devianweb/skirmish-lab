@@ -346,6 +346,7 @@ describe('Lobby UI', () => {
       expect(container.querySelector('option[value="test-army"]')).toBeNull();
       expect(container.querySelector('option[value="test-squad-army"]')).toBeNull();
       expect(container.querySelector('option[value="test-rules-army"]')).toBeNull();
+      expect(container.querySelector('option[value="test-jump-army"]')).toBeNull();
       expect(container.querySelector('#devBadge')).toBeNull();
     });
 
@@ -367,6 +368,7 @@ describe('Lobby UI', () => {
         expect(container.querySelector(`#${id} option[value="test-army"]`)).toBeTruthy();
         expect(container.querySelector(`#${id} option[value="test-squad-army"]`)).toBeTruthy();
         expect(container.querySelector(`#${id} option[value="test-rules-army"]`)).toBeTruthy();
+        expect(container.querySelector(`#${id} option[value="test-jump-army"]`)).toBeTruthy();
       }
       expect(document.body.querySelector('.sl-lobby-toast')?.textContent).toBe('Developer mode on');
 
