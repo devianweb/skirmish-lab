@@ -507,7 +507,8 @@ export function createUnitsFromStarterArmy(
     facing?: number;
   } = {}
 ): Unit[] {
-  const spread = [-6, -2, 2, 6];
+  // 6" apart: two 4-model squads side by side still keep more than 1" between bases (their rings are ~3.4" wide).
+  const spread = [-9, -3, 3, 9];
   const z = options.defaultZ ?? 0;
   const facing = options.facing ?? 0;
 

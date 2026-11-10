@@ -457,6 +457,26 @@ describe('activation', () => {
       expect(insideObstacle.reason).toContain('obstacle');
     });
 
+    it('keeps every model of a deploying squad more than 1" from any other unit, friendly or enemy', () => {
+      const squadModels = (id: string) =>
+        [1, 2, 3, 4].map((i) => ({ id: `${id}-${i}`, wounds: 1, maxWounds: 1, isDestroyed: false })) as any;
+      const state = makeState([
+        makeUnit('h1', HOST, { isDeployed: false, models: squadModels('h1') }),
+        makeUnit('h2', HOST, {
+          isDeployed: true,
+          position: { x: 0, y: 0, z: -14 },
+          models: [{ id: 'h2-1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: -14 } }] as any,
+        }),
+      ]);
+      const squad = state.units[0];
+      // The anchor model alone would be 1.8" (edge) clear at x = 2.8, but a ring model at (1.59, -14.7) is 0.74" from h2.
+      const crowded = validateDeploymentPosition(state, squad, { x: 2.8, y: 0, z: -14 });
+      expect(crowded.valid).toBe(false);
+      expect(crowded.reason).toContain('friendly unit');
+      // At x = 4.5 the closest ring model is 3.36" (centre) from h2, base edges 2.36" apart.
+      expect(validateDeploymentPosition(state, squad, { x: 4.5, y: 0, z: -14 }).valid).toBe(true);
+    });
+
     it('advances deployment turns and transitions to activation once all units are placed', () => {
       const state = makeState([
         makeUnit('h1', HOST, { isDeployed: false }),

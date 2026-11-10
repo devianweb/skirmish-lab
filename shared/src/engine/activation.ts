@@ -12,7 +12,7 @@ import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { getTraitValue, hasTrait } from '../rules/traits';
 import { resolveMoraleTest } from './combat';
-import { findTerrainAtPosition } from './spatial';
+import { createSquadPositions, findTerrainAtPosition } from './spatial';
 import { baseRadius, markerGap, unitDistance, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
@@ -532,34 +532,49 @@ export function validateDeploymentPosition(
   const isScout = hasTrait(unit.specialRules, 'scout');
   const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
 
-  if (
-    position.x < bounds.minX - 0.01 ||
-    position.x > bounds.maxX + 0.01 ||
-    position.z < bounds.minZ - 0.01 ||
-    position.z > bounds.maxZ + 0.01
-  ) {
-    return {
-      valid: false,
-      reason: isScout
-        ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
-        : 'Position outside friendly 12" deployment zone',
-    };
+  // Every model must fit: a squad is laid out around the anchor exactly as the deploy action will place it.
+  const modelCount = unit.models && unit.models.length > 0 ? unit.models.length : 1;
+  const footprint = modelCount > 1 ? createSquadPositions(position, modelCount) : [position];
+
+  for (const point of footprint) {
+    if (
+      point.x < bounds.minX - 0.01 ||
+      point.x > bounds.maxX + 0.01 ||
+      point.z < bounds.minZ - 0.01 ||
+      point.z > bounds.maxZ + 0.01
+    ) {
+      return {
+        valid: false,
+        reason: isScout
+          ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
+          : 'Position outside friendly 12" deployment zone',
+      };
+    }
   }
 
   // Check obstacle collision
-  const piece = findTerrainAtPosition(state, position);
-  if (piece && piece.isObstacle) {
-    return { valid: false, reason: 'Cannot deploy inside a terrain obstacle' };
+  for (const point of footprint) {
+    const piece = findTerrainAtPosition(state, point);
+    if (piece && piece.isObstacle) {
+      return { valid: false, reason: 'Cannot deploy inside a terrain obstacle' };
+    }
   }
 
-  // Check proximity to deployed enemy models (> 1.0")
+  // Units may not start within 1" (base edge to base edge) of any other deployed unit, friend or foe.
   for (const other of state.units) {
-    if (other.ownerId === unit.ownerId || other.isDestroyed || other.isDeployed === false) {
+    if (other.id === unit.id || other.isDestroyed || other.isDeployed === false) {
       continue;
     }
-    const dist = gapToUnit(position, other);
-    if (dist <= ENEMY_KEEP_AWAY_GAP) {
-      return { valid: false, reason: 'Cannot deploy within 1" of enemy models' };
+    for (const point of footprint) {
+      if (gapToUnit(point, other) <= ENEMY_KEEP_AWAY_GAP) {
+        return {
+          valid: false,
+          reason:
+            other.ownerId === unit.ownerId
+              ? 'Cannot deploy within 1" of another friendly unit'
+              : 'Cannot deploy within 1" of enemy models',
+        };
+      }
     }
   }
 

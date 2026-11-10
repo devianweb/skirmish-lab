@@ -17,6 +17,7 @@ import {
   WeaponAllocation,
   WeaponAttackOutcome,
   BlastSplashOutcome,
+  BlastSplitRecord,
 } from '../gameTypes';
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
@@ -2537,6 +2538,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let primaryTargetShaken = false;
       const ledger: WoundLedger = new Map();
       const blastSplash: BlastSplashOutcome[] = [];
+      const blastSplits: BlastSplitRecord[] = [];
 
       // Turn attacker to face the primary target
       const primaryTarget = getUnit(newState, allocations[0].targetId);
@@ -2602,10 +2604,21 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           if (isBlast) {
             // Spread the shot's hits over the target and its neighbours; each unit rolls its own defense batch
             const participants = getBlastParticipants(newState, attacker, target);
-            const shares = autoSplitForParticipants(
-              countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit),
-              participants
-            );
+            const shotHits = countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit);
+            const shares = autoSplitForParticipants(shotHits, participants);
+            blastSplits.push({
+              weaponId: weapon.id,
+              weaponName: weapon.name,
+              multiplier: getTraitValue(weapon.profile.specialRules, 'blast') ?? 1,
+              totalHits: shotHits,
+              shares: participants.map((p, k) => ({
+                targetId: p.unit.id,
+                targetName: p.unit.name,
+                hits: shares[k],
+                cap: p.cap,
+              })),
+              lostHits: Math.max(0, shotHits - shares.reduce((sum, n) => sum + n, 0)),
+            });
             let offset = 0;
             const share = (count: number): BlastShare => ({ offset, count, aimedAt: targetStats });
             outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls, share(shares[0]));
@@ -2614,6 +2627,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
               const spill = participants[k].unit;
               const count = shares[k];
               if (count === 0) continue;
+              const spillRolls = extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i);
               const spillOutcome = resolveAttack(
                 attackerStats,
                 {
@@ -2624,7 +2638,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
                   hasMoved: spill.hasMoved,
                 },
                 totalAttacks,
-                extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i),
+                spillRolls,
                 share(count)
               );
               offset += count;
@@ -2643,6 +2657,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
                 effectiveDefense: spillOutcome.effectiveDefense,
                 baseDefense: spillOutcome.baseDefense,
                 defenseModifiers: spillOutcome.defenseModifiers,
+                defenseRolls: spillRolls.defense.slice(0, spillOutcome.hitCount),
               });
             }
           } else {
@@ -2733,6 +2748,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           apApplied: firstAlloc.apApplied,
           allocations: allocationOutcomes,
           ...(blastSplash.length > 0 ? { blastSplash } : {}),
+          ...(blastSplits.length > 0 ? { blastSplits } : {}),
         },
       };
 
