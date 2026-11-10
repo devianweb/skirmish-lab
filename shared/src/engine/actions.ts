@@ -87,7 +87,7 @@ import {
   distance3D,
   MELEE_MAX_VERTICAL_REACH,
 } from './traversal';
-import { describeLeftBehind, takeoffSpotProblem } from './followLeader';
+import { describeLeftBehind, takeoffSpotProblem, validateCrossers } from './crossing';
 import type { ChargeState } from '../gameTypes';
 import {
   PUSH_AUTO_CHOICE,
@@ -275,7 +275,7 @@ function squadEndCoherency(
   // Some models crossed a gap or drop and others did not: say who was left behind (14C-2 PR 4B)
   const behind = describeLeftBehind(traversals, end);
   if (behind.length > 0) {
-    base += ` (${behind.length > 1 ? 'models' : 'model'} ${behind.join(', ')} did not cross with the squad: the jump carries every model only if each can reach the take-off edge with its own move)`;
+    base += ` (${behind.length > 1 ? 'models' : 'model'} ${behind.join(', ')} did not cross with the squad: after a passed jump the other models can be placed across within 1\" of a model that has crossed)`;
   }
   const wasOut = before.length === end.length && coherencyShortfall(before) > 0;
   return {
@@ -292,8 +292,15 @@ interface SquadChargePayload {
   modelPositions?: Vector3[];
   modelPaths?: Vector3[][];
   modelTraversals?: (DeclaredTraversal | null)[];
+  /** Living-model indices carried across the leader's crossing (placed by `modelPositions`, no path, no move spent). */
+  crossers?: number[];
   /** Index of the model whose declared jump the others follow (default: the lowest-index jumper). */
   jumpLeader?: number;
+}
+
+/** Indices of the models a payload carries across the leader's crossing. */
+function crosserSet(payload: { crossers?: number[] }): Set<number> {
+  return new Set(Array.isArray(payload.crossers) ? payload.crossers : []);
 }
 
 function livingModels(unit: Unit): Model[] {
@@ -348,10 +355,13 @@ function validateSquadChargeMove(
   ) {
     return { valid: false, reason: 'More model paths or declared jumps than squad models' };
   }
+  const crossProblem = validateCrossers(state, unit, payload, positions, target.id);
+  if (crossProblem) return { valid: false, reason: crossProblem };
   const coherency = squadEndCoherency(unit, positions, payload.modelTraversals);
   if (!coherency.valid) return coherency;
   const spotProblem = takeoffSpotProblem(payload.modelTraversals, positions, payload.jumpLeader);
   if (spotProblem) return { valid: false, reason: spotProblem };
+  const carried = crosserSet(payload);
   for (let i = 0; i < positions.length; i++) {
     for (let j = i + 1; j < positions.length; j++) {
       if (boardDistance(positions[i], positions[j]) < 0.9) {
@@ -373,6 +383,15 @@ function validateSquadChargeMove(
     const n = i + 1;
     const mStart = alive[i].position ?? unit.position;
     const mEnd = positions[i];
+    if (carried.has(i)) {
+      // Carried across: its spot was checked by validateCrossers; it only counts toward contact with the target
+      if (mode === 'final') {
+        for (const t of targetModels) {
+          if (modelGap(mEnd, t) <= CHARGE_END_EDGE_GAP + 0.001 && Math.abs((mEnd.y ?? 0) - (t.y ?? 0)) <= MELEE_MAX_VERTICAL_REACH) inContact = true;
+        }
+      }
+      continue;
+    }
     const mPath = paths[i];
     if (boardDistance(mPath[0], mStart) > 0.05) {
       return { valid: false, reason: `Squad model ${n} move path does not start at model position` };
@@ -398,7 +417,8 @@ function validateSquadChargeMove(
             : `Squad model ${n} exceeds the charge distance (${dist.toFixed(1)}" vs ${Math.max(0, Math.min(remaining, cap - spent)).toFixed(1)}")`,
       };
     }
-    moved = Math.max(moved, dist);
+    // A hop is free but still a move (the leader of a group crossing may spend nothing else)
+    moved = Math.max(moved, dist, payload.modelTraversals?.[i] ? boardDistance(mStart, mEnd) : 0);
     // The 1" rule is ignored only toward the declared target, and nobody walks through a model
     const blocker = findMoveBlocker(state, unit, mPath, { ignoreUnitId: target.id, keepAway: true });
     if (blocker.blocked) return { valid: false, reason: `Squad model ${n} move path is blocked: ${blocker.reason}` };
@@ -552,10 +572,11 @@ function applyActivationHazard(state: GameState, unit: Unit, action: GameAction,
 /** Jump, fall and hazard dice a squad charge (leg) needs: one `jump` roll for the squad, hazards per model. */
 function squadChargeTraversalSpecs(state: GameState, unit: Unit, payload: SquadChargePayload): DiceSpec[] {
   const paths = squadChargePaths(unit, payload);
+  const carried = crosserSet(payload);
   const jumpers = paths.map((_, i) => (payload.modelTraversals?.[i] ? i : -1)).filter((i) => i >= 0);
   const specs: DiceSpec[] = [...legJumpSpecs(state, unit, chargeLegEntries(unit, payload))];
-  // Models that walk share one hazard roll for the squad; jumpers carry their own
-  if (paths.some((p, i) => !jumpers.includes(i) && isPathDangerous(state, p, unit)) && untestedLivingCount(unit) > 0) {
+  // Models that walk share one hazard roll for the squad; jumpers carry their own (carried models roll nothing)
+  if (paths.some((p, i) => !jumpers.includes(i) && !carried.has(i) && isPathDangerous(state, p, unit)) && untestedLivingCount(unit) > 0) {
     specs.push({ count: untestedLivingCount(unit), sides: 6, purpose: 'hazard' });
   }
   for (const i of jumpers) {
@@ -833,10 +854,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
+      const crossProblem = validateCrossers(state, unit.result, action.payload as { crossers?: number[]; modelTraversals?: (DeclaredTraversal | null)[]; jumpLeader?: number }, modelPositions!);
+      if (crossProblem) return { valid: false, reason: crossProblem };
       const coherency = squadEndCoherency(unit.result, modelPositions!, modelTraversals);
       if (!coherency.valid) return coherency;
       const spotProblem = takeoffSpotProblem(modelTraversals, modelPositions!, (action.payload as { jumpLeader?: number }).jumpLeader);
       if (spotProblem) return { valid: false, reason: spotProblem };
+      const carried = crosserSet(action.payload as { crossers?: number[] });
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -858,6 +882,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       const aliveModels = (unit.result.models ?? []).filter((m) => !m.isDestroyed);
       for (let i = 0; i < aliveModels.length && i < modelPositions!.length; i++) {
+        if (carried.has(i)) continue; // placed across by `crossers`: no path, move or edge checks (validateCrossers did the spot)
         const mStart = aliveModels[i].position ?? unit.result.position;
         const mPath =
           modelPaths && modelPaths[i] && modelPaths[i].length >= 2
@@ -1314,10 +1339,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (modelTraversals && modelTraversals.length > modelPositions!.length) {
         return { valid: false, reason: 'More declared jumps than squad models' };
       }
+      const crossProblem = validateCrossers(state, unit, action.payload as { crossers?: number[]; modelTraversals?: (DeclaredTraversal | null)[]; jumpLeader?: number }, modelPositions!);
+      if (crossProblem) return { valid: false, reason: crossProblem };
       const coherency = squadEndCoherency(unit, modelPositions!, modelTraversals);
       if (!coherency.valid) return coherency;
       const spotProblem = takeoffSpotProblem(modelTraversals, modelPositions!, (action.payload as { jumpLeader?: number }).jumpLeader);
       if (spotProblem) return { valid: false, reason: spotProblem };
+      const carried = crosserSet(action.payload as { crossers?: number[] });
       for (let i = 0; i < modelPositions!.length; i++) {
         for (let j = i + 1; j < modelPositions!.length; j++) {
           const dist = Math.hypot(
@@ -1339,6 +1367,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       const aliveModels = (unit.models ?? []).filter((m) => !m.isDestroyed);
       for (let i = 0; i < aliveModels.length && i < modelPositions!.length; i++) {
+        if (carried.has(i)) continue; // placed across by `crossers`: no path, move or edge checks (validateCrossers did the spot)
         const mStart = aliveModels[i].position ?? unit.position;
         const mPath =
           modelPaths && modelPaths[i] && modelPaths[i].length >= 2
@@ -1907,18 +1936,22 @@ function moveLegEntries(
     modelPositions?: Vector3[];
     modelPaths?: Vector3[][];
     modelTraversals?: (DeclaredTraversal | null)[];
+    crossers?: number[];
     jumpLeader?: number;
   }
 ): LegEntry[] {
   const living = livingModels(unit);
   if (payload.modelPositions && payload.modelPositions.length > 0 && payload.modelPaths && payload.modelPaths.length > 0) {
-    return payload.modelPaths.map((path, index) => ({
-      index,
-      path,
-      model: living[index],
-      declaration: payload.modelTraversals?.[index] ?? null,
-      leader: payload.jumpLeader === index,
-    }));
+    const carried = crosserSet(payload);
+    return payload.modelPaths
+      .map((path, index) => ({
+        index,
+        path,
+        model: living[index],
+        declaration: payload.modelTraversals?.[index] ?? null,
+        leader: payload.jumpLeader === index,
+      }))
+      .filter((e) => !carried.has(e.index)); // carried models walk no route: no jump, fall or hazard of their own
   }
   if (payload.path && payload.path.length > 0) {
     return [{ index: 0, path: payload.path, model: living.length === 1 ? living[0] : undefined, declaration: null }];
@@ -1930,13 +1963,16 @@ function moveLegEntries(
 function chargeLegEntries(unit: Unit, payload: { path?: Vector3[]; jumpLeader?: number } & SquadChargePayload): LegEntry[] {
   const living = livingModels(unit);
   if (isSquadChargePayload(unit, payload)) {
-    return squadChargePaths(unit, payload).map((path, index) => ({
-      index,
-      path,
-      model: living[index],
-      declaration: payload.modelTraversals?.[index] ?? null,
-      leader: payload.jumpLeader === index,
-    }));
+    const carried = crosserSet(payload);
+    return squadChargePaths(unit, payload)
+      .map((path, index) => ({
+        index,
+        path,
+        model: living[index],
+        declaration: payload.modelTraversals?.[index] ?? null,
+        leader: payload.jumpLeader === index,
+      }))
+      .filter((e) => !carried.has(e.index));
   }
   return payload.path && payload.path.length > 0
     ? [{ index: 0, path: payload.path, model: living.length === 1 ? living[0] : undefined, declaration: null }]
@@ -2067,18 +2103,26 @@ function applyModelPathTraversals(
   modelPaths: Vector3[][],
   models: Model[],
   action: GameAction,
-  dice?: DiceResult[]
+  dice?: DiceResult[],
+  starts?: Vector3[]
 ): void {
   const declared = (action.payload as { modelTraversals?: (DeclaredTraversal | null)[] }).modelTraversals;
   const leaderIndex = (action.payload as { jumpLeader?: number }).jumpLeader;
-  const entries: LegEntry[] = modelPaths.map((path, index) => ({
-    index,
-    path,
-    model: models[index],
-    declaration: declared?.[index] ?? null,
-    leader: leaderIndex === index,
-  }));
-  applyLegTraversals(state, unit, entries, action, dice);
+  const carried = crosserSet(action.payload as { crossers?: number[] });
+  const entries: LegEntry[] = modelPaths
+    .map((path, index) => ({
+      index,
+      path,
+      model: models[index],
+      declaration: declared?.[index] ?? null,
+      leader: leaderIndex === index,
+    }))
+    .filter((e) => !carried.has(e.index));
+  // Carried models are on their far-side spots; a failed jump takes them back to where they started
+  const returning = starts
+    ? [...carried].filter((i) => models[i] && starts[i]).map((i) => ({ model: models[i], start: starts[i], index: i }))
+    : [];
+  applyLegTraversals(state, unit, entries, action, dice, returning);
 }
 
 /** A declared jumper that did not fall: placed at its take-off spot, its jump not attempted, its tally cut back. */
@@ -2156,7 +2200,8 @@ function applyLegTraversals(
   unit: Unit,
   entries: LegEntry[],
   action: GameAction,
-  dice?: DiceResult[]
+  dice?: DiceResult[],
+  carriedBack: Array<{ model: Model; start: Vector3; index: number }> = []
 ): { terminated: boolean; wounds: number } {
   const payload = action.payload as any;
   const events: TraversalEvent[] = [];
@@ -2211,6 +2256,12 @@ function applyLegTraversals(
               } → ${wounds > 0 ? `${wounds} wound${wounds > 1 ? 's' : ''}` : 'unhurt'}`
             : `${labelFor(faller.entry)}${cause}Fell ${plan.fallHeight.toFixed(1)}"`,
       });
+      // Models carried across never made the crossing: they are back where they stood (a fall of 2" or more
+      // then gathers the whole unit at the bottom below)
+      for (const c of carriedBack) {
+        c.model.position = { ...c.start };
+        events.push({ type: 'jump-skipped', wounds: 0, text: `Model ${c.index + 1}: not carried across (the jump failed)` });
+      }
       for (const j of plan.jumps) {
         if (j === faller || !j.entry.declaration || !j.entry.model) continue;
         stopJumperAtTakeoff(state, unit, j.entry.model, j.entry.path, j.entry.declaration.takeoff, events, labelFor(j.entry));
@@ -2487,7 +2538,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           }
         }
 
+        const carriedIdx = crosserSet(action.payload as { crossers?: number[] });
         const modelDistances = modelPositions.map((pos, i) => {
+          if (carriedIdx.has(i)) return 0; // carried across: the crossing costs no move
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
             return pathMovementCost(state, modelPaths[i], unit);
           }
@@ -2498,7 +2551,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, modelDistances);
 
         if (modelPaths && modelPaths.length > 0) {
-          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
+          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice, prevPositions);
         } else if (path && path.length > 0) {
           applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
         }
@@ -2974,7 +3027,9 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           }
         }
 
+        const carriedIdx = crosserSet(action.payload as { crossers?: number[] });
         const modelDistances = modelPositions.map((pos, i) => {
+          if (carriedIdx.has(i)) return 0; // carried across: the crossing costs no move
           if (modelPaths && modelPaths[i] && modelPaths[i].length >= 2) {
             return pathMovementCost(state, modelPaths[i], unit);
           }
@@ -2989,7 +3044,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         refreshEngagements(newState);
 
         if (modelPaths && modelPaths.length > 0) {
-          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice);
+          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice, prevPositions);
         } else if (path && path.length > 0) {
           applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
         }
@@ -3065,14 +3120,15 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (isSquadChargePayload(unit, legModels)) {
         // Each model walks its own path and spends its own distance
         const legPaths = squadChargePaths(unit, legModels);
-        const legCosts = legPaths.map((p) => pathMovementCost(state, p, unit));
+        const legCarried = crosserSet(legModels);
+        const legCosts = legPaths.map((p, i) => (legCarried.has(i) ? 0 : pathMovementCost(state, p, unit)));
         const legAlive = livingModels(unit);
-        placeSquadModels(unit, legModels.modelPositions!);
+        const legPrev = placeSquadModels(unit, legModels.modelPositions!);
         unit.hasMoved = true;
         unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, legCosts);
         if (newState.turnState.charge) newState.turnState.charge.legs += 1;
         // A failed jump falls: the fall ends the activation (finishActivation drops the declared charge)
-        applyModelPathTraversals(newState, unit, legPaths, legAlive, action, dice);
+        applyModelPathTraversals(newState, unit, legPaths, legAlive, action, dice, legPrev);
         logEntry = acceptedEntry(action);
         break;
       }
@@ -3113,7 +3169,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       const squadCharge = isSquadChargePayload(attacker, squadMoves);
       const squadAlive = livingModels(attacker);
       const squadPaths = squadCharge ? squadChargePaths(attacker, squadMoves) : [];
-      if (squadCharge) placeSquadModels(attacker, squadMoves.modelPositions!);
+      let chargePrev: Vector3[] | undefined;
+      if (squadCharge) chargePrev = placeSquadModels(attacker, squadMoves.modelPositions!);
       else moveChargerModels(attacker, path[path.length - 1]);
       attacker.hasMoved = true;
       attacker.hasAttacked = true;
@@ -3157,7 +3214,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       let chargeTerminated: boolean;
       if (squadCharge) {
         // A failed jump falls and ends the activation: no melee
-        applyModelPathTraversals(newState, attacker, squadPaths, squadAlive, action, dice);
+        applyModelPathTraversals(newState, attacker, squadPaths, squadAlive, action, dice, chargePrev);
         chargeTerminated = newState.turnState.activeUnitId !== attackerId;
       } else {
         chargeTerminated = applyTraversalHazardsAndFalls(newState, attacker, path, action, dice).terminated;

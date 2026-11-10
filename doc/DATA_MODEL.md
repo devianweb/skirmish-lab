@@ -361,9 +361,9 @@ type ActionPayload =
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
   | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
-      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }  // squad: one entry per living model
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[], jumpLeader?: number, crossers?: number[] }  // squad: one entry per living model
   | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal,
-      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[], jumpLeader?: number, crossers?: number[] }
   | {
       type: 'shoot';
       attackerId: string;
@@ -373,12 +373,15 @@ type ActionPayload =
     }
   | { type: 'begin-charge', attackerId: string, targetId: string }
   | { type: 'charge-leg', attackerId: string, path: Vector3[], traversal?: DeclaredTraversal,
-      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[], jumpLeader?: number, crossers?: number[] }
   | { type: 'charge', attackerId: string, targetId: string, path: Vector3[], weaponId?: string, traversal?: DeclaredTraversal,
-      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[] }
+      modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[], jumpLeader?: number, crossers?: number[] }
   // Squad charges (more than one living model) MUST send modelPositions (one per living model, model order); the host rejects them without it,
   // modelPaths (per model, from its current spot) and modelTraversals (a declared jump per model, or null);
   // `path` is then only a summary. Single-model units keep the plain `path` and `traversal`.
+  // Group crossing (14C-2 PR 4C): `jumpLeader` is the living-model index of the model that declared the jump (its crossing sizes the one roll);
+  // `crossers` lists the living-model indices carried across on a pass. A carried model's modelPositions entry is its far-side landing spot (within 1" base edge of a model already across);
+  // its modelPaths entry is ignored (no path, no move spent) and its modelTraversals entry must be null. On a failed roll carried models are put back where they started.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
