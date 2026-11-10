@@ -89,6 +89,7 @@ import {
   segmentSummary,
 } from './movePreview';
 import { rushStopReason, rushStopText } from './rushStop';
+import { explainStop, StopNote } from './stopNote';
 import { soundFx } from '../audio/SoundFx';
 import {
   DeploymentZoneBounds,
@@ -236,6 +237,10 @@ export class GameHUD {
   private moveTooWide: { distance: number } | null = null;
   /** Why the spot under the cursor would be refused (a jump breaking the 1" keep-away rule, or a squad model that overlaps / breaks coherency), or null. */
   private moveJumpRefused: string | null = null;
+  /** Where and why the previewed path ends short of the cursor (hover note + marker at the stop), or null. */
+  private moveStop: StopNote | null = null;
+  /** The rush stop note already says the same thing in the hover chip, so the marker alone carries `moveStop`. */
+  private moveStopSaidInChip = false;
   /** Engine classification of each leg of the previewed path (for styling and labels). */
   private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
@@ -465,6 +470,7 @@ export class GameHUD {
     this.moveJump = null;
     this.moveTooWide = null;
     this.moveJumpRefused = null;
+    this.moveStop = null;
     this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
     this.selectedCasualtyModelId = null;
@@ -770,6 +776,8 @@ export class GameHUD {
     if (!this.state || this.state.status === 'game-over') return;
     this.moveTooWide = null;
     this.moveJumpRefused = null;
+    this.moveStop = null;
+    this.moveStopSaidInChip = false;
 
     const nextTerrainId =
       target?.kind === 'position'
@@ -953,7 +961,27 @@ export class GameHUD {
               })
             )
           : '';
-        this.updateMoveWarning(isDifficult, this.flow.action, stopText);
+        const capBinds = isDifficult && nominalMax > cappedAllowance + 0.05;
+        this.moveStop = resolved.jump
+          ? null
+          : explainStop({
+              state: this.state,
+              unit: active,
+              start: startPos,
+              cursor,
+              path,
+              budget: capBinds ? cappedAllowance : nominalMax,
+              difficultCap: capBinds ? effectiveCap : null,
+              stoppedBeforeDifficult,
+              unconstrainedPath: () =>
+                this.hoverNav(active, cursor, capBinds ? cappedAllowance : nominalMax, {
+                  startPosition: startPos,
+                  stopBeforeDifficult: isRush || !!active.isRushing,
+                }),
+            });
+        // A named keep-away stop replaces the generic "blocked by another unit" rush note
+        this.moveStopSaidInChip = !!stopText && this.moveStop?.cause !== 'keep-away';
+        this.updateMoveWarning(isDifficult, this.flow.action, this.moveStop?.cause === 'keep-away' ? '' : stopText);
         this.showTraversalChip();
       } else {
         this.movePreview = null;
@@ -1013,6 +1041,20 @@ export class GameHUD {
         this.moveSegments = describePathSegments(this.state, active, path);
         this.movePreviewDifficult = !jump && path.length > 0 && isPathDifficult(this.state, path, active);
         this.hoveredEngagedTargetId = target?.kind === 'unit' ? declared.targetId : null;
+        const chargeBudget = this.distanceLeft(active, 'charge', model);
+        this.moveStop = jump
+          ? null
+          : explainStop({
+              state: this.state,
+              unit: active,
+              start: startPos,
+              cursor,
+              path,
+              budget: chargeBudget,
+              ignoreUnitId: declared.targetId,
+              unconstrainedPath: () =>
+                this.hoverNav(active, cursor!, chargeBudget, { ignoreUnitId: declared.targetId, startPosition: startPos }),
+            });
         this.updateMoveWarning(this.movePreviewDifficult, 'charge');
         this.showTraversalChip();
       } else {
@@ -1068,6 +1110,18 @@ export class GameHUD {
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.hoveredEngagedTargetId = null;
+        this.moveStop = resolved.jump
+          ? null
+          : explainStop({
+              state: this.state,
+              unit: active,
+              start: active.position,
+              cursor: resolved.target,
+              path,
+              budget,
+              ignoreUnitId: declared.targetId,
+              unconstrainedPath: () => this.hoverNav(active, resolved.target, budget, { ignoreUnitId: declared.targetId }),
+            });
         this.updateMoveWarning(isDifficult, this.flow.action);
         this.showTraversalChip();
         this.emitMarkers();
@@ -5016,13 +5070,52 @@ export class GameHUD {
   private showTraversalChip(): void {
     const el = this.root.querySelector('.sl-hud-move-warning') as HTMLElement | null;
     if (!el) return;
+    if (this.showTraversalChipCore(el)) return;
+    const path = this.movePathPreview;
+    const active = this.activeUnit;
+    if (this.state && active && path && path.length >= 2 && !this.moveJump && hasTrait(active.specialRules, 'flying')) {
+      const cost = pathMovementCost(this.state, path, active);
+      this.appendNote(el, `Flying · ${cost.toFixed(1)}" · over terrain`, 'flying');
+    }
+    if (this.moveStop && !this.moveStopSaidInChip) this.appendNote(el, this.moveStop.text, 'stop');
+  }
+
+  /** Marker extras for a previewed path: the Flying line style and the stop label (both purely visual). */
+  private flyingAndStopMarker(unit: Unit): { flying?: boolean; stop?: { at: Vector3; text: string } } {
+    return {
+      ...(hasTrait(unit.specialRules, 'flying') && !this.moveJump ? { flying: true } : {}),
+      ...(this.moveStop ? { stop: { at: this.moveStop.at, text: this.moveStop.text } } : {}),
+    };
+  }
+
+  /** Add a note to the hover chip: it becomes the chip when empty, else it joins the existing text. */
+  private appendNote(el: HTMLElement, text: string, kind: 'flying' | 'stop'): void {
+    if (el.style.display === 'none') {
+      el.textContent = text;
+      el.style.display = 'block';
+      if (kind === 'flying') {
+        el.style.background = 'rgba(77, 208, 225, 0.18)';
+        el.style.borderColor = '#4dd0e1';
+        el.style.color = '#80deea';
+      } else {
+        el.style.background = 'rgba(41, 182, 246, 0.2)';
+        el.style.borderColor = '#29b6f6';
+        el.style.color = '#81d4fa';
+      }
+    } else {
+      el.insertAdjacentText('beforeend', ` · ${text}`);
+    }
+  }
+
+  /** The jump / refusal / too-wide / leg chips. Returns true when one of the first three took the chip over. */
+  private showTraversalChipCore(el: HTMLElement): boolean {
     if (this.moveJumpRefused && !this.moveJump) {
       el.textContent = this.moveJumpRefused;
       el.style.display = 'block';
       el.style.background = 'rgba(244, 67, 54, 0.25)';
       el.style.borderColor = '#f44336';
       el.style.color = '#ff8a80';
-      return;
+      return true;
     }
     if (this.moveTooWide && !this.moveJump) {
       el.textContent = tooWideText(this.moveTooWide.distance);
@@ -5030,7 +5123,7 @@ export class GameHUD {
       el.style.background = 'rgba(244, 67, 54, 0.25)';
       el.style.borderColor = '#f44336';
       el.style.color = '#ff8a80';
-      return;
+      return true;
     }
     if (this.moveJump) {
       const chip = jumpChip(this.moveJump);
@@ -5039,10 +5132,10 @@ export class GameHUD {
       el.style.background = chip.warning ? 'rgba(244, 67, 54, 0.25)' : 'rgba(255, 112, 67, 0.2)';
       el.style.borderColor = chip.warning ? '#f44336' : '#ff7043';
       el.style.color = chip.warning ? '#ff8a80' : '#ffab91';
-      return;
+      return true;
     }
     const legs = this.moveSegments ? segmentSummary(this.moveSegments) : '';
-    if (!legs) return;
+    if (!legs) return false;
     if (el.style.display === 'none') {
       el.textContent = legs;
       el.style.display = 'block';
@@ -5052,6 +5145,7 @@ export class GameHUD {
     } else {
       el.insertAdjacentText('beforeend', ` · ${legs}`);
     }
+    return false;
   }
 
   private updateMoveWarning(
@@ -5602,6 +5696,7 @@ export class GameHUD {
           isMeleeContact: !!this.hoveredEngagedTargetId,
           color: this.movePreviewDifficult ? 0xffa726 : undefined,
           segments: this.moveSegments ?? undefined,
+          ...this.flyingAndStopMarker(this.activeUnit),
         };
       } else if (this.movePreview) {
         markers.movePath = {
@@ -5622,6 +5717,7 @@ export class GameHUD {
         waypoints: this.movePathPreview,
         isMeleeContact: true,
         segments: this.moveSegments ?? undefined,
+        ...this.flyingAndStopMarker(this.activeUnit),
       };
     }
 

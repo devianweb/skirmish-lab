@@ -87,7 +87,14 @@ export interface MovePathMarker {
   isMeleeContact?: boolean;
   /** When present, each leg is drawn in the style of its traversal kind instead of one line. */
   segments?: MovePathSegment[];
+  /** A Flying unit's path: drawn dashed in its own colour, so it reads as passing over things rather than through them. */
+  flying?: boolean;
+  /** Where the path ended short of the cursor and why: a small ring and a floating label at that point. */
+  stop?: { at: Vector3; text: string };
 }
+
+export const FLYING_PATH_COLOR = 0x4dd0e1;
+const STOP_COLOR = 0x29b6f6;
 
 const CLIMB_COLOR = 0xff9800;
 const DROP_COLOR = 0xffc107;
@@ -425,7 +432,8 @@ export class MarkerRenderer {
 
     if (path.segments && path.segments.length > 0) {
       for (const seg of path.segments) {
-        const style = segmentStyle(seg.kind, pathColor);
+        const style =
+          path.flying && seg.kind !== 'fall' ? { color: FLYING_PATH_COLOR, dashed: true } : segmentStyle(seg.kind, pathColor);
         const geo = new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(seg.from.x, (seg.from.y ?? 0) + 0.06, seg.from.z),
           new THREE.Vector3(seg.to.x, (seg.to.y ?? 0) + 0.06, seg.to.z),
@@ -443,8 +451,15 @@ export class MarkerRenderer {
       }
     } else {
       const lineGeo = new THREE.BufferGeometry().setFromPoints(allPts);
-      const lineMat = new THREE.LineBasicMaterial({ color: pathColor });
-      group.add(new THREE.Line(lineGeo, lineMat));
+      const lineMat = path.flying
+        ? new THREE.LineDashedMaterial({ color: FLYING_PATH_COLOR, dashSize: 0.25, gapSize: 0.15 })
+        : new THREE.LineBasicMaterial({ color: pathColor });
+      const line = new THREE.Line(lineGeo, lineMat);
+      if (path.flying) {
+        line.computeLineDistances();
+        line.name = 'marker-move-flying';
+      }
+      group.add(line);
     }
 
     // Intermediate waypoint node dots
@@ -456,9 +471,26 @@ export class MarkerRenderer {
       }
     }
 
-    const endDisc = this.createFlatRing(pathColor, path.isMeleeContact ? 0.55 : 0.4, 0.06);
+    const endDisc = this.createFlatRing(path.flying ? FLYING_PATH_COLOR : pathColor, path.isMeleeContact ? 0.55 : 0.4, 0.06);
     endDisc.position.set(path.to.x, toY, path.to.z);
     group.add(endDisc);
+
+    if (path.stop) {
+      const ring = this.createFlatRing(STOP_COLOR, 0.65, 0.07);
+      ring.name = 'marker-move-stop-ring';
+      ring.position.set(path.stop.at.x, (path.stop.at.y ?? 0) + 0.07, path.stop.at.z);
+      group.add(ring);
+      const el = document.createElement('div');
+      el.className = 'sl-move-label sl-move-label-stop';
+      el.textContent = path.stop.text;
+      el.style.cssText =
+        'pointer-events:none;user-select:none;white-space:nowrap;padding:2px 8px;border-radius:10px;' +
+        `font:600 12px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid #${STOP_COLOR.toString(16)};`;
+      const label = new CSS2DObject(el);
+      label.name = 'marker-move-label-stop';
+      label.position.set(path.stop.at.x, (path.stop.at.y ?? 0) + 1.1, path.stop.at.z);
+      group.add(label);
+    }
 
     this.markerGroup.add(group);
     this.movePath = group;
