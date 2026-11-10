@@ -133,4 +133,26 @@ describe('GameHUD squad follow-the-leader jumps', () => {
     (document.querySelector('[data-action="reset-squad-move"]') as HTMLElement).click();
     expect(internals.squadBlockedModels.size).toBe(0);
   });
+
+  it('a line along the deck edge crosses with a diagonal hop: every follower is routed, none marked unreachable', () => {
+    const { internals, squad } = setup();
+    const line = [P(-0.55, 3, 3.4), P(-0.55, 3, 2.0), P(-0.55, 3, 0.6), P(-0.55, 3, -0.8)];
+    squad.models.forEach((m, i) => (m.position = { ...line[i] }));
+    squad.position = { ...line[0] };
+    internals.syncFromState?.call(internals, internals.state);
+    internals.handleSquadModelPick(P(2.4, 3, 1.4), 'move');
+    expect(internals.squadBlockedModels.size).toBe(0);
+    expect(internals.stagedSquadModelPositions.size).toBe(4);
+    for (const m of squad.models) expect(internals.stagedSquadModelTraversals.get(m.id)!.kind).toBe('jump-gap');
+  });
+
+  it('a follower that cannot reach the edge says how far it is and how much move it has left', () => {
+    const { internals, squad } = setup();
+    const line = [P(-0.55, 3, 3.4), P(-0.55, 3, 2.0), P(-3.4, 3, -3.4), P(-3.4, 3, -2.2)];
+    squad.models.forEach((m, i) => (m.position = { ...line[i] }));
+    squad.position = { ...line[0] };
+    squad.modelMovementSpent = { [squad.models[0].id]: 0, [squad.models[1].id]: 0, [squad.models[2].id]: 4, [squad.models[3].id]: 0 };
+    internals.handleSquadModelPick(P(2.05, 3, 3.4), 'move');
+    expect(internals.squadBlockedModels.get(squad.models[2].id)).toMatch(/\d\.\d" away and it has 2\.0" of move left/);
+  });
 });

@@ -3024,6 +3024,7 @@ export function pushBackChargerModels(
   // A unit with no model list is a single model at its anchor
   if (living.length === 0) {
     const pos = computePushBackPosition(state, charger, foe, minCentre);
+    if (isBaseOverhanging(state, pos)) return { ...charger.position }; // no supported spot: stay put
     charger.position = { ...pos };
     return pos;
   }
@@ -3032,6 +3033,7 @@ export function pushBackChargerModels(
   const halfW = (state.board.width * state.board.gridSize) / 2 - 0.25;
   const halfH = (state.board.height * state.board.gridSize) / 2 - 0.25;
   const wasCoherent = validateSquadCoherency(starts).coherent;
+  const surfaces = collectWalkableSurfaces(state);
   const tooClose = (p: Vector3): boolean =>
     foes.some(
       (f) => Math.abs((f.y ?? 0) - (p.y ?? 0)) <= 1.5 && Math.hypot(p.x - f.x, p.z - f.z) < minCentre - 0.005
@@ -3042,6 +3044,7 @@ export function pushBackChargerModels(
       const c = candidates[i];
       if (Math.abs(c.x) > halfW || Math.abs(c.z) > halfH) return false;
       if (tooClose(c)) return false;
+      if (isBaseOverhanging(state, c, surfaces)) return false; // never step a model off a deck edge into the air
       if (findEndOverlap(state, charger.id, c)) return false;
       if (findMoveBlocker(state, charger, [starts[i], c], { ignoreUnitId: foe.id }).blocked) return false;
       for (let j = i + 1; j < candidates.length; j++) {
@@ -3104,11 +3107,13 @@ export function pushBackChargerModels(
     const anchor = computeSquadCentroid(starts);
     const dx = pos.x - anchor.x;
     const dz = pos.z - anchor.z;
-    result = starts.map((s) => ({
+    const block = starts.map((s) => ({
       x: Math.round((s.x + dx) * 100) / 100,
       y: pos.y ?? s.y ?? 0,
       z: Math.round((s.z + dz) * 100) / 100,
     }));
+    // "If possible": a step that would leave any model unsupported is not taken, the unit stays where it is
+    result = block.every((b) => !isBaseOverhanging(state, b, surfaces)) ? block : starts.map((s) => ({ ...s }));
   }
 
   living.forEach((m, i) => {

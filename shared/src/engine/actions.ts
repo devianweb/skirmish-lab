@@ -1528,7 +1528,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!path || path.length < 2) {
         return { valid: false, reason: 'Consolidation path is empty' };
       }
-      const distance = pathMovementCost(state, path);
+      const distance = pathMovementCost(state, path, unit);
       const maxDistance = pending.data?.maxDistance ?? 3.0;
       if (distance > maxDistance + 0.05) {
         return { valid: false, reason: `Consolidation move exceeds max distance (${maxDistance}")` };

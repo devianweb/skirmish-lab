@@ -1,7 +1,7 @@
 import { GameState, Unit } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
-import { findNavPath } from './spatial';
+import { findNavPath, findWalkableSurfaceAt } from './spatial';
 import {
   DeclaredTraversal,
   JumpOption,
@@ -35,11 +35,25 @@ function alongHop(t: DeclaredTraversal, p: Vector3): number {
   return (p.x - t.takeoff.x) * dir.dx + (p.z - t.takeoff.z) * dir.dz;
 }
 
-/** True when a model at `p` is already past the crossing, so it has nothing to cross. */
-export function isBeyondCrossing(t: DeclaredTraversal, p: Vector3): boolean {
+/**
+ * True when a model at `p` is already past the crossing, so it has nothing to cross. With the game state it is
+ * judged by the floor: the model stands at the landing's level on a different floor than the take-off spot
+ * (already across the gap, or down on the lower level). That holds for a hop that is not square to the edge,
+ * where "how far along the hop" would call a model beside the take-off spot "past halfway". Without the state
+ * it falls back to the distance along the hop.
+ */
+export function isBeyondCrossing(t: DeclaredTraversal, p: Vector3, state?: GameState): boolean {
   const dir = hopDirection(t);
   if (!dir) return false;
   if (Math.abs((p.y ?? 0) - (t.landing.y ?? 0)) > 0.3) return false;
+  if (state) {
+    const from = findWalkableSurfaceAt(state, { x: t.takeoff.x, y: t.takeoff.y ?? 0, z: t.takeoff.z }, 0.1);
+    const here = findWalkableSurfaceAt(state, { x: p.x, y: p.y ?? 0, z: p.z }, 0.1);
+    // Same floor as the take-off spot (a deck made of several parts counts as one): still on this side
+    if (from && here && from.piece.id === here.piece.id) return false;
+    if (!from && !here) return alongHop(t, p) > Math.max(0.25, dir.length * 0.5);
+    return alongHop(t, p) > 0;
+  }
   return alongHop(t, p) > Math.max(0.25, dir.length * 0.5);
 }
 
@@ -87,35 +101,46 @@ export function planFollowerCrossing(
   options: FollowerOptions
 ): FollowerPlan {
   if (leader.kind === 'fall' || hasTrait(unit.specialRules, 'flying')) return { status: 'not-needed' };
-  if (isBeyondCrossing(leader, start)) return { status: 'not-needed' };
+  if (isBeyondCrossing(leader, start, state)) return { status: 'not-needed' };
   const dir = hopDirection(leader);
   if (!dir) return { status: 'not-needed' };
   const taken = options.taken ?? [];
   const clear = (p: Vector3): boolean => taken.every((t) => Math.abs((t.y ?? 0) - (p.y ?? 0)) >= 1.0 || distanceHorizontal(t, p) >= SPACING);
+  const hop = { x: leader.landing.x - leader.takeoff.x, z: leader.landing.z - leader.takeoff.z };
+
+  // Take-off spots to try: the leader's spot shifted sideways in half-inch steps. The edge a hop leaves from
+  // is not always square to the hop (a diagonal hop from near a corner), so spots are searched on a grid around
+  // the leader's spot, not only along the line square to the hop; each is kept only when the engine offers the
+  // same hop vector from it. Nearest to the follower first.
+  const steps: number[] = [0];
+  for (let k = 0.5; k <= MAX_LATERAL + 1e-6; k += 0.5) steps.push(k, -k);
+  const spots: Array<{ takeoff: Vector3; landing: Vector3; rank: number }> = [];
+  const addSpot = (ox: number, oz: number): void => {
+    const takeoff = { x: leader.takeoff.x + ox, y: leader.takeoff.y ?? 0, z: leader.takeoff.z + oz };
+    const landing = { x: takeoff.x + hop.x, y: leader.landing.y ?? 0, z: takeoff.z + hop.z };
+    spots.push({ takeoff, landing, rank: distanceHorizontal(start, takeoff) });
+  };
   const tangent = { x: -dir.dz, z: dir.dx };
+  for (const off of steps) addSpot(tangent.x * off, tangent.z * off);
+  for (const ox of steps) {
+    for (const oz of steps) {
+      if (Math.hypot(ox, oz) <= MAX_LATERAL + 1e-6) addSpot(ox, oz);
+    }
+  }
+  spots.sort((a, b) => a.rank - b.rank);
 
-  const offsets: number[] = [0];
-  for (let k = 0.5; k <= MAX_LATERAL + 1e-6; k += 0.5) offsets.push(k, -k);
-
-  const candidates: Array<{ takeoff: Vector3; landing: Vector3; option: JumpOption; rank: number }> = [];
-  for (const off of offsets) {
-    const takeoff = { x: leader.takeoff.x + tangent.x * off, y: leader.takeoff.y ?? 0, z: leader.takeoff.z + tangent.z * off };
-    const landing = { x: leader.landing.x + tangent.x * off, y: leader.landing.y ?? 0, z: leader.landing.z + tangent.z * off };
-    if (!clear(takeoff) || !clear(landing)) continue;
-    if (options.landingAllowed && !options.landingAllowed(landing)) continue;
-    const option = findJumpOption(state, unit, takeoff, landing);
+  let anyValid = false;
+  let nearestValid = Infinity; // straight-line distance to the nearest legal take-off spot
+  let shortest = Infinity; // walking distance of the cheapest walk that was found but too long
+  for (const c of spots) {
+    if (!clear(c.takeoff) || !clear(c.landing)) continue;
+    if (options.landingAllowed && !options.landingAllowed(c.landing)) continue;
+    const option = findJumpOption(state, unit, c.takeoff, c.landing);
     if (!option || option.kind !== leader.kind) continue;
-    candidates.push({ takeoff, landing, option, rank: distanceHorizontal(start, takeoff) });
-  }
-  if (candidates.length === 0) {
-    return { status: 'unreachable', reason: 'there is no free spot along that edge to jump from' };
-  }
-  candidates.sort((a, b) => a.rank - b.rank);
-
-  let shortest = Infinity;
-  for (const c of candidates) {
-    // A straight-line walk is a lower bound: skip spots that cannot be reached even in a straight line
-    if (c.rank > options.budget + 0.05) continue;
+    anyValid = true;
+    nearestValid = Math.min(nearestValid, c.rank);
+    // A straight-line walk is a lower bound: later spots are only farther
+    if (c.rank > options.budget + 0.05) break;
     const walk = findNavPath(state, unit, c.takeoff, options.budget, { ...options.navOptions, startPosition: start });
     if (walk.length < 2) continue;
     const end = walk[walk.length - 1];
@@ -125,13 +150,17 @@ export function planFollowerCrossing(
     shortest = Math.min(shortest, walkCost);
     if (walkCost > allowed + 0.05) continue;
     const path = [...walk.slice(0, -1), c.takeoff, c.landing];
-    return { status: 'route', route: { path, option: c.option, walkCost } };
+    return { status: 'route', route: { path, option, walkCost } };
+  }
+  if (!anyValid) {
+    return { status: 'unreachable', reason: 'there is no free spot along that edge to jump from' };
   }
   const left = Math.max(0, options.budget);
+  const away = Number.isFinite(shortest) ? shortest : nearestValid;
   return {
     status: 'unreachable',
-    reason: Number.isFinite(shortest)
-      ? `the take-off edge is ${shortest.toFixed(1)}" away and it has ${left.toFixed(1)}" of move left`
+    reason: Number.isFinite(away)
+      ? `the take-off edge is ${away.toFixed(1)}" away and it has ${left.toFixed(1)}" of move left`
       : `it cannot walk to the take-off edge with ${left.toFixed(1)}" of move left`,
   };
 }
