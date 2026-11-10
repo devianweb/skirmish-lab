@@ -30,6 +30,11 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 
 ## 7. Movement, rush and shooting
 - All items verified.
+- [ ] **14C-2 morale at half:** shoot a 4-model squad with a squad of yours until it has 2 models left, then end your activation: a Morale dice panel appears for both players (unit, die, Quality needed, result) and the log says passed or Shaken. A squad hit but still above half (3 of 4 left) rolls nothing. A unit at half that was not hit this activation rolls nothing.
+- [ ] **14C-2 Tough:** a Tough(3) model shows `1/3 W`, `2/3 W` as it takes wounds, is not Shaken by the wounds themselves, and is removed on the third (no Wound Effect roll anywhere).
+- [ ] **14C-2 Shaken:** a Shaken unit, when you activate it, offers only *End Activation (idle)* (Advance, Rush, Shoot, Charge greyed out); ending it removes the SHAKEN tag. A second wound to a Shaken unit at half still re-tests (it fails automatically, no die). A Fearless unit gets a Fearless die.
+- [ ] **14C-2 Hero:** a squad at half within 6" of a living non-Shaken Hero tests with the Hero's better Quality; at more than 6" it uses its own.
+- [ ] **14C-2 round end:** ending a round with half your army dead triggers no morale tests.
 
 ## 8. Melee & objectives
 - All items verified.
