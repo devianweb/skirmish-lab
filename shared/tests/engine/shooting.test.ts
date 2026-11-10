@@ -239,6 +239,33 @@ describe('Blast: spread on the table', () => {
     const outcome = out.logEntry!.dice!.outcome;
     expect(outcome.hitCount).toBe(2);
     expect(outcome.blastSplash![0]).toMatchObject({ targetId: 'g2', hitCount: 1 });
+    // The dice panel record: 1 hit x 3 = 3 hits, 2 to the target and 1 to the neighbour, none lost
+    expect(outcome.blastSplits).toEqual([
+      {
+        weaponId: 'frag-launcher',
+        weaponName: expect.any(String),
+        multiplier: 3,
+        totalHits: 3,
+        shares: [
+          { targetId: 'g1', targetName: expect.any(String), hits: 2, cap: 5 },
+          { targetId: 'g2', targetName: expect.any(String), hits: 1, cap: 5 },
+        ],
+        lostHits: 0,
+      },
+    ]);
+    expect(outcome.blastSplash![0].defenseRolls).toHaveLength(1);
+  });
+
+  it('records hits lost when every unit is at its cap', () => {
+    // 2 hits x 3 = 6 Blast hits on a lone 4-model unit: 4 land, 2 are lost.
+    const state = mkState([
+      mkUnit('h1', HOST, 0, 0, { count: 2, weapons: [weapon('frag-launcher')] }),
+      mkUnit('g1', GUEST, 0, 10, { count: 4 }),
+    ]);
+    const { out } = fire(state, undefined, [5, 5]);
+    const split = out.logEntry!.dice!.outcome.blastSplits![0];
+    expect(split).toMatchObject({ totalHits: 6, lostHits: 2 });
+    expect(split.shares).toEqual([{ targetId: 'g1', targetName: expect.any(String), hits: 4, cap: 4 }]);
   });
 
   it('ignores cover for the target and for neighbours behind a wall', () => {

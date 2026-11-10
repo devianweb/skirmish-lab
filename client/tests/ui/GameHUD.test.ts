@@ -628,6 +628,71 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Shaken');
   });
 
+  it('spells out a Blast shot: multiplication, the split between units and the spill unit\'s own dice', () => {
+    const state = scenarioState();
+    const h = state.units.find((u) => u.ownerId === HOST)!;
+    const [a, b] = state.units.filter((u) => u.ownerId === GUEST);
+    const action = createAction(HOST, 'shoot', { type: 'shoot', attackerId: h.id, targetId: a.id, weaponId: 'frag-launcher' });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [
+          { count: 1, sides: 6, purpose: 'to-hit' },
+          { count: 3, sides: 6, purpose: 'defense' },
+        ],
+        results: [
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
+          { rolls: [2, 2, 1], total: 5, finalTotal: 5, purpose: 'defense' },
+        ],
+        context: { attackerId: h.id, targetId: a.id, actionId: action.id },
+        outcome: {
+          attackCount: 1,
+          hitCount: 2,
+          blockedCount: 0,
+          wounds: 2,
+          targetDestroyed: false,
+          effectiveQuality: 4,
+          effectiveDefense: 5,
+          blastSplits: [
+            {
+              weaponId: 'frag-launcher',
+              weaponName: 'Frag Launcher',
+              multiplier: 3,
+              totalHits: 3,
+              shares: [
+                { targetId: a.id, targetName: 'Squad A', hits: 2, cap: 4 },
+                { targetId: b?.id ?? 'b', targetName: 'Squad B', hits: 1, cap: 4 },
+              ],
+              lostHits: 0,
+            },
+          ],
+          blastSplash: [
+            {
+              weaponId: 'frag-launcher',
+              targetId: b?.id ?? 'b',
+              targetName: 'Squad B',
+              hitCount: 1,
+              blockedCount: 1,
+              blockedRolls: [true],
+              defenseRolls: [5],
+              wounds: 0,
+              targetDestroyed: false,
+              effectiveDefense: 5,
+            },
+          ],
+        },
+      },
+    });
+    const { container } = setup(GUEST, state);
+    const text = container.textContent ?? '';
+    expect(text).toContain('Frag Launcher Blast(3): 1 hit × 3 = 3 hits → Squad A 2 · Squad B 1');
+    expect(text).toContain('Blast spill on Squad B: Defense (need D5+)');
+    expect(container.querySelector('.sl-hud-blast-split')).toBeTruthy();
+  });
+
   it('shows the melee result of an activation end, with Fear and the loser, from state', () => {
     const state = scenarioState();
     const [a] = state.units.filter((u) => u.ownerId === GUEST);

@@ -370,6 +370,22 @@ export interface BlastSplashOutcome {
   effectiveDefense?: number;
   baseDefense?: number;
   defenseModifiers?: string[];
+  /** The defense dice this unit rolled for its share (one per hit). */
+  defenseRolls?: number[];
+}
+
+/** How one Blast weapon's hits were multiplied and shared out between the target and units near it. */
+export interface BlastSplitRecord {
+  weaponId: string;
+  weaponName: string;
+  /** The X of Blast(X). */
+  multiplier: number;
+  /** Hits after multiplying (to-hit successes and bonus hits, times X). */
+  totalHits: number;
+  /** One entry per eligible unit, the aimed-at target first: its share and its cap (living models). */
+  shares: { targetId: string; targetName: string; hits: number; cap: number }[];
+  /** Hits no unit could take (every unit at its cap). */
+  lostHits: number;
 }
 
 export interface WeaponAttackOutcome {
@@ -486,6 +502,8 @@ export interface DiceResolution {
     allocations?: WeaponAttackOutcome[];
     /** Blast hits that spilled onto other enemy units near the target (totals above count the target only). */
     blastSplash?: BlastSplashOutcome[];
+    /** Per Blast weapon: the multiplication and the split between units (for the dice panel). */
+    blastSplits?: BlastSplitRecord[];
     pushedBack?: boolean;
     pushBackPosition?: Vector3;
   };
