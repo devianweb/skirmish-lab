@@ -70,18 +70,18 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
 <div class="layout">
   <nav aria-label="Contents">
     <span class="brand">SkirmishLab UI</span>
-    <ol><li><a href="#lobby">Lobby and Map Builder</a> <span class="count">6</span></li><li><a href="#anatomy">The game screen</a> <span class="count">2</span></li><li><a href="#setup">Objectives and deployment</a> <span class="count">10</span></li><li><a href="#activation">Activating a unit</a> <span class="count">3</span></li><li><a href="#move">Movement</a> <span class="count">8</span></li><li><a href="#shoot">Shooting</a> <span class="count">6</span></li><li><a href="#melee">Charge and melee</a> <span class="count">11</span></li><li><a href="#push">Push</a> <span class="count">3</span></li><li><a href="#status">Alerts, toasts and debug</a> <span class="count">4</span></li><li><a href="#end">Concede and match end</a> <span class="count">5</span></li><li><a href="#observations">Design observations</a> <span class="count">14</span></li></ol>
+    <ol><li><a href="#lobby">Lobby and Map Builder</a> <span class="count">6</span></li><li><a href="#anatomy">The game screen</a> <span class="count">2</span></li><li><a href="#setup">Objectives and deployment</a> <span class="count">10</span></li><li><a href="#activation">Activating a unit</a> <span class="count">3</span></li><li><a href="#move">Movement</a> <span class="count">8</span></li><li><a href="#shoot">Shooting</a> <span class="count">6</span></li><li><a href="#melee">Charge and melee</a> <span class="count">14</span></li><li><a href="#push">Push</a> <span class="count">3</span></li><li><a href="#status">Alerts, toasts and debug</a> <span class="count">4</span></li><li><a href="#end">Concede and match end</a> <span class="count">5</span></li><li><a href="#observations">Design observations</a> <span class="count">14</span></li></ol>
   </nav>
   <main>
     <header class="intro">
       <h1>SkirmishLab UI inventory</h1>
       <p>Every screen, panel and prompt in the game as of the 14C-2 PR 9 build (master, 11 Nov 2026), with what each one is and what it is for. Use it as the starting point for the 14G design pass.</p>
       <p>Screenshots come from a headless browser at 1600 × 900. In-match shots run the real HUD and engine on one page with scripted dice, so a prompt can be shown from both seats. Lobby shots use two real browsers over the signaling server. Click a screenshot to enlarge it. Open this file directly in a browser; it needs no server.</p>
-      <p class="meta">58 screenshots · 10 sections · not shown: the dangerous-terrain casualty selector on a squad move and the "jump N dice" chip (described in the movement section)</p>
+      <p class="meta">61 screenshots · 10 sections · not shown: the dangerous-terrain casualty selector on a squad move and the "jump N dice" chip (described in the movement section)</p>
     </header>
     <div class="obs" id="observations">
       <h2>Design observations</h2>
-      <ol><li><strong>Dice panel.</strong> During setup the Dice panel shows an empty attack template (&quot;Attacker → target&quot;, &quot;To-Hit (need Q4+)&quot;, &quot;0 hits · 0 blocked · 0 wounds&quot;) because the latest roll (objective count, roll-offs) is not an attack. See the objective screenshots.</li><li><strong>Log wording.</strong> Some log lines print the raw action name: &quot;Host concede&quot;, &quot;Guest request-rematch&quot;, &quot;Host held with …&quot; for an idle Shaken unit.</li><li><strong>Header colours.</strong> The turn label shows &quot;Defeat&quot; in the same green as &quot;Your turn&quot;, and &quot;Victory&quot; in orange.</li><li><strong>Confirm summaries.</strong> Multi-weapon and charge confirmations are 4 to 5 lines of dense text in one paragraph (weapons, dice, target numbers, pile-in, step-back). A structured layout (one row per weapon, icons for Q/D) would scan faster.</li><li><strong>Bottom of the screen.</strong> The data card and the action/prompt bar are two separate floating panels stacked at the bottom; together they cover a large part of the board, and the red keep-away legend banner overlaps the data card.</li><li><strong>Roster panel.</strong> Both sides share one tall scrolling panel; the enemy list usually falls below the fold. Friendly cards are large, enemy cards are compact one-liners. Status tags (UNDEPLOYED, ACTIVATED, SHAKEN, FATIGUED, ENGAGED, IN RESERVE (AMBUSH), HELD AS SCOUT) are all small coloured text, so Shaken does not stand out.</li><li><strong>Top-centre slot.</strong> Toasts, the setup panel, the terrain-debugger pill and rejection banners all appear in the same spot under the header and can stack on each other.</li><li><strong>Icons.</strong> Emoji act as icons in some prompts (📍 placement, ⚠️ alerts, 🎯 objectives, ⏳ waiting) while the rest of the HUD is text-only.</li><li><strong>Reaction docks.</strong> The docks share a pattern (title, countdown, description, buttons), but button order and colours differ: Push = Auto (green) / Confirm / Don't push (red); Pile in = Auto place / Confirm (green) / Reset; Casualties = Auto pick / Confirm.</li><li><strong>Board scale.</strong> The default camera frames the whole 48&quot; board, so units are small and the action often sits far from the camera. A focus-on-selection camera or zoom shortcut would help.</li><li><strong>Lobby.</strong> The guest has no army choice (the host picks both; already a 14G item). The deployment checkbox reads &quot;Interactive Pre-Match Deployment (12&quot; Zones)&quot; and without it a game skips deployment but still places objectives.</li><li><strong>Map Builder.</strong> The top toolbar is crowded with two-line button labels; the status pill (Ready / Notice) looks like a button.</li><li><strong>Match end.</strong> The results modal sits over the live HUD; the roster, Dice/Log and data card stay visible behind it.</li><li><strong>Setup header.</strong> During setup the header still shows the objective score (Host 0 — Guest 0), and the &quot;Round N started&quot; toast fires before the Ambush step of that round.</li></ol>
+      <ol><li><strong>Dice panel.</strong> During setup the Dice panel shows an empty attack template (&quot;Attacker → target&quot;, &quot;To-Hit (need Q4+)&quot;, &quot;0 hits · 0 blocked · 0 wounds&quot;) because the latest roll (objective count, roll-offs) is not an attack. See the objective screenshots.</li><li><strong>Log wording.</strong> Some log lines print the raw action name: &quot;Host concede&quot;, &quot;Guest request-rematch&quot;, &quot;Host held with …&quot; for an idle Shaken unit.</li><li><strong>Header colours.</strong> The turn label shows &quot;Defeat&quot; in the same green as &quot;Your turn&quot;, and &quot;Victory&quot; in orange.</li><li><strong>Confirm summaries.</strong> Multi-weapon and charge confirmations are 4 to 5 lines of dense text in one paragraph (weapons, dice, target numbers, pile-in, step-back). A structured layout (one row per weapon, icons for Q/D) would scan faster.</li><li><strong>Bottom of the screen.</strong> The data card and the action/prompt bar are two separate floating panels stacked at the bottom; together they cover a large part of the board, and the red keep-away legend banner overlaps the data card.</li><li><strong>Roster panel.</strong> Both sides share one tall scrolling panel; the enemy list usually falls below the fold. Friendly cards are large, enemy cards are compact one-liners. Status tags (UNDEPLOYED, ACTIVATED, SHAKEN, FATIGUED, ENGAGED, IN RESERVE (AMBUSH), HELD AS SCOUT) are all small coloured text, so Shaken does not stand out.</li><li><strong>Top-centre slot.</strong> Toasts, the setup panel, the terrain-debugger pill and rejection banners all appear in the same spot under the header and can stack on each other.</li><li><strong>Icons.</strong> Emoji act as icons in some prompts (📍 placement, ⚠️ alerts, 🎯 objectives, ⏳ waiting) while the rest of the HUD is text-only.</li><li><strong>Reaction docks.</strong> The docks share a pattern (title, countdown, description, buttons), but button order and colours differ: Push = Auto (green) / Confirm / Don't push (red); Pile in = Auto place / Confirm (green) / Reset; Casualties = Auto pick / Confirm.</li><li><strong>Board scale.</strong> The default camera frames the whole 48&quot; board, so units are small and the action often sits far from the camera. A focus-on-selection camera or zoom shortcut would help.</li><li><strong>Lobby.</strong> The guest has no army choice (the host picks both; already a 14G item). The deployment checkbox reads &quot;Interactive Pre-Match Deployment (12&quot; Zones)&quot; and without it a game starts with no objectives.</li><li><strong>Map Builder.</strong> The top toolbar is crowded with two-line button labels; the status pill (Ready / Notice) looks like a button.</li><li><strong>Match end.</strong> The results modal sits over the live HUD; the roster, Dice/Log and data card stay visible behind it.</li><li><strong>Setup header.</strong> During setup the header still shows the objective score (Host 0 — Guest 0), and the &quot;Round N started&quot; toast fires before the Ambush step of that round.</li></ol>
     </div>
     
     <section id="lobby">
@@ -627,10 +627,46 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
         </div>
       </article>
       <a class="lightbox" id="s5-25-reaction-0-picked-full" href="#s5-25-reaction-0-picked"><img src="img/s5-25-reaction-0-picked.jpg" alt="Casualties being picked (full size)"></a>
+      <article class="entry" id="s12-01-waiting-host">
+        <a class="shot" href="#s12-01-waiting-host-full" aria-label="Enlarge: Waiting for the Blast split (shooter)"><img src="img/s12-01-waiting-host.jpg" alt="Waiting for the Blast split (shooter)" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">44</p>
+          <h3>Waiting for the Blast split (shooter)</h3>
+          <dl>
+            <dt>What it is</dt><dd>The shooter's bottom bar while the defender splits the hits: &quot;Waiting for Guest to split the Blast hits (29s)…&quot;. Nothing is resolved yet.</dd>
+            <dt>Purpose</dt><dd>A Blast shot that reaches more than one unit pauses before the dice are applied; the shooter just waits.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="s12-01-waiting-host-full" href="#s12-01-waiting-host"><img src="img/s12-01-waiting-host.jpg" alt="Waiting for the Blast split (shooter) (full size)"></a>
+      <article class="entry" id="s12-02-split-dock-guest">
+        <a class="shot" href="#s12-02-split-dock-guest-full" aria-label="Enlarge: Split Blast Hits dock (defender)"><img src="img/s12-02-split-dock-guest.jpg" alt="Split Blast Hits dock (defender)" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">45</p>
+          <h3>Split Blast Hits dock (defender)</h3>
+          <dl>
+            <dt>What it is</dt><dd>Title &quot;SPLIT BLAST HITS&quot; with the countdown, a one-line explanation, one row per eligible unit (name, &quot;(max N)&quot;, a - / + stepper and its count), the running &quot;3 of 3 hits assigned&quot; line, and Auto split / Confirm. A salvo with several Blast weapons shows one block per weapon, headed by the weapon name.</dd>
+            <dt>Purpose</dt><dd>The defender chooses how a Blast's hits are shared between the target and the enemy units within 3&quot; of it. Starts at the Auto split; any split within each unit's max (one hit per model) that assigns every hit that can land is valid. Confirm is disabled until it is. Timeout = Auto split.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="s12-02-split-dock-guest-full" href="#s12-02-split-dock-guest"><img src="img/s12-02-split-dock-guest.jpg" alt="Split Blast Hits dock (defender) (full size)"></a>
+      <article class="entry" id="s12-03-split-edited-guest">
+        <a class="shot" href="#s12-03-split-edited-guest-full" aria-label="Enlarge: Blast split edited"><img src="img/s12-03-split-edited-guest.jpg" alt="Blast split edited" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">46</p>
+          <h3>Blast split edited</h3>
+          <dl>
+            <dt>What it is</dt><dd>After moving a hit from the second unit to the first: the counts read 3 and 0 and the count line still reads &quot;3 of 3 hits assigned&quot;.</dd>
+            <dt>Purpose</dt><dd>Visual check of the steppers; Confirm sends the custom split to the host, which validates it again.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="s12-03-split-edited-guest-full" href="#s12-03-split-edited-guest"><img src="img/s12-03-split-edited-guest.jpg" alt="Blast split edited (full size)"></a>
       <article class="entry" id="s5-25-reaction-1-melee-retaliation-guest">
         <a class="shot" href="#s5-25-reaction-1-melee-retaliation-guest-full" aria-label="Enlarge: Strike back prompt"><img src="img/s5-25-reaction-1-melee-retaliation-guest.jpg" alt="Strike back prompt" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">44</p>
+          <p class="num">47</p>
           <h3>Strike back prompt</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;MELEE RETALIATION&quot; with countdown, &quot;Test Impact Brutes 3 charged Test Squad A 2! Strike back with Blade?&quot;, a red Fatigue warning, and Strike Back (Blade) / Decline (Avoid Fatigue).</dd>
@@ -642,7 +678,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="25-reaction-0-melee-consolidation-host">
         <a class="shot" href="#25-reaction-0-melee-consolidation-host-full" aria-label="Enlarge: Victory consolidation"><img src="img/25-reaction-0-melee-consolidation-host.jpg" alt="Victory consolidation" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">45</p>
+          <p class="num">48</p>
           <h3>Victory consolidation</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;VICTORY CONSOLIDATION&quot;: the target was wiped out, move up to 3&quot; or Stay Put.</dd>
@@ -654,7 +690,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-28-melee-result-morale">
         <a class="shot" href="#s5-28-melee-result-morale-full" aria-label="Enlarge: Melee result and Morale"><img src="img/s5-28-melee-result-morale.jpg" alt="Melee result and Morale" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">46</p>
+          <p class="num">49</p>
           <h3>Melee result and Morale</h3>
           <dl>
             <dt>What it is</dt><dd>Dice panel titled &quot;Melee result &amp; Morale&quot;: the melee line (each side's wounds) and the Morale die with its outcome (Shaken). The log entry for &quot;Host ended an activation&quot; carries the same lines indented.</dd>
@@ -670,7 +706,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-29-push">
         <a class="shot" href="#s5-29-push-full" aria-label="Enlarge: Push prompt (attacker)"><img src="img/s5-29-push.jpg" alt="Push prompt (attacker)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">47</p>
+          <p class="num">50</p>
           <h3>Push prompt (attacker)</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;PUSH&quot; with countdown, &quot;Test Squad A 2 is Shaken: move one of its models up to 2&quot;. Auto pushes the model nearest …&quot;, and Auto / Confirm / Don't push.</dd>
@@ -682,7 +718,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-31-push-model">
         <a class="shot" href="#s5-31-push-model-full" aria-label="Enlarge: Push placement"><img src="img/s5-31-push-model.jpg" alt="Push placement" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">48</p>
+          <p class="num">51</p>
           <h3>Push placement</h3>
           <dl>
             <dt>What it is</dt><dd>Model chips for the Shaken unit, the 2&quot; ring on the highlighted model, keep-away rings, and Push / Back / Don't push.</dd>
@@ -694,7 +730,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-32-push-waiting">
         <a class="shot" href="#s5-32-push-waiting-full" aria-label="Enlarge: Push, defender view"><img src="img/s5-32-push-waiting.jpg" alt="Push, defender view" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">49</p>
+          <p class="num">52</p>
           <h3>Push, defender view</h3>
           <dl>
             <dt>What it is</dt><dd>The Shaken unit's owner sees the waiting bar.</dd>
@@ -710,7 +746,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="52-alert-opponent-disconnected">
         <a class="shot" href="#52-alert-opponent-disconnected-full" aria-label="Enlarge: Opponent disconnected"><img src="img/52-alert-opponent-disconnected.jpg" alt="Opponent disconnected" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">50</p>
+          <p class="num">53</p>
           <h3>Opponent disconnected</h3>
           <dl>
             <dt>What it is</dt><dd>Full-width red banner under the header: &quot;Opponent disconnected — waiting for peer to reconnect… (Grace period: 5m)&quot;.</dd>
@@ -722,7 +758,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="53-alert-signaling-reconnecting">
         <a class="shot" href="#53-alert-signaling-reconnecting-full" aria-label="Enlarge: Signaling reconnecting"><img src="img/53-alert-signaling-reconnecting.jpg" alt="Signaling reconnecting" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">51</p>
+          <p class="num">54</p>
           <h3>Signaling reconnecting</h3>
           <dl>
             <dt>What it is</dt><dd>Amber banner &quot;Signaling disconnected — reconnecting to room…&quot;.</dd>
@@ -734,7 +770,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="54-toast-rejected">
         <a class="shot" href="#54-toast-rejected-full" aria-label="Enlarge: Toast"><img src="img/54-toast-rejected.jpg" alt="Toast" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">52</p>
+          <p class="num">55</p>
           <h3>Toast</h3>
           <dl>
             <dt>What it is</dt><dd>Small banner under the header (&quot;Action rejected: Move exceeds unit speed&quot;).</dd>
@@ -746,7 +782,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="55-terrain-debugger">
         <a class="shot" href="#55-terrain-debugger-full" aria-label="Enlarge: Terrain debugger (F9 in game)"><img src="img/55-terrain-debugger.jpg" alt="Terrain debugger (F9 in game)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">53</p>
+          <p class="num">56</p>
           <h3>Terrain debugger (F9 in game)</h3>
           <dl>
             <dt>What it is</dt><dd>A pill &quot;Terrain debugger: ON (hover terrain to inspect, F9 to hide)&quot;, wireframe collision volumes for units and terrain, and an inspector card for the hovered piece (id, type, LoS/cover flags, position, scale, rotation, footprint, half-extents).</dd>
@@ -762,7 +798,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="56-concede-dialog">
         <a class="shot" href="#56-concede-dialog-full" aria-label="Enlarge: Concede dialog"><img src="img/56-concede-dialog.jpg" alt="Concede dialog" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">54</p>
+          <p class="num">57</p>
           <h3>Concede dialog</h3>
           <dl>
             <dt>What it is</dt><dd>Small modal &quot;Concede the match? You lose and your opponent wins.&quot; with Concede (red) / Cancel.</dd>
@@ -774,7 +810,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="57-gameover-defeat">
         <a class="shot" href="#57-gameover-defeat-full" aria-label="Enlarge: Results: Defeat"><img src="img/57-gameover-defeat.jpg" alt="Results: Defeat" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">55</p>
+          <p class="num">58</p>
           <h3>Results: Defeat</h3>
           <dl>
             <dt>What it is</dt><dd>Modal with the title (Defeat), the reason (&quot;Host conceded&quot;), rounds played, final objective score, units/models lost per side, and Play Again / Return to Lobby.</dd>
@@ -786,7 +822,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="58-gameover-victory">
         <a class="shot" href="#58-gameover-victory-full" aria-label="Enlarge: Results: Victory"><img src="img/58-gameover-victory.jpg" alt="Results: Victory" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">56</p>
+          <p class="num">59</p>
           <h3>Results: Victory</h3>
           <dl>
             <dt>What it is</dt><dd>Same modal for the winner.</dd>
@@ -798,7 +834,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="59-gameover-rematch-waiting">
         <a class="shot" href="#59-gameover-rematch-waiting-full" aria-label="Enlarge: Rematch requested"><img src="img/59-gameover-rematch-waiting.jpg" alt="Rematch requested" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">57</p>
+          <p class="num">60</p>
           <h3>Rematch requested</h3>
           <dl>
             <dt>What it is</dt><dd>Play Again becomes a disabled &quot;Waiting for Host…&quot;.</dd>
@@ -810,7 +846,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="60-gameover-rematch-offered">
         <a class="shot" href="#60-gameover-rematch-offered-full" aria-label="Enlarge: Rematch offered"><img src="img/60-gameover-rematch-offered.jpg" alt="Rematch offered" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">58</p>
+          <p class="num">61</p>
           <h3>Rematch offered</h3>
           <dl>
             <dt>What it is</dt><dd>The other player sees &quot;Guest wants a rematch&quot; and an Accept rematch button.</dd>

@@ -27,7 +27,8 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - All items verified.
 
 ## 7. Movement, rush and shooting
-- All items verified.
+- [ ] **Blast split prompt (14C-2 PR 10).** Setup: dev mode (F9 in the lobby), both players pick **TEST: Rules Check** on the **Hazard Range** map (open ground, no sight blockers), deployment phase ticked. The guest deploys Test Squad A and Test Squad B side by side with bases within 3" of each other, about 2" behind the front of their zone; the host deploys the Test Heavy Gunner at the front of its zone opposite them. If the squads are out of range, the host Advances the Heavy Gunner first (it can still shoot). Host activates the Test Heavy Gunner, shoots Squad A with only the Frag Launcher selected. Guest: the dock "Split Blast Hits" appears with a countdown, one row per squad (Squad A and Squad B, each "max 4"), the Auto split pre-filled, "3 of 3 hits assigned"-style count and Auto split / Confirm. Host: sees "Waiting for Guest to split the Blast hits". Check: the + / - buttons stop at 0 and at each squad's max; Confirm is disabled while the count is wrong; Auto split puts the Auto numbers back; a lopsided split (all hits on one squad) is accepted; after Confirm the dice panel and log show the roll and the chosen split ("Frag Launcher Blast(3): ... -> Squad A n · Squad B m"), followed by the usual casualty picks.
+- [ ] **Blast split: timeout and no-prompt cases.** Let the 30 s run out on a Blast split: the Auto split is applied for the guest. A Blast shot at a lone unit (nothing else within 3") and a Blast shot that misses entirely show no split prompt. Firing both Blast weapons of the Heavy Gunner in one salvo (Frag Launcher and Trench Mortar at the same squad) gives one dock with a block per weapon.
 
 ## 8. Melee, objectives & setup
 - All items verified.
