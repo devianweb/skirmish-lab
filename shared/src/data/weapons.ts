@@ -133,6 +133,14 @@ export const WEAPONS: Record<string, Weapon> = {
     profile: { type: 'melee', range: 1, attacks: 3, specialRules: ['counter'] },
     isEquipped: true,
   },
+  /** TEST-only: a second Counter weapon, so a unit can strike first with two weapons. */
+  'counter-spear': {
+    id: 'counter-spear',
+    weaponType: 'counter-spear',
+    name: 'Counter Spear',
+    profile: { type: 'melee', range: 1, attacks: 2, specialRules: ['counter'] },
+    isEquipped: true,
+  },
   /** TEST-only: a ranged weapon with Assault, usable in melee as well. */
   'assault-rifle': {
     id: 'assault-rifle',

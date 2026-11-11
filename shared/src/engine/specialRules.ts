@@ -41,9 +41,15 @@ export function hasMeleeWeapon(unit: Pick<Unit, 'weapons'>): boolean {
   return unit.weapons.some((w) => w.isEquipped && isMeleeWeapon(w));
 }
 
-/** The equipped weapon with Counter that strikes first when this unit is charged (the first one found). */
-export function findCounterWeapon(unit: Pick<Unit, 'weapons'>): Weapon | undefined {
-  return unit.weapons.find((w) => w.isEquipped && isMeleeWeapon(w) && hasTrait(w.profile.specialRules, 'counter'));
+/** Every equipped melee weapon with Counter, in equipment order: all of them strike first when the unit is charged. */
+export function findCounterWeapons(unit: Pick<Unit, 'weapons'>): Weapon[] {
+  return unit.weapons.filter((w) => w.isEquipped && isMeleeWeapon(w) && hasTrait(w.profile.specialRules, 'counter'));
+}
+
+/** The first equipped melee weapon without Counter (Assault counts): what a charged unit strikes back with after its Counter strikes. */
+export function findNonCounterMeleeWeapon(unit: Pick<Unit, 'weapons'>): Weapon | undefined {
+  const plain = unit.weapons.filter((w) => w.isEquipped && isMeleeWeapon(w) && !hasTrait(w.profile.specialRules, 'counter'));
+  return plain.find((w) => w.profile.type === 'melee') ?? plain[0];
 }
 
 /**

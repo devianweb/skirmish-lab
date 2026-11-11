@@ -14,7 +14,7 @@ import { getTraitValue, hasTrait } from '../rules/traits';
 import { getEffectiveSpeed } from './specialRules';
 import { resolveMoraleTest } from './combat';
 import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
-import { baseRadius, markerGap, unitDistance, keepAwayGapToUnit3D, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
+import { baseRadius, markerGap, strikingModelCount, unitDistance, keepAwayGapToUnit3D, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -228,17 +228,21 @@ function woundsTakenThisActivation(state: GameState, unit: Unit): number {
   return Math.max(0, before - unitWoundsLeft(unit));
 }
 
-/** The Fear a unit exerts: X for each of its living models (Fear(X) is a per-model rule, plan Decision 9). */
-function fearValue(unit: Unit): number {
+/**
+ * The Fear a unit exerts on the enemy it is compared with: X for each living model within melee reach (3") of
+ * a model of that enemy, measured when the results are compared (plan Decision 46). At least one model counts
+ * once the unit fought at all.
+ */
+function fearValue(unit: Unit, foe: Unit): number {
   if (unit.isDestroyed || unit.status.includes('routed')) return 0;
-  const models = unit.models ?? [];
-  const living = models.length > 0 ? models.filter((m) => !m.isDestroyed).length : 1;
-  return (getTraitValue(unit.specialRules, 'fear') ?? 0) * living;
+  const x = getTraitValue(unit.specialRules, 'fear') ?? 0;
+  if (x === 0) return 0;
+  return x * Math.max(1, strikingModelCount(unit, foe));
 }
 
 /**
  * Compare the wounds each side of every melee of this activation took. A unit with Fear(X) adds X wounds per
- * living model to the enemy's total, once per unit however many melees it was in. The higher total loses; a tie has no loser.
+ * living model in reach of its enemy to the enemy's total, once per unit however many melees it was in. The higher total loses; a tie has no loser.
  */
 export function getMeleeResults(state: GameState): MeleeResultRecord[] {
   const pairs = state.turnState.meleePairs ?? [];
@@ -248,8 +252,8 @@ export function getMeleeResults(state: GameState): MeleeResultRecord[] {
     const a = state.units.find((u) => u.id === aId);
     const b = state.units.find((u) => u.id === bId);
     if (!a || !b) continue;
-    const fearAgainstA = fearUsed.has(b.id) ? 0 : fearValue(b);
-    const fearAgainstB = fearUsed.has(a.id) ? 0 : fearValue(a);
+    const fearAgainstA = fearUsed.has(b.id) ? 0 : fearValue(b, a);
+    const fearAgainstB = fearUsed.has(a.id) ? 0 : fearValue(a, b);
     if (fearAgainstA > 0) fearUsed.add(b.id);
     if (fearAgainstB > 0) fearUsed.add(a.id);
     const woundsA = woundsTakenThisActivation(state, a);

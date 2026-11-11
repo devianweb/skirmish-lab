@@ -32,6 +32,21 @@ export type CasualtyContinuation =
   | { kind: 'shoot'; attackerId: string }
   | { kind: 'fight'; attackerId: string; targetId: string }
   | { kind: 'charge-strike'; attackerId: string; targetId: string; weaponId?: string; counterStruck?: boolean }
+  /**
+   * A charge exchange that paused for a pick (Impact casualties before the Counter strikes, Counter casualties
+   * before the charger strikes). `dice` are the charge's full server-rolled dice (an upper bound: later parts
+   * use only what the survivors need); `stage` is the part to resolve next.
+   */
+  | {
+      kind: 'charge-resume';
+      stage: 'counter' | 'strike';
+      attackerId: string;
+      targetId: string;
+      weaponId: string;
+      chargeDistance: number;
+      dice: DiceResult[];
+      counterStruck?: boolean;
+    }
   | { kind: 'strike-back'; attackerId: string; targetId: string }
   /**
    * The activation test in dangerous terrain. `attackerId` is the tested unit. A unit that activated by a
