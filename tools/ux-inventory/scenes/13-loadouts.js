@@ -11,9 +11,26 @@ const GLEAD = GR + 'loadout-leader-2';
   let p = await scene(b, { ...base, arrange: [[SQ, 0, -4], [GSQ, 0, 8, { facing: Math.PI }], [LEAD, 12, -4], [GLEAD, 12, 8, { facing: Math.PI }]] });
   await p.btn('.sl-hud-units >> text=Test Mixed Squad 1'); await p.btn('[data-action="confirm"]');
   await p.shot('l13-01-loadout-unit-list');
+  // Hovering one model of the squad shows its number and weapons (14C-3 PR 1E)
+  await p.evaluate((id) => ux.hud.handleBoardHover({ kind: 'unit', unitId: id, modelId: id + '-model-3' }), SQ);
+  await p.waitForTimeout(400);
+  await p.shot('l13-07-model-hover');
   await p.btn('[data-action="shoot"]');
+  await p.hoverUnit(GSQ);
+  await p.shot('l13-08-aim-lines-labelled');
   await p.pick(GSQ);
   await p.shot('l13-02-loadout-shoot-confirm');
+  await p.close();
+  // Casualty prompt: the defender picks which models go, with each model's number and weapons
+  p = await scene(b, { ...base, arrange: [[SQ, 0, -4], [GSQ, 0, 8, { facing: Math.PI }], [LEAD, 12, -4], [GLEAD, 12, 8, { facing: Math.PI }]] });
+  await p.evaluate(() => ux.force({ 'to-hit': [6, 6, 6, 6, 6, 6, 6, 6], defense: [1, 1, 1, 1, 1, 1, 1, 1], 'w0-to-hit': [6, 6, 6, 6], 'w0-defense': [1, 1, 1, 1], 'w1-to-hit': [6, 6, 6, 6], 'w1-defense': [1, 1, 1, 1] }));
+  await p.btn('.sl-hud-units >> text=Test Mixed Squad 1'); await p.btn('[data-action="confirm"]');
+  await p.btn('[data-action="shoot"]');
+  await p.pick(GSQ);
+  await p.btn('[data-action="confirm"]');
+  await p.waitForTimeout(1500);
+  await p.as('guest');
+  await p.shot('l13-09-casualty-pick-models');
   await p.close();
   // Melee: the two-weapon leader charges; strike-back prompt; per-weapon dice lines
   p = await scene(b, { ...base, arrange: [[LEAD, 0, -1.5], [GLEAD, 0, 4, { facing: Math.PI }], [SQ, 12, -4], [GSQ, 12, 8, { facing: Math.PI }]] });

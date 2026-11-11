@@ -112,6 +112,15 @@ import {
 } from './setupPlacement';
 import { explainStop, StopNote } from './stopNote';
 import { carriedWeapons, carrierCount, carrierPrefix, meleeWeaponNames, meleeAttackBreakdown, rangedWeaponsOf } from './loadout';
+import {
+  loadoutsDiffer,
+  mergeAimLines,
+  modelLabel,
+  modelNumber,
+  modelWeaponLines,
+  modelWeaponNames,
+  modelWeaponText,
+} from './modelLoadout';
 import { soundFx } from '../audio/SoundFx';
 import {
   DeploymentZoneBounds,
@@ -1622,13 +1631,14 @@ export class GameHUD {
 
   private casualtyPromptHtml(ctx: CasualtyContext, remainingSec: number, dataCardSlot: string): string {
     const chips = ctx.alive
-      .map((m, idx) => {
+      .map((m) => {
         const picked = this.casualtyPicked.includes(m.id);
+        const carried = loadoutsDiffer(ctx.unit) ? ` <span class="sl-hud-chip-weapons" style="font-size: 10px; opacity: 0.8;">· ${escapeHtmlAttr(modelWeaponNames(ctx.unit, m))}</span>` : '';
         const removal = picked ? this.casualtyPicked : [...this.casualtyPicked, m.id];
         const splits = this.casualtySplits(ctx, removal);
         return `<button class="sl-hud-btn sl-hud-chip ${picked ? 'active' : ''}" data-action="toggle-casualty-model" data-model-id="${m.id}" style="${
           picked ? 'background: #ff9800; color: #000; font-weight: bold;' : ''
-        }">${picked ? '✕ ' : ''}${m.name ?? `Model ${idx + 1}`} (${m.wounds}W)${
+        }">${picked ? '✕ ' : ''}${m.name ?? modelLabel(ctx.unit, m.id)} (${m.wounds}W)${carried}${
           splits ? ' <span style="font-size: 10px; opacity: 0.8;">· splits the squad</span>' : ''
         }</button>`;
       })
@@ -1900,10 +1910,10 @@ export class GameHUD {
       const model = this.pushSelectedModel(ctx);
       const chips = ctx.alive
         .map(
-          (m, idx) =>
+          (m) =>
             `<button class="sl-hud-btn sl-hud-chip ${m.id === model?.id ? 'active' : ''}" data-action="select-push-model" data-model-id="${m.id}" style="${
               m.id === model?.id ? 'background: #00bcd4; color: #000; font-weight: bold;' : ''
-            }">Model ${idx + 1}</button>`
+            }">${modelLabel(ctx.shaken, m.id)}</button>`
         )
         .join('');
       const hint = !model
@@ -2043,7 +2053,7 @@ export class GameHUD {
     const positions = this.pileInPositions(ctx);
     for (let i = 0; i < positions.length; i++) {
       if (i !== idx && boardDistance(positions[i], destination) < 0.9) {
-        this.showToast(`Cannot place model on top of Model ${i + 1} (bases would overlap)`);
+        this.showToast(`Cannot place model on top of ${modelLabel(ctx.defender, ctx.alive[i].id)} (bases would overlap)`);
         return;
       }
     }
@@ -2138,7 +2148,7 @@ export class GameHUD {
     const chips = ctx.alive
       .map((m, idx) => ({ m, idx }))
       .filter(({ m }) => ctx.modelIds.includes(m.id))
-      .map(({ m, idx }) => {
+      .map(({ m }) => {
         const placed = this.pileInStaged.has(m.id);
         const selected = m.id === current?.id;
         return `<button class="sl-hud-btn sl-hud-chip ${selected ? 'active' : ''}" data-action="select-pile-in-model" data-model-id="${m.id}" style="${
@@ -2147,7 +2157,7 @@ export class GameHUD {
             : placed
             ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
             : ''
-        }">${placed ? '✓ ' : ''}Model ${idx + 1}</button>`;
+        }">${placed ? '✓ ' : ''}${modelLabel(ctx.defender, m.id)}</button>`;
       })
       .join('');
     return `
@@ -2199,7 +2209,7 @@ export class GameHUD {
       const otherPos = this.stagedSquadModelPositions.get(m.id) ?? m.position ?? active.position;
       const dist = Math.hypot(otherPos.x - destination.x, otherPos.z - destination.z);
       if (dist < 0.90) {
-        return `Cannot place model on top of Model ${i + 1} (bases would overlap)`;
+        return `Cannot place model on top of ${modelLabel(active, m.id)} (bases would overlap)`;
       }
     }
 
@@ -2208,7 +2218,7 @@ export class GameHUD {
     for (let i = 0; i < alive.length; i++) {
       const m = alive[i];
       if (m.id !== currentModel.id && this.stagedSquadModelPositions.has(m.id)) {
-        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: `Model ${i + 1}` });
+        otherPlaced.push({ id: m.id, pos: this.stagedSquadModelPositions.get(m.id)!, name: modelLabel(active, m.id) });
       }
     }
 
@@ -2379,7 +2389,7 @@ export class GameHUD {
         carried = this.autoCarryFollowers(actionKind, currentModel, jump);
       }
       this.showToast(
-        `Model ${alive.findIndex((m) => m.id === currentModel.id) + 1}: ${jumpChip(jump).text}${carried ? ` · ${carried}` : ''}`
+        `${modelLabel(active, currentModel.id)}: ${jumpChip(jump).text}${carried ? ` · ${carried}` : ''}`
       );
     } else {
       this.stagedSquadModelTraversals.delete(currentModel.id);
@@ -2692,7 +2702,7 @@ export class GameHUD {
           }.${
             this.squadBlockedModels.size > 0
               ? ` ${alive
-                  .map((m, i) => (this.squadBlockedModels.has(m.id) ? `Model ${i + 1}: ${this.squadBlockedModels.get(m.id)}` : ''))
+                  .map((m) => (this.squadBlockedModels.has(m.id) ? `${modelLabel(active, m.id)}: ${this.squadBlockedModels.get(m.id)}` : ''))
                   .filter(Boolean)
                   .join('; ')}.`
               : ''
@@ -2747,10 +2757,10 @@ export class GameHUD {
       j ? { kind: j.kind, takeoff: j.takeoff, landing: j.landing } : null
     );
     orderedJumps.forEach((j, i) => {
-      if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
+      if (j) summary += ` · ${modelLabel(active, alive[i].id)}: ${jumpChip(j).text}`;
     });
     if (crossers.length > 0) {
-      summary += ` · carried across: ${crossers.map((i) => `Model ${i + 1}`).join(', ')} (no move spent)`;
+      summary += ` · carried across: ${crossers.map((i) => modelLabel(active, alive[i].id)).join(', ')} (no move spent)`;
     }
     orderedPaths.forEach((p, i) => {
       if (orderedTraversals[i]) return; // the declared jump is already described
@@ -2922,11 +2932,11 @@ export class GameHUD {
       summary = `Charge leg for ${active.name} (${alive.length} models) · furthest walk ${cost.toFixed(1)}" · each model keeps its own distance (up to ${left.toFixed(1)}" left after this leg; no melee yet)`;
     }
     if (autoPlaced.length > 0) {
-      summary += ` · moved up as close as they can: ${autoPlaced.map((i) => `Model ${i + 1}`).join(', ')}`;
+      summary += ` · moved up as close as they can: ${autoPlaced.map((i) => modelLabel(active, alive[i].id)).join(', ')}`;
     }
-    alive.forEach((m, i) => {
+    alive.forEach((m) => {
       const j = this.stagedSquadModelTraversals.get(m.id);
-      if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
+      if (j) summary += ` · ${modelLabel(active, m.id)}: ${jumpChip(j).text}`;
     });
     if (orderedPaths.some((p) => isPathDangerous(state, p, active))) {
       summary += ` · ${dangerousTerrainText(active)}`;
@@ -4804,11 +4814,11 @@ export class GameHUD {
               <div style="display: flex; gap: 6px;">
                 ${livingModels
                   .map(
-                    (m, idx) => `
+                    (m) => `
                   <button class="sl-hud-btn sl-hud-chip ${
                     (this.selectedCasualtyModelId ?? livingModels[0].id) === m.id ? 'primary' : ''
                   }" data-casualty-model-id="${m.id}" style="padding: 2px 8px; font-size: 11px;">
-                    ${m.name ?? `Model ${idx + 1}`} (${m.wounds}W)
+                    ${m.name ?? modelLabel(active, m.id)} (${m.wounds}W)
                   </button>`
                   )
                   .join('')}
@@ -5060,21 +5070,20 @@ export class GameHUD {
         // The selected model's own distance: it may differ from its squad-mates' after a split move
         const allowance = this.distanceLeft(active, this.flow.action === 'rush' ? 'rush' : 'move', currentModel);
         const allowanceText = Number.isInteger(allowance) ? String(allowance) : allowance.toFixed(1);
-        const currentModelIndex = alive.findIndex((m) => m.id === currentModel?.id);
         const placedCount = this.stagedSquadModelPositions.size;
 
         if (isSquadChargePlacing && this.declaredCharge) {
-          const modelNo = (currentModelIndex >= 0 ? currentModelIndex : 0) + 1;
+          const modelNo = modelNumber(active, (currentModel ?? alive[0])?.id ?? '');
           instruction = `Charge on ${this.unitName(this.declaredCharge.targetId)}: place Model ${modelNo} of ${alive.length} (${this.distanceLeft(active, 'charge', currentModel).toFixed(1)}" left): click a spot, or click the target for base contact. Models you skip move up as close as they can once one of yours touches the target (Confirm charge)`;
         } else if (this.squadCrossers.size > 0) {
           instruction = `Group crossing: ${this.squadCrossers.size} model${this.squadCrossers.size > 1 ? 's' : ''} carried across with the leader (one roll, no move spent). Confirm, or select a model and click a spot within 1" of a model that has crossed`;
         } else if (placedCount === 0) {
-          instruction = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (${active.name}) within ${allowanceText}"`;
+          instruction = `Place ${modelLabel(active, (currentModel ?? alive[0])?.id ?? '')} of ${alive.length} (${active.name}) within ${allowanceText}"`;
         } else {
           const kind = this.squadStagingKind();
           const plan = kind ? this.squadFollowPlan(kind) : null;
           const left = alive.length - placedCount;
-          const place = `Place Model ${(currentModelIndex >= 0 ? currentModelIndex : 0) + 1} of ${alive.length} (within 6" of squad; pairs within 1")`;
+          const place = `Place ${modelLabel(active, (currentModel ?? alive[0])?.id ?? '')} of ${alive.length} (within 6" of squad; pairs within 1")`;
           if (plan && plan.ok) {
             instruction = `${place} · or Confirm move: the other ${left} will follow (rings show where)`;
           } else if (plan && !plan.ok) {
@@ -5088,7 +5097,7 @@ export class GameHUD {
           <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; margin-bottom: 4px;">
             <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Select Model:</span>
             ${alive
-              .map((m, idx) => {
+              .map((m) => {
                 const isPlaced = this.stagedSquadModelPositions.has(m.id);
                 const isSelected = m.id === currentModel?.id;
                 const blockedWhy = !isPlaced ? this.squadBlockedModels.get(m.id) : undefined;
@@ -5106,7 +5115,7 @@ export class GameHUD {
                         ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
                         : ''
                     }">
-                    ${isPlaced ? (this.squadCrossers.has(m.id) ? '↷ ' : '✓ ') : blockedWhy ? '✗ ' : ''}Model ${idx + 1}
+                    ${isPlaced ? (this.squadCrossers.has(m.id) ? '↷ ' : '✓ ') : blockedWhy ? '✗ ' : ''}${modelLabel(active, m.id)}
                   </button>
                 `;
               })
@@ -5329,11 +5338,34 @@ export class GameHUD {
     const unitTraits = unit.specialRules
       .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
       .join(' · ');
+    // Models that carry different weapons are listed one by one (fixed numbers); the table keeps the weapon stats
+    const perModel = loadoutsDiffer(unit);
+    const hoveredModel =
+      perModel && this.hoveredUnitId === unit.id && this.hoveredModelId
+        ? (unit.models ?? []).find((m) => m.id === this.hoveredModelId && !m.isDestroyed)
+        : undefined;
+    const modelListHtml = perModel
+      ? `<div class="sl-hud-model-weapons" style="margin-top: 6px; font-size: 12px; display: flex; flex-direction: column; gap: 2px;">
+          ${modelWeaponLines(unit)
+            .map(
+              (l) =>
+                `<div class="sl-hud-model-line${l.removed ? ' sl-hud-model-removed' : ''}" style="${
+                  l.removed ? 'opacity: 0.45; text-decoration: line-through;' : ''
+                }${l.modelId === hoveredModel?.id ? 'color: #ffeb3b; font-weight: 600;' : ''}">${escapeHtmlAttr(modelWeaponText(l))}</div>`
+            )
+            .join('')}
+        </div>`
+      : '';
+    const hoveredModelHtml = hoveredModel
+      ? `<div class="sl-hud-hovered-model" style="margin-top: 4px; font-size: 12px; color: #ffeb3b;">${modelLabel(unit, hoveredModel.id)} · ${escapeHtmlAttr(
+          modelWeaponNames(unit, hoveredModel) || 'no weapons'
+        )}</div>`
+      : '';
     const weaponRows = carriedWeapons(unit)
       .map(
         (w) => `
           <tr>
-            <td>${carrierPrefix(unit, w)}${w.name}</td>
+            <td>${perModel ? '' : carrierPrefix(unit, w)}${w.name}</td>
             <td>${w.profile.type === 'ranged' ? (isMeleeWeapon(w) ? 'Ranged + Melee' : 'Ranged') : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
@@ -5359,6 +5391,7 @@ export class GameHUD {
           <span class="sl-hud-datacard-name">${unit.name}</span>
           <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${modelMeta}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
+          ${hoveredModelHtml}
         </div>
         <div class="sl-hud-datacard-tables">
           <table class="sl-hud-table">
@@ -5385,6 +5418,7 @@ export class GameHUD {
             </tbody>
           </table>
         </div>
+        ${modelListHtml}
       </div>`;
   }
 
@@ -5488,9 +5522,32 @@ export class GameHUD {
   private computeAimLines(): AimLinesMarker | null {
     const preview = this.shootPreview();
     if (!preview || !this.state) return null;
-    const aim = squadAim(this.state, preview.attacker, preview.target, preview.weapon, this.hoveredModelId ?? undefined);
+    const state = this.state;
+    const { attacker, target, weapon } = preview;
+    const aim = squadAim(state, attacker, target, weapon, this.hoveredModelId ?? undefined);
+    if (!loadoutsDiffer(attacker)) {
+      return {
+        lines: aim.aims.map((a) => ({ from: a.from, to: a.to, fires: a.fires })),
+        ...(aim.aimedModel ? { aimedModel: aim.aimedModel } : {}),
+      };
+    }
+    // Models carry different weapons: one line per model, labelled with everything it fires at this target.
+    // Once weapons are assigned only those count; while aiming, every ranged weapon that can reach the target.
+    const ranged = rangedWeaponsOf(attacker);
+    const assigned = ranged.filter((w) => this.shootAllocations.get(w.id) === target.id);
+    const shown = assigned.length > 0 ? assigned : ranged.filter((w) => firingModels(state, attacker, target, w).length > 0);
+    const weapons = shown.length > 0 ? shown : [weapon];
+    const perWeapon = weapons.map((w) => ({
+      weapon: w,
+      aims: squadAim(state, attacker, target, w, this.hoveredModelId ?? undefined).aims.map((a) => ({
+        shooter: a.shooter,
+        from: a.from,
+        to: a.to,
+        fires: a.fires,
+      })),
+    }));
     return {
-      lines: aim.aims.map((a) => ({ from: a.from, to: a.to, fires: a.fires })),
+      lines: mergeAimLines(perWeapon),
       ...(aim.aimedModel ? { aimedModel: aim.aimedModel } : {}),
     };
   }

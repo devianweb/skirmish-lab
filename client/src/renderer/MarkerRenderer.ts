@@ -53,6 +53,8 @@ export interface AimLine {
   to: Vector3;
   /** False for an attacker model that cannot fire (drawn faint red). */
   fires: boolean;
+  /** Weapons this model fires at the target, drawn as a floating label by the shooter (units with mixed loadouts). */
+  label?: string;
 }
 
 /** Shooting preview: a line per attacker model, plus the target model the player pointed at. */
@@ -62,7 +64,7 @@ export interface AimLinesMarker {
   aimedModel?: Vector3;
 }
 
-const AIM_LINE_COLOR = 0xff7043;
+const AIM_LINE_COLOR = 0x66bb6a;
 const AIM_BLOCKED_COLOR = 0xef5350;
 const AIMED_MODEL_COLOR = 0xffeb3b;
 
@@ -298,14 +300,37 @@ export class MarkerRenderer {
         new THREE.Vector3(line.from.x, line.from.y ?? 0, line.from.z),
         new THREE.Vector3(line.to.x, line.to.y ?? 0, line.to.z),
       ]);
-      const mat = new THREE.LineBasicMaterial({
-        color: line.fires ? AIM_LINE_COLOR : AIM_BLOCKED_COLOR,
-        transparent: !line.fires,
-        opacity: line.fires ? 1 : 0.3,
-      });
+      // Firing: solid green. Blocked: faint dashed red (distinguishable without relying on hue alone).
+      const mat = line.fires
+        ? new THREE.LineBasicMaterial({ color: AIM_LINE_COLOR })
+        : new THREE.LineDashedMaterial({
+            color: AIM_BLOCKED_COLOR,
+            dashSize: 0.4,
+            gapSize: 0.3,
+            transparent: true,
+            opacity: 0.45,
+          });
       const obj = new THREE.Line(geo, mat);
+      if (!line.fires) obj.computeLineDistances();
       obj.name = line.fires ? `aim-line-${i}` : `aim-line-blocked-${i}`;
       group.add(obj);
+      if (line.label) {
+        const el = document.createElement('div');
+        el.className = 'sl-aim-label';
+        el.textContent = line.label;
+        el.style.cssText =
+          'pointer-events:none;user-select:none;white-space:nowrap;padding:1px 6px;border-radius:8px;' +
+          `font:600 11px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid #${AIM_LINE_COLOR.toString(16)};`;
+        const label = new CSS2DObject(el);
+        label.name = `aim-label-${i}`;
+        // A little way along the line from the shooter, so neighbouring labels do not stack on top of each other
+        label.position.set(
+          line.from.x + (line.to.x - line.from.x) * 0.15,
+          (line.from.y ?? 0) + 0.5,
+          line.from.z + (line.to.z - line.from.z) * 0.15
+        );
+        group.add(label);
+      }
     });
     if (spec.aimedModel) {
       const ring = this.createFlatRing(AIMED_MODEL_COLOR, 0.62, 0.03);
@@ -1287,7 +1312,7 @@ export class MarkerRenderer {
   ): void {
     const current = this[kind];
     if (current) {
-      if (kind === 'movePath') {
+      if (kind === 'movePath' || kind === 'aimLines') {
         current.traverse((child) => {
           if (child instanceof CSS2DObject) child.element.remove();
         });

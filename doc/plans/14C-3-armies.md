@@ -83,6 +83,18 @@ PR 1A found the engine has no per-model weapons, so PR 1 became four PRs. "PR 1 
 - **Tests first:** HDF list totals and Force Org; each unit's per-model weapons match Decision 6.
 - **Docs:** ASSETS, ROADMAP, manual check "HDF list plays" (Setup: HDF in the lobby picker, Standard Battlefield).
 
+## PR 1E: Fixes from the owner's PR 1 pass  (branch: `14C-3-armies-1e`)
+Owner feedback, 2026-11-11 (checklist section 10):
+- **Squad-mates block sight (bug).** Three models of one squad in their starting triangle: the rear models' sight lines pass through the front model and are treated as blocked. Models of the shooting unit must never block each other (SYSTEMS: `unitBlockingSegment` skips the shooter's unit). Find which path blocks (host check, HUD preview `squadAim`, aim lines, debugger), reproduce it in a test first, fix it everywhere the HUD and host agree.
+- **Which model carries which weapon (Decision 3d, owner: "I like your recommendations. Maybe instead of showing a list of total weapons, show model 1 weapons, model 2 etc").** For units with per-model loadouts:
+  - the unit data card lists weapons per model ("Model 1: Battle Rifle, Strike", "Model 2: …"), numbered by the model's fixed index so numbers don't shift when models die; dead models are shown as removed; units whose models all carry the same weapons keep the current list;
+  - hovering or selecting a model on the board shows that model's number and weapons;
+  - in the shoot preview each aim line is labelled with the weapon(s) that model fires;
+  - the casualty-pick prompt shows each model's weapons next to it.
+  - The compact unit list on the left keeps the counts (`2× Battle Rifle`).
+- **Deadly-first manual check.** HDF step 8 can't be run. Give a unit in TEST: Loadouts Check a Deadly weapon and a plain ranged weapon that fire together, and rewrite the check to use it.
+- **Docs:** UI inventory (data card, hover, aim labels, casualty prompt), manual checklist items with Setup lines, SYSTEMS (sight fix).
+
 ## PR 2: Orc Marauders  (branch: `14C-3-armies-2`)
 - **Tests first:** Bad Shot -1; Ferocious extra hit on 6 at >9" shooting and on charges started >6" away, not at 9.0"/6.0"; list totals.
 
