@@ -11,6 +11,7 @@ import {
 import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { getTraitValue, hasTrait } from '../rules/traits';
+import { getEffectiveSpeed } from './specialRules';
 import { resolveMoraleTest } from './combat';
 import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
 import { baseRadius, markerGap, unitDistance, keepAwayGapToUnit3D, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
@@ -179,7 +180,7 @@ export function endRound(state: GameState): void {
     unit.hasMoved = false;
     unit.hasAttacked = false;
     unit.isRushing = false;
-    unit.remainingMovement = unit.speed;
+    unit.remainingMovement = getEffectiveSpeed(unit);
     delete unit.modelMovementSpent;
     unit.status = unit.status.filter((s) => s !== 'fatigued');
   }
@@ -227,16 +228,17 @@ function woundsTakenThisActivation(state: GameState, unit: Unit): number {
   return Math.max(0, before - unitWoundsLeft(unit));
 }
 
-/** The Fear(X) a unit exerts: its highest value, and only while it still has living models. */
+/** The Fear a unit exerts: X for each of its living models (Fear(X) is a per-model rule, plan Decision 9). */
 function fearValue(unit: Unit): number {
   if (unit.isDestroyed || unit.status.includes('routed')) return 0;
-  if ((unit.models ?? []).length > 0 && unit.models.every((m) => m.isDestroyed)) return 0;
-  return getTraitValue(unit.specialRules, 'fear') ?? 0;
+  const models = unit.models ?? [];
+  const living = models.length > 0 ? models.filter((m) => !m.isDestroyed).length : 1;
+  return (getTraitValue(unit.specialRules, 'fear') ?? 0) * living;
 }
 
 /**
- * Compare the wounds each side of every melee of this activation took. A unit with Fear(X) adds X wounds to
- * the enemy's total, once per unit however many melees it was in. The higher total loses; a tie has no loser.
+ * Compare the wounds each side of every melee of this activation took. A unit with Fear(X) adds X wounds per
+ * living model to the enemy's total, once per unit however many melees it was in. The higher total loses; a tie has no loser.
  */
 export function getMeleeResults(state: GameState): MeleeResultRecord[] {
   const pairs = state.turnState.meleePairs ?? [];

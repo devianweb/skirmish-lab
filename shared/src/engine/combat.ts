@@ -62,7 +62,10 @@ export interface CombatOutcome {
   /** Wounds prevented by Regeneration (Regeneration 5+). */
   regenerationRolls: number[];
   regenerationSavedCount: number;
+  /** Total wounds (Shred's extra wounds included). */
   wounds: number;
+  /** Of `wounds`, the extra ones Shred added (plain wounds, never multiplied by Deadly). */
+  shredWounds?: number;
   effectiveQuality: number;
   effectiveDefense: number;
   coverApplied: boolean;
@@ -168,7 +171,8 @@ export function getAttackDiceSpecs(
 
   if (hasTrait(defenderRules, 'regeneration') && !ignoresRegeneration) {
     const deadlyMult = getTraitValue(allAttackerRules, 'deadly') ?? 1;
-    specs.push({ count: unitMaxHits * deadlyMult, sides: 6, purpose: 'regeneration' });
+    const shredExtra = hasTrait(allAttackerRules, 'shred') ? 1 : 0;
+    specs.push({ count: unitMaxHits * (deadlyMult + shredExtra), sides: 6, purpose: 'regeneration' });
   }
 
   return specs;
@@ -351,6 +355,72 @@ export function autoSplitBlastHits(totalHits: number, candidates: BlastCandidate
   return shares;
 }
 
+/** Dice specs for the Impact hits of a charge: X dice, then up to X Defense dice (and Regeneration dice). */
+export function getImpactDiceSpecs(impactDice: number, defenderRules: string[] = []): DiceSpec[] {
+  if (impactDice <= 0) return [];
+  const specs: DiceSpec[] = [
+    { count: impactDice, sides: 6, purpose: 'impact' },
+    { count: impactDice, sides: 6, purpose: 'impact-defense' },
+  ];
+  if (hasTrait(defenderRules, 'regeneration')) {
+    specs.push({ count: impactDice, sides: 6, purpose: 'impact-regeneration' });
+  }
+  return specs;
+}
+
+export interface ImpactOutcome {
+  /** Impact dice rolled. */
+  dice: number;
+  impactRolls: number[];
+  /** Hits scored (each Impact die showing 2+). */
+  hitCount: number;
+  defenseRolls: number[];
+  blockedCount: number;
+  regenerationRolls: number[];
+  regenerationSavedCount: number;
+  wounds: number;
+}
+
+/**
+ * Impact(X) on a charge: each of the `impactDice` dice showing 2+ is a hit on the target. A hit gets a plain
+ * Defense roll (no AP, no cover; Riot Shield still counts) and Regeneration applies to what gets through.
+ */
+export function resolveImpact(
+  impactDice: number,
+  defender: DefenseStats,
+  rolls: { impact: number[]; defense: number[]; regeneration?: number[] }
+): ImpactOutcome {
+  const impactRolls = rolls.impact.slice(0, impactDice);
+  const hitCount = impactRolls.filter((r) => r >= 2).length;
+  if (impactRolls.length < impactDice || rolls.defense.length < hitCount) {
+    throw new Error(`Incomplete dice results: need ${impactDice} Impact and ${hitCount} Defense rolls`);
+  }
+  const shieldBonus = hasTrait(defender.specialRules ?? [], 'riot-shield') ? 1 : 0;
+  const hasRegeneration = hasTrait(defender.specialRules ?? [], 'regeneration');
+  const defenseRolls = rolls.defense.slice(0, hitCount);
+  const regenerationRolls: number[] = [];
+  let blockedCount = 0;
+  let regenerationSavedCount = 0;
+  let wounds = 0;
+  for (const roll of defenseRolls) {
+    const blocked = roll <= 1 ? false : roll >= 6 ? true : roll + shieldBonus >= defender.defense;
+    if (blocked) {
+      blockedCount += 1;
+      continue;
+    }
+    if (hasRegeneration && rolls.regeneration && regenerationRolls.length < rolls.regeneration.length) {
+      const saveRoll = rolls.regeneration[regenerationRolls.length];
+      regenerationRolls.push(saveRoll);
+      if (saveRoll >= 5) {
+        regenerationSavedCount += 1;
+        continue;
+      }
+    }
+    wounds += 1;
+  }
+  return { dice: impactDice, impactRolls, hitCount, defenseRolls, blockedCount, regenerationRolls, regenerationSavedCount, wounds };
+}
+
 /**
  * Resolve one attack deterministically from pre-rolled server dice.
  */
@@ -448,7 +518,7 @@ export function resolveAttack(
   const usedDefenseRolls: number[] = [];
   const rerolledDefenseRolls: number[] = [];
   const blockedRolls: boolean[] = [];
-  const unblockedHits: Array<{ ap: number; ignoresRegeneration: boolean }> = [];
+  const unblockedHits: Array<{ ap: number; ignoresRegeneration: boolean; defenseRoll: number }> = [];
 
   let defCursor = 0;
   for (const hit of expandedHits) {
@@ -475,7 +545,7 @@ export function resolveAttack(
 
     blockedRolls.push(blocked);
     if (!blocked) {
-      unblockedHits.push(hit);
+      unblockedHits.push({ ...hit, defenseRoll: finalDefRoll });
     }
   }
 
@@ -489,8 +559,13 @@ export function resolveAttack(
   let regenerationCursor = 0;
   let wounds = 0;
 
+  // Shred: an unmodified Defense roll of 1 against the weapon adds one extra (plain) wound
+  const hasShred = hasTrait(allAttackerRules, 'shred');
+  let shredWounds = 0;
+
   for (const hit of unblockedHits) {
-    for (let w = 0; w < deadlyMult; w++) {
+    const woundCount = deadlyMult + (hasShred && hit.defenseRoll === 1 ? 1 : 0);
+    for (let w = 0; w < woundCount; w++) {
       if (hasRegeneration && !hit.ignoresRegeneration && rolls.regeneration && regenerationCursor < rolls.regeneration.length) {
         const wRoll = rolls.regeneration[regenerationCursor++];
         regenerationRolls.push(wRoll);
@@ -500,6 +575,7 @@ export function resolveAttack(
         }
       }
       wounds += 1;
+      if (w >= deadlyMult) shredWounds += 1;
     }
   }
 
@@ -516,6 +592,7 @@ export function resolveAttack(
     regenerationRolls,
     regenerationSavedCount,
     wounds,
+    ...(shredWounds > 0 ? { shredWounds } : {}),
     effectiveQuality,
     effectiveDefense,
     coverApplied,

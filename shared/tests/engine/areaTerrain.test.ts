@@ -489,8 +489,13 @@ describe('activation hazard test', () => {
     expect(getDiceSpecs(s, activate('s'))).toEqual([{ count: 3, sides: 6, purpose: 'hazard_hazard-pool-0-0-0' }]);
     const out = applyAction(s, activate('s'), [roll('hazard_hazard-pool-0-0-0', [3, 1, 1])]);
     expect(out.ok).toBe(true);
-    const after = out.state!.units[0];
-    expect(after.models.filter((m) => m.isDestroyed)).toHaveLength(2);
+    // The squad survives with fewer models: its owner picks who goes (Decision 42), nobody is removed yet
+    expect(out.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
+    expect(out.state!.units[0].models.filter((m) => m.isDestroyed)).toHaveLength(0);
+    const done = applyAction(out.state!, createAction(HOST, 'pick-casualties', { type: 'pick-casualties', unitId: 's', modelIds: ['m-out', 'm-a'] } as any));
+    expect(done.ok).toBe(true);
+    const after = done.state!.units[0];
+    expect(after.models.filter((m) => m.isDestroyed).map((m) => m.id).sort()).toEqual(['m-a', 'm-out']);
     expect(after.wounds).toBe(1);
   });
 

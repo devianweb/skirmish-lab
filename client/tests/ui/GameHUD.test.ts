@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GameHUD, MarkerSnapshot } from '../../src/ui/GameHUD';
+import { GameHUD, MarkerSnapshot, dangerousTerrainText } from '../../src/ui/GameHUD';
 import {
   GameState,
   GUEST_PLAYER_ID,
@@ -1782,8 +1782,11 @@ describe('GameHUD', () => {
       hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 0 } });
       hud.handleBoardPick({ kind: 'position', position: { x: 1.0, y: 0, z: 0 } });
 
-      expect(container.textContent).toContain('DANGEROUS TERRAIN');
-      expect(container.textContent).toContain('Hazard Casualty Priority');
+      // Two models with one wound each: two dice, each 1 is a wound (Decision 18), not the old per-model test
+      expect(container.textContent).toContain('Dangerous terrain: 2 dice, each 1 is a wound');
+      expect(container.textContent).not.toContain('Hazard test');
+      expect(container.textContent).toContain('Dangerous terrain wounds go first to');
+      expect(container.textContent).not.toContain('Hazard Casualty Priority');
 
       // Click Trooper 2 casualty chip
       const trooper2Btn = container.querySelector<HTMLButtonElement>('[data-casualty-model-id="m2"]');
@@ -2625,5 +2628,26 @@ describe('GameHUD', () => {
       expect(finalZ).toBeLessThanOrEqual(-1.97);
       expect(finalZ).toBeGreaterThan(-2.2);
     });
+  });
+});
+
+describe('dangerousTerrainText (Decision 41)', () => {
+  const mk = (models: Array<{ wounds: number; isDestroyed?: boolean }>) =>
+    ({
+      wounds: models.reduce((n, m) => n + m.wounds, 0),
+      models: models.map((m, i) => ({ id: `m${i}`, wounds: m.wounds, maxWounds: 3, isDestroyed: !!m.isDestroyed })),
+    }) as any;
+
+  it('counts one die per wound it would take to destroy the unit', () => {
+    expect(dangerousTerrainText(mk([{ wounds: 1 }, { wounds: 1 }, { wounds: 1 }, { wounds: 1 }, { wounds: 1 }]))).toBe(
+      '⚠️ Dangerous terrain: 5 dice, each 1 is a wound'
+    );
+  });
+
+  it('counts what a wounded Tough model has left, and ignores dead models', () => {
+    expect(dangerousTerrainText(mk([{ wounds: 2 }]))).toBe('⚠️ Dangerous terrain: 2 dice, each 1 is a wound');
+    expect(dangerousTerrainText(mk([{ wounds: 1 }, { wounds: 3, isDestroyed: true }]))).toBe(
+      '⚠️ Dangerous terrain: 1 die, each 1 is a wound'
+    );
   });
 });

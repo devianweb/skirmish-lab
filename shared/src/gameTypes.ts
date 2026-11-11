@@ -463,6 +463,20 @@ export interface MeleeResultRecord {
   loserId?: string;
 }
 
+/** An Impact or Counter strike inside a charge (resolved before the charger's own strike). */
+export interface SpecialStrikeOutcome {
+  kind: 'impact' | 'counter';
+  attackerId: string;
+  targetId: string;
+  weaponName?: string;
+  /** Impact: dice rolled. Counter: attacks made. */
+  attackCount: number;
+  hitCount: number;
+  blockedCount: number;
+  wounds: number;
+  targetDestroyed: boolean;
+}
+
 export interface DiceResolution {
   rollId: string;
   specs: DiceSpec[];
@@ -482,7 +496,13 @@ export interface DiceResolution {
     blockedRolls?: boolean[];
     regenerationSavedCount?: number;
     wounds: number;
+    /** Of `wounds`, the extra ones Shred added. */
+    shredWounds?: number;
     targetDestroyed: boolean;
+    /** Impact(X) hits the charger landed before any strike. */
+    impact?: SpecialStrikeOutcome;
+    /** The charged unit's Counter strike (before the charger's own strike). */
+    counterStrike?: SpecialStrikeOutcome;
     /** Movement hazards resolved by this action (gap/drop jumps, falls, dangerous terrain). */
     traversal?: TraversalEvent[];
     targetShaken?: boolean;
