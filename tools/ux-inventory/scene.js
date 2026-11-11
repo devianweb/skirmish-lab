@@ -12,6 +12,8 @@ async function scene(b, cfg) {
       for (const [id, x, z, o] of cfg.arrange ?? []) window.H.arrange(s, id, x, z, o ?? {});
       if (cfg.current === 'guest') { s.turnState.currentPlayerId = ux.GUEST; }
       if (!s.objectives || s.objectives.length === 0) s.objectives = [[-12, 0], [12, 0], [0, 9], [0, -9]].map(([x, z], i) => ux.shared.createObjectiveMarker(i + 1, { x, y: 0, z }));
+      // Games without the deployment phase open in the objectives phase (14C-2 PR 9B): skip straight to round 1
+      if (s.turnState.phase === 'objectives') { s.turnState.phase = 'activation'; s.turnState.roundNumber = 1; s.turnState.currentPlayerId = ux.HOST; }
       if (cfg.mutate) new Function('s', 'ux', cfg.mutate)(s, ux);
       ux.setState(s);
     }
