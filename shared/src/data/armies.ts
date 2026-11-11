@@ -766,6 +766,27 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         ],
         specialRules: ['tough(3)'],
       },
+      {
+        // Same weapons on every model but Tough(3) each (14C-3 PR 1G): the data card still lists models so each
+        // model's wounds can be read.
+        id: 'test-tough-squad',
+        name: 'Test Tough Squad',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['rifle', 'blade'],
+        modelLoadouts: [
+          ['rifle', 'blade'],
+          ['rifle', 'blade'],
+          ['rifle', 'blade'],
+        ],
+        specialRules: ['tough(3)'],
+      },
     ],
   },
   'test-army': {

@@ -17,7 +17,7 @@ const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
 const P = (x: number, z: number, y = 0): Vector3 => ({ x, y, z });
 
-function armyUnits(ownerId: string, squadAt: Vector3, leaderAt: Vector3): { squad: Unit; leader: Unit } {
+function armyUnits(ownerId: string, squadAt: Vector3, leaderAt: Vector3): { squad: Unit; leader: Unit; toughSquad: Unit; deadly: Unit } {
   const units = createUnitsFromStarterArmy(STARTER_ARMIES['test-loadouts-army'], ownerId) as Unit[];
   const squad = units.find((u) => u.name.startsWith('Test Mixed Squad'))!;
   const leader = units.find((u) => u.name.startsWith('Test Two-Weapon Leader'))!;
@@ -25,9 +25,11 @@ function armyUnits(ownerId: string, squadAt: Vector3, leaderAt: Vector3): { squa
     u.position = { ...at };
     u.models.forEach((m, i) => (m.position = { x: at.x + i * 1.2, y: at.y, z: at.z }));
   };
+  const toughSquad = units.find((u) => u.name.startsWith('Test Tough Squad'))!;
+  const deadly = units.find((u) => u.name.startsWith('Test Deadly Squad'))!;
   place(squad, squadAt);
   place(leader, leaderAt);
-  return { squad, leader };
+  return { squad, leader, toughSquad, deadly };
 }
 
 function baseState(units: Unit[], activeId: string, currentPlayer = HOST): GameState {
@@ -80,16 +82,13 @@ describe('which model carries which weapon (14C-3 PR 1E, 1F)', () => {
   });
 
   describe('unit data card', () => {
-    it('splits the weapons table with a sub-heading per model, in fixed order, each followed by that model\'s weapon rows', () => {
+    it('groups models with identical weapons under one sub-heading, followed by one set of weapon rows', () => {
       const mine = armyUnits(HOST, P(0, 0), P(10, 0));
       const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
       const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.squad.id);
       const { container } = setup(HOST, state);
       expect(weaponTable(container)).toEqual([
-        'Model 1',
-        'Rifle|Ranged|24"|1d6',
-        'Blade|Melee|1"|2d6',
-        'Model 2',
+        'Model 1 / Model 2',
         'Rifle|Ranged|24"|1d6',
         'Blade|Melee|1"|2d6',
         'Model 3',
@@ -108,17 +107,92 @@ describe('which model carries which weapon (14C-3 PR 1E, 1F)', () => {
       const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.squad.id);
       const { container } = setup(HOST, state);
       expect(weaponTable(container)).toEqual([
-        'Model 1',
+        'Model 1 / Model 2 — removed',
         'Rifle|Ranged|24"|1d6',
         'Blade|Melee|1"|2d6',
-        'Model 2 — removed',
         'Model 3',
         'Blade|Melee|1"|2d6',
         'Frag Launcher|Ranged|24"|1d6',
       ]);
-      const removed = container.querySelectorAll('.sl-hud-datacard tr.sl-hud-model-removed');
+      const removed = container.querySelectorAll('.sl-hud-datacard .sl-hud-model-name-removed');
       expect(removed).toHaveLength(1);
       expect(removed[0].getAttribute('data-model-number')).toBe('2');
+      // The group still has a living member, so its rows are not greyed
+      expect(container.querySelector('.sl-hud-datacard tr.sl-hud-model-removed')).toBeNull();
+    });
+
+    it('greys the whole heading and drops the rows once every model of a group is removed', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
+      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
+      mine.squad.models[0].isDestroyed = true;
+      mine.squad.models[1].isDestroyed = true;
+      const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.squad.id);
+      const { container } = setup(HOST, state);
+      expect(weaponTable(container)).toEqual([
+        'Model 1 — removed / Model 2 — removed',
+        'Model 3',
+        'Blade|Melee|1"|2d6',
+        'Frag Launcher|Ranged|24"|1d6',
+      ]);
+      expect(container.querySelectorAll('.sl-hud-datacard tr.sl-hud-model-removed')).toHaveLength(1);
+    });
+
+    it('groups identical models that are not next to each other', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
+      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
+      // Models 1 and 3 carry the Rifle, Model 2 the Frag Launcher
+      mine.squad.models[0].weaponIds = ['rifle', 'blade'];
+      mine.squad.models[1].weaponIds = ['frag-launcher', 'blade'];
+      mine.squad.models[2].weaponIds = ['rifle', 'blade'];
+      const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.squad.id);
+      const { container } = setup(HOST, state);
+      expect(weaponTable(container).filter((r) => r.startsWith('Model'))).toEqual(['Model 1 / Model 3', 'Model 2']);
+    });
+
+    it('shows each model\'s wounds for a Tough(3) squad, and none for the Tough 1 squad', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
+      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
+      mine.deadly.models[1].wounds = 1;
+      const state = baseState([mine.squad, mine.leader, mine.deadly, foe.squad, foe.leader], mine.deadly.id);
+      const { container, hud } = setup(HOST, state);
+      hud.handleBoardHover({ kind: 'unit', unitId: mine.deadly.id });
+      const heads = weaponTable(container).filter((r) => r.startsWith('Model'));
+      expect(heads).toEqual(['Model 1 · 0/3 W', 'Model 2 · 2/3 W / Model 3 · 0/3 W']);
+      hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id });
+      expect(cardText(container)).not.toMatch(/Model \d · \d\/\d W/);
+    });
+
+    it('a Tough(3) squad with identical weapons gets one heading with every model and its wounds', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
+      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
+      mine.toughSquad.models[1].wounds = 2;
+      const state = baseState([mine.toughSquad, mine.leader, foe.squad, foe.leader], mine.toughSquad.id);
+      const { container, hud } = setup(HOST, state);
+      hud.handleBoardHover({ kind: 'unit', unitId: mine.toughSquad.id });
+      expect(weaponTable(container)).toEqual([
+        'Model 1 · 0/3 W / Model 2 · 1/3 W / Model 3 · 0/3 W',
+        'Rifle|Ranged|24"|1d6',
+        'Blade|Melee|1"|2d6',
+      ]);
+    });
+
+    it('a removed member of a Tough squad reads "removed" in the heading', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
+      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
+      mine.toughSquad.models[1].isDestroyed = true;
+      const state = baseState([mine.toughSquad, mine.leader, foe.squad, foe.leader], mine.toughSquad.id);
+      const { container, hud } = setup(HOST, state);
+      hud.handleBoardHover({ kind: 'unit', unitId: mine.toughSquad.id });
+      expect(weaponTable(container)[0]).toBe('Model 1 · 0/3 W / Model 2 — removed / Model 3 · 0/3 W');
+    });
+
+    it('single-model units keep the plain table even with Tough', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
+      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
+      mine.leader.models[0].wounds = 1;
+      const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.leader.id);
+      const { container } = setup(HOST, state);
+      expect(container.querySelector('.sl-hud-datacard .sl-hud-model-heading')).toBeNull();
     });
 
     it('keeps the plain weapon table for a unit whose models all carry the same weapons', () => {
@@ -145,30 +219,33 @@ describe('which model carries which weapon (14C-3 PR 1E, 1F)', () => {
   });
 
   describe('hovering a model', () => {
-    it('shows that model\'s number and weapons on the hover card', () => {
+    it('has no header line for the hovered model', () => {
       const mine = armyUnits(HOST, P(0, 0), P(10, 0));
       const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
       const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.leader.id, GUEST);
       const { hud, container } = setup(HOST, state);
       hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id, modelId: mine.squad.models[2].id });
-      const hovered = container.querySelector('.sl-hud-hovered-model');
-      expect(hovered?.textContent).toContain('Model 3');
-      expect(hovered?.textContent).toContain('Blade, Frag Launcher');
+      expect(container.querySelector('.sl-hud-hovered-model')).toBeNull();
     });
 
-    it('highlights the hovered model\'s sub-heading and its weapon rows, and nothing else', () => {
+    it('highlights only the hovered model\'s name in the heading, plus its group\'s weapon rows', () => {
       const mine = armyUnits(HOST, P(0, 0), P(10, 0));
       const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
       const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.leader.id, GUEST);
       const { hud, container } = setup(HOST, state);
       hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id });
-      expect(container.querySelector('.sl-hud-datacard .sl-hud-model-hovered')).toBeNull();
+      expect(container.querySelector('.sl-hud-datacard .sl-hud-model-name-hovered')).toBeNull();
+      expect(container.querySelector('.sl-hud-datacard tr.sl-hud-model-hovered')).toBeNull();
+      hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id, modelId: mine.squad.models[1].id });
+      const names = Array.from(container.querySelectorAll('.sl-hud-datacard .sl-hud-model-name-hovered'));
+      expect(names.map((n) => n.textContent)).toEqual(['Model 2']);
+      const rows = Array.from(container.querySelectorAll('.sl-hud-datacard tr.sl-hud-model-hovered'));
+      expect(rows.map((r) => r.querySelector('th, td')?.textContent?.trim())).toEqual(['Model 1 / Model 2', 'Rifle', 'Blade']);
       hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id, modelId: mine.squad.models[2].id });
-      const lit = Array.from(container.querySelectorAll('.sl-hud-datacard tr.sl-hud-model-hovered'));
-      expect(lit.map((r) => r.querySelector('th, td')?.textContent?.trim())).toEqual(['Model 3', 'Blade', 'Frag Launcher']);
-      hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id, modelId: mine.squad.models[0].id });
-      const moved = Array.from(container.querySelectorAll('.sl-hud-datacard tr.sl-hud-model-hovered'));
-      expect(moved.map((r) => r.querySelector('th, td')?.textContent?.trim())).toEqual(['Model 1', 'Rifle', 'Blade']);
+      const moved = Array.from(container.querySelectorAll('.sl-hud-datacard .sl-hud-model-name-hovered'));
+      expect(moved.map((n) => n.textContent)).toEqual(['Model 3']);
+      const movedRows = Array.from(container.querySelectorAll('.sl-hud-datacard tr.sl-hud-model-hovered'));
+      expect(movedRows.map((r) => r.querySelector('th, td')?.textContent?.trim())).toEqual(['Model 3', 'Blade', 'Frag Launcher']);
     });
 
     it('uses the fixed number after an earlier model died', () => {
@@ -178,16 +255,8 @@ describe('which model carries which weapon (14C-3 PR 1E, 1F)', () => {
       const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.leader.id, GUEST);
       const { hud, container } = setup(HOST, state);
       hud.handleBoardHover({ kind: 'unit', unitId: mine.squad.id, modelId: mine.squad.models[1].id });
-      expect(container.querySelector('.sl-hud-hovered-model')?.textContent).toContain('Model 2');
-    });
-
-    it('shows nothing extra for a unit whose models carry the same weapons', () => {
-      const mine = armyUnits(HOST, P(0, 0), P(10, 0));
-      const foe = armyUnits(GUEST, P(0, 20), P(10, 20));
-      const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.squad.id, GUEST);
-      const { hud, container } = setup(HOST, state);
-      hud.handleBoardHover({ kind: 'unit', unitId: mine.leader.id, modelId: mine.leader.models[0].id });
-      expect(container.querySelector('.sl-hud-hovered-model')).toBeNull();
+      const names = Array.from(container.querySelectorAll('.sl-hud-datacard .sl-hud-model-name-hovered'));
+      expect(names.map((n) => n.getAttribute('data-model-number'))).toEqual(['2']);
     });
   });
 

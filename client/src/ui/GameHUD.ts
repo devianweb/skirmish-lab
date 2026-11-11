@@ -116,10 +116,11 @@ import {
   loadoutsDiffer,
   mergeAimLines,
   modelLabel,
+  modelMemberText,
   modelNumber,
-  modelWeaponBlocks,
+  modelWeaponGroups,
   modelWeaponNames,
-  modelBlockHeading,
+  showsModelHeadings,
 } from './modelLoadout';
 import { soundFx } from '../audio/SoundFx';
 import {
@@ -5338,17 +5339,12 @@ export class GameHUD {
     const unitTraits = unit.specialRules
       .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
       .join(' · ');
-    // Models that carry different weapons get a sub-heading row each in the weapons table (fixed numbers, PR 1F)
-    const perModel = loadoutsDiffer(unit);
-    const hoveredModel =
+    // Models are grouped by identical weapons under one sub-heading each, with per-model wounds (PR 1G)
+    const perModel = showsModelHeadings(unit);
+    const hoveredModelId =
       perModel && this.hoveredUnitId === unit.id && this.hoveredModelId
-        ? (unit.models ?? []).find((m) => m.id === this.hoveredModelId && !m.isDestroyed)
+        ? (unit.models ?? []).find((m) => m.id === this.hoveredModelId && !m.isDestroyed)?.id
         : undefined;
-    const hoveredModelHtml = hoveredModel
-      ? `<div class="sl-hud-hovered-model" style="margin-top: 4px; font-size: 12px; color: #ffeb3b;">${modelLabel(unit, hoveredModel.id)} · ${escapeHtmlAttr(
-          modelWeaponNames(unit, hoveredModel) || 'no weapons'
-        )}</div>`
-      : '';
     const weaponRow = (w: Weapon, name: string, rowClass = '') => `
           <tr${rowClass ? ` class="${rowClass}"` : ''}>
             <td>${name}</td>
@@ -5362,13 +5358,22 @@ export class GameHUD {
             }</td>
           </tr>`;
     const weaponRows = perModel
-      ? modelWeaponBlocks(unit)
-          .map((b) => {
-            const state = b.removed ? ' sl-hud-model-removed' : b.modelId === hoveredModel?.id ? ' sl-hud-model-hovered' : '';
+      ? modelWeaponGroups(unit)
+          .map((g) => {
+            const lit = g.members.some((mem) => mem.modelId === hoveredModelId);
+            const state = g.allRemoved ? ' sl-hud-model-removed' : lit ? ' sl-hud-model-hovered' : '';
+            const names = g.members
+              .map(
+                (mem) =>
+                  `<span class="sl-hud-model-name${mem.removed ? ' sl-hud-model-name-removed' : ''}${
+                    mem.modelId === hoveredModelId ? ' sl-hud-model-name-hovered' : ''
+                  }" data-model-number="${mem.number}">${modelMemberText(mem)}</span>`
+              )
+              .join(' / ');
             return `
-          <tr class="sl-hud-model-heading${state}" data-model-number="${b.number}">
-            <th colspan="5">${modelBlockHeading(b)}</th>
-          </tr>${b.weapons.map((w) => weaponRow(w, w.name, `sl-hud-model-row${state}`)).join('')}`;
+          <tr class="sl-hud-model-heading${state}" data-model-number="${g.members[0].number}">
+            <th colspan="5">${names}</th>
+          </tr>${g.weapons.map((w) => weaponRow(w, w.name, `sl-hud-model-row${state}`)).join('')}`;
           })
           .join('')
       : carriedWeapons(unit)
@@ -5388,7 +5393,6 @@ export class GameHUD {
           <span class="sl-hud-datacard-name">${unit.name}</span>
           <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${modelMeta}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
-          ${hoveredModelHtml}
         </div>
         <div class="sl-hud-datacard-tables">
           <table class="sl-hud-table">
@@ -6601,8 +6605,9 @@ export class GameHUD {
 .sl-hud-table tr.sl-hud-model-heading:first-child th { border-top: none; padding-top: 2px; }
 .sl-hud-table tr.sl-hud-model-row td:first-child { padding-left: 8px; }
 .sl-hud-table tr.sl-hud-model-removed th { color: #78909c; opacity: 0.6; }
-.sl-hud-table tr.sl-hud-model-hovered th, .sl-hud-table tr.sl-hud-model-hovered td { color: #ffeb3b; }
-.sl-hud-table tr.sl-hud-model-hovered th { font-weight: 700; }
+.sl-hud-table tr.sl-hud-model-hovered td { color: #ffeb3b; }
+.sl-hud-table th .sl-hud-model-name-removed { color: #78909c; opacity: 0.6; }
+.sl-hud-table th .sl-hud-model-name-hovered { color: #ffeb3b; font-weight: 700; }
 .sl-hud-bottom { pointer-events: auto; display: flex; align-items: center; gap: 10px;
   background: rgba(10, 12, 16, 0.88); border: 1px solid #2a2f3a; border-radius: 10px;
   padding: 10px 16px; }
