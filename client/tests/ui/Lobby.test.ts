@@ -57,6 +57,21 @@ describe('Lobby UI', () => {
     expect(guestSelect.value).toBe('rust-raiders-starter');
   });
 
+  it('offers Human Defense Force to both players without dev mode, and keeps the default matchup', () => {
+    const lobby = new Lobby(container);
+    (lobby as any).render();
+    for (const id of ['#hostArmySelect', '#guestArmySelect']) {
+      const select = container.querySelector(id) as HTMLSelectElement;
+      const option = [...select.options].find((o) => o.value === 'hdf');
+      expect(option?.textContent).toContain('Human Defense Force (400 pts)');
+    }
+    expect((lobby as any).hostArmyId).toBe('frontier-wardens-starter');
+    expect((lobby as any).guestArmyId).toBe('rust-raiders-starter');
+    (container.querySelector('#hostArmySelect') as HTMLSelectElement).value = 'hdf';
+    container.querySelector('#hostArmySelect')!.dispatchEvent(new Event('change'));
+    expect((lobby as any).hostArmyId).toBe('hdf');
+  });
+
   it('updates starter force selection and deployment mode on user change', () => {
     const lobby = new Lobby(container);
     (lobby as any).render();

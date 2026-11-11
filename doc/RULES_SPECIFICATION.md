@@ -184,6 +184,7 @@ Every unblocked hit is one wound (before Deadly, Regeneration or other rules cha
 
 ### 6.1 Tough(X)
 - A model is killed (removed from play) when its wounds reach its **Tough** value. A model without `tough(X)` has Tough 1, so one wound kills it. Models store their remaining wounds (`Model.wounds`, starting at `Model.maxWounds`); a unit's `wounds` is the total left across its living models.
+- **Deadly first:** when one attack uses several weapons on the same unit (a shoot with several allocations, or a unit's multi-weapon melee strike including a strike-back and the Counter strikes), the wounds of Deadly weapons are applied before the others, so a Deadly hit kills an unhurt model and the plain wounds then land on another. Otherwise the order stays as declared (equipment order); wounds left over after the target is wiped out are lost.
 - A wounded model keeps taking wounds until it dies before another model takes any. Deadly(X) wounds from one hit arrive as a chunk of X: what is left of the chunk after the model it kills does not carry over to another model.
 - While a single Tough model is hurt, the HUD shows the wounds it has taken (for example `2/3 W`).
 

@@ -39,6 +39,15 @@ Fighters in SkirmishLab are rendered procedurally by [`client/src/renderer/Model
 | **`specialist`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Marksman** (`warden-marksman`), **Warden Breacher** (`warden-breacher`), **Warden Demolitionist** (`warden-demolitionist`), **Shock Trooper** (`shock-trooper`), **Warden Sharpshooter** (`warden-sharpshooter`) | **Rust Skirmisher** (`raider-skirmisher`), **Rust Sapper** (`raider-sapper`) |
 | **`heavy`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Gun Crew** (`warden-gun-crew`), **Heavy Ordnance Crew** (`heavy-ordnance-crew`), **Goliath Automaton** (`goliath-automaton`) | **Rust Bruiser** (`raider-bruiser`) |
 
+**Human Defense Force (`hdf`, 14C-3 PR 1D)** reuses these roles; no new models. Squads show one mini per model, all alike (per-model weapons are not drawn differently).
+
+| Unit (`id`) | Role (`modelType`) | Models |
+| :--- | :--- | :---: |
+| **Company Leader** (`hdf-company-leader`) | `leader` | 1 |
+| **Veterans** (`hdf-veterans`) | `trooper` | 3 |
+| **Infantry Squad** (`hdf-infantry-squad`) | `trooper` | 3 |
+| **Sniper** (`hdf-sniper`) | `specialist` | 1 |
+
 ---
 
 ## 2. Default Battlefield Scenario Terrain Mapping
