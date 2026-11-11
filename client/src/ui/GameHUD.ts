@@ -38,6 +38,10 @@ import {
   getUnitTough,
   hasTrait,
   isPathDangerous,
+  woundsToDestroy,
+  getEffectiveSpeed,
+  findMeleeWeapon,
+  isMeleeWeapon,
   isPathDifficult,
   isUnitInObjectiveRange,
   Model,
@@ -192,6 +196,15 @@ type TargetingMode =
  * never mutates state and only submits confirmed actions to the controller
  * (host-authoritative).
  */
+/**
+ * Summary text for a move through dangerous terrain: the host rolls one die for each wound it would take to
+ * destroy the unit, and each 1 is a wound (one test per piece, none for Flying).
+ */
+export function dangerousTerrainText(unit: Unit): string {
+  const dice = woundsToDestroy(unit);
+  return `⚠️ Dangerous terrain: ${dice} ${dice === 1 ? 'die' : 'dice'}, each 1 is a wound`;
+}
+
 export class GameHUD {
   private container: HTMLElement;
   private localPlayerId: string;
@@ -1076,7 +1089,7 @@ export class GameHUD {
     if (this.flow.mode === 'targeting' && this.flow.action === 'charge') {
       const active = this.activeUnit;
       const declared = this.declaredCharge;
-      const budget = active ? (declared ? active.remainingMovement : active.speed * 2) : 0;
+      const budget = active ? (declared ? active.remainingMovement : getEffectiveSpeed(active) * 2) : 0;
       const targetUnitId = target?.kind === 'unit' ? target.unitId : null;
       const enemy = targetUnitId
         ? this.state.units.find((u) => u.id === targetUnitId && u.ownerId !== this.localPlayerId && !u.isDestroyed)
@@ -1272,10 +1285,10 @@ export class GameHUD {
   private distanceLeft(active: Unit, kind: 'move' | 'rush' | 'charge', model: Model | null = null): number {
     const unitLeft =
       kind === 'charge'
-        ? (this.declaredCharge ? active.remainingMovement : active.speed * 2)
+        ? (this.declaredCharge ? active.remainingMovement : getEffectiveSpeed(active) * 2)
         : kind === 'rush'
-        ? (active.isRushing ? active.remainingMovement : active.speed * 2)
-        : (active.isRushing ? active.remainingMovement : Math.min(active.speed, active.remainingMovement ?? active.speed));
+        ? (active.isRushing ? active.remainingMovement : getEffectiveSpeed(active) * 2)
+        : (active.isRushing ? active.remainingMovement : Math.min(getEffectiveSpeed(active), active.remainingMovement ?? getEffectiveSpeed(active)));
     return model ? modelRemainingMovement(active, model, unitLeft) : unitLeft;
   }
 
@@ -2474,7 +2487,7 @@ export class GameHUD {
       isPathDangerous(this.state!, p, active)
     );
     if (hasDangerous) {
-      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+      summary += ` · ${dangerousTerrainText(active)}`;
     }
 
     const crossers = alive.map((m, i) => (this.squadCrossers.has(m.id) ? i : -1)).filter((i) => i >= 0);
@@ -2605,7 +2618,7 @@ export class GameHUD {
     const state = this.state;
     if (!active || !declared || !state) return;
     const target = state.units.find((u) => u.id === declared.targetId);
-    const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+    const weapon = findMeleeWeapon(active);
     if (!target || !weapon) return;
 
     const targetModels = livingModelPositions(target);
@@ -2671,7 +2684,7 @@ export class GameHUD {
       if (j) summary += ` · Model ${i + 1}: ${jumpChip(j).text}`;
     });
     if (orderedPaths.some((p) => isPathDangerous(state, p, active))) {
-      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+      summary += ` · ${dangerousTerrainText(active)}`;
     }
 
     this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
@@ -2689,7 +2702,7 @@ export class GameHUD {
 
     const currentBudget = active.isRushing
       ? active.remainingMovement
-      : Math.min(active.speed, active.remainingMovement ?? active.speed);
+      : Math.min(getEffectiveSpeed(active), active.remainingMovement ?? getEffectiveSpeed(active));
     let maxAllowance = currentBudget;
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
     if (resolved.refused) {
@@ -2737,7 +2750,7 @@ export class GameHUD {
     const dropNote = this.dropWarning(active, path, jump);
     if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
-      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+      summary += ` · ${dangerousTerrainText(active)}`;
     }
     summary += this.traversalSummary(active, path, jump);
 
@@ -2767,7 +2780,7 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const currentRushBudget = active.isRushing ? active.remainingMovement : active.speed * 2;
+    const currentRushBudget = active.isRushing ? active.remainingMovement : getEffectiveSpeed(active) * 2;
     let maxAllowance = currentRushBudget;
     const resolved = resolveMoveTarget(this.state, active, active.position, rawDestination, true);
     if (resolved.refused) {
@@ -2870,7 +2883,7 @@ export class GameHUD {
     const dropNote = this.dropWarning(active, path, jump);
     if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
-      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+      summary += ` · ${dangerousTerrainText(active)}`;
     }
     summary += this.traversalSummary(active, path, jump);
 
@@ -2946,7 +2959,7 @@ export class GameHUD {
     const dropNote = this.dropWarning(active, path, jump);
     if (dropNote) summary += ` · ${dropNote}`;
     if (isPathDangerous(this.state, path, active)) {
-      summary += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s inflict wounds)!';
+      summary += ` · ${dangerousTerrainText(active)}`;
     }
     summary += this.traversalSummary(active, path, jump);
     if (jump) summary += ' · a failed jump falls and ends the activation with no melee';
@@ -3084,7 +3097,7 @@ export class GameHUD {
         this.showToast('Already engaged — fight instead');
         return;
       }
-      const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+      const weapon = findMeleeWeapon(active);
       if (!weapon) {
         this.showToast('No equipped melee weapon to charge with');
         return;
@@ -3109,15 +3122,15 @@ export class GameHUD {
         }
         this.beginConfirmation(
           begin,
-          `Declare a charge on ${target.name}: then place each model of ${active.name} (up to ${(active.speed * 2).toFixed(0)}" each, into base contact with ${target.name} or as close as you can get, staying in coherency). The charge can't be undone: end the activation to abandon it (no melee)`
+          `Declare a charge on ${target.name}: then place each model of ${active.name} (up to ${(getEffectiveSpeed(active) * 2).toFixed(0)}" each, into base contact with ${target.name} or as close as you can get, staying in coherency). The charge can't be undone: end the activation to abandon it (no melee)`
         );
         return;
       }
       // Charge ends at true base contact (centre distance = both base radii).
       const contactTarget = chargeDestination(active, target);
       // After legs, the final move may only use what the legs left of the one charge budget
-      const chargeLeft = declared ? active.remainingMovement : active.speed * 2;
-      const chargeSpent = declared ? active.speed * 2 - active.remainingMovement : 0;
+      const chargeLeft = declared ? active.remainingMovement : getEffectiveSpeed(active) * 2;
+      const chargeSpent = declared ? getEffectiveSpeed(active) * 2 - active.remainingMovement : 0;
 
       const path = findNavPath(this.state!, active, contactTarget, chargeLeft, {
         ignoreUnitId: target.id,
@@ -3143,7 +3156,7 @@ export class GameHUD {
             weaponId: weapon.id,
           })
         ).valid;
-      if (!reachesInOne && !declared && contact !== 'too-high' && boardDistance(active.position, contactTarget) <= active.speed * 2 + 0.01) {
+      if (!reachesInOne && !declared && contact !== 'too-high' && boardDistance(active.position, contactTarget) <= getEffectiveSpeed(active) * 2 + 0.01) {
         // Not reachable by one safe path, but within reach in a straight line: offer to make it in legs
         this.beginConfirmation(
           createAction(this.localPlayerId, 'begin-charge', {
@@ -3151,7 +3164,7 @@ export class GameHUD {
             attackerId: active.id,
             targetId: target.id,
           }),
-          `Declare a charge on ${target.name}: no single safe path reaches it, so you make the charge in legs (walk to an edge, jump a gap), then click ${target.name} to make contact. The charge can't be undone: end the activation to abandon it (no melee). Budget ${(active.speed * 2).toFixed(0)}"`
+          `Declare a charge on ${target.name}: no single safe path reaches it, so you make the charge in legs (walk to an edge, jump a gap), then click ${target.name} to make contact. The charge can't be undone: end the activation to abandon it (no melee). Budget ${(getEffectiveSpeed(active) * 2).toFixed(0)}"`
         );
         return;
       }
@@ -3180,7 +3193,7 @@ export class GameHUD {
       const dropNote = this.dropWarning(active, path, null);
       if (dropNote) traversalNotes += ` · ${dropNote}`;
       if (isPathDangerous(this.state!, path, active)) {
-        traversalNotes += ' · ⚠️ DANGEROUS TERRAIN: Hazard test (1s wound)';
+        traversalNotes += ` · ${dangerousTerrainText(active)}`;
       }
       const chargeLegs = segmentSummary(describePathSegments(this.state!, active, path));
       if (chargeLegs) {
@@ -3236,7 +3249,7 @@ export class GameHUD {
         this.showToast('Not engaged');
         return;
       }
-      const weapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+      const weapon = findMeleeWeapon(active);
       if (!weapon) {
         this.showToast('No melee weapon');
         return;
@@ -4171,11 +4184,36 @@ export class GameHUD {
             ${summaryWounds}
           </div>
           ${this.blastSplashHtml(outcome.blastSplash)}
+          ${this.specialStrikesHtml(outcome)}
           ${retaliationHtml}
           ${pushBackHtml}
         </div>`;
     }
     return '<div class="sl-hud-dice-empty">No dice rolled yet</div>';
+  }
+
+  /** Impact hits, the Counter strike and Shred's extra wounds of an attack, as short notes under the dice. */
+  private specialStrikesHtml(outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome']): string {
+    const lines = this.specialStrikeLines(outcome);
+    if (lines.length === 0) return '';
+    return `<div class="sl-hud-dice-summary">${lines.map((l) => `<div>${l}</div>`).join('')}</div>`;
+  }
+
+  private specialStrikeLines(outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome']): string[] {
+    const lines: string[] = [];
+    const wounds = (n: number) => `${n} unsaved wound${n === 1 ? '' : 's'}`;
+    if (outcome.impact) {
+      const i = outcome.impact;
+      lines.push(`Impact: ${this.unitName(i.attackerId)} rolled ${i.attackCount} ${i.attackCount === 1 ? 'die' : 'dice'} → ${i.hitCount} hit${i.hitCount === 1 ? '' : 's'}, ${i.blockedCount} blocked, ${wounds(i.wounds)}`);
+    }
+    if (outcome.counterStrike) {
+      const c = outcome.counterStrike;
+      lines.push(`Counter strike first${c.weaponName ? ` (${c.weaponName})` : ''}: ${this.unitName(c.attackerId)} → ${this.unitName(c.targetId)}: ${c.hitCount} hit${c.hitCount === 1 ? '' : 's'}, ${c.blockedCount} blocked, ${wounds(c.wounds)}${c.targetDestroyed ? ' · charger down' : ''}`);
+    }
+    if (outcome.shredWounds) {
+      lines.push(`Shred: ${outcome.shredWounds} extra wound${outcome.shredWounds === 1 ? '' : 's'} from Defense rolls of 1`);
+    }
+    return lines;
   }
 
   private renderLog(): string {
@@ -4196,7 +4234,8 @@ export class GameHUD {
             : '';
         const melee = entry.dice?.outcome.meleeResults;
         const meleeText = melee && melee.length > 0 ? ` — ${melee.map((r) => this.meleeResultText(r)).join('; ')}` : '';
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${meleeText}${moraleText}</div>`;
+        const specialText = entry.dice ? this.specialStrikeLines(entry.dice.outcome).map((l) => ` — ${l}`).join('') : '';
+        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${specialText}${meleeText}${moraleText}</div>`;
       })
       .join('');
   }
@@ -4266,7 +4305,7 @@ export class GameHUD {
           const livingModels = active.models.filter((m) => !m.isDestroyed);
           casualtySelectorHtml = `
             <div class="sl-hud-casualty-selector" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #ffd54f;">
-              <span>Hazard Casualty Priority:</span>
+              <span>Dangerous terrain wounds go first to:</span>
               <div style="display: flex; gap: 6px;">
                 ${livingModels
                   .map(
@@ -4335,7 +4374,7 @@ export class GameHUD {
               <span>⚠️</span>
               <span><strong>Difficult Terrain / Vertical Climb:</strong> ${actionLabel} speed bonus negated — total movement capped at 6.0".</span>
             </div>`;
-        } else if ((active.speed ?? 6) > 6) {
+        } else if ((getEffectiveSpeed(active) ?? 6) > 6) {
           difficultWarningHtml = `
             <div class="sl-hud-warning-badge" style="background: rgba(255, 152, 0, 0.18); border: 1px solid #ffa726; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
               <span>⚠️</span>
@@ -4629,7 +4668,7 @@ export class GameHUD {
       const hasAttacked = !!active.hasAttacked;
       const hasMoved = !!active.hasMoved;
       const isRushing = !!active.isRushing;
-      const hasMovementLeft = (active.remainingMovement ?? active.speed) > 0.05;
+      const hasMovementLeft = (active.remainingMovement ?? getEffectiveSpeed(active)) > 0.05;
       const hasActed = hasMoved || hasAttacked || isRushing;
 
       const isShaken = active.status.includes('shaken');
@@ -4640,7 +4679,7 @@ export class GameHUD {
         !engaged &&
         ((!hasMoved && !hasAttacked) || (isRushing && hasMovementLeft));
       const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
-      const meleeWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'melee');
+      const meleeWeapon = findMeleeWeapon(active);
             const canCharge = !active.isDestroyed && !isShaken && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
 
       // Before moving/attacking, show Hold (stay put & end activation).
@@ -4814,7 +4853,7 @@ export class GameHUD {
         (w) => `
           <tr>
             <td>${w.name}</td>
-            <td>${w.profile.type === 'ranged' ? 'Ranged' : 'Melee'}</td>
+            <td>${w.profile.type === 'ranged' ? (isMeleeWeapon(w) ? 'Ranged + Melee' : 'Ranged') : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
             <td>${
@@ -4851,8 +4890,8 @@ export class GameHUD {
                 <td>D${unit.defense}+</td>
                 <td>${cardTough}</td>
                 <td>${aliveModels}/${totalModels}</td>
-                <td>${unit.speed}"</td>
-                <td>${unit.speed * 2}"</td>
+                <td>${getEffectiveSpeed(unit)}"</td>
+                <td>${getEffectiveSpeed(unit) * 2}"</td>
               </tr>
             </tbody>
           </table>
@@ -5254,7 +5293,7 @@ export class GameHUD {
       warningEl.style.background = 'rgba(255, 152, 0, 0.2)';
       warningEl.style.borderColor = '#ff9800';
       warningEl.style.color = '#ffb74d';
-    } else if (isDifficult && actionKind === 'move' && (this.activeUnit?.speed ?? 6) > 6) {
+    } else if (isDifficult && actionKind === 'move' && (this.activeUnit ? getEffectiveSpeed(this.activeUnit) : 6) > 6) {
       warningEl.innerHTML = '⚠️ <strong>Difficult Terrain / Vertical Climb:</strong> Movement capped at 6.0"';
       warningEl.style.display = 'block';
       warningEl.style.background = 'rgba(255, 152, 0, 0.2)';
@@ -5868,7 +5907,7 @@ export class GameHUD {
     }
     if (action === 'charge') {
       // Charge moves up to double speed (12") to reach engagement range of target; after legs, what is left.
-      return this.declaredCharge ? unit.remainingMovement : unit.speed * 2;
+      return this.declaredCharge ? unit.remainingMovement : getEffectiveSpeed(unit) * 2;
     }
     return 1.5;
   }
@@ -5900,14 +5939,14 @@ export class GameHUD {
       if (action === 'charge') {
         // Verify pathfinder reaches within engagement range under double speed
         const contactTarget = chargeDestination(unit, candidate);
-        const path = findNavPath(this.state!, unit, contactTarget, unit.speed * 2, {
+        const path = findNavPath(this.state!, unit, contactTarget, getEffectiveSpeed(unit) * 2, {
           ignoreUnitId: candidate.id,
           keepAway: true,
         });
         const end = path[path.length - 1];
         return (
           chargeContact(unit, candidate, end, MELEE_MAX_VERTICAL_REACH) === 'ok' &&
-          pathLength(path) <= unit.speed * 2 + 0.01
+          pathLength(path) <= getEffectiveSpeed(unit) * 2 + 0.01
         );
       }
       return true;

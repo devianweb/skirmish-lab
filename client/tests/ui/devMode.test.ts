@@ -29,7 +29,7 @@ describe('devMode flag', () => {
   });
 
   it('flags only the TEST armies as dev-only', () => {
-    expect(DEV_ONLY_ARMY_IDS).toEqual(['test-army', 'test-squad-army', 'test-rules-army', 'test-jump-army', 'test-hazard-army']);
+    expect(DEV_ONLY_ARMY_IDS).toEqual(['test-army', 'test-squad-army', 'test-rules-army', 'test-jump-army', 'test-hazard-army', 'test-special-rules-army']);
     expect(isDevOnlyArmy('test-army')).toBe(true);
     expect(isDevOnlyArmy('frontier-wardens-starter')).toBe(false);
   });

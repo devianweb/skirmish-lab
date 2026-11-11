@@ -24,7 +24,6 @@ const RENAMES: Array<[string, string, string]> = [
   ['ward', 'regeneration', 'Regeneration'],
   ['sustained', 'relentless', 'Relentless'],
   ['calibrated', 'reliable', 'Reliable'],
-  ['shred', 'rending', 'Rending'],
   ['vanguard', 'scout', 'Scout'],
   ['ponderous', 'slow', 'Slow'],
   ['camouflaged', 'stealth', 'Stealth'],
@@ -40,6 +39,12 @@ const registry = TRAIT_REGISTRY as Record<string, { displayName: string } | unde
 describe('core rule renames', () => {
   it.each(RENAMES)('%s is now %s (%s) in the registry', (_old, id, display) => {
     expect(registry[id]?.displayName).toBe(display);
+  });
+
+  it('shred is a valid core rule again, now meaning extra wounds on Defense 1s (not Rending)', () => {
+    expect(registry.shred?.displayName).toBe('Shred');
+    expect(registry.rending?.displayName).toBe('Rending');
+    expect(registry.shred).not.toBe(registry.rending);
   });
 
   it('keeps blast under its existing name', () => {

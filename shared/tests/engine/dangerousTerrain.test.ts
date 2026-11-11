@@ -110,7 +110,14 @@ describe('dangerous terrain dice = wounds to destroy the unit', () => {
     const s = makeState([makeUnit('s', P(0, 0, 0), 5), enemy()], [A]);
     const out = applyAction(s, activate('s'), [roll('hazard_pool-0-0', [1, 1, 6, 1, 3])]);
     expect(out.ok).toBe(true);
-    const u = out.state!.units[0];
+    expect(out.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
+    const done = applyAction(out.state!, createAction(HOST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: out.state!.turnState.pendingReaction!.id,
+      choiceId: 'auto-pick-casualties',
+    }));
+    expect(done.ok).toBe(true);
+    const u = done.state!.units[0];
     expect(u.wounds).toBe(2);
     expect(u.models.filter((m) => m.isDestroyed)).toHaveLength(3);
     const ev = out.state!.actionLog[out.state!.actionLog.length - 1].dice!.outcome.traversal!;
