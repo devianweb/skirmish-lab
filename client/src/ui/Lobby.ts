@@ -411,6 +411,7 @@ export class Lobby {
                 <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="hdf" ${this.hostArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
+                <option value="orc-marauders" ${this.hostArmyId === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
                 ${testOptions(this.hostArmyId)}
               </select>
             </div>
@@ -420,6 +421,7 @@ export class Lobby {
                 <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="hdf" ${this.guestArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
+                <option value="orc-marauders" ${this.guestArmyId === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
                 ${testOptions(this.guestArmyId)}
               </select>
             </div>

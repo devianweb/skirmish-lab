@@ -3948,6 +3948,8 @@ function resolveChargeStrike(
       hasMoved: true,
       isFatigued: attackerWasFatigued || attacker.status.includes('shaken'),
       distance: chargeDistance,
+      // How far away the target was when the charge began (Ferocious), as Hold the Line reads it
+      chargedFrom: newState.turnState.attackedFrom?.[target.id]?.charged,
     });
   }
 
@@ -4283,7 +4285,7 @@ function resolveStrikes(
   foe: Unit,
   dice: DiceResult[],
   ledger: WoundLedger,
-  ctx: { isCharging: boolean; hasMoved: boolean; isFatigued: boolean; distance: number }
+  ctx: { isCharging: boolean; hasMoved: boolean; isFatigued: boolean; distance: number; chargedFrom?: number }
 ): StrikeResult[] {
   const results: StrikeResult[] = [];
   const foeModels = Math.max(1, foe.models?.filter((m) => !m.isDestroyed).length ?? 1);
@@ -4301,6 +4303,7 @@ function resolveStrikes(
         hasMoved: ctx.hasMoved,
         isFatigued: ctx.isFatigued,
         distance: ctx.distance,
+        ...(ctx.chargedFrom !== undefined ? { chargedFrom: ctx.chargedFrom } : {}),
       },
       {
         defense: foe.defense,
