@@ -64,7 +64,7 @@ export interface AimLinesMarker {
   aimedModel?: Vector3;
 }
 
-const AIM_LINE_COLOR = 0xff7043;
+const AIM_LINE_COLOR = 0x66bb6a;
 const AIM_BLOCKED_COLOR = 0xef5350;
 const AIMED_MODEL_COLOR = 0xffeb3b;
 
@@ -300,12 +300,18 @@ export class MarkerRenderer {
         new THREE.Vector3(line.from.x, line.from.y ?? 0, line.from.z),
         new THREE.Vector3(line.to.x, line.to.y ?? 0, line.to.z),
       ]);
-      const mat = new THREE.LineBasicMaterial({
-        color: line.fires ? AIM_LINE_COLOR : AIM_BLOCKED_COLOR,
-        transparent: !line.fires,
-        opacity: line.fires ? 1 : 0.3,
-      });
+      // Firing: solid green. Blocked: faint dashed red (distinguishable without relying on hue alone).
+      const mat = line.fires
+        ? new THREE.LineBasicMaterial({ color: AIM_LINE_COLOR })
+        : new THREE.LineDashedMaterial({
+            color: AIM_BLOCKED_COLOR,
+            dashSize: 0.4,
+            gapSize: 0.3,
+            transparent: true,
+            opacity: 0.45,
+          });
       const obj = new THREE.Line(geo, mat);
+      if (!line.fires) obj.computeLineDistances();
       obj.name = line.fires ? `aim-line-${i}` : `aim-line-blocked-${i}`;
       group.add(obj);
       if (line.label) {

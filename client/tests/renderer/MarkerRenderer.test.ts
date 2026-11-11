@@ -717,6 +717,23 @@ describe('MarkerRenderer', () => {
       expect((blocked.material as THREE.LineBasicMaterial).opacity).toBeLessThan(0.5);
     });
 
+    it('firing lines are solid green and blocked lines dashed red, so they differ by more than hue', () => {
+      const renderer = makeRenderer();
+      renderer.setAimLines({
+        lines: [
+          { from: v(0, 1.1, 0), to: v(0, 1.1, 10), fires: true },
+          { from: v(4, 1.1, 0), to: v(0, 1.1, 10), fires: false },
+        ],
+      });
+      const group = scene.getObjectByName('marker-aim-lines')!;
+      const firing = (group.getObjectByName('aim-line-0') as THREE.Line).material as THREE.LineBasicMaterial;
+      const blocked = (group.getObjectByName('aim-line-blocked-1') as THREE.Line).material as THREE.LineDashedMaterial;
+      expect(firing.color.getHex()).toBe(0x66bb6a);
+      expect(firing).not.toBeInstanceOf(THREE.LineDashedMaterial);
+      expect(blocked).toBeInstanceOf(THREE.LineDashedMaterial);
+      expect(blocked.color.getHex()).toBe(0xef5350);
+    });
+
     it('marks the aimed-at target model with a ring on the ground under it', () => {
       const renderer = makeRenderer();
       renderer.setAimLines({
