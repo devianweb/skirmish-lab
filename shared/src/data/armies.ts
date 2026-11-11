@@ -745,6 +745,27 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         modelLoadouts: [['power-sword', 'assault-rifle']],
         specialRules: [],
       },
+      {
+        // Deadly-first check (14C-3 PR 1E): one Fusion Rifle (Deadly) fires together with two plain Rifles at a
+        // Tough(3) squad, so the Deadly wound must kill an unhurt model before the plain wounds land.
+        id: 'test-deadly-squad',
+        name: 'Test Deadly Squad',
+        faction: 'test',
+        points: 0,
+        quality: 3,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['fusion-rifle', 'rifle', 'blade'],
+        modelLoadouts: [
+          ['fusion-rifle', 'blade'],
+          ['rifle', 'blade'],
+          ['rifle', 'blade'],
+        ],
+        specialRules: ['tough(3)'],
+      },
     ],
   },
   'test-army': {
