@@ -106,6 +106,8 @@ module.exports = [
         purpose: 'See before committing which model fires what.' },
       { img: 'l13-09-casualty-pick-models', title: 'Casualty prompt with model weapons', what: 'The defender\'s "Remove 2 models from Test Mixed Squad 1" prompt: each button reads "Model 1 (1W) · Rifle, Blade", "Model 2 (1W) · Rifle, Blade", "Model 3 (1W) · Blade, Frag Launcher" (numbers are fixed, so they stay the same after models are removed).',
         purpose: 'Choosing casualties includes choosing which weapons are lost with them.' },
+      { img: 'l13-10-assign-wounds', title: 'Assign wounds prompt (Tough above 1)', what: 'The Tough 3 squad\'s "Assign wounds: Test Tough Squad 4" prompt after the hurt model already had 2 wounds and 5 more arrive. The hurt model is the first, disabled chip ("Model 2 · 2/3 W · takes wounds first · removed"); the unhurt models follow, and a picked one shows its place and fate ("1 · Model 3 · removed"; a later pick may read "survives, 1/3 W"). The line under the title says the hurt model takes wounds first and how many models to pick in order; it adds "No model is removed." when the wounds kill nobody. Auto pick and Confirm as for any squad; squads of Tough 1 keep the plain "Remove N models" prompt above.',
+        purpose: 'Assign wounds in the order the tabletop rules use, and see what each pick does before confirming.' },
     ],
   },
   {

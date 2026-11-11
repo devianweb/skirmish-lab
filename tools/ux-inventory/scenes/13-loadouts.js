@@ -32,6 +32,18 @@ const GLEAD = GR + 'loadout-leader-2';
   await p.as('guest');
   await p.shot('l13-09-casualty-pick-models');
   await p.close();
+  // Ordered wound assignment (14C-3 PR 1H-2): Test Tough Squad has a model on 2 wounds; 5 more wounds arrive, so the hurt
+  // model takes them first, then the defender picks the next models in order (one pick made here)
+  const TSQ = GR + 'tough-squad-4';
+  p = await scene(b, { ...base, arrange: [[SQ, 0, -4], [TSQ, 0, 8, { facing: Math.PI }], [LEAD, 12, -4], [GLEAD, 12, 8, { facing: Math.PI }]],
+    mutate: base.mutate + ` const t = s.units.find((u) => u.id === '${TSQ}'); const h = s.units.find((u) => u.id === '${SQ}');
+      t.models[1].wounds = 1; t.wounds -= 2;
+      s.turnState.pendingReaction = ux.shared.createPickCasualtiesReaction('ux-act', 0, t, h, { entry: { unitId: t.id, count: 2, removed: 2, lockedModelIds: [t.models[1].id], applications: [{ wounds: 5, deadlyValue: 1 }] }, rest: [], after: { kind: 'shoot', attackerId: h.id } });` });
+  await p.as('guest');
+  await p.evaluate((id) => ux.hud.handleBoardPick({ kind: 'unit', unitId: id, modelId: ux.state.units.find((u) => u.id === id).models[2].id }), TSQ);
+  await p.waitForTimeout(500);
+  await p.shot('l13-10-assign-wounds');
+  await p.close();
   // Melee: the two-weapon leader charges; strike-back prompt; per-weapon dice lines
   p = await scene(b, { ...base, arrange: [[LEAD, 0, -1.5], [GLEAD, 0, 4, { facing: Math.PI }], [SQ, 12, -4], [GSQ, 12, 8, { facing: Math.PI }]] });
   await p.evaluate(() => ux.force({ 'to-hit': [5, 5], 'w1-to-hit': [5, 5], defense: [6, 1, 1, 1], 'w1-defense': [6, 1, 1, 1], morale: 1, push: 5 }));
