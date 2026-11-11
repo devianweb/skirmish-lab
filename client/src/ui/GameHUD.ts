@@ -87,6 +87,8 @@ import {
   closestApproach,
   PILE_IN_DISTANCE,
   autoPickCasualties,
+  previewCasualtyPick,
+  CasualtyEntry,
   PendingReaction,
   summarizeMatch,
   MAX_ROUNDS,
@@ -116,10 +118,11 @@ import {
   loadoutsDiffer,
   mergeAimLines,
   modelLabel,
+  modelMemberText,
   modelNumber,
-  modelWeaponBlocks,
+  modelWeaponGroups,
   modelWeaponNames,
-  modelBlockHeading,
+  showsModelHeadings,
 } from './modelLoadout';
 import { soundFx } from '../audio/SoundFx';
 import {
@@ -219,6 +222,11 @@ interface CasualtyContext {
   unit: Unit;
   alive: Model[];
   count: number;
+  entry: CasualtyEntry;
+  /** Already-wounded models that take wounds first (never clickable). */
+  locked: string[];
+  /** Tough above 1: the ordered "assign wounds" prompt; false keeps the plain "remove N models" one. */
+  ordered: boolean;
 }
 
 type TargetingMode =
@@ -1566,8 +1574,9 @@ export class GameHUD {
     if (!this.state || !pending || pending.type !== 'pick-casualties' || pending.promptingPlayerId !== this.localPlayerId) {
       return null;
     }
-    const unit = this.state.units.find((u) => u.id === pending.data?.entry?.unitId);
-    if (!unit) return null;
+    const entry = pending.data?.entry as CasualtyEntry | undefined;
+    const unit = this.state.units.find((u) => u.id === entry?.unitId);
+    if (!unit || !entry) return null;
     if (this.casualtyReactionId !== pending.id) {
       this.casualtyReactionId = pending.id;
       this.casualtyPicked = [];
@@ -1576,13 +1585,20 @@ export class GameHUD {
       pending,
       unit,
       alive: (unit.models ?? []).filter((m) => !m.isDestroyed),
-      count: pending.data?.entry?.count ?? 0,
+      count: entry.count ?? 0,
+      entry,
+      locked: entry.lockedModelIds ?? [],
+      ordered: (unit.models ?? []).some((m) => m.maxWounds > 1),
     };
   }
 
   private toggleCasualtyModel(modelId: string): void {
     const ctx = this.casualtyContext();
     if (!ctx || !ctx.alive.some((m) => m.id === modelId)) return;
+    if (ctx.locked.includes(modelId)) {
+      this.showToast(`${modelLabel(ctx.unit, modelId)} is already wounded: it takes wounds first`);
+      return;
+    }
     if (this.casualtyPicked.includes(modelId)) {
       this.casualtyPicked = this.casualtyPicked.filter((id) => id !== modelId);
     } else if (this.casualtyPicked.length >= ctx.count) {
@@ -1598,7 +1614,7 @@ export class GameHUD {
   private autoPickCasualtyModels(): void {
     const ctx = this.casualtyContext();
     if (!ctx) return;
-    this.casualtyPicked = autoPickCasualties(ctx.unit, ctx.count);
+    this.casualtyPicked = autoPickCasualties(ctx.unit, ctx.entry);
     this.render();
     this.emitMarkers();
   }
@@ -1629,7 +1645,27 @@ export class GameHUD {
     return rest.length > 1 && !validateSquadCoherency(rest).coherent;
   }
 
+  /** "survives, 2/3 W" or "removed": what the preview says happens to one model. */
+  private casualtyOutcomeText(model: Model | undefined, p: { wounds: number; destroyed: boolean }): string {
+    if (p.destroyed) return 'removed';
+    const tough = model?.maxWounds ?? 1;
+    return `survives, ${tough - Math.max(0, p.wounds)}/${tough} W`;
+  }
+
+  /** "Model 2 is already wounded and takes wounds first. " (plural for several; empty with none) */
+  private casualtyLockedSentence(ctx: CasualtyContext): string {
+    const live = ctx.locked.filter((id) => ctx.alive.some((m) => m.id === id));
+    if (live.length === 0) return '';
+    const numbers = live.map((id) => modelNumber(ctx.unit, id));
+    const names =
+      numbers.length === 1
+        ? `Model ${numbers[0]} is`
+        : `Models ${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]} are`;
+    return `${names} already wounded and ${numbers.length === 1 ? 'takes' : 'take'} wounds first. `;
+  }
+
   private casualtyPromptHtml(ctx: CasualtyContext, remainingSec: number, dataCardSlot: string): string {
+    if (ctx.ordered) return this.assignWoundsPromptHtml(ctx, remainingSec, dataCardSlot);
     const chips = ctx.alive
       .map((m) => {
         const picked = this.casualtyPicked.includes(m.id);
@@ -1655,6 +1691,69 @@ export class GameHUD {
           <div class="sl-hud-reaction-desc">Choose the casualties (${this.casualtyPicked.length}/${ctx.count}): click a model on the board or a button below. Any model may be picked, even one the enemy cannot see.</div>
           <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">
             ${chips}
+          </div>
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
+            <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /** The Tough above 1 prompt: hurt models first (locked), then the unhurt models picked in order. */
+  private assignWoundsPromptHtml(ctx: CasualtyContext, remainingSec: number, dataCardSlot: string): string {
+    const preview = previewCasualtyPick(ctx.unit, ctx.entry, this.casualtyPicked);
+    const previewOf = (id: string) => preview.find((p) => p.modelId === id);
+    const modelOf = (id: string) => ctx.alive.find((m) => m.id === id);
+    const carried = (m: Model) =>
+      loadoutsDiffer(ctx.unit)
+        ? ` <span class="sl-hud-chip-weapons" style="font-size: 10px; opacity: 0.8;">· ${escapeHtmlAttr(modelWeaponNames(ctx.unit, m))}</span>`
+        : '';
+    const destroyedAfter = (picks: string[]) =>
+      previewCasualtyPick(ctx.unit, ctx.entry, picks)
+        .filter((p) => p.destroyed)
+        .map((p) => p.modelId);
+
+    const lockedChips = ctx.locked
+      .map((id) => modelOf(id))
+      .filter((m): m is Model => !!m)
+      .map((m) => {
+        const p = previewOf(m.id);
+        const taken = m.maxWounds - Math.max(0, m.wounds);
+        const outcome = p ? ` · ${this.casualtyOutcomeText(m, p)}` : '';
+        return `<button class="sl-hud-btn sl-hud-chip" data-locked-model="true" data-model-id="${m.id}" disabled style="opacity: 0.85; border-style: dashed;">${modelLabel(ctx.unit, m.id)} · ${taken}/${m.maxWounds} W · takes wounds first${outcome}${carried(m)}</button>`;
+      })
+      .join('');
+    const pickChips = ctx.alive
+      .filter((m) => !ctx.locked.includes(m.id))
+      .map((m) => {
+        const place = this.casualtyPicked.indexOf(m.id);
+        const picked = place >= 0;
+        const p = picked ? previewOf(m.id) : undefined;
+        const hypothetical = !picked && this.casualtyPicked.length < ctx.count ? [...this.casualtyPicked, m.id] : this.casualtyPicked;
+        const splits = this.casualtySplits(ctx, destroyedAfter(hypothetical));
+        const label = picked
+          ? `${place + 1} · ${modelLabel(ctx.unit, m.id)}${p ? ` · ${this.casualtyOutcomeText(m, p)}` : ''}`
+          : `${modelLabel(ctx.unit, m.id)} (${m.wounds}W)`;
+        return `<button class="sl-hud-btn sl-hud-chip ${picked ? 'active' : ''}" data-action="toggle-casualty-model" data-model-id="${m.id}" style="${
+          picked ? 'background: #ff9800; color: #000; font-weight: bold;' : ''
+        }">${label}${carried(m)}${splits ? ' <span style="font-size: 10px; opacity: 0.8;">· splits the squad</span>' : ''}</button>`;
+      })
+      .join('');
+    const ready = this.casualtyPicked.length === ctx.count;
+    const lockedSentence = this.casualtyLockedSentence(ctx);
+    const removedNote = ctx.entry.removed === 0 ? ' No model is removed.' : '';
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">Assign wounds: ${ctx.unit.name}</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          <div class="sl-hud-reaction-desc">${lockedSentence}${lockedSentence ? 'Then pick' : 'Pick'} ${ctx.count} model${ctx.count === 1 ? '' : 's'} in order (${this.casualtyPicked.length}/${ctx.count}): each takes wounds until it is removed; the last one may survive wounded.${removedNote} Click a model on the board or a button below.</div>
+          <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">
+            ${lockedChips}${pickChips}
           </div>
           <div class="sl-hud-reaction-actions">
             <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
@@ -4319,7 +4418,7 @@ export class GameHUD {
           : '';
         return `
           <div class="sl-hud-dice">
-            <div class="sl-hud-dice-title">Casualties removed: ${target?.name ?? 'unit'}</div>
+            <div class="sl-hud-dice-title">${this.isToughSquad(target) ? 'Wounds assigned' : 'Casualties removed'}: ${target?.name ?? 'unit'}</div>
             ${stepBack}
           </div>`;
       }
@@ -4706,7 +4805,11 @@ export class GameHUD {
       case 'blast-split':
         return 'split the Blast hits';
       case 'pick-casualties':
-        return `removed casualties from ${this.unitName((action.payload as any).unitId)}`;
+        {
+          const unitId = (action.payload as any).unitId as string;
+          const verb = this.isToughSquad(this.state?.units.find((u) => u.id === unitId)) ? 'assigned wounds on' : 'removed casualties from';
+          return `${verb} ${this.unitName(unitId)}`;
+        }
       case 'respond-reaction': {
         const p = action.payload as { choiceId: string };
         if (p.choiceId === 'auto-pile-in') return 'piled in (auto)';
@@ -4721,6 +4824,11 @@ export class GameHUD {
       default:
         return action.type;
     }
+  }
+
+  /** Tough above 1: wounds are assigned in order instead of models being removed. */
+  private isToughSquad(unit: Unit | undefined): boolean {
+    return !!unit && (unit.models ?? []).some((m) => m.maxWounds > 1);
   }
 
   private unitName(unitId: string): string {
@@ -4920,11 +5028,13 @@ export class GameHUD {
       if (casualtyPrompt) return this.casualtyPromptHtml(casualtyPrompt, remainingSec, dataCardSlot);
       if (pendingReaction.type === 'pick-casualties' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
         const ownerName = this.state.players.find((p) => p.id === pendingReaction.promptingPlayerId)?.name ?? 'opponent';
+        const waitingUnit = this.state.units.find((u) => u.id === pendingReaction.targetUnitId);
+        const waitingFor = this.isToughSquad(waitingUnit) ? 'assign wounds' : 'remove casualties';
         return `
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-reaction-waiting">
-            <span class="sl-hud-hint">Waiting for ${ownerName} to remove casualties (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+            <span class="sl-hud-hint">Waiting for ${ownerName} to ${waitingFor} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
           </div>
         </div>`;
       }
@@ -5338,17 +5448,12 @@ export class GameHUD {
     const unitTraits = unit.specialRules
       .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
       .join(' · ');
-    // Models that carry different weapons get a sub-heading row each in the weapons table (fixed numbers, PR 1F)
-    const perModel = loadoutsDiffer(unit);
-    const hoveredModel =
+    // Models are grouped by identical weapons under one sub-heading each, with per-model wounds (PR 1G)
+    const perModel = showsModelHeadings(unit);
+    const hoveredModelId =
       perModel && this.hoveredUnitId === unit.id && this.hoveredModelId
-        ? (unit.models ?? []).find((m) => m.id === this.hoveredModelId && !m.isDestroyed)
+        ? (unit.models ?? []).find((m) => m.id === this.hoveredModelId && !m.isDestroyed)?.id
         : undefined;
-    const hoveredModelHtml = hoveredModel
-      ? `<div class="sl-hud-hovered-model" style="margin-top: 4px; font-size: 12px; color: #ffeb3b;">${modelLabel(unit, hoveredModel.id)} · ${escapeHtmlAttr(
-          modelWeaponNames(unit, hoveredModel) || 'no weapons'
-        )}</div>`
-      : '';
     const weaponRow = (w: Weapon, name: string, rowClass = '') => `
           <tr${rowClass ? ` class="${rowClass}"` : ''}>
             <td>${name}</td>
@@ -5362,13 +5467,22 @@ export class GameHUD {
             }</td>
           </tr>`;
     const weaponRows = perModel
-      ? modelWeaponBlocks(unit)
-          .map((b) => {
-            const state = b.removed ? ' sl-hud-model-removed' : b.modelId === hoveredModel?.id ? ' sl-hud-model-hovered' : '';
+      ? modelWeaponGroups(unit)
+          .map((g) => {
+            const lit = g.members.some((mem) => mem.modelId === hoveredModelId);
+            const state = g.allRemoved ? ' sl-hud-model-removed' : lit ? ' sl-hud-model-hovered' : '';
+            const names = g.members
+              .map(
+                (mem) =>
+                  `<span class="sl-hud-model-name${mem.removed ? ' sl-hud-model-name-removed' : ''}${
+                    mem.modelId === hoveredModelId ? ' sl-hud-model-name-hovered' : ''
+                  }" data-model-number="${mem.number}">${modelMemberText(mem)}</span>`
+              )
+              .join(' / ');
             return `
-          <tr class="sl-hud-model-heading${state}" data-model-number="${b.number}">
-            <th colspan="5">${modelBlockHeading(b)}</th>
-          </tr>${b.weapons.map((w) => weaponRow(w, w.name, `sl-hud-model-row${state}`)).join('')}`;
+          <tr class="sl-hud-model-heading${state}" data-model-number="${g.members[0].number}">
+            <th colspan="5">${names}</th>
+          </tr>${g.weapons.map((w) => weaponRow(w, w.name, `sl-hud-model-row${state}`)).join('')}`;
           })
           .join('')
       : carriedWeapons(unit)
@@ -5388,7 +5502,6 @@ export class GameHUD {
           <span class="sl-hud-datacard-name">${unit.name}</span>
           <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${modelMeta}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
-          ${hoveredModelHtml}
         </div>
         <div class="sl-hud-datacard-tables">
           <table class="sl-hud-table">
@@ -6601,8 +6714,9 @@ export class GameHUD {
 .sl-hud-table tr.sl-hud-model-heading:first-child th { border-top: none; padding-top: 2px; }
 .sl-hud-table tr.sl-hud-model-row td:first-child { padding-left: 8px; }
 .sl-hud-table tr.sl-hud-model-removed th { color: #78909c; opacity: 0.6; }
-.sl-hud-table tr.sl-hud-model-hovered th, .sl-hud-table tr.sl-hud-model-hovered td { color: #ffeb3b; }
-.sl-hud-table tr.sl-hud-model-hovered th { font-weight: 700; }
+.sl-hud-table tr.sl-hud-model-hovered td { color: #ffeb3b; }
+.sl-hud-table th .sl-hud-model-name-removed { color: #78909c; opacity: 0.6; }
+.sl-hud-table th .sl-hud-model-name-hovered { color: #ffeb3b; font-weight: 700; }
 .sl-hud-bottom { pointer-events: auto; display: flex; align-items: center; gap: 10px;
   background: rgba(10, 12, 16, 0.88); border: 1px solid #2a2f3a; border-radius: 10px;
   padding: 10px 16px; }

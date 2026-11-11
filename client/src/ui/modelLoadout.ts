@@ -49,30 +49,72 @@ export function loadoutsDiffer(unit: Pick<Unit, 'weapons' | 'models'>): boolean 
   return models.some((m) => key(m) !== first);
 }
 
-export interface ModelWeaponBlock {
+/** One model's entry in a sub-heading: its fixed number, state, and the wounds it has taken (14C-3 PR 1G). */
+export interface ModelGroupMember {
   number: number;
   modelId: string;
   removed: boolean;
-  /** The weapons this model carries, in the unit's weapon order; empty for a removed model. */
+  /** Tough of this model (its maxWounds). */
+  tough: number;
+  /** Wounds taken out of Tough; only shown when Tough is above 1 and the model is alive. */
+  woundsTaken: number;
+}
+
+export interface ModelWeaponGroup {
+  /** Models carrying exactly the same weapons, in number order. */
+  members: ModelGroupMember[];
+  /** The weapons every member carries, in the unit's weapon order; empty once every member is removed. */
   weapons: Weapon[];
+  /** True when every member is removed. */
+  allRemoved: boolean;
 }
 
 /**
- * One block per model in fixed order, for the data card's weapons table (14C-3 PR 1F): a sub-heading row per
- * model followed by that model's weapon rows. A removed model keeps its heading and number but lists no weapons.
+ * True when the data card should show per-model sub-headings: the models carry different weapons, or the unit
+ * has several models with Tough above 1 (so each model's wounds can be read).
  */
-export function modelWeaponBlocks(unit: Pick<Unit, 'weapons' | 'models'>): ModelWeaponBlock[] {
-  return (unit.models ?? []).map((m, i) => ({
-    number: i + 1,
-    modelId: m.id,
-    removed: m.isDestroyed,
-    weapons: m.isDestroyed ? [] : modelWeapons(unit, m),
-  }));
+export function showsModelHeadings(unit: Pick<Unit, 'weapons' | 'models'>): boolean {
+  const models = unit.models ?? [];
+  if (models.length < 2) return false;
+  return loadoutsDiffer(unit) || models.some((m) => m.maxWounds > 1);
 }
 
-/** The sub-heading text for one model: "Model 2" or "Model 2 — removed". */
-export function modelBlockHeading(block: Pick<ModelWeaponBlock, 'number' | 'removed'>): string {
-  return `Model ${block.number}${block.removed ? ' — removed' : ''}`;
+/**
+ * Models grouped by identical weapons for the data card's weapons table (14C-3 PR 1G): one sub-heading per
+ * group, then one set of weapon rows. Groups are ordered by their lowest model number, members by number
+ * (adjacent or not). A removed model stays in its group; the group keeps its rows while any member is alive.
+ */
+export function modelWeaponGroups(unit: Pick<Unit, 'weapons' | 'models'>): ModelWeaponGroup[] {
+  const groups = new Map<string, ModelWeaponGroup>();
+  (unit.models ?? []).forEach((m, i) => {
+    const carried = modelWeapons(unit, m);
+    const key = carried
+      .map((w) => w.id)
+      .sort()
+      .join('|');
+    let g = groups.get(key);
+    if (!g) {
+      g = { members: [], weapons: carried, allRemoved: true };
+      groups.set(key, g);
+    }
+    g.members.push({
+      number: i + 1,
+      modelId: m.id,
+      removed: m.isDestroyed,
+      tough: m.maxWounds,
+      woundsTaken: m.isDestroyed ? 0 : Math.max(0, m.maxWounds - m.wounds),
+    });
+    if (!m.isDestroyed) g.allRemoved = false;
+  });
+  const out = Array.from(groups.values());
+  for (const g of out) if (g.allRemoved) g.weapons = [];
+  return out;
+}
+
+/** One member's heading text: "Model 2", "Model 2 · 1/3 W" (Tough above 1) or "Model 2 — removed". */
+export function modelMemberText(member: ModelGroupMember): string {
+  if (member.removed) return `Model ${member.number} — removed`;
+  return member.tough > 1 ? `Model ${member.number} · ${member.woundsTaken}/${member.tough} W` : `Model ${member.number}`;
 }
 
 /** One weapon's view of a shooter model for the aim preview (the engine's `ModelAim`). */

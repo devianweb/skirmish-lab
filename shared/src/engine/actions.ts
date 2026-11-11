@@ -174,8 +174,11 @@ import {
   PickCasualtiesData,
   PickCasualtiesPayload,
   WoundApplication,
+  WoundAllocation,
+  allocateWounds,
   autoPickCasualties,
   createPickCasualtiesReaction,
+  lockedWoundedModels,
   restoreUnit,
   snapshotUnit,
   validatePickCasualties,
@@ -3229,7 +3232,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         // The owner ran out of time (the only option is the host's own pick)
         const pickData = pending.data as unknown as PickCasualtiesData;
         const damaged = getUnit(newState, pickData.entry.unitId)!;
-        logEntry = applyPickCasualties(newState, action, autoPickCasualties(damaged, pickData.entry.count));
+        logEntry = applyPickCasualties(newState, action, autoPickCasualties(damaged, pickData.entry));
         break;
       }
       const defender = getUnit(newState, pending.targetUnitId)!;
@@ -4610,6 +4613,11 @@ function applyWounds(unit: Unit, wounds: number, deadlyValue: number = 1, victim
     if (victim.wounds <= 0) victim.isDestroyed = true;
   }
 
+  settleAfterWounds(unit);
+}
+
+/** Recompute the unit's totals and squad position after its models took wounds (destroys it when none are left). */
+function settleAfterWounds(unit: Unit): void {
   const surviving = unit.models.filter((m) => !m.isDestroyed);
   unit.wounds = surviving.reduce((sum, m) => sum + Math.max(0, m.wounds), 0);
   if (surviving.length === 0) {
@@ -4619,6 +4627,22 @@ function applyWounds(unit: Unit, wounds: number, deadlyValue: number = 1, victim
   if (unit.models.length > 1 && surviving.some((m) => m.position)) {
     unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
   }
+}
+
+/**
+ * Attack wounds in the tabletop order (see `allocateWounds`): the most wounded living model first, then the
+ * owner's ordered picks, else the first living model. Returns how many unhurt models had to be chosen.
+ */
+function applyTabletopWounds(unit: Unit, wounds: number, deadlyValue: number, picks?: string[]): WoundAllocation {
+  const none: WoundAllocation = { unhurtStarts: 0, unhurtAtFirstStart: 0 };
+  if (wounds <= 0) return none;
+  if (!unit.models || unit.models.length === 0) {
+    applyWounds(unit, wounds, deadlyValue);
+    return none;
+  }
+  const stats = allocateWounds(unit.models, wounds, deadlyValue, picks ?? []);
+  settleAfterWounds(unit);
+  return stats;
 }
 
 /**
@@ -4646,7 +4670,18 @@ function markUnitDestroyed(unit: Unit): void {
 }
 
 /** Wounds taken by multi-model units during one action, so each damaged unit's owner can be asked who goes. */
-type WoundLedger = Map<string, { snapshot: Unit; livingBefore: number; applications: WoundApplication[] }>;
+type WoundLedger = Map<
+  string,
+  {
+    snapshot: Unit;
+    livingBefore: number;
+    applications: WoundApplication[];
+    /** Times the wounds had to start on an unhurt model (each is one pick for the owner). */
+    unhurtStarts: number;
+    /** Unhurt living models at the first such moment (0 until it happens). */
+    unhurtAtFirstStart: number;
+  }
+>;
 
 /** An attack's wounds on a unit: the Deadly-multiplied wounds first, then Shred's extra single wounds. */
 function applyOutcomeWounds(
@@ -4663,13 +4698,17 @@ function applyOutcomeWounds(
 /** `applyWounds`, remembering the unit as it was and each application so the casualties can be deferred. */
 function applyTrackedWounds(ledger: WoundLedger, unit: Unit, wounds: number, deadlyValue: number = 1): void {
   const alive = livingModels(unit).length;
-  if (wounds > 0 && alive >= 2) {
+  if (wounds > 0 && (alive >= 2 || ledger.has(unit.id))) {
     let record = ledger.get(unit.id);
     if (!record) {
-      record = { snapshot: snapshotUnit(unit), livingBefore: alive, applications: [] };
+      record = { snapshot: snapshotUnit(unit), livingBefore: alive, applications: [], unhurtStarts: 0, unhurtAtFirstStart: 0 };
       ledger.set(unit.id, record);
     }
     record.applications.push({ wounds, deadlyValue });
+    const stats = applyTabletopWounds(unit, wounds, deadlyValue);
+    if (stats.unhurtStarts > 0 && record.unhurtStarts === 0) record.unhurtAtFirstStart = stats.unhurtAtFirstStart;
+    record.unhurtStarts += stats.unhurtStarts;
+    return;
   }
   applyWounds(unit, wounds, deadlyValue);
 }
@@ -4690,10 +4729,17 @@ function deferCasualties(
   for (const [unitId, record] of ledger) {
     const unit = getUnit(newState, unitId);
     if (!unit || unit.isDestroyed) continue;
+    // Every wound fitted on already-wounded models, or the only unhurt model was the only choice: keep the result
+    if (record.unhurtStarts === 0 || record.unhurtAtFirstStart <= 1) continue;
     const removed = record.livingBefore - livingModels(unit).length;
-    if (removed <= 0) continue;
     restoreUnit(unit, record.snapshot);
-    entries.push({ unitId, count: removed, applications: record.applications });
+    entries.push({
+      unitId,
+      count: record.unhurtStarts,
+      applications: record.applications,
+      lockedModelIds: lockedWoundedModels(unit).map((m) => m.id),
+      removed,
+    });
   }
   if (entries.length === 0) return null;
   const [entry, ...rest] = entries;
@@ -4711,7 +4757,7 @@ function deferCasualties(
 function replayCasualties(unit: Unit, entry: CasualtyEntry, victims: string[]): void {
   const ids = [...victims];
   for (const app of entry.applications) {
-    applyWounds(unit, app.wounds, app.deadlyValue, ids);
+    applyTabletopWounds(unit, app.wounds, app.deadlyValue, ids);
   }
 }
 

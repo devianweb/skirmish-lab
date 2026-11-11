@@ -1425,6 +1425,12 @@ describe('GameHUD', () => {
     const state = scenarioState();
     const charger = state.units.find((u) => u.ownerId === HOST)!;
     const defender = state.units.find((u) => u.ownerId === GUEST)!;
+    // This test covers the Tough 1 wording; the default defender is Tough above 1 (see GameHUD.casualties.test.ts)
+    const toughOne = (st: GameState) => {
+      for (const m of st.units.find((u) => u.id === defender.id)!.models ?? []) m.maxWounds = 1;
+      return st;
+    };
+    toughOne(state);
     const stepBack = {
       rollId: 'c1',
       specs: [],
@@ -1444,7 +1450,7 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain(`removed casualties from ${defender.name}`);
     expect(container.textContent).not.toContain('declined retaliation');
 
-    const auto = scenarioState();
+    const auto = toughOne(scenarioState());
     auto.actionLog.push({
       action: createAction(GUEST, 'respond-reaction', { type: 'respond-reaction', reactionId: 'r1', choiceId: 'auto-pick-casualties' }),
       status: 'accepted',
@@ -1457,13 +1463,35 @@ describe('GameHUD', () => {
     expect(container.textContent).not.toContain('declined retaliation');
 
     // A pick with no dice story still reads correctly in the log
-    const quiet = scenarioState();
+    const quiet = toughOne(scenarioState());
     quiet.actionLog.push({
       action: createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: defender.id, modelIds: ['a'] }),
       status: 'accepted',
     } as any);
     hud.syncFromState(quiet);
     expect(container.textContent).toContain(`removed casualties from ${defender.name}`);
+  });
+
+  it('names a pick on a Tough above 1 unit "wounds assigned" in the dice panel and the log (14C-3 PR 1H-2)', () => {
+    const state = scenarioState();
+    const charger = state.units.find((u) => u.ownerId === HOST)!;
+    const defender = state.units.find((u) => u.ownerId === GUEST)!;
+    for (const m of defender.models ?? []) m.maxWounds = 3;
+    state.actionLog.push({
+      action: createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: defender.id, modelIds: ['a'] }),
+      status: 'accepted',
+      dice: {
+        rollId: 'c1',
+        specs: [],
+        results: [],
+        context: { attackerId: charger.id, targetId: defender.id },
+        outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0 },
+      },
+    } as any);
+    const { container } = setup(HOST, state);
+    expect(container.querySelector('.sl-hud-dice-title')?.textContent).toContain(`Wounds assigned: ${defender.name}`);
+    expect(container.textContent).toContain(`assigned wounds on ${defender.name}`);
+    expect(container.textContent).not.toContain('removed casualties');
   });
 
   describe('Phase 7: Objectives & 4-Round Mission UI', () => {

@@ -1,14 +1,14 @@
-# Plans (Opus plans, Sonnet implements)
+# Plans (Fable plans, Sonnet implements)
 
 Each roadmap sub-phase that needs more than a one-line fix gets a plan file here, `doc/plans/<phase>-<slug>.md` (e.g. `13.6E-default-scenario.md`). The plan is the **only** context the implementation agent receives, so everything agreed in chat must be written into it.
 
 ## Workflow
-1. **Research & plan (Opus, main session).** Read the relevant docs and code, check the rule references below, and ask the owner any rules questions. Write the plan using the template, split into small PRs (engine/schema → HUD → scene).
+1. **Research & plan (Fable, main session).** Read the relevant docs and code, check the rule references below, and ask the owner any rules questions. Write the plan using the template, split into small PRs (engine/schema → HUD → scene).
 2. **Approve (owner).** Don't implement anything until the owner approves the plan.
 3. **Implement (Sonnet `implementer` agent, `.claude/agents/implementer.md`).** One agent per PR section, preferably in an isolated git worktree. It writes tests first, runs all workspaces, updates the docs and checklist, opens a PR to `master`, and does not merge. If a rules question comes up, it stops and reports instead of guessing.
-4. **Review (Opus).** Check the diff against the plan and the rules. Send fixes back to the same agent, or patch small issues directly.
+4. **Review (Fable).** Check the diff against the plan and the rules. Send fixes back to the same agent, or patch small issues directly.
 5. **Merge to `master`** (squash). Then start the next PR section. **Releases** (`master` → `release`) happen only when the owner explicitly asks in that turn.
-6. When a batch (sub-plan) is fully merged, Opus posts that batch's manual checks to the owner (the items its PRs added to `MANUAL_TEST_CHECKLIST.md`). When every section is merged, mark the plan `Status: done` and keep the file as a record.
+6. When a batch (sub-plan) is fully merged, Fable posts that batch's manual checks to the owner (the items its PRs added to `MANUAL_TEST_CHECKLIST.md`). When every section is merged, mark the plan `Status: done` and keep the file as a record.
 
 ## Rule references (local only; `assets-src/` is gitignored)
 Absolute paths, because worktrees don't contain `assets-src/`. All are Grimdark Future: Firefight v3.6.0:

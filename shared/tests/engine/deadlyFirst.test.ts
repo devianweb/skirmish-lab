@@ -103,7 +103,10 @@ describe('Deadly weapons resolve first (shooting)', () => {
       expect(out.ok).toBe(true);
       // The squad survives, so its owner picks the casualty first
       expect(out.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
-      const done = applyAction(out.state!, pick('g1', ['g1-m0'])).state!;
+      // Two unhurt models start taking wounds (the Deadly one dies, the other takes the plain wounds): two picks, in order
+      const entry = (out.state!.turnState.pendingReaction!.data as any).entry;
+      expect(entry).toMatchObject({ count: 2, removed: 1, lockedModelIds: [] });
+      const done = applyAction(out.state!, pick('g1', ['g1-m0', 'g1-m1'])).state!;
       expect(modelOf(done, 'g1', 0).isDestroyed).toBe(true);
       expect(modelOf(done, 'g1', 1).wounds).toBe(1);
       expect(modelOf(done, 'g1', 2).wounds).toBe(3);
@@ -161,7 +164,7 @@ describe('Deadly weapons resolve first (melee)', () => {
       const action = createAction(HOST, 'fight', { type: 'fight', attackerId: 'h1', targetId: 'g1', weaponId: weapons[0] } as any);
       const out = applyAction(state, action, allHit(getDiceSpecs(state, action)!));
       expect(out.ok).toBe(true);
-      const done = applyAction(out.state!, pick('g1', ['g1-m0'])).state!;
+      const done = applyAction(out.state!, pick('g1', ['g1-m0', 'g1-m1'])).state!;
       expect(modelOf(done, 'g1', 0).isDestroyed).toBe(true);
       expect(modelOf(done, 'g1', 1).wounds).toBe(1);
       expect(unitOf(done, 'g1').wounds).toBe(4);
