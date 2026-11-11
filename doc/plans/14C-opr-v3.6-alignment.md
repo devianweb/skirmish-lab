@@ -1,5 +1,6 @@
 # 14C: Line up with One Page Rules (Firefight v3.6)
 Status: approved (umbrella, 2026-11-10); sub-plans: 14C-1 (`14C-1-renames-housekeeping.md`), 14C-2, 14C-3 to follow
+Scope note (owner, 2026-11-11): 14C-3 is narrowed to Human Defense Force and Orc Marauders. Prime Brothers and Alien Hives are deferred to ROADMAP "Future Considerations"; see `doc/plans/14C-3-armies.md`.
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C
 
 ## Goal

@@ -1,8 +1,10 @@
-# 14C-3: Four v3.6 armies at 400 pts
+# 14C-3: v3.6 armies at 400 pts (Human Defense Force and Orc Marauders; Prime Brothers and Alien Hives deferred)
 Status: approved, PR 1 re-split into 1A–1D with Decisions 3, 3b, 5d on 2026-11-11 (owner, 2026-11-10: "Go ahead with all of 14C"; 2026-11-11: "Just make sure the lists make sense". Opus re-checked every unit, cost, stat and upgrade against the four v3.6 army book PDFs on 2026-11-11: all four lists total 400 pts and meet Decision 1, and every rule they use exists in the engine or is added here)
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C (part 3 of 3). Umbrella: `doc/plans/14C-opr-v3.6-alignment.md` (Decisions 3, 4, 10). Depends on 14C-2 being merged.
 
 ## Goal
+**Scope narrowed (owner, 2026-11-11: "I think polish is more important than armies right now"):** this phase ships Human Defense Force (done) and Orc Marauders (PR 2). Prime Brothers (PR 3) and Alien Hives (PR 4) move to ROADMAP "Future Considerations"; their lists, rules and PR notes stay below as the record to pick up later. The original goal follows.
+
 The army pickers offer four ready-made 400-pt lists with official v3.6 stats: Human Defense Force, Orc Marauders, Prime Brothers and Alien Hives. Each list follows Force Org strictly, has no casters, and every special rule it uses works in the engine. Frontier Wardens and Rust Raiders are removed. TEST armies stay behind developer mode.
 
 ## Decisions (agreed)
@@ -111,7 +113,7 @@ Owner feedback on PR 1E, 2026-11-11: "Not a huge fan of this approach. Can you m
 - **Docs:** UI inventory (data card shots), manual check with Setup "TEST: Loadouts Check", Standard Battlefield.
 
 ## PR 1G: Grouped model sub-headings, per-model wounds, no header hover line  (branch: `14C-3-armies-1g`)
-Status: done, merged as #357 (2026-11-11). Waiting for the owner's manual check.
+Status: done, merged as #357 and released 2026-11-11; the owner passed its manual check the same day.
 Owner feedback on PR 1F, 2026-11-11 (all PR 1F manual checks passed): "Header line kept: Get rid please." "I like the sub headers, but if two models are the exact same maybe we need Model 1 / Model 2 etc? Also it would be nice to be able to see what wounds each model has."
 - **Layer:** client UI only (data card in `client/src/ui/GameHUD.ts`, helpers in `client/src/ui/modelLoadout.ts`). No engine or rules change.
 - **Remove the header hover line.** Delete the yellow "Model N · weapons" line (`.sl-hud-hovered-model`) from the data card header. The highlighted sub-heading block already says it.
@@ -126,7 +128,7 @@ Owner feedback on PR 1F, 2026-11-11 (all PR 1F manual checks passed): "Header li
 - **Docs:** UI inventory (re-take the `l13-*` shots that show the data card with `tools/ux-inventory/scenes/13-loadouts.js`; update the two entries' notes in `catalog.js` and in `doc/ux/inventory/index.html`; add a shot with a wounded and a removed model if the scene reaches it), manual checks with Setup "TEST: Loadouts Check, Standard Battlefield", SYSTEMS (the "Which model carries which weapon" paragraph), ROADMAP.
 
 ## PR 1H: Wounds in squads follow the tabletop order  (two PRs: 1H-1 engine, then 1H-2 HUD)
-Status: approved by the owner 2026-11-11; 1H-1 merged as #358; 1H-2 merged as #359 (2026-11-11). Waiting for the owner's manual checks. Do after PR 1G is merged (both touch the data card / casualty prompt area). Implements Decision 3g.
+Status: approved by the owner 2026-11-11; 1H-1 merged as #358; 1H-2 merged as #359, released 2026-11-11; the owner passed all its manual checks the same day ("All working"). Do after PR 1G is merged (both touch the data card / casualty prompt area). Implements Decision 3g.
 
 **Why (owner, 2026-11-11):** today the prompt only asks which models are removed, and the replay puts wounds on the picked models first. A Tough 3 squad with one model on 2 wounds that takes 4 new wounds should lose two models, but picking two unhurt models kills only one. Wounds that kill nobody go on the first living model without asking.
 
@@ -190,14 +192,21 @@ Status: approved by the owner 2026-11-11; 1H-1 merged as #358; 1H-2 merged as #3
 - **Done when:** all workspaces green, the prompt matches the above on TEST: Loadouts Check, inventory shots updated.
 
 ## PR 2: Orc Marauders  (branch: `14C-3-armies-2`)
-- **Tests first:** Bad Shot -1; Ferocious extra hit on 6 at >9" shooting and on charges started >6" away, not at 9.0"/6.0"; list totals.
+Owner, 2026-11-11: go. Follow PR 1D (Human Defense Force) as the pattern.
+- **Layer:** shared data (army `orc-marauders`, weapons, the two trait registry entries) + the engine hooks for the two faction rules + the lobby picker entry. One PR: the rules are small and data-driven (Decision 5).
+- **The list:** Decision 6, Orc Marauders (400 pts, Tough 27, 5 units, all single models). Re-check every cost, stat and weapon against `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Orc Maraudersv3.6.0.pdf`; stop and report if a number differs or a rule the list uses (Limited, Reliable, Relentless, Strider, Fast, Scout, Stealth, Blast, Assault) is missing from the engine or behaves differently from v3.6.
+- **Bad Shot** (`bad-shot`): -1 to hit when shooting (not in melee). **Ferocious** (`ferocious`): when the model shoots at a target more than 9" away, or charges a target that was more than 6" away when the charge started, each unmodified 6 to hit deals 1 extra hit; only the original counts as a 6 for other rules. Exactly 9.0" / 6.0" does not count. Distances are the host's own (per model, as Hold the Line measures them). Registry descriptions in our own words.
+- **Tests first:** Bad Shot -1 on shooting and none in melee; Ferocious extra hit on unmodified 6s at over 9" shooting and on charges started over 6" away, none at exactly 9.0" / 6.0", the extra hit is not a 6 for other rules, and a modified roll that reaches 6 does not count; the list totals 400 and passes the Force Org harness; the army deploys inside its zone (Decision 9).
+- **Lobby:** add Orc Marauders to both pickers. The default matchup and the old armies are not touched in this PR (see Open questions).
+- **Docs:** ASSETS (Decision 7: map each unit to an existing model role, the Biker to the bike), RULES_SPECIFICATION trait matrix, SYSTEMS, ROADMAP, the dice panel / log wording if a Ferocious extra hit is shown.
+- **Manual checks** (section 10; Setup: Orc Marauders vs Human Defense Force, Standard Battlefield): the five units and their weapons read right in the unit list and data card; shooting shows the -1 for Bad Shot; a 6 to hit at over 9" adds a hit and says so in the dice panel, and does not at 9" or closer; a charge started over 6" away does the same in melee; the Heavy Flamer-Mod fires once (Limited); the Biker moves as Fast. If a check can't be reached with this matchup, add a dev TEST army or map for it and name it in the Setup line.
 
-## PR 3: Prime Brothers  (branch: `14C-3-armies-3`)
+## PR 3: Prime Brothers  — deferred (owner, 2026-11-11), see ROADMAP "Future Considerations"
 - **Tests first:** Primeborn AP(-1) min 0 (AP(2) → 1, AP(0) stays 0, Rending's AP(+4) on 6s → 3); list totals.
 
-## PR 4: Alien Hives, remove Frontier Wardens / Rust Raiders  (branch: `14C-3-armies-4`)
-- **Tests first:** Hive Bond (shares the Hold the Line logic); list totals; old army IDs gone from data, lobby and tests (tests that used them move to TEST armies or the new armies); default matchup HDF vs Orcs.
-- **Docs:** README/GDD army list, ROADMAP (14C done), manual checks for all four armies.
+## PR 4: Alien Hives  — deferred (owner, 2026-11-11), see ROADMAP "Future Considerations"
+- **Tests first:** Hive Bond (shares the Hold the Line logic); list totals.
+- The rest of the old PR 4 (remove Frontier Wardens / Rust Raiders, default matchup HDF vs Orc Marauders, README/GDD army list) is not tied to Alien Hives: see Open questions.
 
 ## Open questions
-None for PR 1H. The owner asked only that the lists make sense; they were checked against the books (see Status).
+- **Old armies and the default matchup (waiting for the owner, 2026-11-11).** With Prime Brothers and Alien Hives deferred, should a small PR 2B after Orc Marauders still remove Frontier Wardens and Rust Raiders (leaving two armies: Human Defense Force and Orc Marauders) and make HDF vs Orc Marauders the default matchup (Decision 8)? Recommended: yes, so every army in the picker uses OPR's names and v3.6 rules. PR 2 does not depend on the answer.
