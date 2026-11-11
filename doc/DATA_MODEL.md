@@ -124,7 +124,8 @@ interface PendingReaction {
 
 // 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
 // 'blast-split' data (plain JSON): { shoot: GameAction, dice: DiceResult[], blasts: BlastSplitPrompt[] } (per Blast weapon: allocIndex, weaponId, weaponName, totalHits, participants [{ unitId, unitName, cap }], auto: number[])
-// CasualtyEntry = { unitId, count, applications: { wounds, deadlyValue }[] }
+// CasualtyEntry = { unitId, count (unhurt models to pick, in order), applications: { wounds, deadlyValue }[],
+//                   lockedModelIds (wounded models that take wounds first), removed (models the attack removes) }
 // CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
 
 // MoraleTestRecord = { unitId, unitName, roll?: number /* absent when already Shaken */, effectiveQuality, fearlessRoll?, passed, outcome: 'passed' | 'shaken' | 'routed' }
@@ -355,7 +356,7 @@ type ActionType =
   | 'consolidate-move' // Winner's 3" consolidation after wiping out a unit
   | 'pile-in-move'     // Defender places the models that were not touching a charger (reaction type 'pile-in')
   | 'blast-split'      // Defender shares a Blast's hits between the eligible units (reaction type 'blast-split')
-  | 'pick-casualties'  // Owner names the models to remove from a damaged squad (reaction type 'pick-casualties')
+  | 'pick-casualties'  // Owner names, in order, the unhurt models that take an attack's wounds in a damaged squad (reaction type 'pick-casualties')
   | 'use-ability'
   | 'hold'
   | 'end-activation'   // Finish current unit's activation
@@ -387,7 +388,7 @@ interface DeclaredTraversal {
 }
 
 type ActionPayload =
-  | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living models of the damaged unit
+  | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living, unhurt models of the damaged unit, in the order they take wounds
   | { type: 'blast-split', splits: number[][] } // one row per Blast weapon of the paused shot, one count per eligible unit; each within the unit's cap, summing to every hit that can land
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
