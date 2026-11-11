@@ -21,6 +21,7 @@ import {
   KeepAwayZoneMarker,
   MarkerUnit,
   MovePathMarker,
+  PlacementMarker,
 } from './MarkerRenderer';
 import { ModelLoader } from './ModelLoader';
 import { SceneManager } from './SceneManager';
@@ -265,6 +266,10 @@ export class GameView {
 
   setKeepAwayZonesMarker(zones: KeepAwayZoneMarker[] | null): void {
     this.markerRenderer.setKeepAwayZones(zones);
+  }
+
+  setPlacementMarker(marker: PlacementMarker | null): void {
+    this.markerRenderer.setPlacement(marker);
   }
 
   setCasualtyPicksMarker(positions: Vector3[] | null): void {

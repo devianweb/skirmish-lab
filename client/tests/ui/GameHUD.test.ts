@@ -1707,7 +1707,7 @@ describe('GameHUD', () => {
       expect(hostRows.length).toBe(4);
 
       // Patrol squad has ambush
-      const dropReserveRow = hostRows.find((r) => r.textContent?.includes('DROP RESERVE'));
+      const dropReserveRow = hostRows.find((r) => r.textContent?.includes('IN RESERVE (AMBUSH)'));
       expect(dropReserveRow).toBeTruthy();
 
       // Standard and scout units show UNDEPLOYED or SCOUT

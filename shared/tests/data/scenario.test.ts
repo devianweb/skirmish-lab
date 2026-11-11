@@ -259,7 +259,7 @@ describe('scenario data pack', () => {
       expect(notices.some((n) => n.message.includes('0 terrain pieces'))).toBe(true);
     });
 
-    it('validates objective placement: warns on deployment zone overlap, small objective count, and tight spacing', () => {
+    it('ignores the objectives of an old save: no warnings about count, zones, spacing or obstacles', () => {
       const invalidMap: CustomMapDefinition = {
         id: 'bad-map',
         name: 'Bad Map',
@@ -297,17 +297,7 @@ describe('scenario data pack', () => {
 
       const notices = validateMapDefinition(invalidMap);
 
-      // Warning 1: Fewer than 3 objectives
-      expect(notices.some((n) => n.message.includes('Only 2 objective marker(s)'))).toBe(true);
-
-      // Warning 2: Objective inside Host deployment zone
-      expect(notices.some((n) => n.message.includes('inside the Host deployment zone'))).toBe(true);
-
-      // Warning 3: Objective inside Guest deployment zone
-      expect(notices.some((n) => n.message.includes('inside the Guest deployment zone'))).toBe(true);
-
-      // Warning 4: Objective inside obstacle piece
-      expect(notices.some((n) => n.message.includes('appears inside obstacle terrain piece'))).toBe(true);
+      expect(notices.filter((n) => /objective/i.test(n.message))).toEqual([]);
     });
   });
 });
@@ -416,20 +406,7 @@ describe('board size validation', () => {
     expect(warn(48)).toBe(false);
   });
 
-  it('checks objectives against the real zone depth of the board', () => {
-    // 48-deep: zone inner edge z = -12; 30-deep: inner edge z = -12 too (3" zone); 36-deep: edge -12 (6" zone)
-    const obj = (z: number) => ({ id: 'o', name: 'O', position: { x: 0, y: 0, z }, controllingPlayerId: null, isContested: false });
-    const m = (h: number, z: number): CustomMapDefinition => ({ ...mapOf(44, h), objectives: [obj(z), { ...obj(0), id: 'p', name: 'P', position: { x: 20, y: 0, z: 0 } }, { ...obj(0), id: 'q', name: 'Q', position: { x: -20, y: 0, z: 0 } }] });
-    const inHost = (map: CustomMapDefinition) => validateMapDefinition(map).some((n) => n.message.includes('inside the Host deployment zone'));
-    expect(inHost(m(48, -12))).toBe(true);
-    expect(inHost(m(48, -11.5))).toBe(false);
-    expect(inHost(m(72, -20))).toBe(false); // 72-deep: zone is -36..-24
-    expect(inHost(m(72, -25))).toBe(true);
-    expect(inHost(m(30, -13))).toBe(true);
-    expect(inHost(m(30, -11))).toBe(false);
-  });
-
-  it('warns about terrain and objectives outside the board', () => {
+  it('warns about terrain outside the board, and ignores a stray objective', () => {
     const map: CustomMapDefinition = {
       ...mapOf(24, 36),
       terrain: [{
@@ -442,7 +419,7 @@ describe('board size validation', () => {
     };
     const n = validateMapDefinition(map);
     expect(n.some((x) => x.severity === 'warning' && x.message.includes('Terrain piece "far" is outside'))).toBe(true);
-    expect(n.some((x) => x.severity === 'warning' && x.message.includes('Objective "Out" is outside'))).toBe(true);
+    expect(n.some((x) => /objective/i.test(x.message))).toBe(false);
   });
 });
 

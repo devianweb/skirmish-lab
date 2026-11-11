@@ -252,7 +252,7 @@ export function advanceAmbushStep(state: GameState): void {
 }
 
 /** The distance an enemy keeps Ambush arrivals away: 9", or 12" from a unit with Perimeter Watch. */
-function ambushKeepOut(enemy: Unit): number {
+export function ambushKeepOut(enemy: Unit): number {
   return hasTrait(enemy.specialRules, 'perimeter-watch') ? 12 : AMBUSH_MIN_DISTANCE;
 }
 
