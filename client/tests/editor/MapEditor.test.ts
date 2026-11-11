@@ -47,12 +47,11 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(container.textContent).toContain('Solid Wall');
     expect(container.textContent).toContain('Window Wall');
 
-    // Click Objectives category
-    const objBtn = container.querySelector('button[data-category="objectives"]') as HTMLButtonElement;
-    expect(objBtn).toBeTruthy();
-    objBtn.click();
-
-    expect(container.textContent).toContain('Objective Beacon');
+    // Objectives are placed by the players in the game, so the editor has no objective tool
+    expect(container.querySelector('button[data-category="objectives"]')).toBeNull();
+    expect(container.querySelector('.editor-palette-item[data-type="objective"]')).toBeNull();
+    expect(container.querySelector('#autoObjBtn')).toBeNull();
+    expect(container.textContent).not.toContain('Objective Beacon');
   });
 
   it('toggles placement mode when clicking a palette item', () => {
@@ -186,25 +185,17 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(editor.getSelectedPieceId()).toBeNull();
   });
 
-  it('places objective beacons and auto-distributes 4 quadrant objectives', () => {
-    const editor = new MapEditor(container);
-    editor.clearBoard();
-
-    const obj = editor.placeObjectiveAt({ x: -5, y: 0, z: 4 });
-    expect(obj).toBeTruthy();
-    expect(editor.getMap().objectives).toHaveLength(1);
-    expect(obj.name).toContain('Objective Alpha');
-
-    // Auto distribute replaces with 4 standard objectives
-    editor.autoDistributeObjectives();
-    const objectives = editor.getMap().objectives!;
-    expect(objectives).toHaveLength(4);
-
-    const names = objectives.map((o) => o.name);
-    expect(names.some((n) => n.includes('Alpha'))).toBe(true);
-    expect(names.some((n) => n.includes('Bravo'))).toBe(true);
-    expect(names.some((n) => n.includes('Charlie'))).toBe(true);
-    expect(names.some((n) => n.includes('Delta'))).toBe(true);
+  it('keeps no objectives: an old save loads, its markers are dropped, and nothing is saved or exported with them', () => {
+    const old = createBlankMap('Old save');
+    old.objectives = [{ id: 'o-1', name: 'Obj One', position: { x: 4, y: 0, z: 4 }, controllingPlayerId: null, isContested: false }];
+    const editor = new MapEditor(container, { initialMap: old });
+    expect(editor.getMap().objectives).toBeUndefined();
+    editor.setMap(old);
+    expect(editor.getMap().objectives).toBeUndefined();
+    expect(editor.exportJson()).not.toContain('objectives');
+    // No objective warnings either, even for a one-marker save
+    editor.show();
+    expect(container.textContent).not.toMatch(/objective/i);
   });
 
   it('validates map and updates warning badge dynamically', () => {
@@ -254,7 +245,7 @@ describe('MapEditor 3D Battlefield Builder', () => {
     expect(onExitSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('nudges selected piece and objective positions', () => {
+  it('nudges the selected piece', () => {
     const editor = new MapEditor(container);
     editor.show();
 
@@ -267,15 +258,6 @@ describe('MapEditor 3D Battlefield Builder', () => {
     const updatedPiece = editor.getMap().terrain.find((t) => t.id === piece!.id);
     expect(updatedPiece?.position.x).toBe(1.0);
     expect(updatedPiece?.position.z).toBe(-1.0);
-
-    // Test objective nudge
-    const obj = editor.placeObjectiveAt({ x: 2, y: 0, z: 2 });
-    editor.selectObjective(obj.id);
-    editor.nudgeSelected(-1.0, 1.0);
-
-    const updatedObj = editor.getMap().objectives?.find((o) => o.id === obj.id);
-    expect(updatedObj?.position.x).toBe(1.0);
-    expect(updatedObj?.position.z).toBe(3.0);
   });
 
   it('handles inspector buttons for rotation, elevation, duplicate, and nudge', () => {
@@ -536,70 +518,21 @@ describe('MapEditor 3D Battlefield Builder', () => {
   });
 });
 
-describe('MapEditor objective selection (13.6 playtest fix)', () => {
+describe('MapEditor selection and board size', () => {
   let container: HTMLElement;
-  const oneObjMap = (): CustomMapDefinition => {
-    const map = createBlankMap('Obj map');
-    map.objectives = [{ id: 'o-1', name: 'Obj One', position: { x: 4, y: 0, z: 4 }, radius: 3 } as any];
-    return map;
-  };
 
   beforeEach(() => {
     container = document.createElement('div');
     document.body.appendChild(container);
   });
 
-  it('clicking an Auto Obj objective selects it and Delete removes it', () => {
+  it('a click on the board selects the terrain piece under it, and open ground deselects', () => {
     const editor = new MapEditor(container);
     editor.show();
-    editor.autoDistributeObjectives();
-    const objs = editor.getMap().objectives!;
-    expect(objs.length).toBeGreaterThan(1);
-    const target = objs[1];
-
-    editor.handleBoardClick({ x: target.position.x + 0.5, y: 0, z: target.position.z - 0.5 });
-    expect(editor.getSelectedObjectiveId()).toBe(target.id);
-
-    editor.deleteSelected();
-    const after = editor.getMap().objectives!;
-    expect(after.map((o) => o.id)).not.toContain(target.id);
-    expect(after.length).toBe(objs.length - 1);
-  });
-
-  it('objectives from a loaded map are selectable and win over terrain', () => {
-    const editor = new MapEditor(container);
-    editor.show();
-    editor.setMap(oneObjMap());
     editor.handleBoardClick({ x: 4, y: 0, z: 4 }, 'some-terrain');
-    expect(editor.getSelectedObjectiveId()).toBe('o-1');
-    expect(editor.getSelectedPieceId()).toBeNull();
-  });
-
-  it('a click just over 1" from an objective does not select it; open ground deselects', () => {
-    const editor = new MapEditor(container);
-    editor.show();
-    editor.setMap(oneObjMap());
-    editor.handleBoardClick({ x: 4, y: 0, z: 4 });
-    expect(editor.getSelectedObjectiveId()).toBe('o-1');
+    expect(editor.getSelectedPieceId()).toBe('some-terrain');
     editor.handleBoardClick({ x: 5.1, y: 0, z: 4 });
-    expect(editor.getSelectedObjectiveId()).toBeNull();
     expect(editor.getSelectedPieceId()).toBeNull();
-  });
-
-  it('lists objectives in the Objectives tab; select and remove buttons act on the right one', () => {
-    const editor = new MapEditor(container);
-    editor.show();
-    editor.autoDistributeObjectives();
-    const objs = editor.getMap().objectives!;
-    (container.querySelector('.editor-cat-btn[data-category="objectives"]') as HTMLElement).click();
-
-    expect(container.querySelectorAll('[data-objective-row]').length).toBe(objs.length);
-
-    (container.querySelector(`[data-objective-select="${objs[2].id}"]`) as HTMLElement).click();
-    expect(editor.getSelectedObjectiveId()).toBe(objs[2].id);
-
-    (container.querySelector(`[data-objective-remove="${objs[0].id}"]`) as HTMLElement).click();
-    expect(editor.getMap().objectives!.map((o) => o.id)).toEqual(objs.slice(1).map((o) => o.id));
   });
 
   describe('board size control', () => {

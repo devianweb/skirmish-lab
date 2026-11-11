@@ -263,6 +263,7 @@ export interface CustomMapDefinition {
     theme?: string;
   };
   terrain: TerrainPiece[];
+  /** Legacy: old saves carry markers, but the players place objectives in the game now, so they are ignored. */
   objectives?: Objective[];
   deploymentZones?: {
     hostSouthMinZ: number;
@@ -349,14 +350,6 @@ export function validateMapDefinition(map: CustomMapDefinition): MapValidationNo
     });
   }
 
-  const objectives = map.objectives ?? [];
-  if (objectives.length > 0 && objectives.length < 3) {
-    notices.push({
-      severity: 'warning',
-      message: `Only ${objectives.length} objective marker(s) defined. Standard skirmish rules recommend at least 3 objectives.`,
-    });
-  }
-
   // Board size
   const boardW = map.board?.width ?? DEFAULT_BOARD_SIZE;
   const boardH = map.board?.height ?? DEFAULT_BOARD_SIZE;
@@ -385,11 +378,6 @@ export function validateMapDefinition(map: CustomMapDefinition): MapValidationNo
     });
   }
 
-  // Deployment zones for this board (same maths as getDeploymentZoneBounds), unless the map overrides them
-  const zoneDepth = getDeploymentZoneDepth(boardH);
-  const hostSouthZ = map.deploymentZones?.hostSouthMinZ ?? -boardH / 2 + zoneDepth;
-  const guestNorthZ = map.deploymentZones?.guestNorthMaxZ ?? boardH / 2 - zoneDepth;
-
   for (const t of map.terrain ?? []) {
     if (Math.abs(t.position.x) > boardW / 2 || Math.abs(t.position.z) > boardH / 2) {
       notices.push({
@@ -397,66 +385,6 @@ export function validateMapDefinition(map: CustomMapDefinition): MapValidationNo
         message: `Terrain piece "${t.id}" is outside the ${boardW}" x ${boardH}" board.`,
         pieceId: t.id,
       });
-    }
-  }
-
-  for (let i = 0; i < objectives.length; i++) {
-    const objA = objectives[i];
-    if (Math.abs(objA.position.x) > boardW / 2 || Math.abs(objA.position.z) > boardH / 2) {
-      notices.push({
-        severity: 'warning',
-        message: `Objective "${objA.name}" is outside the ${boardW}" x ${boardH}" board.`,
-        pieceId: objA.id,
-      });
-    }
-    if (objA.position.z <= hostSouthZ) {
-      notices.push({
-        severity: 'warning',
-        message: `Objective "${objA.name}" is positioned inside the Host deployment zone (z: ${objA.position.z.toFixed(1)}).`,
-        pieceId: objA.id,
-      });
-    } else if (objA.position.z >= guestNorthZ) {
-      notices.push({
-        severity: 'warning',
-        message: `Objective "${objA.name}" is positioned inside the Guest deployment zone (z: ${objA.position.z.toFixed(1)}).`,
-        pieceId: objA.id,
-      });
-    }
-
-    // Pairwise distance check (> 9" recommended)
-    for (let j = i + 1; j < objectives.length; j++) {
-      const objB = objectives[j];
-      const dx = objA.position.x - objB.position.x;
-      const dz = objA.position.z - objB.position.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      if (dist < 9.0) {
-        notices.push({
-          severity: 'warning',
-          message: `Objectives "${objA.name}" and "${objB.name}" are only ${dist.toFixed(1)}" apart (recommended > 9.0").`,
-        });
-      }
-    }
-
-    // Check if an objective is placed inside an obstacle/solid wall
-    for (const t of map.terrain) {
-      if (t.isObstacle && t.scale) {
-        // If the piece is elevated and walkable and the objective is placed on its surface, this is valid
-        if (t.isWalkable && t.elevation && objA.position.y >= t.elevation - 0.1) {
-          continue;
-        }
-        const halfX = t.scale.x / 2;
-        const halfZ = t.scale.z / 2;
-        if (
-          Math.abs(objA.position.x - t.position.x) < halfX &&
-          Math.abs(objA.position.z - t.position.z) < halfZ
-        ) {
-          notices.push({
-            severity: 'warning',
-            message: `Objective "${objA.name}" appears inside obstacle terrain piece "${t.id}".`,
-            pieceId: objA.id,
-          });
-        }
-      }
     }
   }
 

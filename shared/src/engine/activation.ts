@@ -14,7 +14,7 @@ import { getTraitValue, hasTrait } from '../rules/traits';
 import { getEffectiveSpeed } from './specialRules';
 import { resolveMoraleTest } from './combat';
 import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
-import { baseRadius, markerGap, strikingModelCount, unitDistance, keepAwayGapToUnit3D, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
+import { baseRadius, markerGap, strikingModelCount, unitDistance, keepAwayGapToUnit3D, gapToUnit, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
 
 /**
  * Alternating-activation turn management (pure functions over GameState).
@@ -35,7 +35,12 @@ import { baseRadius, markerGap, strikingModelCount, unitDistance, keepAwayGapToU
 /** Units a player may still activate this round: alive, not yet activated, not routed. */
 export function getActivatableUnits(state: GameState, playerId: string): Unit[] {
   return state.units.filter(
-    (u) => u.ownerId === playerId && !u.isDestroyed && !u.isActivated && !u.status.includes('routed')
+    (u) =>
+      u.ownerId === playerId &&
+      !u.isDestroyed &&
+      u.isDeployed !== false &&
+      !u.isActivated &&
+      !u.status.includes('routed')
   );
 }
 
@@ -88,7 +93,7 @@ export function advanceActivation(state: GameState): void {
  *      enemy seizes or contests them.
  */
 export function isUnitInObjectiveRange(unit: Unit, obj: Objective): boolean {
-  if (unit.isDestroyed || unit.status.includes('routed') || unit.status.includes('shaken')) {
+  if (unit.isDestroyed || unit.isDeployed === false || unit.status.includes('routed') || unit.status.includes('shaken')) {
     return false;
   }
   const objY = obj.position.y ?? 0;
@@ -107,7 +112,10 @@ export function evaluateObjectives(state: GameState): void {
   if (!state.objectives || state.objectives.length === 0) return;
 
   for (const obj of state.objectives) {
-    const eligibleUnitsInRange = state.units.filter((unit) => isUnitInObjectiveRange(unit, obj));
+    // A unit that arrived by Ambush this round can't seize or contest anything yet
+    const eligibleUnitsInRange = state.units.filter(
+      (unit) => unit.ambushArrivedRound !== state.turnState.roundNumber && isUnitInObjectiveRange(unit, obj)
+    );
 
     const hostPresent = eligibleUnitsInRange.some((u) => u.ownerId === state.hostId);
     const guestPresent = eligibleUnitsInRange.some((u) => u.ownerId === state.guestId);
@@ -184,6 +192,95 @@ export function endRound(state: GameState): void {
     delete unit.modelMovementSpent;
     unit.status = unit.status.filter((s) => s !== 'fatigued');
   }
+
+  beginAmbushStep(state);
+}
+
+// ============================================================================
+// Ambush (from round 2)
+// ============================================================================
+
+/** Ambush arrivals must land more than this far (base edge) from every enemy unit. */
+export const AMBUSH_MIN_DISTANCE = 9;
+
+/** True when the unit is an Ambush unit still set aside. */
+export function isAmbushReserve(unit: Unit): boolean {
+  return !unit.isDestroyed && unit.isDeployed === false && hasTrait(unit.specialRules, 'ambush');
+}
+
+/** Ambush units of a player still waiting to arrive. */
+export function getAmbushReserves(state: GameState, playerId: string): Unit[] {
+  return state.units.filter((u) => u.ownerId === playerId && isAmbushReserve(u));
+}
+
+/** True when the player may still place an Ambush unit in the current step (has one waiting, hasn't declined). */
+function canPlaceAmbush(state: GameState, playerId: string): boolean {
+  const step = state.turnState.ambushStep;
+  if (!step || step.skippedPlayerIds.includes(playerId)) return false;
+  return getAmbushReserves(state, playerId).length > 0;
+}
+
+/**
+ * Open the Ambush step at the start of a round (from round 2) when any player has Ambush units waiting:
+ * placement alternates starting with the player who activates first this round.
+ */
+export function beginAmbushStep(state: GameState): void {
+  state.turnState.ambushStep = null;
+  if (state.turnState.roundNumber < 2) return;
+  state.turnState.ambushStep = { skippedPlayerIds: [] };
+  const first = state.turnState.startingPlayerId;
+  if (canPlaceAmbush(state, first)) {
+    state.turnState.currentPlayerId = first;
+  } else if (canPlaceAmbush(state, getOpponentId(state, first))) {
+    state.turnState.currentPlayerId = getOpponentId(state, first);
+  } else {
+    state.turnState.ambushStep = null;
+    state.turnState.currentPlayerId = first;
+  }
+}
+
+/** After a placement or a decline: pass the placement to the opponent, or end the step and start the round. */
+export function advanceAmbushStep(state: GameState): void {
+  const current = state.turnState.currentPlayerId;
+  const opponent = getOpponentId(state, current);
+  if (canPlaceAmbush(state, opponent)) {
+    state.turnState.currentPlayerId = opponent;
+  } else if (!canPlaceAmbush(state, current)) {
+    state.turnState.ambushStep = null;
+    state.turnState.currentPlayerId = state.turnState.startingPlayerId;
+  }
+}
+
+/** The distance an enemy keeps Ambush arrivals away: 9", or 12" from a unit with Perimeter Watch. */
+export function ambushKeepOut(enemy: Unit): number {
+  return hasTrait(enemy.specialRules, 'perimeter-watch') ? 12 : AMBUSH_MIN_DISTANCE;
+}
+
+/**
+ * Why `unit` can't be placed by Ambush with its anchor at `position`, or null when it can: anywhere on the
+ * table that is clear of terrain and more than 9" (12" from a Perimeter Watch unit) from every enemy unit.
+ */
+export function ambushFootprintProblem(state: GameState, unit: Unit, position: Vector3): string | null {
+  const footprint = placementFootprint(unit, position);
+  const halfW = (state.board.width * state.board.gridSize) / 2;
+  const halfH = (state.board.height * state.board.gridSize) / 2;
+  for (const point of footprint) {
+    if (point.x < -halfW || point.x > halfW || point.z < -halfH || point.z > halfH) {
+      return 'Position is off the board';
+    }
+  }
+  const clearance = placementClearanceProblem(state, unit, footprint);
+  if (clearance) return clearance;
+  for (const enemy of state.units) {
+    if (enemy.ownerId === unit.ownerId || enemy.isDestroyed || enemy.isDeployed === false) continue;
+    const limit = ambushKeepOut(enemy);
+    for (const point of footprint) {
+      if (gapToUnit(point, enemy) <= limit) {
+        return `Ambush units must arrive more than ${limit}" from enemy units`;
+      }
+    }
+  }
+  return null;
 }
 
 // ============================================================================
@@ -434,12 +531,16 @@ export interface DeploymentZoneBounds {
   maxZ: number;
 }
 
+/** How far beyond its deployment zone a held-back Scout may be placed. */
+export const SCOUT_DEPLOY_REACH = 9;
+
 /**
  * Calculates rectangular battlefield boundaries for a player's deployment zone.
  * Zones run in from the player's table edge, up to 12" deep, but never so deep that the two zones are less
  * than 24" apart (the rules allow smaller tables as long as armies deploy at least 24" apart). On a 48"-deep
- * table that is the usual 12"; on a 30"-deep table it is 3". Scout units may deploy up to 12" further
- * ahead of their zone, but never past the centre line.
+ * table that is the usual 12"; on a 30"-deep table it is 3". With `isScout` the bounds grow by the 9" a
+ * held-back Scout may be placed beyond its zone (the zone depth keeps the armies 24" apart, so that never
+ * reaches the centre line).
  */
 export function getDeploymentZoneBounds(
   state: GameState,
@@ -455,38 +556,38 @@ export function getDeploymentZoneBounds(
     // Host deployed at South edge (-halfH) facing +z
     const minZ = -halfH;
     const zoneMax = -halfH + depth;
-    const maxZ = isScout ? Math.min(0, zoneMax + 12) : zoneMax;
+    const maxZ = isScout ? zoneMax + SCOUT_DEPLOY_REACH : zoneMax;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   } else {
     // Guest deployed at North edge (+halfH) facing -z
     const maxZ = halfH;
     const zoneMin = halfH - depth;
-    const minZ = isScout ? Math.max(0, zoneMin - 12) : zoneMin;
+    const minZ = isScout ? zoneMin - SCOUT_DEPLOY_REACH : zoneMin;
     return { minX: -halfW, maxX: halfW, minZ, maxZ };
   }
 }
 
+/** Undeployed units of a player that take part in pre-match deployment (Ambush units are set aside). */
+function undeployedForDeployment(state: GameState, playerId: string): Unit[] {
+  return state.units.filter(
+    (u) => u.ownerId === playerId && !u.isDestroyed && u.isDeployed === false && !hasTrait(u.specialRules, 'ambush')
+  );
+}
+
+/** True while any unit that deploys normally (not Ambush, not a held-back Scout) is still waiting. */
+function anyNormalUndeployed(state: GameState): boolean {
+  return [state.hostId, state.guestId].some((id) => undeployedForDeployment(state, id).some((u) => !u.heldAsScout));
+}
+
 /**
- * Get undeployed units eligible for deployment for a player.
- * Enforces rule sequencing:
- * 1. Standard units deploy first.
- * 2. Scout units deploy after all standard units are deployed.
- * 3. Drop Reserve units cannot deploy during pre-match deployment (held for Round 2+).
+ * Get undeployed units eligible for deployment for a player right now.
+ * 1. While units that deploy normally remain, those are eligible (a Scout may deploy like any other unit).
+ * 2. Once every such unit is down, the Scouts held back are placed (the `scoutStage`).
+ * 3. Ambush units never deploy pre-match (they arrive from round 2).
  */
 export function getDeployableUnits(state: GameState, playerId: string): Unit[] {
-  const undeployed = state.units.filter(
-    (u) => u.ownerId === playerId && !u.isDestroyed && u.isDeployed === false
-  );
-
-  // Filter out ambush units (held for Round 2+)
-  const eligible = undeployed.filter((u) => !hasTrait(u.specialRules, 'ambush'));
-
-  // Standard units must deploy before scout units
-  const standard = eligible.filter((u) => !hasTrait(u.specialRules, 'scout'));
-  if (standard.length > 0) {
-    return standard;
-  }
-  return eligible;
+  const undeployed = undeployedForDeployment(state, playerId);
+  return state.turnState.scoutStage ? undeployed.filter((u) => u.heldAsScout) : undeployed.filter((u) => !u.heldAsScout);
 }
 
 /** True when the player still has units to place during the deployment phase. */
@@ -494,27 +595,38 @@ export function hasDeployableUnits(state: GameState, playerId: string): boolean 
   return getDeployableUnits(state, playerId).length > 0;
 }
 
-/** True when all deployable units for both players have been placed. */
+/** True when all deployable units for both players have been placed (Scouts held back included). */
 export function isDeploymentComplete(state: GameState): boolean {
-  return !hasDeployableUnits(state, state.hostId) && !hasDeployableUnits(state, state.guestId);
+  return [state.hostId, state.guestId].every((id) => undeployedForDeployment(state, id).length === 0);
 }
 
 /**
- * Passes turn to opponent during deployment phase, or transitions to 'activation'
- * (Round 1) if all units are placed.
+ * Passes the turn during deployment, or moves on: once every unit that deploys normally is down the held
+ * Scouts are placed next (starting with the player who activates first in round 1), and once those are down
+ * the phase becomes 'activation' (round 1). With `keepTurn` (a Scout was only held back, nothing placed) the
+ * turn stays unless the current player has nothing left to place.
  */
-export function advanceDeployment(state: GameState): void {
-  const current = state.turnState.currentPlayerId;
-  const opponent = getOpponentId(state, current);
-
-  if (hasDeployableUnits(state, opponent)) {
-    state.turnState.currentPlayerId = opponent;
+export function advanceDeployment(state: GameState, keepTurn: boolean = false): void {
+  const turn = state.turnState;
+  if (!turn.scoutStage && !anyNormalUndeployed(state)) {
+    // Normal deployment is over: held Scouts go next, the round-1 first player starting
+    turn.scoutStage = true;
+    const first = turn.startingPlayerId;
+    turn.currentPlayerId = hasDeployableUnits(state, first) ? first : getOpponentId(state, first);
+  } else {
+    const current = turn.currentPlayerId;
+    const opponent = getOpponentId(state, current);
+    const currentHasUnits = hasDeployableUnits(state, current);
+    if (hasDeployableUnits(state, opponent) && !(keepTurn && currentHasUnits)) {
+      turn.currentPlayerId = opponent;
+    }
   }
 
   if (isDeploymentComplete(state)) {
-    state.turnState.phase = 'activation';
-    state.turnState.roundNumber = 1;
-    state.turnState.currentPlayerId = state.turnState.startingPlayerId;
+    turn.phase = 'activation';
+    turn.scoutStage = false;
+    turn.roundNumber = 1;
+    turn.currentPlayerId = turn.startingPlayerId;
   }
 }
 
@@ -527,46 +639,34 @@ export function validateDeploymentPosition(
   position: Vector3
 ): { valid: boolean; reason?: string } {
   if (hasTrait(unit.specialRules, 'ambush')) {
-    return { valid: false, reason: 'Drop Reserve units cannot be deployed pre-match (held for Round 2+)' };
+    return { valid: false, reason: 'Ambush units cannot be deployed pre-match (they arrive from round 2)' };
   }
 
   const eligibleUnits = getDeployableUnits(state, unit.ownerId);
   if (!eligibleUnits.some((u) => u.id === unit.id)) {
-    return { valid: false, reason: 'Unit is not currently eligible for deployment (scout units deploy after standard units)' };
+    return {
+      valid: false,
+      reason: unit.heldAsScout
+        ? 'Held-back Scouts are placed after all other units are deployed'
+        : 'Unit is not currently eligible for deployment',
+    };
   }
 
-  const problem = deploymentFootprintProblem(state, unit, position, hasTrait(unit.specialRules, 'scout'));
+  const problem = deploymentFootprintProblem(state, unit, position, Boolean(unit.heldAsScout));
   return problem ? { valid: false, reason: problem } : { valid: true };
 }
 
-/**
- * Why `unit` could not stand with its anchor at `position` (laid out exactly as `deploy-unit` places it), or
- * null when it can: every model inside the deployment zone, clear of terrain (obstacle pieces, structure solids
- * such as deck legs, stairs and ladders) and more than 1" from every model of any other deployed unit.
- */
-export function deploymentFootprintProblem(
-  state: GameState,
-  unit: Unit,
-  position: Vector3,
-  isScout: boolean = false
-): string | null {
-  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
+/** Model spots of a unit placed with its anchor at `position` (as `deploy-unit` lays them out). */
+function placementFootprint(unit: Unit, position: Vector3): Vector3[] {
   const modelCount = unit.models && unit.models.length > 0 ? unit.models.length : 1;
-  const footprint = modelCount > 1 ? createSquadPositions(position, modelCount) : [position];
+  return modelCount > 1 ? createSquadPositions(position, modelCount) : [position];
+}
 
-  for (const point of footprint) {
-    if (
-      point.x < bounds.minX - 0.01 ||
-      point.x > bounds.maxX + 0.01 ||
-      point.z < bounds.minZ - 0.01 ||
-      point.z > bounds.maxZ + 0.01
-    ) {
-      return isScout
-        ? 'Position outside friendly scout deployment zone (up to 12" ahead)'
-        : 'Position outside friendly 12" deployment zone';
-    }
-  }
-
+/**
+ * Terrain and keep-away checks shared by every placement: clear of obstacles and structure solids, and more
+ * than 1" (base edge) from every model of any other deployed unit.
+ */
+function placementClearanceProblem(state: GameState, unit: Unit, footprint: Vector3[]): string | null {
   for (const point of footprint) {
     const piece = findTerrainAtPosition(state, point);
     if (piece && (piece.isObstacle || isStairPiece(piece) || isLadderPiece(piece))) {
@@ -588,6 +688,55 @@ export function deploymentFootprintProblem(
         return other.ownerId === unit.ownerId
           ? 'Cannot deploy within 1" of another friendly unit'
           : 'Cannot deploy within 1" of enemy models';
+      }
+    }
+  }
+  return null;
+}
+
+/** A held-back Scout must be placed more than this far from every non-Scout enemy unit. */
+export const SCOUT_ENEMY_MIN_DISTANCE = 9;
+
+/**
+ * Why `unit` could not stand with its anchor at `position` (laid out exactly as `deploy-unit` places it), or
+ * null when it can: every model inside the deployment zone, clear of terrain (obstacle pieces, structure solids
+ * such as deck legs, stairs and ladders) and more than 1" from every model of any other deployed unit.
+ * With `isScout` (a held-back Scout) the zone reaches 9" further and the Scout must also stay more than 9" from
+ * every enemy unit that is not a Scout.
+ */
+export function deploymentFootprintProblem(
+  state: GameState,
+  unit: Unit,
+  position: Vector3,
+  isScout: boolean = false
+): string | null {
+  const bounds = getDeploymentZoneBounds(state, unit.ownerId, isScout);
+  const footprint = placementFootprint(unit, position);
+
+  for (const point of footprint) {
+    if (
+      point.x < bounds.minX - 0.01 ||
+      point.x > bounds.maxX + 0.01 ||
+      point.z < bounds.minZ - 0.01 ||
+      point.z > bounds.maxZ + 0.01
+    ) {
+      return isScout
+        ? `Position outside the zone a held-back Scout may use (up to ${SCOUT_DEPLOY_REACH}" beyond your deployment zone)`
+        : 'Position outside friendly 12" deployment zone';
+    }
+  }
+
+  const clearance = placementClearanceProblem(state, unit, footprint);
+  if (clearance) return clearance;
+
+  if (isScout) {
+    for (const enemy of state.units) {
+      if (enemy.ownerId === unit.ownerId || enemy.isDestroyed || enemy.isDeployed === false) continue;
+      if (hasTrait(enemy.specialRules, 'scout')) continue;
+      for (const point of footprint) {
+        if (gapToUnit(point, enemy) <= SCOUT_ENEMY_MIN_DISTANCE) {
+          return `A held-back Scout must stay more than ${SCOUT_ENEMY_MIN_DISTANCE}" from enemy units that aren't Scouts`;
+        }
       }
     }
   }

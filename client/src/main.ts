@@ -121,6 +121,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
     markers.squadCoherency?.radius ?? 2.0
   );
   gameView.setKeepAwayZonesMarker(markers.keepAwayZones ?? null);
+  gameView.setPlacementMarker(markers.placement ?? null);
   gameView.setCasualtyPicksMarker(markers.casualtyPicks ?? null);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);

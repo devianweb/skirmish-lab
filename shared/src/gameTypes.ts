@@ -4,6 +4,7 @@ import type { DeclaredTraversal } from './engine/traversal';
 // Alternating-activation round phases
 export type TurnPhase =
   | 'setup'
+  | 'objectives'      // Players roll for the objective count and place the markers
   | 'deployment'
   | 'activation'      // Players alternate activating units
   | 'round-cleanup'   // Morale, end-of-round effects
@@ -59,6 +60,22 @@ export interface TurnState {
   meleeUnitIds?: string[];
   /** Pairs of units that fought each other during the current activation (their melee result is compared at its end). */
   meleePairs?: [string, string][];
+  /**
+   * Deployment: true once every unit that deploys normally is down and only Scouts held back remain to be placed
+   * (alternating, starting with the player who activates first in round 1).
+   */
+  scoutStage?: boolean;
+  /**
+   * From round 2: set while players place their Ambush units before the round's first activation. Placement
+   * alternates (starting with the player who activates first); `currentPlayerId` is the player placing.
+   */
+  ambushStep?: AmbushStep | null;
+}
+
+/** The pre-activation Ambush placement step of a round. */
+export interface AmbushStep {
+  /** Players who declined to place their remaining Ambush units this round. */
+  skippedPlayerIds: string[];
 }
 
 /** A charge declared on a target and made in legs. Plain data: it is part of the game state. */
@@ -150,6 +167,10 @@ export interface Unit {
    * activated in them, or crossed them). A piece tests at most once per activation.
    */
   hazardTestedPieceIds?: string[];
+  /** Deployment: a Scout unit the player keeps back to place after all other units (see `scoutStage`). */
+  heldAsScout?: boolean;
+  /** The round an Ambush unit was placed in; it can't seize or contest objectives that round. */
+  ambushArrivedRound?: number;
 }
 
 /**
@@ -268,7 +289,11 @@ export interface WeaponAllocation {
 
 export type ActionType =
   | 'activate-unit'
+  | 'roll-objectives'  // Objectives phase start: the server rolls the objective count and the mission roll-off
+  | 'place-objective'
   | 'deploy-unit'
+  | 'hold-scout'       // Keep a Scout unit back to be placed after every other unit is deployed
+  | 'skip-ambush'      // Decline to place remaining Ambush units this round
   | 'advance'
   | 'rush'
   | 'shoot'
@@ -290,7 +315,11 @@ export type ActionType =
 
 export type ActionPayload =
   | { type: 'activate-unit', unitId: string }
+  | { type: 'roll-objectives' }
+  | { type: 'place-objective', position: Vector3 }
   | { type: 'deploy-unit', unitId: string, position: Vector3, rotation?: Vector3 }
+  | { type: 'hold-scout', unitId: string }
+  | { type: 'skip-ambush' }
   | { type: 'advance', jumpLeader?: number, crossers?: number[], unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'rush', jumpLeader?: number, crossers?: number[], unitId: string, path: Vector3[], finalPosition: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | {
@@ -477,6 +506,28 @@ export interface SpecialStrikeOutcome {
   targetDestroyed: boolean;
 }
 
+/** A roll-off: 10 pairs of d6 (host die, guest die); the first unequal pair decides, all tied means the host wins. */
+export interface RollOffRecord {
+  kind: 'mission' | 'deployment';
+  hostRolls: number[];
+  guestRolls: number[];
+  winnerId: string;
+  /** Index of the pair that decided it; null when all pairs tied (the host wins). */
+  decidingPair: number | null;
+}
+
+/** Results of the pre-game rolls, kept in state so a rematch can replay them. */
+export interface SetupRolls {
+  /** The d6 rolled for the objective count. */
+  objectiveRoll?: number;
+  /** Objectives to place (3 to 5). */
+  objectiveCount?: number;
+  /** Decides who places the first objective. */
+  missionRollOff?: RollOffRecord;
+  /** Decides who deploys first and activates first in round 1. */
+  deploymentRollOff?: RollOffRecord;
+}
+
 export interface DiceResolution {
   rollId: string;
   specs: DiceSpec[];
@@ -503,6 +554,10 @@ export interface DiceResolution {
     impact?: SpecialStrikeOutcome;
     /** The charged unit's Counter strikes, one per Counter weapon (before the charger's own strike). */
     counterStrikes?: SpecialStrikeOutcome[];
+    /** Objectives phase start: the d6 and the objective count it gave. */
+    objectiveCount?: { roll: number; count: number };
+    /** A roll-off resolved by this action (mission roll-off, or the deployment roll-off with the last objective). */
+    rollOff?: RollOffRecord;
     /** Movement hazards resolved by this action (gap/drop jumps, falls, dangerous terrain). */
     traversal?: TraversalEvent[];
     targetShaken?: boolean;
@@ -557,6 +612,8 @@ export interface GameState {
   terrain: TerrainPiece[];
   markers: GameMarker[];
   objectives?: Objective[];
+  /** Pre-game rolls (objective count, roll-offs). Absent when the match skips the objectives phase. */
+  setupRolls?: SetupRolls;
   actionLog: ActionLogEntry[];
   status: GameStatus;
   winner?: string;

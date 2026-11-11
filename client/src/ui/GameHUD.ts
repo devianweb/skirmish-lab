@@ -32,11 +32,11 @@ import {
   formatTraitLabel,
   GameState,
   GameAction,
-  getDeployableUnits,
   getDeploymentZoneBounds,
   getEffectiveMaxMovement,
   getUnitTough,
   hasTrait,
+  getTraitValue,
   isPathDangerous,
   woundsToDestroy,
   getEffectiveSpeed,
@@ -53,7 +53,6 @@ import {
   describeDrop,
   ShootingRayDebugInfo,
   Unit,
-  validateDeploymentPosition,
   validateSquadCoherency,
   isRegroupingMove,
   SQUAD_COHERENCY_SPREAD,
@@ -95,6 +94,15 @@ import {
   segmentSummary,
 } from './movePreview';
 import { rushStopReason, rushStopText } from './rushStop';
+import {
+  canChooseScoutHold,
+  currentPlacementKind,
+  exclusionCircles,
+  objectiveSpacingCircles,
+  placeableUnits,
+  placementProblem,
+  setupAnnouncements,
+} from './setupPlacement';
 import { explainStop, StopNote } from './stopNote';
 import { soundFx } from '../audio/SoundFx';
 import {
@@ -102,6 +110,7 @@ import {
   DeploymentZoneMarker,
   MovePathMarker,
   AimLinesMarker,
+  PlacementMarker,
 } from '../renderer/MarkerRenderer';
 
 function escapeHtmlAttr(str: string): string {
@@ -111,6 +120,10 @@ function escapeHtmlAttr(str: string): string {
     .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlText(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** What the HUD needs from the game controller to submit confirmed actions. */
@@ -146,6 +159,8 @@ export interface MarkerSnapshot {
   debugActive?: boolean;
   shootingDebugRay?: ShootingRayDebugInfo | null;
   deploymentZones?: DeploymentZoneMarker | null;
+  /** Setup placement preview: cursor ring (green/red) and the 9" circles (objective spacing, Scout/Ambush exclusion). */
+  placement?: PlacementMarker | null;
   squadCoherency?: { positions: Vector3[]; radius: number } | null;
   /** Floor positions of the models picked as casualties (highlighted). */
   casualtyPicks?: Vector3[] | null;
@@ -222,6 +237,12 @@ export class GameHUD {
   private hoveredModelId: string | null = null;
   /** Terrain piece hovered on the board (for terrain debug inspection). */
   private hoveredTerrainId: string | null = null;
+  /** Where the pointer is during a setup placement and whether the host would accept it (drives the preview ring). */
+  private placementCursor: { position: Vector3; valid: boolean } | null = null;
+  /** Why the spot under the pointer is illegal (shown in the bottom bar hint), or null. */
+  private placementHint: string | null = null;
+  /** Setup announcements already toasted for this match (so each roll is announced once). */
+  private announcedSetup = new Set<string>();
   /** Objective hovered on the board within control radius. */
   private lastHoveredObjectiveId: string | null = null;
   /** Ground position hovered on the board (for debug raycast aiming). */
@@ -399,6 +420,9 @@ export class GameHUD {
     this.lastRoundNumber = state.turnState.roundNumber;
     this.state = state;
     if (newMatch) this.showToast('Rematch started — same armies, same map');
+    this.placementCursor = null;
+    this.placementHint = null;
+    this.announceSetupRolls(state);
     if (state.status === 'game-over') {
       this.concedeConfirmOpen = false;
       this.concedePending = false;
@@ -473,6 +497,9 @@ export class GameHUD {
 
   /** A different gameId means a rematch: drop every piece of per-match local state. */
   private resetForNewMatch(): void {
+    this.announcedSetup.clear();
+    this.placementCursor = null;
+    this.placementHint = null;
     this.flow = { mode: 'idle' };
     this.selectedUnitId = null;
     this.selectedDeployUnitId = null;
@@ -552,27 +579,109 @@ export class GameHUD {
     }
   }
 
+  /** The unit the local player is placing in a deployment or Ambush step: the picked one, else the first waiting. */
+  private currentPlacementUnit(): Unit | null {
+    if (!this.state) return null;
+    const list = placeableUnits(this.state, this.localPlayerId);
+    return list.find((u) => u.id === this.selectedDeployUnitId) ?? list[0] ?? null;
+  }
+
+  /** Placement preview under the pointer: remembers the spot, its legality and the reason, for the ring and hint. */
+  private updatePlacementHover(target: PickTarget | null): void {
+    const state = this.state;
+    const kind = state ? currentPlacementKind(state) : null;
+    let nextCursor: { position: Vector3; valid: boolean } | null = null;
+    let nextHint: string | null = null;
+    if (state && kind && this.myTurn && target?.kind === 'position') {
+      const unit = kind === 'objective' ? null : this.currentPlacementUnit();
+      const problem = placementProblem(state, kind, unit, target.position);
+      nextCursor = { position: target.position, valid: problem === null };
+      nextHint = problem;
+    }
+    const hintChanged = nextHint !== this.placementHint;
+    this.placementCursor = nextCursor;
+    this.placementHint = nextHint;
+    if (hintChanged) {
+      const el = this.root.querySelector('.sl-hud-placement-hint');
+      if (el) {
+        el.textContent = nextHint ?? '';
+        el.classList.toggle('bad', nextHint !== null);
+      }
+    }
+    this.emitMarkers();
+  }
+
+  /** The preview markers for the current placement step (null outside one). */
+  private placementMarker(): PlacementMarker | null {
+    const state = this.state;
+    const kind = state ? currentPlacementKind(state) : null;
+    if (!state || !kind) return null;
+    const circles =
+      kind === 'objective'
+        ? objectiveSpacingCircles(state)
+        : (() => {
+            const unit = this.myTurn ? this.currentPlacementUnit() : null;
+            return unit ? exclusionCircles(state, kind, unit) : [];
+          })();
+    let cursor: PlacementMarker['cursor'] = null;
+    const radius = kind === 'objective' ? 0.5 : 0.8;
+    if (this.myTurn) {
+      if (this.flow.mode === 'confirming') {
+        const payload = this.flow.action.payload as { position?: Vector3 };
+        if (payload.position && (this.flow.action.type === 'place-objective' || this.flow.action.type === 'deploy-unit')) {
+          cursor = { position: payload.position, valid: true, radius };
+        }
+      } else if (this.placementCursor) {
+        cursor = { ...this.placementCursor, radius };
+      }
+    }
+    return { cursor, circles };
+  }
+
   /** Board/unit picks from GameView (see PickTarget in the renderer). */
   handleBoardPick(target: PickTarget): void {
     if (!this.state || this.state.status === 'game-over') return;
 
-    if (this.state.turnState.phase === 'deployment') {
+    const placementKind = currentPlacementKind(this.state);
+    if (placementKind) {
       if (!this.myTurn) {
-        this.showToast("Wait for opponent's deployment turn");
+        this.showToast(
+          placementKind === 'objective'
+            ? "Wait for opponent to place an objective"
+            : placementKind === 'ambush'
+            ? "Wait for opponent's Ambush placement"
+            : "Wait for opponent's deployment turn"
+        );
         return;
       }
       if (target.kind === 'position') {
-        const deployable = getDeployableUnits(this.state, this.localPlayerId);
-        const unit = (this.selectedDeployUnitId
-          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
-          : null) ?? deployable[0];
-        if (!unit) {
-          this.showToast('No deployable units remaining');
+        if (placementKind === 'objective') {
+          const problem = placementProblem(this.state, 'objective', null, target.position);
+          if (problem) {
+            this.showToast(problem);
+            return;
+          }
+          const index = (this.state.objectives ?? []).length + 1;
+          const total = this.state.setupRolls?.objectiveCount ?? index;
+          this.flow = {
+            mode: 'confirming',
+            action: createAction(this.localPlayerId, 'place-objective', {
+              type: 'place-objective',
+              position: target.position,
+            }),
+            summary: `Place objective ${index} of ${total} at (${target.position.x.toFixed(1)}, ${target.position.z.toFixed(1)})`,
+          };
+          this.render();
           return;
         }
-        const val = validateDeploymentPosition(this.state, unit, target.position);
-        if (!val.valid) {
-          this.showToast(val.reason ?? 'Invalid deployment position');
+        const unit = this.currentPlacementUnit();
+        if (!unit) {
+          this.showToast(placementKind === 'ambush' ? 'No Ambush units left to place' : 'No deployable units remaining');
+          return;
+        }
+        const problem = placementProblem(this.state, placementKind, unit, target.position);
+        if (problem) {
+          this.showToast(problem);
           return;
         }
         this.flow = {
@@ -582,7 +691,7 @@ export class GameHUD {
             unitId: unit.id,
             position: target.position,
           }),
-          summary: `Deploy ${unit.name} at (${target.position.x.toFixed(1)}, ${target.position.z.toFixed(1)})`,
+          summary: `${placementKind === 'ambush' ? 'Bring in' : 'Deploy'} ${unit.name} at (${target.position.x.toFixed(1)}, ${target.position.z.toFixed(1)})`,
         };
         this.render();
       }
@@ -812,6 +921,12 @@ export class GameHUD {
         (Math.abs(nextGroundPos.x - this.hoveredGroundPosition.x) > 0.05 ||
           Math.abs(nextGroundPos.z - this.hoveredGroundPosition.z) > 0.05));
     this.hoveredGroundPosition = nextGroundPos;
+
+    if (currentPlacementKind(this.state)) {
+      if (this.flow.mode === 'idle') this.updatePlacementHover(target);
+      // Hovering a unit still falls through to the data card handling below
+      if (target?.kind !== 'unit') return;
+    }
 
     const pushHover = this.pushContext();
     if (pushHover) {
@@ -3488,6 +3603,19 @@ export class GameHUD {
     this.render();
   }
 
+  /** Toast each pre-game roll once when it first shows up in the state (the panel keeps the details on screen). */
+  private announceSetupRolls(state: GameState): void {
+    const fresh = setupAnnouncements(state, (id) => this.setupPlayerName(id)).filter(
+      (a) => !this.announcedSetup.has(a.id)
+    );
+    if (fresh.length === 0) return;
+    for (const a of fresh) this.announcedSetup.add(a.id);
+    // A restored game that is already past the objectives phase doesn't need announcing again
+    if (state.turnState.phase === 'objectives' || state.turnState.phase === 'deployment') {
+      this.showToast(fresh[fresh.length - 1].title);
+    }
+  }
+
   private showToast(message: string): void {
     this.toast = message;
     if (this.toastTimer) clearTimeout(this.toastTimer);
@@ -3542,14 +3670,26 @@ export class GameHUD {
     const toastHtml = this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : '';
     const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}${toastHtml}</div>` : '';
 
+    const isObjectivesPhase = state.turnState.phase === 'objectives';
+    const isAmbushStep = Boolean(state.turnState.ambushStep);
     const isDeployPhase = state.turnState.phase === 'deployment';
-    const roundBadge = isDeployPhase
+    const roundBadge = isObjectivesPhase
+      ? `<span class="sl-hud-round" style="background: #ffd54f; color: #12161c; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Objectives</span>`
+      : isDeployPhase
       ? `<span class="sl-hud-round" style="background: #ffd54f; color: #12161c; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Deployment</span>`
-      : `<span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>`;
+      : `<span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4${isAmbushStep ? ' · Ambush' : ''}</span>`;
 
     const turnLabel =
       state.status === 'game-over'
         ? this.gameOverText(opponentName)
+        : isObjectivesPhase
+        ? this.myTurn
+          ? 'Your turn to place an objective'
+          : `${opponentName}'s turn to place an objective`
+        : isAmbushStep
+        ? this.myTurn
+          ? 'Your turn to place Ambush units'
+          : `${opponentName}'s turn to place Ambush units`
         : isDeployPhase
         ? this.myTurn
           ? 'Your turn to deploy'
@@ -3679,9 +3819,35 @@ export class GameHUD {
     const keepAwayLegend = this.keepAwayZonesForFlow()
       ? '<div class="sl-hud-keepaway-legend" data-keep-away-legend title="The 1&quot; is measured in 3D, base to base. A model 1&quot; or more above or below your starting height (for example under a deck) is drawn faint and does not block from there; one at a similar height blocks a smaller ring."><span class="sl-keepaway-swatch"></span>Red rings: 1" zone around other units — your models\' bases can\'t enter (charges may close on their target, shown green)</div>'
       : '';
-    return `${alertsHtml}${keepAwayLegend}${header}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
+    const announcements = this.setupAnnouncementsHtml();
+    return `${alertsHtml}${keepAwayLegend}${header}${announcements}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
       alerts.length ? '' : toastHtml
     }`;
+  }
+
+  /** The pre-game rolls (objective count, who places first, who deploys first), shown while setup is under way. */
+  private setupAnnouncementsHtml(): string {
+    const state = this.state!;
+    const phase = state.turnState.phase;
+    if (state.status === 'game-over' || (phase !== 'objectives' && phase !== 'deployment')) return '';
+    const lines = setupAnnouncements(state, (id) => this.setupPlayerName(id));
+    if (lines.length === 0) return '';
+    return `
+      <div class="sl-hud-setup-rolls" data-setup-rolls>
+        ${lines
+          .map(
+            (l) =>
+              `<div class="sl-hud-setup-roll" data-setup-roll="${l.id}"><strong>${escapeHtmlText(l.title)}</strong><span>${escapeHtmlText(l.detail)}</span></div>`
+          )
+          .join('')}
+      </div>`;
+  }
+
+  /** Player name with the side in brackets, for an announcement ("Alice (Host)"). */
+  private setupPlayerName(playerId: string): string {
+    const name = this.state?.players.find((p) => p.id === playerId)?.name;
+    const role = playerId === this.state?.hostId ? 'Host' : 'Guest';
+    return name && name !== role ? `${name} (${role})` : role;
   }
 
   private resultTitle(): string {
@@ -3718,10 +3884,13 @@ export class GameHUD {
     if (woundTag) statusTags.push(woundTag);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
-    const isDeployPhase = this.state?.turnState.phase === 'deployment';
-    if (unit.isDeployed === false) {
+    const placingKind = this.state ? currentPlacementKind(this.state) : null;
+    const isDeployPhase = placingKind !== null && placingKind !== 'objective';
+    if (unit.isDeployed === false && !unit.isDestroyed) {
       if (hasTrait(unit.specialRules, 'ambush')) {
-        statusTags.push('DROP RESERVE (RD 2+)');
+        statusTags.push('IN RESERVE (AMBUSH)');
+      } else if (unit.heldAsScout) {
+        statusTags.push('HELD AS SCOUT');
       } else if (hasTrait(unit.specialRules, 'scout')) {
         statusTags.push('SCOUT');
       } else {
@@ -3730,7 +3899,7 @@ export class GameHUD {
     }
 
     const deployableList =
-      isDeployPhase && this.state ? getDeployableUnits(this.state, this.localPlayerId) : [];
+      isDeployPhase && this.state ? placeableUnits(this.state, this.localPlayerId) : [];
     const isDeployable = isDeployPhase && deployableList.some((u) => u.id === unit.id);
     const isDeploySelected =
       isDeployPhase &&
@@ -3791,9 +3960,11 @@ export class GameHUD {
     if (enemyWoundTag) statusTags.push(enemyWoundTag);
     if (unit.isActivated) statusTags.push('ACTIVATED');
 
-    if (unit.isDeployed === false) {
+    if (unit.isDeployed === false && !unit.isDestroyed) {
       if (hasTrait(unit.specialRules, 'ambush')) {
-        statusTags.push('DROP RESERVE');
+        statusTags.push('IN RESERVE (AMBUSH)');
+      } else if (unit.heldAsScout) {
+        statusTags.push('HELD AS SCOUT');
       } else if (hasTrait(unit.specialRules, 'scout')) {
         statusTags.push('SCOUT');
       } else {
@@ -3820,12 +3991,38 @@ export class GameHUD {
       </div>`;
   }
 
-  /** "X took 3 wounds, Y took 1 (+1 Fear): X loses" for one melee result. */
+  /** "Alice's X" for a unit: the owner's name in front, so two units sharing a name stay apart in a mirror match. */
+  private ownedUnitLabel(unitId: string, fallbackName: string): string {
+    const unit = this.state?.units.find((u) => u.id === unitId);
+    const owner = unit ? this.state?.players.find((p) => p.id === unit.ownerId) : undefined;
+    const ownerName = owner?.name ?? (unit ? (unit.ownerId === this.state?.hostId ? 'Host' : 'Guest') : '');
+    return ownerName ? `${ownerName}'s ${fallbackName}` : fallbackName;
+  }
+
+  /**
+   * "Alice's X took 3 wounds, Bob's Y took 1 (+2 Fear from Alice's 2 models in reach): Bob's Y loses" for one
+   * melee result. Each unit is prefixed with its owner; Fear names the owner of the Fear unit and the number of its
+   * models that were in reach (the bonus divided by the Fear value).
+   */
   private meleeResultText(r: MeleeResultRecord): string {
-    const side = (x: MeleeResultRecord['sides'][number]) =>
-      `${x.unitName} took ${x.wounds} wound${x.wounds === 1 ? '' : 's'}${x.fearBonus ? ` (+${x.fearBonus} Fear)` : ''}`;
+    const state = this.state;
+    const side = (x: MeleeResultRecord['sides'][number], other: MeleeResultRecord['sides'][number]) => {
+      let fear = '';
+      if (x.fearBonus) {
+        const fearUnit = state?.units.find((u) => u.id === other.unitId);
+        const fearValue = fearUnit ? (getTraitValue(fearUnit.specialRules, 'fear') ?? 0) : 0;
+        const models = fearValue > 0 ? Math.round(x.fearBonus / fearValue) : 0;
+        const owner = fearUnit ? (state?.players.find((p) => p.id === fearUnit.ownerId)?.name ?? '') : '';
+        fear =
+          models > 0 && owner
+            ? ` (+${x.fearBonus} Fear from ${owner}'s ${models} model${models === 1 ? '' : 's'} in reach)`
+            : ` (+${x.fearBonus} Fear)`;
+      }
+      return `${this.ownedUnitLabel(x.unitId, x.unitName)} took ${x.wounds} wound${x.wounds === 1 ? '' : 's'}${fear}`;
+    };
     const loser = r.sides.find((x) => x.unitId === r.loserId);
-    return `${side(r.sides[0])}, ${side(r.sides[1])}: ${loser ? `${loser.unitName} loses` : 'tied, nobody tests Morale'}`;
+    const verdict = loser ? `${this.ownedUnitLabel(loser.unitId, loser.unitName)} loses` : 'tied, nobody tests Morale';
+    return `${side(r.sides[0], r.sides[1])}, ${side(r.sides[1], r.sides[0])}: ${verdict}`;
   }
 
   private meleeResultsHtml(results: MeleeResultRecord[]): string {
@@ -4225,22 +4422,53 @@ export class GameHUD {
         const hazards = entry.dice?.outcome.traversal;
         const hazardText = hazards && hazards.length > 0 ? ` — ${hazards.map((e) => e.text).join('; ')}` : '';
         const morale = entry.dice?.outcome.moraleTests;
-        const moraleText =
+        const moraleLine =
           morale && morale.length > 0
-            ? ` — Morale: ${morale
-                .map((t) => `${t.unitName} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
-                .join(', ')}`
+            ? `<div class="sl-hud-log-sub">Morale: ${morale
+                .map((t) => `${this.ownedUnitLabel(t.unitId, t.unitName)} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
+                .join(', ')}</div>`
             : '';
         const melee = entry.dice?.outcome.meleeResults;
-        const meleeText = melee && melee.length > 0 ? ` — ${melee.map((r) => this.meleeResultText(r)).join('; ')}` : '';
+        const meleeLines =
+          melee && melee.length > 0
+            ? melee.map((r) => `<div class="sl-hud-log-sub">Melee: ${this.meleeResultText(r)}</div>`).join('')
+            : '';
         const specialText = entry.dice ? this.specialStrikeLines(entry.dice.outcome).map((l) => ` — ${l}`).join('') : '';
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${specialText}${meleeText}${moraleText}</div>`;
+        const setupText = entry.dice ? this.setupRollText(entry.dice.outcome) : '';
+        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${specialText}${setupText}${meleeLines}${moraleLine}</div>`;
       })
       .join('');
   }
 
+  /** The objective count roll and roll-off results of a setup action, as short text for the log. */
+  private setupRollText(outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome']): string {
+    const parts: string[] = [];
+    if (outcome.objectiveCount) {
+      parts.push(`rolled a ${outcome.objectiveCount.roll}: ${outcome.objectiveCount.count} objectives`);
+    }
+    const off = outcome.rollOff;
+    if (off) {
+      const winner = this.state?.players.find((p) => p.id === off.winnerId)?.name ?? 'Player';
+      const label = off.kind === 'mission' ? 'Mission roll-off (first objective)' : 'Deployment roll-off (deploys and activates first)';
+      const how =
+        off.decidingPair === null
+          ? 'all ten pairs tied, the Host wins'
+          : `pair ${off.decidingPair + 1}: ${off.hostRolls[off.decidingPair]} against ${off.guestRolls[off.decidingPair]}`;
+      parts.push(`${label}: ${winner} wins (${how})`);
+    }
+    return parts.map((p) => ` — ${p}`).join('');
+  }
+
   private logVerb(action: GameAction): string {
     switch (action.type) {
+      case 'roll-objectives':
+        return 'rolled for the objectives';
+      case 'place-objective':
+        return 'placed an objective';
+      case 'hold-scout':
+        return `held back ${this.unitName((action.payload as any).unitId)} as a Scout`;
+      case 'skip-ambush':
+        return 'declined to place Ambush units this round';
       case 'deploy-unit':
         return `deployed ${this.unitName((action.payload as any).unitId)}`;
       case 'activate-unit':
@@ -4282,6 +4510,69 @@ export class GameHUD {
 
   private unitName(unitId: string): string {
     return this.state?.units.find((u) => u.id === unitId)?.name ?? 'unknown unit';
+  }
+
+  /** Bottom bar for the setup placement steps (objectives, deployment, held Scouts, Ambush), or null outside them. */
+  private setupBottomBarHtml(dataCardSlot: string): string | null {
+    const state = this.state!;
+    const kind = currentPlacementKind(state);
+    if (!kind) return null;
+    const barStyle =
+      'display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 20px; background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px;';
+    const wrap = (inner: string): string => `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-deployment-bar" style="${barStyle}">${inner}</div>
+        </div>`;
+    const opponentName = state.players.find((p) => p.id !== this.localPlayerId)?.name ?? 'opponent';
+    const hint = `<span class="sl-hud-placement-hint${this.placementHint ? ' bad' : ''}">${escapeHtmlText(this.placementHint ?? '')}</span>`;
+    const prompt = (html: string): string => `<span class="sl-hud-deploy-prompt" style="font-size: 14px; color: #e0e6ed;">${html}</span>`;
+    const waiting = (text: string): string => prompt(`<span style="color: #ffd54f;">⏳ ${text}</span>`);
+
+    if (kind === 'objective') {
+      const count = state.setupRolls?.objectiveCount;
+      if (count === undefined) return wrap(waiting('Rolling for the number of objectives and who places first...'));
+      const placed = (state.objectives ?? []).length;
+      const n = Math.min(placed + 1, count);
+      if (!this.myTurn) return wrap(waiting(`Waiting for ${escapeHtmlText(opponentName)} to place objective ${n} of ${count}`));
+      return wrap(
+        `${prompt(
+          `🎯 Place objective <strong style="color: #ffd54f;">${n} of ${count}</strong> — click the board outside both deployment zones, more than 9" from other objectives`
+        )}${hint}`
+      );
+    }
+
+    const unit = this.currentPlacementUnit();
+    if (kind === 'ambush') {
+      if (!this.myTurn) return wrap(waiting(`Waiting for ${escapeHtmlText(opponentName)} to place Ambush units`));
+      if (!unit) return wrap(waiting('No Ambush units left to place'));
+      return wrap(
+        `${prompt(
+          `📍 Ambush: <strong style="color: #29b6f6;">${escapeHtmlText(unit.name)}</strong> — click anywhere more than 9" from enemy units (orange circles show the excluded ground)`
+        )}${hint}
+         <button class="sl-hud-btn" data-action="skip-ambush" title="Keep your Ambush units in reserve; they can arrive in a later round">Skip (wait for a later round)</button>`
+      );
+    }
+
+    if (!this.myTurn) {
+      return wrap(waiting(kind === 'scout' ? `Waiting for ${escapeHtmlText(opponentName)} to place Scouts...` : 'Waiting for opponent to deploy...'));
+    }
+    if (!unit) return wrap(prompt('Select an undeployed fighter from the left panel to place on the battlefield'));
+    const where =
+      kind === 'scout'
+        ? `within 9" of your deployment zone and more than 9" from enemy units that aren't Scouts`
+        : 'any legal position within your 12" deployment zone';
+    const choice = canChooseScoutHold(state, unit)
+      ? `<span class="sl-hud-scout-choice">
+           <button class="sl-hud-btn" data-action="scout-deploy-now" title="Deploy it like any other unit, inside your zone">Deploy now</button>
+           <button class="sl-hud-btn" data-action="hold-scout" data-unit-id="${unit.id}" title="Keep it back and place it after all other units, up to 9&quot; beyond your zone">Hold as Scout</button>
+         </span>`
+      : '';
+    return wrap(
+      `${prompt(
+        `📍 ${kind === 'scout' ? 'Placing Scout' : 'Deploying'} <strong style="color: #29b6f6;">${escapeHtmlText(unit.name)}</strong> — click ${where}`
+      )}${hint}${choice}`
+    );
   }
 
   private renderBottomBar(): string {
@@ -4398,29 +4689,8 @@ export class GameHUD {
         </div>`;
     }
 
-    if (this.state.turnState.phase === 'deployment') {
-      const deployable = getDeployableUnits(this.state, this.localPlayerId);
-      const selectedUnit =
-        (this.selectedDeployUnitId
-          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
-          : null) ?? deployable[0];
-
-      return `
-        <div class="sl-hud-bottom-dock">
-          ${dataCardSlot}
-          <div class="sl-hud-bottom sl-hud-deployment-bar" style="display: flex; align-items: center; justify-content: center; padding: 12px 20px; background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px;">
-            <span class="sl-hud-deploy-prompt" style="font-size: 14px; color: #e0e6ed;">
-              ${
-                !this.myTurn
-                  ? `<span style="color: #ffd54f;">⏳ Waiting for opponent to deploy...</span>`
-                  : selectedUnit
-                  ? `📍 Deploying <strong style="color: #29b6f6;">${selectedUnit.name}</strong> — Click any legal position within your 12" deployment zone`
-                  : `Select an undeployed fighter from the left panel to place on the battlefield`
-              }
-            </span>
-          </div>
-        </div>`;
-    }
+    const setupBar = this.setupBottomBarHtml(dataCardSlot);
+    if (setupBar) return setupBar;
 
     if (this.flow.mode === 'waiting') {
       return `
@@ -5323,9 +5593,11 @@ export class GameHUD {
         }
       });
       el.addEventListener('click', () => {
-        if (this.state?.turnState.phase === 'deployment') {
+        const placing = this.state ? currentPlacementKind(this.state) : null;
+        if (placing) {
           if (el.classList.contains('deployable')) {
             this.selectedDeployUnitId = unitId;
+            this.placementHint = null;
             this.render();
           }
           return;
@@ -5460,6 +5732,25 @@ export class GameHUD {
               el.dataset.action as 'move' | 'rush' | 'shoot' | 'charge' | 'fight'
             );
             break;
+          case 'scout-deploy-now':
+            this.showToast('Click inside your deployment zone to deploy this Scout now');
+            break;
+          case 'hold-scout': {
+            const unit = this.state?.units.find((u) => u.id === el.dataset.unitId);
+            if (unit) {
+              this.beginConfirmation(
+                createAction(this.localPlayerId, 'hold-scout', { type: 'hold-scout', unitId: unit.id }),
+                `Hold ${unit.name} back as a Scout (placed after all other units, up to 9" beyond your zone)`
+              );
+            }
+            break;
+          }
+          case 'skip-ambush':
+            this.beginConfirmation(
+              createAction(this.localPlayerId, 'skip-ambush', { type: 'skip-ambush' }),
+              'Skip placing Ambush units this round (they wait for a later round)'
+            );
+            break;
           case 'hold': {
             const active = this.activeUnit;
             if (active) {
@@ -5579,18 +5870,17 @@ export class GameHUD {
       deploymentZones: null,
     };
 
-    if (this.state && this.state.turnState.phase === 'deployment') {
+    markers.placement = this.placementMarker();
+
+    // Zones are shaded while objectives are placed (they can't go inside) and during deployment
+    if (this.state && (this.state.turnState.phase === 'deployment' || this.state.turnState.phase === 'objectives')) {
       const hostZone = getDeploymentZoneBounds(this.state, this.state.hostId, false);
       const guestZone = getDeploymentZoneBounds(this.state, this.state.guestId, false);
       let previewUnitZone: (DeploymentZoneBounds & { color?: number }) | undefined = undefined;
 
-      const deployable = getDeployableUnits(this.state, this.localPlayerId);
-      const currentDeployUnit =
-        (this.selectedDeployUnitId
-          ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
-          : null) ?? deployable[0];
+      const currentDeployUnit = this.state.turnState.phase === 'deployment' ? this.currentPlacementUnit() : null;
 
-      if (this.myTurn && currentDeployUnit && hasTrait(currentDeployUnit.specialRules, 'scout')) {
+      if (this.myTurn && currentDeployUnit?.heldAsScout) {
         const vBounds = getDeploymentZoneBounds(this.state, currentDeployUnit.ownerId, true);
         previewUnitZone = {
           ...vBounds,
@@ -5970,6 +6260,12 @@ export class GameHUD {
   background: rgba(10, 12, 16, 0.82); border-bottom: 1px solid #2a2f3a; }
 .sl-hud-title { font-weight: 700; letter-spacing: 0.5px; }
 .sl-hud-round { color: #ffd54f; font-weight: 600; }
+.sl-hud-setup-rolls { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; gap: 4px; max-width: 640px; padding: 8px 14px; background: rgba(18, 22, 28, 0.92); border: 1px solid #ffd54f; border-radius: 8px; pointer-events: none; }
+.sl-hud-setup-roll { display: flex; flex-direction: column; font-size: 12px; color: #b0bec5; }
+.sl-hud-setup-roll strong { font-size: 13px; color: #ffd54f; }
+.sl-hud-placement-hint { min-height: 16px; font-size: 12px; color: #9ccc65; }
+.sl-hud-placement-hint.bad { color: #ef9a9a; }
+.sl-hud-scout-choice { display: flex; gap: 8px; }
 .sl-hud-objectives-score { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #b0bec5; margin-left: 4px; padding-left: 12px; border-left: 1px solid #37474f; }
 .sl-hud-turn.mine { color: #69f0ae; font-weight: 600; }
 .sl-hud-turn.theirs { color: #ff8a65; }
@@ -6064,6 +6360,7 @@ export class GameHUD {
 .sl-hud-dice-summary { font-size: 12px; color: #b0bec5; margin-top: 4px; }
 .sl-hud-dice-empty, .sl-hud-log-empty { color: #607d8b; font-size: 12px; }
 .sl-hud-log-entry { font-size: 12px; color: #b0bec5; padding: 2px 0; }
+.sl-hud-log-sub { padding-left: 14px; color: #90a4ae; }
 .sl-hud-keepaway-legend { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%);
   background: rgba(38,50,56,0.92); color: #ffcdd2; border: 1px solid #e53935; border-radius: 8px;
   padding: 6px 12px; font-size: 12px; pointer-events: none; max-width: 520px; text-align: center; }

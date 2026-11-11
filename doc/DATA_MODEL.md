@@ -36,7 +36,8 @@ interface GameState {
   units: Unit[];
   terrain: TerrainPiece[];
   markers: GameMarker[];
-  objectives?: Objective[];  // 3-5 mission objectives across board (Phase 7)
+  objectives?: Objective[];  // 3-5 mission objectives, placed by the players in the objectives phase (maps do not define them)
+  setupRolls?: SetupRolls;   // objective d6 + count, mission and deployment roll-offs; kept by a rematch
   
   // Game History
   actionLog: ActionLogEntry[];
@@ -50,7 +51,25 @@ interface GameState {
 }
 ```
 
-States saved before `setup` existed rebuild for a rematch as a non-deployment game with the default armies (no extra handling). `applyDefaultScenario` also normalizes map objectives to carry `controllingPlayerId: null` / `isContested: false`, so a rematch start is field-for-field equal to the original.
+States saved before `setup` existed rebuild for a rematch as a non-deployment game with the default armies (no extra handling). A deployment game starts in `turnState.phase = 'objectives'` with `objectives: []` and no `setupRolls`; `roll-objectives` fills `setupRolls`, `place-objective` fills `objectives` (control `null` / not contested). A rematch whose match finished the objectives phase passes `restoreSetup` to `applyDefaultScenario`, which copies the objectives (control reset) and `setupRolls` and starts in `deployment` with the deployment roll-off winner to act, so the start is field-for-field equal to the original after its objectives phase.
+
+```typescript
+interface RollOffRecord {
+  kind: 'mission' | 'deployment';
+  hostRolls: number[];     // ten d6, one per pair
+  guestRolls: number[];
+  winnerId: string;
+  decidingPair: number | null;  // first unequal pair; null = all tied (host wins)
+}
+interface SetupRolls {
+  objectiveRoll?: number;       // the d6
+  objectiveCount?: number;      // ceil(d6 / 2) + 2
+  missionRollOff?: RollOffRecord;     // who places the first objective
+  deploymentRollOff?: RollOffRecord;  // who deploys and activates first in round 1
+}
+```
+
+`TurnPhase` is `'setup' | 'objectives' | 'deployment' | 'activation' | 'round-cleanup' | 'game-over'`. `TurnState.scoutStage` is true while only held-back Scouts remain to be placed; `TurnState.ambushStep` (`{ skippedPlayerIds }`, null otherwise) is set from round 2 while players place Ambush units before the round's first activation. `Unit.heldAsScout` marks a Scout held back at deployment and `Unit.ambushArrivedRound` the round an Ambush unit was placed. Setup dice are attached to the log entry as `DiceResolution.outcome.objectiveCount` and `.rollOff`.
 
 ## Player
 ```typescript
@@ -136,7 +155,7 @@ interface Board {
   terrain: string[];         // Terrain piece IDs
 }
 ```
-**Board limits** (`validateMapDefinition`, constants in `mapSchema.ts`): `CustomMapDefinition.board` width and height are whole inches in [24, 72] (error otherwise). Depth (height) under 36" warns (deployment zones under 6" deep); under 26" is an error (the zones can't stay 24" apart). Terrain pieces or objectives outside the board are warnings. Objectives are checked against the real zone depth for that board (`getDeploymentZoneDepth`). `createBalancedObjectives(board)` places four markers scaled to the board.
+**Board limits** (`validateMapDefinition`, constants in `mapSchema.ts`): `CustomMapDefinition.board` width and height are whole inches in [24, 72] (error otherwise). Depth (height) under 36" warns (deployment zones under 6" deep); under 26" is an error (the zones can't stay 24" apart). Terrain pieces outside the board are warnings. `CustomMapDefinition.objectives` is legacy: an old save may still carry markers, but `validateMapDefinition` no longer says anything about them, the editor drops them on load and never saves or exports them, `MapStore` strips them on save and import, and `applyDefaultScenario` ignores them (players place objectives in the game).
 
 ## Unit
 ```typescript
@@ -162,7 +181,9 @@ interface Unit {
   maxWounds: number;
   isActivated: boolean;      // Activated this round
   isDestroyed: boolean;
-  isDeployed?: boolean;      // Deployed to board (false during placement / ambush)
+  isDeployed?: boolean;      // Deployed to board (false during placement / while an Ambush unit waits)
+  heldAsScout?: boolean;     // Scout held back at deployment (placed after all other units)
+  ambushArrivedRound?: number; // Round an Ambush unit was placed (no objective control that round)
   
   // Game State
   models: Model[];
@@ -229,7 +250,7 @@ Note: to-hit capability comes from the fighter's Quality stat and survival from 
 
 ## Built-in maps
 
-`shared/src/data/builtinMaps.ts` holds ready-made maps as code: `BUILTIN_MAPS` maps an id to a factory returning a fresh `CustomMapDefinition` (callers copy it; it is never edited in place). Entries are `standard-battlefield` ("Standard Battlefield") and `jump-range` ("Jump Range": a practice table of 8"-deep 3" decks with 2" and 4" gaps, a 4.5" deck with a ladder for a jump-down, and stairs up to the low decks, point-symmetric; for hand-testing jumps with `test-jump-army`) and `hazard-range` ("Hazard Range": per side, two 4"x4" hazard pools 2" apart and a lone pool just outside the deployment zone, point-symmetric; for hand-testing dangerous terrain with `test-hazard-army`: a 5-model Tough 1 squad, a Tough 3 Hero and a Flying squad, speed 12"). The Standard Battlefield:: 48"x48", catalog pieces at their default scale and flags only, ids `std-<type>-<n>`, objectives from `createBalancedObjectives`. The layout is point-symmetric: a piece at `(x, z, yaw)` has a twin at `(-x, -z, yaw + pi)` (the central catwalk is its own twin). `shared/tests/data/builtinMaps.test.ts` guards the mix (sight blockers at least half, cover and difficult at least a third, 2 or more dangerous, footprint at least 18% of the table, ladders and stairs not counted), obstacle spacing (1.5"), objective clearance, symmetry, reachability and line-of-sight symmetry. The old off-catalog test layout lives in `shared/tests/fixtures/legacyScenarioTerrain.ts`, not in `src`. The lobby lists it under "Built-in maps" (`builtin:<id>`, sent as `customMap`), and the editor Load list loads it as a copy with a new `custom-<timestamp>` id and the name "Standard Battlefield (copy)".
+`shared/src/data/builtinMaps.ts` holds ready-made maps as code: `BUILTIN_MAPS` maps an id to a factory returning a fresh `CustomMapDefinition` (callers copy it; it is never edited in place). Entries are `standard-battlefield` ("Standard Battlefield") and `jump-range` ("Jump Range": a practice table of 8"-deep 3" decks with 2" and 4" gaps, a 4.5" deck with a ladder for a jump-down, and stairs up to the low decks, point-symmetric; for hand-testing jumps with `test-jump-army`) and `hazard-range` ("Hazard Range": per side, two 4"x4" hazard pools 2" apart and a lone pool just outside the deployment zone, point-symmetric; for hand-testing dangerous terrain with `test-hazard-army`: a 5-model Tough 1 squad, a Tough 3 Hero and a Flying squad, speed 12"). The Standard Battlefield:: 48"x48", catalog pieces at their default scale and flags only, ids `std-<type>-<n>`, no objectives (players place them). The layout is point-symmetric: a piece at `(x, z, yaw)` has a twin at `(-x, -z, yaw + pi)` (the central catwalk is its own twin). `shared/tests/data/builtinMaps.test.ts` guards the mix (sight blockers at least half, cover and difficult at least a third, 2 or more dangerous, footprint at least 18% of the table, ladders and stairs not counted), obstacle spacing (1.5"), objective clearance, symmetry, reachability and line-of-sight symmetry. The old off-catalog test layout lives in `shared/tests/fixtures/legacyScenarioTerrain.ts`, not in `src`. The lobby lists it under "Built-in maps" (`builtin:<id>`, sent as `customMap`), and the editor Load list loads it as a copy with a new `custom-<timestamp>` id and the name "Standard Battlefield (copy)".
 
 ## Terrain
 ```typescript

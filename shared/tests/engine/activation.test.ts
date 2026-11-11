@@ -362,37 +362,37 @@ describe('activation', () => {
 
       const hostScout = getDeploymentZoneBounds(state, HOST, true);
       expect(hostScout.minZ).toBe(-18);
-      expect(hostScout.maxZ).toBe(0);
+      expect(hostScout.maxZ).toBe(-3); // 9" beyond the zone
 
       const guestStandard = getDeploymentZoneBounds(state, GUEST, false);
       expect(guestStandard.minZ).toBe(12);
       expect(guestStandard.maxZ).toBe(18);
 
       const guestScout = getDeploymentZoneBounds(state, GUEST, true);
-      expect(guestScout.minZ).toBe(0);
+      expect(guestScout.minZ).toBe(3);
       expect(guestScout.maxZ).toBe(18);
     });
 
-    it('enforces deployment sequencing: standard units before scout, ambush held', () => {
+    it('lists every non-Ambush unit (a Scout may deploy like any other); held Scouts wait until the rest are down', () => {
       const state = makeState([
         makeUnit('h-std', HOST, { isDeployed: false }),
         makeUnit('h-van', HOST, { isDeployed: false, specialRules: ['scout'] }),
         makeUnit('h-drop', HOST, { isDeployed: false, specialRules: ['ambush'] }),
       ]);
 
-      // Standard unit must be deployed first
-      const eligible1 = getDeployableUnits(state, HOST);
-      expect(eligible1.map((u) => u.id)).toEqual(['h-std']);
+      // The Scout can be deployed normally right away; the Ambush unit is set aside
+      expect(getDeployableUnits(state, HOST).map((u) => u.id)).toEqual(['h-std', 'h-van']);
 
-      // Once standard is deployed, scout becomes eligible
+      // Held back, the Scout drops out of the list until every normal unit is deployed
+      state.units[1].heldAsScout = true;
+      expect(getDeployableUnits(state, HOST).map((u) => u.id)).toEqual(['h-std']);
       state.units[0].isDeployed = true;
-      const eligible2 = getDeployableUnits(state, HOST);
-      expect(eligible2.map((u) => u.id)).toEqual(['h-van']);
+      state.turnState.scoutStage = true;
+      expect(getDeployableUnits(state, HOST).map((u) => u.id)).toEqual(['h-van']);
 
-      // Once scout is deployed, no units remain for pre-match deployment (ambush is held)
+      // Once the Scout is down, nothing remains for pre-match deployment (Ambush waits for round 2)
       state.units[1].isDeployed = true;
-      const eligible3 = getDeployableUnits(state, HOST);
-      expect(eligible3).toHaveLength(0);
+      expect(getDeployableUnits(state, HOST)).toHaveLength(0);
       expect(hasDeployableUnits(state, HOST)).toBe(false);
     });
 

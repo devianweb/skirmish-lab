@@ -2,9 +2,7 @@ import {
   BUILTIN_MAPS,
   CustomMapDefinition,
   MapValidationNotice,
-  Objective,
   createBlankMap,
-  createBalancedObjectives,
   DEFAULT_BOARD_SIZE,
   MIN_BOARD_SIZE,
   MAX_BOARD_SIZE,
@@ -27,6 +25,16 @@ import { GameView, PickTarget } from '../renderer/GameView';
 import { ModelLoader } from '../renderer/ModelLoader';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
 
+/**
+ * Maps no longer define objectives (the players place them in the game), so the editor never keeps or saves them.
+ * An old save that still carries markers loads fine; the markers are dropped here.
+ */
+function withoutObjectives(map: CustomMapDefinition): CustomMapDefinition {
+  const copy: CustomMapDefinition = JSON.parse(JSON.stringify(map));
+  delete copy.objectives;
+  return copy;
+}
+
 export interface MapEditorOptions {
   gameView?: GameView;
   modelLoader?: ModelLoader;
@@ -42,11 +50,8 @@ export type GridSnapSetting = 1.0 | 0.5 | 0;
 /**
  * 3D Map Builder & Battlefield Editor overlay.
  * Allows tabletop players to visually place, snap, rotate, elevate, and customize
- * modular terrain pieces and objectives on a 48" x 48" (by default) skirmish battlefield.
+ * modular terrain pieces on a 48" x 48" (by default) skirmish battlefield.
  */
-/** Horizontal click distance (inches) within which a click selects an objective. */
-const OBJECTIVE_PICK_RADIUS = 1.0;
-
 /** Board-size presets offered in the toolbar (width x height in inches; height is the deployment axis). */
 export const BOARD_PRESETS: ReadonlyArray<{ id: string; label: string; width: number; height: number }> = [
   { id: '48x48', label: '48×48 (standard)', width: 48, height: 48 },
@@ -63,9 +68,8 @@ export class MapEditor {
 
   private currentMap: CustomMapDefinition;
   private selectedPieceId: string | null = null;
-  private selectedObjectiveId: string | null = null;
   private activePlacementType: string | null = null;
-  private activeCategory: TerrainCategory | 'objectives' = 'structures';
+  private activeCategory: TerrainCategory = 'structures';
   private gridSnap: GridSnapSetting = 1.0;
 
   private placementRotationY: number = 0;
@@ -83,9 +87,7 @@ export class MapEditor {
     this.gameView = options.gameView;
     this.mapStore = options.mapStore ?? defaultMapStore;
 
-    this.currentMap = options.initialMap
-      ? JSON.parse(JSON.stringify(options.initialMap))
-      : createBlankMap();
+    this.currentMap = options.initialMap ? withoutObjectives(options.initialMap) : createBlankMap();
 
     this.rootElement = document.createElement('div');
     this.rootElement.id = 'map-editor-overlay';
@@ -113,7 +115,6 @@ export class MapEditor {
     this.rootElement.style.display = 'none';
     this.activePlacementType = null;
     this.selectedPieceId = null;
-    this.selectedObjectiveId = null;
   }
 
   getMap(): CustomMapDefinition {
@@ -121,10 +122,9 @@ export class MapEditor {
   }
 
   setMap(map: CustomMapDefinition): void {
-    this.currentMap = JSON.parse(JSON.stringify(map));
+    this.currentMap = withoutObjectives(map);
     this.customBoardMode = false;
     this.selectedPieceId = null;
-    this.selectedObjectiveId = null;
     this.activePlacementType = null;
     this.validateCurrentMap();
     this.render();
@@ -138,16 +138,11 @@ export class MapEditor {
   setPlacementType(type: string | null): void {
     this.activePlacementType = type;
     this.selectedPieceId = null;
-    this.selectedObjectiveId = null;
     this.render();
   }
 
   getSelectedPieceId(): string | null {
     return this.selectedPieceId;
-  }
-
-  getSelectedObjectiveId(): string | null {
-    return this.selectedObjectiveId;
   }
 
   getGridSnap(): GridSnapSetting {
@@ -243,7 +238,6 @@ export class MapEditor {
 
     this.currentMap.terrain.push(newPiece);
     this.selectedPieceId = pieceId;
-    this.selectedObjectiveId = null;
     this.validateCurrentMap();
     this.render();
     this.syncGameView();
@@ -323,50 +317,9 @@ export class MapEditor {
     return true;
   }
 
-  placeObjectiveAt(pos: Vector3): Objective {
-    const objectives = this.currentMap.objectives ?? [];
-    const index = objectives.length + 1;
-    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'];
-    const letter = names[objectives.length] ?? `Objective ${index}`;
-
-    const newObj: Objective = {
-      id: `objective-${Date.now().toString(36)}-${index}`,
-      name: `Objective ${letter}`,
-      position: {
-        x: this.snapCoord(pos.x),
-        y: pos.y || 0,
-        z: this.snapCoord(pos.z),
-      },
-      controllingPlayerId: null,
-      isContested: false,
-    };
-
-    if (!this.currentMap.objectives) {
-      this.currentMap.objectives = [];
-    }
-    this.currentMap.objectives.push(newObj);
-    this.selectedObjectiveId = newObj.id;
-    this.selectedPieceId = null;
-    this.validateCurrentMap();
-    this.render();
-    this.syncGameView();
-    return newObj;
-  }
-
-  autoDistributeObjectives(): void {
-    // Balanced objectives sized to the board, outside both deployment zones
-    const board = this.currentMap.board ?? { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE };
-    this.currentMap.objectives = createBalancedObjectives(board);
-    this.validateCurrentMap();
-    this.render();
-    this.syncGameView();
-  }
-
   clearBoard(): void {
     this.currentMap.terrain = [];
-    this.currentMap.objectives = [];
     this.selectedPieceId = null;
-    this.selectedObjectiveId = null;
     this.activePlacementType = null;
     this.validateCurrentMap();
     this.render();
@@ -375,37 +328,13 @@ export class MapEditor {
 
   selectPiece(pieceId: string | null): void {
     this.selectedPieceId = pieceId;
-    this.selectedObjectiveId = null;
     this.render();
     this.syncGameView();
   }
 
-  /**
-   * Selection-mode click on the board. An objective within OBJECTIVE_PICK_RADIUS
-   * (horizontal) wins over terrain, since beacons sit on the ground.
-   */
-  handleBoardClick(position: Vector3, terrainId?: string): void {
-    let best: Objective | null = null;
-    let bestDist = Infinity;
-    for (const obj of this.currentMap.objectives ?? []) {
-      const d = Math.hypot(obj.position.x - position.x, obj.position.z - position.z);
-      if (d <= OBJECTIVE_PICK_RADIUS && d < bestDist) {
-        best = obj;
-        bestDist = d;
-      }
-    }
-    if (best) {
-      this.selectObjective(best.id);
-    } else {
-      this.selectPiece(terrainId ?? null);
-    }
-  }
-
-  selectObjective(objectiveId: string | null): void {
-    this.selectedObjectiveId = objectiveId;
-    this.selectedPieceId = null;
-    this.render();
-    this.syncGameView();
+  /** Selection-mode click on the board: selects the terrain piece under the pointer (or clears the selection). */
+  handleBoardClick(_position: Vector3, terrainId?: string): void {
+    this.selectPiece(terrainId ?? null);
   }
 
   rotateSelected(): void {
@@ -459,14 +388,6 @@ export class MapEditor {
       this.validateCurrentMap();
       this.render();
       this.syncGameView();
-    } else if (this.selectedObjectiveId) {
-      this.currentMap.objectives = (this.currentMap.objectives ?? []).filter(
-        (o) => o.id !== this.selectedObjectiveId
-      );
-      this.selectedObjectiveId = null;
-      this.validateCurrentMap();
-      this.render();
-      this.syncGameView();
     }
   }
 
@@ -476,15 +397,6 @@ export class MapEditor {
       if (piece) {
         piece.position.x = this.snapCoord(piece.position.x + deltaX);
         piece.position.z = this.snapCoord(piece.position.z + deltaZ);
-        this.validateCurrentMap();
-        this.syncGameView();
-        this.render();
-      }
-    } else if (this.selectedObjectiveId) {
-      const obj = (this.currentMap.objectives ?? []).find((o) => o.id === this.selectedObjectiveId);
-      if (obj) {
-        obj.position.x = this.snapCoord(obj.position.x + deltaX);
-        obj.position.z = this.snapCoord(obj.position.z + deltaZ);
         this.validateCurrentMap();
         this.syncGameView();
         this.render();
@@ -592,16 +504,12 @@ export class MapEditor {
 
       if (this.activePlacementType) {
         if (target.kind === 'position') {
-          if (this.activePlacementType === 'objective') {
-            this.placeObjectiveAt(target.position);
-          } else {
-            this.placePieceAt(
-              this.activePlacementType,
-              target.position,
-              this.placementRotationY,
-              target.position.y > 0 ? target.position.y : undefined
-            );
-          }
+          this.placePieceAt(
+            this.activePlacementType,
+            target.position,
+            this.placementRotationY,
+            target.position.y > 0 ? target.position.y : undefined
+          );
         }
       } else {
         // Selection mode
@@ -623,7 +531,7 @@ export class MapEditor {
   private syncGameView(): void {
     if (!this.gameView) return;
 
-    // Render the current map's board, terrain, and objectives
+    // Render the current map's board and terrain
     this.gameView.syncFromState({
       version: '1.0.0',
       gameId: 'map-editor-state',
@@ -642,7 +550,7 @@ export class MapEditor {
       },
       units: [],
       terrain: this.currentMap.terrain,
-      objectives: this.currentMap.objectives ?? [],
+      objectives: [],
       markers: [],
       actionLog: [],
       turnState: {
@@ -701,21 +609,18 @@ export class MapEditor {
               }
             </div>`;
 
-    const categories: Array<{ id: TerrainCategory | 'objectives'; label: string; icon: string }> = [
+    const categories: Array<{ id: TerrainCategory; label: string; icon: string }> = [
       { id: 'structures', label: 'Structures', icon: '🏢' },
       { id: 'walls', label: 'Walls & Doors', icon: '🧱' },
       { id: 'platforms', label: 'Platforms & Decks', icon: '🔲' },
       { id: 'stairs-ladders', label: 'Stairs & Ladders', icon: '🪜' },
       { id: 'scatter', label: 'Cover & Pipes', icon: '📦' },
       { id: 'area', label: 'Area Terrain', icon: '🟫' },
-      { id: 'objectives', label: 'Objectives', icon: '🎯' },
     ];
 
-    // Hide categories that have no procedural pieces yet (objectives always shown).
-    const visibleCategories = categories.filter(
-      (cat) =>
-        cat.id === 'objectives' ||
-        Object.values(TERRAIN_PALETTE_CATALOG).some((m) => m.category === cat.id)
+    // Hide categories that have no procedural pieces yet.
+    const visibleCategories = categories.filter((cat) =>
+      Object.values(TERRAIN_PALETTE_CATALOG).some((m) => m.category === cat.id)
     );
     const categoryButtonsHtml = visibleCategories
       .map(
@@ -734,61 +639,27 @@ export class MapEditor {
 
     // Items for active category
     let paletteItemsHtml = '';
-    if (this.activeCategory === 'objectives') {
-      const objectiveRows = (this.currentMap.objectives ?? [])
-        .map((o) => {
-          const sel = o.id === this.selectedObjectiveId;
-          return `
-          <div data-objective-row="${o.id}" style="display: flex; gap: 4px; align-items: stretch;">
-            <button data-objective-select="${o.id}" style="
-              flex: 1; padding: 6px 8px; text-align: left; cursor: pointer; font-size: 12px;
-              background: ${sel ? '#ffd54f' : '#1e2630'}; color: ${sel ? '#12161c' : '#eee'};
-              border: 1px solid #37474f; border-radius: 6px;
-            ">${o.name} (${o.position.x.toFixed(1)}, ${o.position.z.toFixed(1)})</button>
-            <button data-objective-remove="${o.id}" title="Remove objective" style="
-              padding: 6px 8px; cursor: pointer; background: #c62828; color: #eee;
-              border: none; border-radius: 6px; font-size: 12px;
-            ">✕</button>
-          </div>`;
-        })
-        .join('');
-      paletteItemsHtml = `
-        <button class="editor-palette-item" data-type="objective" style="
-          padding: 10px; background: ${this.activePlacementType === 'objective' ? '#ffd54f' : '#1e2630'};
-          color: ${this.activePlacementType === 'objective' ? '#12161c' : '#eee'};
+    const items = Object.values(TERRAIN_PALETTE_CATALOG).filter(
+      (meta) => meta.category === this.activeCategory
+    );
+    paletteItemsHtml = items
+      .map(
+        (meta) => `
+        <button class="editor-palette-item" data-type="${meta.type}" style="
+          padding: 10px; background: ${this.activePlacementType === meta.type ? '#29b6f6' : '#1e2630'};
+          color: ${this.activePlacementType === meta.type ? '#12161c' : '#eee'};
           border: 1px solid #37474f; border-radius: 6px; text-align: left; cursor: pointer;
         ">
-          <div style="font-weight: bold; font-size: 13px;">🎯 Objective Beacon</div>
-          <div style="font-size: 11px; opacity: 0.8;">3.0" control radius marker</div>
+          <div style="font-weight: bold; font-size: 13px;">${meta.displayName}</div>
+          <div style="font-size: 11px; opacity: 0.8;">${meta.description ?? ''}</div>
         </button>
-        ${objectiveRows ? `<div style="font-size: 11px; opacity: 0.7; margin-top: 6px;">Placed objectives</div>${objectiveRows}` : ''}
-      `;
-    } else {
-      const items = Object.values(TERRAIN_PALETTE_CATALOG).filter(
-        (meta) => meta.category === this.activeCategory
-      );
-      paletteItemsHtml = items
-        .map(
-          (meta) => `
-          <button class="editor-palette-item" data-type="${meta.type}" style="
-            padding: 10px; background: ${this.activePlacementType === meta.type ? '#29b6f6' : '#1e2630'};
-            color: ${this.activePlacementType === meta.type ? '#12161c' : '#eee'};
-            border: 1px solid #37474f; border-radius: 6px; text-align: left; cursor: pointer;
-          ">
-            <div style="font-weight: bold; font-size: 13px;">${meta.displayName}</div>
-            <div style="font-size: 11px; opacity: 0.8;">${meta.description ?? ''}</div>
-          </button>
-        `
-        )
-        .join('');
-    }
+      `
+      )
+      .join('');
 
     // Selected piece property inspector
     const selectedPiece = this.selectedPieceId
       ? this.currentMap.terrain.find((t) => t.id === this.selectedPieceId)
-      : null;
-    const selectedObjective = this.selectedObjectiveId
-      ? (this.currentMap.objectives ?? []).find((o) => o.id === this.selectedObjectiveId)
       : null;
 
     let inspectorHtml = '';
@@ -833,26 +704,6 @@ export class MapEditor {
             <button id="inspectElevateBtn" style="flex: 1; padding: 6px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">+H (E)</button>
             <button id="inspectDeleteBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #c62828; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Delete</button>
           </div>
-        </div>
-      `;
-    } else if (selectedObjective) {
-      inspectorHtml = `
-        <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px; padding: 14px; width: 280px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
-          <div style="font-size: 13px; font-weight: bold; color: #ffd54f; margin-bottom: 8px; text-transform: uppercase;">
-            ${selectedObjective.name}
-          </div>
-          <div style="font-size: 12px; margin-bottom: 4px;">Pos: (${selectedObjective.position.x.toFixed(1)}, ${selectedObjective.position.y.toFixed(1)}, ${selectedObjective.position.z.toFixed(1)})</div>
-          
-          <div style="display: flex; gap: 4px; margin-bottom: 8px; align-items: center;">
-            <span style="font-size: 11px; color: #ffd54f; width: 44px;">Nudge:</span>
-            <button id="nudgeObjLeftBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">← X-</button>
-            <button id="nudgeObjRightBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">→ X+</button>
-            <button id="nudgeObjUpBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">↑ Z-</button>
-            <button id="nudgeObjDownBtn" style="flex: 1; padding: 4px; font-size: 11px; background: #37474f; color: #eee; border: none; border-radius: 4px; cursor: pointer;">↓ Z+</button>
-          </div>
-
-          <div style="font-size: 12px; margin-bottom: 12px; color: #b0bec5;">Control radius: 3.0"</div>
-          <button id="inspectDeleteObjBtn" style="width: 100%; padding: 6px; font-size: 11px; font-weight: 600; background: #c62828; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Remove Objective</button>
         </div>
       `;
     }
@@ -904,7 +755,6 @@ export class MapEditor {
             <button id="importJsonBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Import JSON</button>
             <input type="file" id="importJsonFileInput" accept=".json" style="display: none;" />
             <button id="exportJsonBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #eee; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Export JSON</button>
-            <button id="autoObjBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #ffd54f; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Auto Obj</button>
             <button id="clearBtn" style="padding: 6px 10px; font-size: 11px; font-weight: 600; background: #37474f; color: #ef5350; border: 1px solid #455a64; border-radius: 4px; cursor: pointer;">Clear</button>
             <button id="saveMapBtn" style="padding: 6px 12px; font-size: 11px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">Save Map</button>
             <button id="exitEditorBtn" style="padding: 6px 12px; font-size: 11px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 4px; cursor: pointer;">Exit</button>
@@ -993,7 +843,7 @@ export class MapEditor {
     // Category buttons
     this.rootElement.querySelectorAll<HTMLButtonElement>('.editor-cat-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const cat = btn.getAttribute('data-category') as TerrainCategory | 'objectives';
+        const cat = btn.getAttribute('data-category') as TerrainCategory;
         if (cat) {
           this.activeCategory = cat;
           this.render();
@@ -1011,23 +861,7 @@ export class MapEditor {
       });
     });
 
-    // Objective list (Objectives tab)
-    this.rootElement.querySelectorAll<HTMLElement>('[data-objective-select]').forEach((btn) => {
-      btn.addEventListener('click', () => this.selectObjective(btn.getAttribute('data-objective-select')));
-    });
-    this.rootElement.querySelectorAll<HTMLElement>('[data-objective-remove]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-objective-remove');
-        this.currentMap.objectives = (this.currentMap.objectives ?? []).filter((o) => o.id !== id);
-        if (this.selectedObjectiveId === id) this.selectedObjectiveId = null;
-        this.validateCurrentMap();
-        this.render();
-        this.syncGameView();
-      });
-    });
-
     // Top action buttons
-    this.rootElement.querySelector('#autoObjBtn')?.addEventListener('click', () => this.autoDistributeObjectives());
     this.rootElement.querySelector('#clearBtn')?.addEventListener('click', () => this.clearBoard());
     this.rootElement.querySelector('#saveMapBtn')?.addEventListener('click', () => {
       this.saveToStore();
@@ -1059,7 +893,7 @@ export class MapEditor {
     // Validation badge click (alert notices)
     this.rootElement.querySelector('#validationBadgeBtn')?.addEventListener('click', () => {
       if (this.validationNotices.length === 0) {
-        alert('✓ Map validation passed with 0 issues! All objectives and terrain are standard-compliant.');
+        alert('✓ Map validation passed with 0 issues! The terrain is standard-compliant.');
       } else {
         const report = this.validationNotices
           .map((n) => `${n.severity === 'error' ? '⛔ ERROR' : '•'} ${n.message}`)
@@ -1150,12 +984,6 @@ export class MapEditor {
     this.rootElement.querySelector('#inspectElevateBtn')?.addEventListener('click', () => this.adjustElevation(0.5));
     this.rootElement.querySelector('#inspectDeleteBtn')?.addEventListener('click', () => this.deleteSelected());
 
-    // Inspector objective handlers
-    this.rootElement.querySelector('#nudgeObjLeftBtn')?.addEventListener('click', () => this.nudgeSelected(-this.gridSnap || -0.5, 0));
-    this.rootElement.querySelector('#nudgeObjRightBtn')?.addEventListener('click', () => this.nudgeSelected(this.gridSnap || 0.5, 0));
-    this.rootElement.querySelector('#nudgeObjUpBtn')?.addEventListener('click', () => this.nudgeSelected(0, -this.gridSnap || -0.5));
-    this.rootElement.querySelector('#nudgeObjDownBtn')?.addEventListener('click', () => this.nudgeSelected(0, this.gridSnap || 0.5));
-    this.rootElement.querySelector('#inspectDeleteObjBtn')?.addEventListener('click', () => this.deleteSelected());
   }
 
   dispose(): void {

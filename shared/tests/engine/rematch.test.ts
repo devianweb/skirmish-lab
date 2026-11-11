@@ -5,6 +5,7 @@ import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/acti
 import { createRematchState } from '../../src/engine/rematch';
 import { applyDefaultScenario, ScenarioOptions } from '../../src/data/scenario';
 import { CustomMapDefinition } from '../../src/data/mapSchema';
+import { playObjectivesPhase } from '../fixtures/setupFlow';
 
 const HOST = 'host1';
 const GUEST = 'guest1';
@@ -14,6 +15,18 @@ function startState(options?: ScenarioOptions): GameState {
   if (options) applyDefaultScenario(state, options);
   else applyDefaultScenario(state);
   return state;
+}
+
+/**
+ * A deployment-phase game as a rematch rebuilds it: the objectives phase is played (fixed dice) and its log is
+ * cleared, because a rematch keeps the placed objectives and roll-offs but starts with an empty action log.
+ */
+function afterObjectivesPhase(state: GameState, options?: Parameters<typeof playObjectivesPhase>[1]): GameState {
+  if (state.turnState.phase !== 'objectives') return state;
+  const s = playObjectivesPhase(state, options);
+  s.actionLog = [];
+  s.lastActionId = '';
+  return s;
 }
 
 const concede = (actorId: string): GameAction => createAction(actorId, 'concede', { type: 'concede' });
@@ -128,7 +141,7 @@ describe('createRematchState exactness', () => {
   for (const [name, opts] of VARIANTS) {
     for (const ender of ['concede', 'elimination', 'round-4'] as const) {
       it(`rebuilds the exact starting state: ${name}, after ${ender}`, () => {
-        const start = startState(opts());
+        const start = afterObjectivesPhase(startState(opts()));
         const over = gameOverStateOf(start, ender);
         expect(over.status).toBe('game-over');
         expect(over.units).not.toEqual(start.units);
@@ -142,13 +155,41 @@ describe('createRematchState exactness', () => {
   }
 
   it('does not alias the previous state (terrain and objectives are deep copies)', () => {
-    const start = startState({ customMap: customMap() });
+    const start = afterObjectivesPhase(startState({ useDeploymentPhase: true, customMap: customMap() }));
     const over = gameOverStateOf(start);
     const fresh = createRematchState(over);
     fresh.terrain[0].position.x = 99;
     fresh.objectives![0].position.x = 99;
     expect(over.terrain[0].position.x).not.toBe(99);
     expect(over.objectives![0].position.x).not.toBe(99);
+  });
+
+  it('keeps the placed objectives and both roll-offs, skips the objectives phase and starts with the same deployer', () => {
+    const start = afterObjectivesPhase(startState({ useDeploymentPhase: true }), {
+      countRoll: 5,
+      missionWinner: 'guest',
+      deploymentWinner: 'guest',
+    });
+    expect(start.objectives).toHaveLength(5);
+    const over = apply(start, concede(HOST));
+    for (const o of over.objectives!) o.controllingPlayerId = HOST;
+    const fresh = createRematchState(over);
+    expect(fresh.turnState.phase).toBe('deployment');
+    expect(fresh.objectives!.map((o) => o.position)).toEqual(start.objectives!.map((o) => o.position));
+    expect(fresh.objectives!.every((o) => o.controllingPlayerId === null && !o.isContested)).toBe(true);
+    expect(fresh.setupRolls).toEqual(start.setupRolls);
+    expect(fresh.setupRolls!.missionRollOff!.winnerId).toBe(GUEST);
+    expect(fresh.turnState.currentPlayerId).toBe(GUEST);
+    expect(fresh.turnState.startingPlayerId).toBe(GUEST);
+  });
+
+  it('starts over from the objectives phase when the original match never finished it', () => {
+    const start = startState({ useDeploymentPhase: true });
+    const over = apply(start, concede(GUEST)); // conceded before any roll
+    const fresh = createRematchState(over);
+    expect(fresh.turnState.phase).toBe('objectives');
+    expect(fresh.objectives).toEqual([]);
+    expect(fresh.setupRolls).toBeUndefined();
   });
 
   it('rebuilds a state without setup as a plain game with the default armies', () => {
@@ -199,7 +240,7 @@ describe('request-rematch', () => {
   });
 
   it('restarts a deployment game in deployment', () => {
-    const start = startState({ useDeploymentPhase: true });
+    const start = afterObjectivesPhase(startState({ useDeploymentPhase: true }));
     const over = gameOverStateOf(start);
     const next = apply(apply(over, rematch(HOST)), rematch(GUEST));
     expect(next.turnState.phase).toBe('deployment');

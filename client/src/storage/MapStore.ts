@@ -89,10 +89,11 @@ export class MapStore {
     }
     const maps = this.getMaps();
     const existingIndex = maps.findIndex((m) => m.id === map.id);
+    // Maps no longer define objectives (the players place them in the game): never store old markers
+    const { objectives: _legacyObjectives, ...rest } = map;
     const sanitizedMap: CustomMapDefinition = {
-      ...map,
+      ...rest,
       terrain: Array.isArray(map.terrain) ? map.terrain : [],
-      objectives: Array.isArray(map.objectives) ? map.objectives : [],
     };
 
     if (existingIndex >= 0) {
@@ -181,7 +182,6 @@ export class MapStore {
             }
           : { width: 44, height: 30, theme: 'outpost' },
       terrain: parsed.terrain,
-      objectives: Array.isArray(parsed.objectives) ? parsed.objectives : [],
       deploymentZones: parsed.deploymentZones,
     };
 
