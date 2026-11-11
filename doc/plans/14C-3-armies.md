@@ -1,5 +1,5 @@
 # 14C-3: Four v3.6 armies at 400 pts
-Status: approved (owner, 2026-11-10: "Go ahead with all of 14C"; the four lists below were drafted by Opus under that approval and are flagged for the owner's morning review)
+Status: approved (owner, 2026-11-10: "Go ahead with all of 14C"; 2026-11-11: "Just make sure the lists make sense". Opus re-checked every unit, cost, stat and upgrade against the four v3.6 army book PDFs on 2026-11-11: all four lists total 400 pts and meet Decision 1, and every rule they use exists in the engine or is added here)
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C (part 3 of 3). Umbrella: `doc/plans/14C-opr-v3.6-alignment.md` (Decisions 3, 4, 10). Depends on 14C-2 being merged.
 
 ## Goal
@@ -16,6 +16,8 @@ The army pickers offer four ready-made 400-pt lists with official v3.6 stats: Hu
    - `ferocious` (Orc Marauders): when this model shoots at a target over 9" away or charges a target that was over 6" away at the charge start, each unmodified 6 to hit deals 1 extra hit (only the original counts as a 6 for other rules).
    - `primeborn` (Prime Brothers): hits against a unit where most models have this rule count as having AP(-1), to a minimum of AP(0).
    - Old faction traits (`steadfast`, `marksman`, `riot-shield`, `iron-will`, `order-*`, `aura-*`, …) are deleted with the Frontier Wardens / Rust Raiders armies unless a TEST army still needs one (then keep it, but only for the TEST army).
+5b. **Repel Ambushers** replaces the old `perimeter-watch` trait (owner, 2026-11-11: "go with however the tabletop handles it"). OPR's rule (an HDF upgrade): enemy units using Ambush must be set up more than 12" away from this model's unit, measured per unit. That is what `ambushKeepOut` already does for `perimeter-watch`; rename the trait to `repel-ambushers` (Display "Repel Ambushers", own-words description) and keep the logic, so it survives the removal of the old armies. No list below takes it; a TEST army may.
+5c. **Objectives on a zone edge** (owner, 2026-11-11, confirming PR 8): a spot exactly on a deployment-zone edge is inside the zone (the zone is everything within 12" of the table edge), so an objective can't go there.
 6. **The four lists** (points from the v3.6 books; the implementer re-checks each cost against the PDF and stops if a number doesn't match):
 
    **Human Defense Force (400 pts, Tough 30, 4 units)** — `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Human Defense Forcev3.6.0.pdf`
@@ -71,4 +73,4 @@ The army pickers offer four ready-made 400-pt lists with official v3.6 stats: Hu
 - **Docs:** README/GDD army list, ROADMAP (14C done), manual checks for all four armies.
 
 ## Open questions
-None blocking. For the owner's review: the four lists (Decision 6), Prime Brothers without a Hero, Hold the Line / Ferocious distance measurement (Decision 5).
+None. The owner asked only that the lists make sense; they were checked against the books (see Status).
