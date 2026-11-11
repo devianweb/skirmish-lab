@@ -43,8 +43,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 - [x] Counter, Shaken: charge a Shaken Counter guard. No Counter line appears, but the Strike Back prompt is offered and its hits need natural 6s.
 - [x] Two Counter weapons: charge the Twin Counter guard. Two "Counter strike first" lines appear (Counter Blade, Counter Spear), then your strike; no Strike Back prompt follows (it has no plain weapon).
 - [x] Counter casualties first: charge the Counter guard with a squad of 4+ so the Counter strike kills models. The squad's owner gets "Remove Casualties" before the squad strikes; after the pick the squad's strike line counts only the survivors within 3" of the guard. Let the pick time out once: the strike still resolves.
-- [ ] Fear in reach: after a melee that involves the Fear cultists, the melee-result line shows "+N Fear" with N equal to the cultists within 3" of the enemy unit (not all four when some stand back).
-    - I can't see any mention of + dice for fear.
+- [x] Fear in reach: after a melee that involves the Fear cultists, the melee-result line shows "+N Fear" with N equal to the cultists within 3" of the enemy unit (not all four when some stand back).
 - [x] Counter does not reduce your Impact hits: charge the Counter guard with the Impact brutes; all Impact dice still count.
 - [x] Assault: the Assault troops can pick the Assault Rifle both for Shoot and for a charge/fight (the data card lists it as "Ranged + Melee").
 - [x] Shred: the Shred fighters strike; every Defense die showing 1 against them adds an extra wound ("Shred: N extra wounds" under the dice).
