@@ -3,6 +3,7 @@ import { createAction, createInitialGameState } from '../../src/gameState';
 import { DiceResult, DiceSpec, GameState, Unit, Vector3, Weapon } from '../../src/gameTypes';
 import { WEAPONS } from '../../src/data/weapons';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
+import { distantAttackMoraleBonus } from '../../src/engine/combat';
 import { BLAST_SPLIT_AUTO_CHOICE, type BlastSplitData } from '../../src/engine/blastSplit';
 
 const HOST = 'host-1';
@@ -285,5 +286,46 @@ describe('Blast split prompt: several Blast weapons in one salvo', () => {
     expect(out.ok).toBe(true);
     const records = out.logEntry!.dice!.outcome.blastSplits!;
     expect(records.map((r) => r.shares.map((x) => x.hits))).toEqual([[3, 0], [0, 3]]);
+  });
+});
+
+describe('Blast spill counts as shot for Hold the Line (distance from the shooter to the spill unit)', () => {
+  /** g1 is the aimed-at unit (11" away); g2 stands in front of it, `spillGap` from the shooter (base edge). */
+  const holdLine = (spillGap: number) => {
+    const g2 = mkUnit('g2', GUEST, 0, spillGap + 1, { count: 5 });
+    g2.specialRules = ['hold-the-line'];
+    return mkState([mkUnit('h1', HOST, 0, 0, { weapons: [weapon('frag-launcher')] }), mkUnit('g1', GUEST, 0, 12, { count: 5 }), g2]);
+  };
+
+  it('a spill unit more than 9" away is recorded as shot from that distance (and earns +1)', () => {
+    const paused = fire(holdLine(9.1), shootAt(FRAG), [5]).state!;
+    const out = applyAction(paused, autoAnswer(paused));
+    expect(out.ok).toBe(true);
+    const from = out.state!.turnState.attackedFrom!;
+    expect(from.g2.shot).toBeCloseTo(9.1);
+    expect(from.g1.shot).toBeCloseTo(11);
+    expect(distantAttackMoraleBonus(['hold-the-line'], from.g2)).toBe(1);
+  });
+
+  it('a spill unit at exactly 9.0" gets no bonus', () => {
+    const paused = fire(holdLine(9), shootAt(FRAG), [5]).state!;
+    const out = applyAction(paused, autoAnswer(paused));
+    const from = out.state!.turnState.attackedFrom!;
+    expect(from.g2.shot).toBeCloseTo(9);
+    expect(distantAttackMoraleBonus(['hold-the-line'], from.g2)).toBe(0);
+  });
+
+  it('a unit within 3" that is given zero hits by the split is not recorded', () => {
+    const paused = fire(holdLine(9.1), shootAt(FRAG), [5]).state!;
+    const out = applyAction(paused, split(paused, [[3, 0]]));
+    expect(out.ok).toBe(true);
+    expect(out.state!.turnState.attackedFrom!.g2).toBeUndefined();
+    expect(out.state!.turnState.attackedFrom!.g1).toBeDefined();
+  });
+
+  it('a custom split that puts the hits on the spill unit records it too', () => {
+    const paused = fire(holdLine(9.1), shootAt(FRAG), [5]).state!;
+    const out = applyAction(paused, split(paused, [[0, 3]]));
+    expect(out.state!.turnState.attackedFrom!.g2.shot).toBeCloseTo(9.1);
   });
 });

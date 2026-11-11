@@ -378,7 +378,8 @@ export class Lobby {
                 <option value="test-jump-army" ${selected === 'test-jump-army' ? 'selected' : ''}>TEST: Jump Check (squad, Strider squad, Flying squad) — playtesting</option>
                 <option value="test-hazard-army" ${selected === 'test-hazard-army' ? 'selected' : ''}>TEST: Hazard Check (5-model squad, Tough 3 Hero, Flying squad) — playtesting</option>
                 <option value="test-special-rules-army" ${selected === 'test-special-rules-army' ? 'selected' : ''}>TEST: Special Rules Check (Fast, Slow, Impact, Counter, Assault, Shred, Fear) — playtesting</option>
-                <option value="test-scout-ambush-army" ${selected === 'test-scout-ambush-army' ? 'selected' : ''}>TEST: Scout & Ambush Check — playtesting</option>`
+                <option value="test-scout-ambush-army" ${selected === 'test-scout-ambush-army' ? 'selected' : ''}>TEST: Scout & Ambush Check — playtesting</option>
+                <option value="test-loadouts-army" ${selected === 'test-loadouts-army' ? 'selected' : ''}>TEST: Loadouts Check (mixed weapons, two-weapon melee) — playtesting</option>`
         : '';
       const devBadgeHtml = dev
         ? '<div id="devBadge" style="position: fixed; top: 12px; right: 12px; padding: 3px 8px; background: #ffd54f; color: #12161c; font: 700 11px Arial, sans-serif; border-radius: 4px; letter-spacing: 1px;">DEV</div>'
@@ -409,6 +410,7 @@ export class Lobby {
               <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
+                <option value="hdf" ${this.hostArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
                 ${testOptions(this.hostArmyId)}
               </select>
             </div>
@@ -417,6 +419,7 @@ export class Lobby {
               <select id="guestArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
+                <option value="hdf" ${this.guestArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
                 ${testOptions(this.guestArmyId)}
               </select>
             </div>

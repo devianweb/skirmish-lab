@@ -45,6 +45,7 @@ import {
   getMeleeResults,
   moraleDiceCounts,
   recordWoundBaseline,
+  noteAttackedFrom,
   validateDeploymentPosition,
 } from './activation';
 import {
@@ -127,15 +128,18 @@ import {
   pushAttackerFor,
   regroupAfterPush,
 } from './push';
-import { getTraitValue, hasTrait } from '../rules/traits';
+import { getTraitValue, hasTrait, sumTraitValue } from '../rules/traits';
 import {
   findCounterWeapons,
   findMeleeWeapon,
-  findNonCounterMeleeWeapon,
+  findMeleeWeapons,
+  findNonCounterMeleeWeapons,
   getEffectiveSpeed,
   hasMeleeWeapon,
   impactDiceCount,
+  isCarried,
   isMeleeWeapon,
+  meleeWeaponSlots,
 } from './specialRules';
 import {
   unitDistance,
@@ -149,6 +153,7 @@ import {
   ENGAGEMENT_EDGE_GAP,
   CHARGE_END_EDGE_GAP,
   modelGap,
+  modelCarries,
   livingModelPositions,
 } from './unitGeometry';
 import { firingModels, ignoresSight, targetCoverByMajority } from './squadTargeting';
@@ -242,6 +247,15 @@ export function getShootAllocations(payload: PayloadWithAttacker): WeaponAllocat
 
 function getUnit(state: GameState, unitId: string): Unit | undefined {
   return state.units.find((u) => u.id === unitId);
+}
+
+/**
+ * Deadly weapons put their wounds on before the others when one attack uses several weapons. A stable
+ * partition: Deadly items first, everything else keeps its order.
+ */
+function deadlyFirst<T>(items: T[], weaponOf: (item: T) => Weapon | undefined): T[] {
+  const isDeadly = (item: T) => hasTrait(weaponOf(item)?.profile.specialRules ?? [], 'deadly');
+  return [...items.filter(isDeadly), ...items.filter((item) => !isDeadly(item))];
 }
 
 function getWeapon(unit: Unit, weaponId: string): Weapon | undefined {
@@ -1139,9 +1153,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const target = requireTarget(state, action.actorId, alloc.targetId);
         if ('reason' in target) return target;
 
+        if (!isCarried(attacker.result, weapon)) {
+          return { valid: false, reason: `No living model carries ${weapon.name}` };
+        }
         if (firingModels(state, attacker.result, target.result, weapon).length === 0) {
           // Tell the player which condition failed (closest models decide range).
-          const reach = unitDistance(attacker.result, target.result);
+          const carriers = (attacker.result.models ?? []).filter((m) => !m.isDestroyed && modelCarries(m, weapon.id));
+          const reach = unitDistance({ ...attacker.result, models: carriers.length > 0 ? carriers : attacker.result.models }, target.result);
           return {
             valid: false,
             reason: reach > weapon.profile.range + 0.01 ? 'Target out of range' : 'No line of sight to target',
@@ -1281,10 +1299,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (isSquadChargePayload(attacker.result, squadMoves)) {
         const squadResult = validateSquadChargeMove(state, attacker.result, target.result, squadMoves, 'final');
         if (!squadResult.valid) return squadResult;
-        const squadWeapon = weaponId
-          ? attacker.result.weapons.find((w) => w.id === weaponId)
-          : findMeleeWeapon(attacker.result);
-        if (!squadWeapon || !isMeleeWeapon(squadWeapon)) {
+        if (chargeWeaponProblem(attacker.result, weaponId)) {
           return { valid: false, reason: 'No equipped melee weapon for charge strike' };
         }
         return { valid: true };
@@ -1341,10 +1356,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
           reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
         };
       }
-      const weapon = weaponId
-        ? attacker.result.weapons.find((w) => w.id === weaponId)
-        : findMeleeWeapon(attacker.result);
-      if (!weapon || !isMeleeWeapon(weapon)) {
+      if (chargeWeaponProblem(attacker.result, weaponId)) {
         return { valid: false, reason: 'No equipped melee weapon for charge strike' };
       }
       return { valid: true };
@@ -1598,8 +1610,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
           reason: 'Target is on a ledge outside vertical melee reach (> 4.0" vertical difference)',
         };
       }
+      // The unit strikes with every melee weapon it carries; a named weapon is only checked for sanity
       const weapon = getWeapon(attacker.result, weaponId ?? '');
-      if (!weapon || !isMeleeWeapon(weapon)) {
+      if (!weapon || !isMeleeWeapon(weapon) || !hasMeleeWeapon(attacker.result)) {
         return { valid: false, reason: 'Unit has no such melee weapon' };
       }
       return { valid: true };
@@ -1842,25 +1855,11 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
     const defender = getUnit(state, pending.targetUnitId);
     const charger = getUnit(state, pending.sourceUnitId);
     if (!defender || !charger) return null;
-    const defenderMelee = pending.data?.weaponId
-      ? getWeapon(defender, pending.data.weaponId)
-      : findMeleeWeapon(defender);
-    if (!defenderMelee || typeof defenderMelee.profile.attacks !== 'number' || defenderMelee.profile.attacks < 1) {
-      return null;
-    }
+    const entries = strikeBackEntries(defender, charger, pending);
+    if (entries.length === 0) return null;
 
     const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
-    const totalAttacks = (defenderMelee.profile.attacks as number) * strikers(defender, charger);
-    return getAttackDiceSpecs(totalAttacks, {
-      attackerRules: defender.specialRules,
-      weaponRules: defenderMelee.profile.specialRules,
-      defenderRules: charger.specialRules,
-      defenderModelCount: Math.max(1, charger.models?.filter((m) => !m.isDestroyed).length ?? 1),
-      isMelee: true,
-      isCharging: false,
-      isFatigued: isTargetFatigued,
-      distance: 1,
-          });
+    return strikeSpecs(entries, defender, charger, { isCharging: false, isFatigued: isTargetFatigued, distance: 1 });
   }
 
   if (action.type === 'shoot') {
@@ -1939,27 +1938,15 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
 
   if (action.type !== 'fight' && action.type !== 'charge') return null;
 
-  const payload = action.payload as { attackerId: string; targetId: string; weaponId?: string };
+  const payload = action.payload as { attackerId: string; targetId: string };
   const attacker = getUnit(state, payload.attackerId);
   const target = getUnit(state, payload.targetId);
-  const weapon = attacker
-    ? payload.weaponId
-      ? getWeapon(attacker, payload.weaponId)
-      : findMeleeWeapon(attacker)
-    : undefined;
-  if (!attacker || !weapon) return null;
+  if (!attacker || !hasMeleeWeapon(attacker)) return null;
 
-  const attacks = weapon.profile.attacks;
-  if (typeof attacks !== 'number' || !Number.isInteger(attacks) || attacks < 1) {
-    return null;
-  }
-
-  const isMelee = action.type === 'fight' || action.type === 'charge';
+  const isMelee = true;
   const distance = target ? unitDistance(attacker, target) : 12;
-  const aliveModels = target
-    ? Math.max(1, target.models.filter((m) => !m.isDestroyed).length)
-    : 1;
-  let strikingCount = 1;
+  let strikeAttacker: Unit = attacker;
+  let strikeTarget: Unit | undefined = target;
   let chargeExtras: DiceSpec[] = [];
   if (target) {
     if (action.type === 'charge') {
@@ -1986,24 +1973,20 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
               : [];
           return moveSpecs.length > 0 ? moveSpecs : null;
         }
-        strikingCount = strikers(simAttacker, simTarget);
-        chargeExtras = chargeExtraSpecs(simAttacker, simTarget, weapon);
+        strikeAttacker = simAttacker;
+        strikeTarget = simTarget;
+        chargeExtras = chargeExtraSpecs(simAttacker, simTarget);
       }
-    } else {
-      strikingCount = strikers(attacker, target);
     }
   }
-  const totalAttacks = attacks * strikingCount;
+  // One batch of dice per melee weapon a model within reach carries (the first unprefixed, later ones `w<slot>-`)
+  const entries = strikeTarget ? strikeEntries(strikeAttacker, strikeTarget) : [];
+  if (entries.length === 0) return null;
 
-  const attackSpecs = getAttackDiceSpecs(totalAttacks, {
-    attackerRules: attacker.specialRules,
-    weaponRules: weapon.profile.specialRules,
-    defenderRules: target?.specialRules ?? [],
-    defenderModelCount: aliveModels,
-    isMelee,
+  const attackSpecs = strikeSpecs(entries, strikeAttacker, strikeTarget, {
     isCharging: action.type === 'charge' || (isMelee && attacker.hasMoved),
     distance,
-      });
+  });
 
   if (action.type === 'charge') {
     attackSpecs.push(...chargeExtras);
@@ -2504,13 +2487,10 @@ function pileInPlacement(
  * none while the charged unit is Fatigued or Shaken). All are sized from the units as they stand after the charge
  * move and pile-in, so they are an upper bound: casualties picked before a strike can only shrink the need.
  */
-function chargeExtraSpecs(attacker: Unit, target: Unit, weapon: Weapon): DiceSpec[] {
-  const specs: DiceSpec[] = getImpactDiceSpecs(
-    impactDiceCount(attacker, weapon, strikers(attacker, target)),
-    target.specialRules ?? []
-  );
-  counterStrikeWeapons(target).forEach((counterWeapon, i) => {
-    const counterSpecs = getAttackDiceSpecs((counterWeapon.profile.attacks as number) * strikers(target, attacker), {
+function chargeExtraSpecs(attacker: Unit, target: Unit): DiceSpec[] {
+  const specs: DiceSpec[] = getImpactDiceSpecs(chargeImpactDice(attacker, target), target.specialRules ?? []);
+  counterStrikeEntries(target, attacker).forEach(({ weapon: counterWeapon, index, strikers: count }) => {
+    const counterSpecs = getAttackDiceSpecs((counterWeapon.profile.attacks as number) * count, {
       attackerRules: target.specialRules,
       weaponRules: counterWeapon.profile.specialRules,
       defenderRules: attacker.specialRules ?? [],
@@ -2519,9 +2499,23 @@ function chargeExtraSpecs(attacker: Unit, target: Unit, weapon: Weapon): DiceSpe
       isCharging: false,
       distance: 1,
     });
-    specs.push(...counterSpecs.map((sp) => ({ ...sp, purpose: `${counterPurposePrefix(i)}${sp.purpose}` })));
+    specs.push(...counterSpecs.map((sp) => ({ ...sp, purpose: `${counterPurposePrefix(index)}${sp.purpose}` })));
   });
   return specs;
+}
+
+/**
+ * Impact dice a charger rolls: the unit's Impact(X) for each model within reach, plus each weapon's own Impact(X)
+ * for each model within reach that carries it. None while the charger is Fatigued.
+ */
+function chargeImpactDice(attacker: Unit, target: Unit): number {
+  const unitPart = impactDiceCount(attacker, undefined, strikers(attacker, target));
+  if (attacker.status.includes('fatigued')) return 0;
+  const weaponPart = meleeWeaponSlots(attacker).reduce(
+    (sum, w) => sum + sumTraitValue(w.profile.specialRules, 'impact') * strikers(attacker, target, w),
+    0
+  );
+  return unitPart + weaponPart;
 }
 
 /** Dice purpose prefix of the i-th Counter weapon's batch. */
@@ -2529,30 +2523,34 @@ function counterPurposePrefix(index: number): string {
   return `counter${index}-`;
 }
 
-/** The Counter weapons that strike first when this unit is charged: none while it is Fatigued or Shaken (Shaken counts as Fatigued). */
-function counterStrikeWeapons(target: Unit): Weapon[] {
+/**
+ * The Counter weapons that strike first when this unit is charged, with their stable index (their place among all
+ * the unit's Counter weapons, which is what names their dice) and how many models of it within reach carry each.
+ * None while it is Fatigued or Shaken (Shaken counts as Fatigued); a weapon nobody within reach carries is left out.
+ */
+function counterStrikeEntries(target: Unit, charger: Unit): { weapon: Weapon; index: number; strikers: number }[] {
   if (target.isDestroyed || target.status.includes('fatigued') || target.status.includes('shaken')) return [];
-  return findCounterWeapons(target).filter((w) => typeof w.profile.attacks === 'number' && w.profile.attacks >= 1);
+  const entries: { weapon: Weapon; index: number; strikers: number }[] = [];
+  findCounterWeapons(target).forEach((weapon, index) => {
+    if (typeof weapon.profile.attacks !== 'number' || weapon.profile.attacks < 1) return;
+    const count = strikers(target, charger, weapon);
+    if (count > 0) entries.push({ weapon, index, strikers: count });
+  });
+  return entries;
 }
 
 function pileInStrikeSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
   const placed = pileInPlacement(state, action);
   if (!placed) return null;
   const { pending, attacker, target, modelPositions } = placed;
-  const weapon = getWeapon(attacker, pending.data?.weaponId);
-  if (!weapon || typeof weapon.profile.attacks !== 'number' || weapon.profile.attacks < 1) return null;
   const movedTarget = withModelPositions(target, modelPositions);
-  const totalAttacks = weapon.profile.attacks * strikers(attacker, movedTarget);
-  const strike = getAttackDiceSpecs(totalAttacks, {
-    attackerRules: attacker.specialRules,
-    weaponRules: weapon.profile.specialRules,
-    defenderRules: target.specialRules,
-    defenderModelCount: Math.max(1, livingModels(target).length),
-    isMelee: true,
+  const entries = strikeEntries(attacker, movedTarget);
+  if (entries.length === 0) return null;
+  const strike = strikeSpecs(entries, attacker, target, {
     isCharging: true,
     distance: pending.data?.chargeDistance ?? 1,
   });
-  return [...strike, ...chargeExtraSpecs(attacker, movedTarget, weapon)];
+  return [...strike, ...chargeExtraSpecs(attacker, movedTarget)];
 }
 
 /**
@@ -2823,18 +2821,17 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
 
     case 'fight': {
-      const { attackerId, targetId, weaponId } = action.payload as {
+      const { attackerId, targetId } = action.payload as {
         attackerId: string;
         targetId: string;
-        weaponId: string;
+        weaponId?: string;
       };
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
-      const weapon = getWeapon(attacker, weaponId ?? '')!;
       const isMelee = true;
       const distance = unitDistance(attacker, target);
-      const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
-      const totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
+      // Every melee weapon a model within reach carries strikes (the payload's weaponId is no longer a choice)
+      const entries = strikeEntries(attacker, target);
       const isFatigued =
         attacker.status.includes('fatigued') || attacker.status.includes('shaken');
 
@@ -2874,47 +2871,29 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         }
       }
 
-      let outcome: CombatOutcome;
+      const ledger: WoundLedger = new Map();
+      let strikes: StrikeResult[];
       try {
         if (!dice) throw new Error('Dice results required');
-        const rolls = extractAttackRolls(dice);
-        outcome = resolveAttack(
-          {
-            quality: attacker.quality,
-            specialRules: attacker.specialRules,
-            weaponRules: weapon.profile.specialRules,
-            isMelee,
-            isCharging: isMelee && attacker.hasMoved,
-            hasMoved: attacker.hasMoved,
-            isFatigued,
-            distance,
-          },
-          {
-            defense: target.defense,
-            inCover: false,
-            specialRules: target.specialRules,
-            modelCount: aliveModels,
-            hasMoved: target.hasMoved,
-          },
-          totalAttacks,
-          rolls
-        );
+        strikes = resolveStrikes(entries, attacker, target, dice, ledger, {
+          isCharging: isMelee && attacker.hasMoved,
+          hasMoved: attacker.hasMoved,
+          isFatigued,
+          distance,
+        });
       } catch (error) {
         return { ok: false, reason: (error as Error).message };
       }
 
       attacker.hasAttacked = true;
       attacker.remainingMovement = 0;
-      if (hasTrait(weapon.profile.specialRules, 'limited')) {
-        weapon.isEquipped = false;
+      for (const { weapon } of entries) {
+        if (hasTrait(weapon.profile.specialRules, 'limited')) weapon.isEquipped = false;
       }
       if (isMelee && !attacker.status.includes('fatigued')) {
         attacker.status.push('fatigued');
       }
 
-      const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
-      const ledger: WoundLedger = new Map();
-      applyOutcomeWounds(ledger, target, outcome, deadlyValue);
       if (isMelee) markInMelee(newState, attacker.id, target.id);
       deferCasualties(newState, ledger, action.id, attacker, {
         kind: 'fight',
@@ -2928,33 +2907,18 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 
       diceResolution = {
         rollId: action.id,
-        specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalAttacks),
+        specs: getDiceSpecs(state, action) ?? [],
         results: dice,
         context: {
           attackerId,
           targetId,
-          weaponId,
+          weaponId: entries[0]?.weapon.id,
           actionId: action.id,
         },
         outcome: {
-          attackCount: outcome.attackCount,
-          hitCount: outcome.hitCount,
-          ...(outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
-          blockedCount: outcome.blockedCount,
-          blockedRolls: outcome.blockedRolls,
-          ...(outcome.regenerationSavedCount > 0 ? { regenerationSavedCount: outcome.regenerationSavedCount } : {}),
-          wounds: outcome.wounds,
-          ...(outcome.shredWounds ? { shredWounds: outcome.shredWounds } : {}),
+          ...summarizeStrikes(strikes),
           targetDestroyed: target.isDestroyed,
           ...(target.status.includes('shaken') ? { targetShaken: true } : {}),
-          effectiveQuality: outcome.effectiveQuality,
-          effectiveDefense: outcome.effectiveDefense,
-          baseQuality: outcome.baseQuality,
-          hitModifiers: outcome.hitModifiers,
-          baseDefense: outcome.baseDefense,
-          defenseModifiers: outcome.defenseModifiers,
-          ...(outcome.coverApplied ? { coverApplied: true } : {}),
-          ...(outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
         },
       };
       logEntry = acceptedEntry(action, diceResolution);
@@ -3082,6 +3046,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       attacker.remainingMovement = chargeBudget(attacker);
       resetModelMovement(attacker);
       newState.turnState.charge = { unitId: attackerId, targetId, legs: 0 };
+      const declaredTarget = getUnit(newState, targetId);
+      if (declaredTarget) noteAttackedFrom(newState, targetId, 'charged', unitDistance(attacker, declaredTarget));
       logEntry = acceptedEntry(action);
       break;
     }
@@ -3129,15 +3095,18 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'charge': {
-      const { attackerId, targetId, path, weaponId } = action.payload as {
+      const { attackerId, targetId, path } = action.payload as {
         attackerId: string;
         targetId: string;
         path: Vector3[];
         weaponId?: string;
       };
+      const wasDeclared = newState.turnState.charge?.unitId === attackerId;
       newState.turnState.charge = null;
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
+      // A one-click charge starts here; a declared one was measured when it was declared
+      if (!wasDeclared) noteAttackedFrom(newState, targetId, 'charged', unitDistance(attacker, target));
       const squadMoves = action.payload as SquadChargePayload;
       const squadCharge = isSquadChargePayload(attacker, squadMoves);
       const squadAlive = livingModels(attacker);
@@ -3200,18 +3169,17 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (!attacker.status.includes('engaged')) attacker.status.push('engaged');
       if (!target.status.includes('engaged')) target.status.push('engaged');
 
-      const weapon = weaponId
-        ? getWeapon(attacker, weaponId)
-        : findMeleeWeapon(attacker);
+      // The charger strikes with every melee weapon it carries
+      const strikeWeapons = findMeleeWeapons(attacker);
 
       // Defenders not touching a charger place their own models first (up to 3"); the strike waits for that
-      const pileInIds = weapon ? pileInModelIds(target, attacker) : [];
-      if (weapon && pileInIds.length > 0) {
+      const pileInIds = strikeWeapons.length > 0 ? pileInModelIds(target, attacker) : [];
+      if (strikeWeapons.length > 0 && pileInIds.length > 0) {
         newState.turnState.pendingReaction = createPileInReaction(
           action.id,
           attacker,
           target,
-          weapon.id,
+          strikeWeapons[0].id,
           pileInIds,
           Math.hypot(cdx, cdz)
         );
@@ -3220,8 +3188,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         break;
       }
 
-      if (weapon && dice && pileInIds.length === 0) {
-        diceResolution = resolveChargeStrike(state, newState, action, attacker, target, weapon, dice, Math.hypot(cdx, cdz));
+      if (strikeWeapons.length > 0 && dice && pileInIds.length === 0) {
+        diceResolution = resolveChargeStrike(state, newState, action, attacker, target, dice, Math.hypot(cdx, cdz));
         logEntry = acceptedEntry(action, diceResolution);
       } else {
         logEntry = acceptedEntry(action);
@@ -3266,14 +3234,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       }
       const defender = getUnit(newState, pending.targetUnitId)!;
       const charger = getUnit(newState, pending.sourceUnitId)!;
-      const defenderMelee = pending.data?.weaponId
-        ? getWeapon(defender, pending.data.weaponId)
-        : findMeleeWeapon(defender);
+      const backEntries = strikeBackEntries(defender, charger, pending);
 
-      let retCombat: ReturnType<typeof resolveAttack> | undefined;
+      let backStrikes: StrikeResult[] | undefined;
       const ledger: WoundLedger = new Map();
 
-      if (choiceId === 'strike-back' && defenderMelee && dice) {
+      if (choiceId === 'strike-back' && backEntries.length > 0 && dice) {
         // Turn defender to face the charger
         const rdx = charger.position.x - defender.position.x;
         const rdz = charger.position.z - defender.position.z;
@@ -3295,34 +3261,13 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           }
         }
 
-        const retRolls = extractAttackRolls(dice);
         const isTargetFatigued = defender.status.includes('fatigued') || defender.status.includes('shaken');
-        const retAliveModels = charger.models?.filter((m) => !m.isDestroyed).length ?? 1;
-        const totalRetAttacks = (defenderMelee.profile.attacks as number) * strikers(defender, charger);
-        retCombat = resolveAttack(
-          {
-            quality: defender.quality,
-            specialRules: defender.specialRules,
-            weaponRules: defenderMelee.profile.specialRules,
-            isMelee: true,
-            isCharging: false,
-            hasMoved: defender.hasMoved,
-            isFatigued: isTargetFatigued,
-            distance: 1,
-          },
-          {
-            defense: charger.defense,
-            inCover: false,
-            specialRules: charger.specialRules,
-            hasMoved: charger.hasMoved,
-            modelCount: retAliveModels,
-          },
-          totalRetAttacks,
-          retRolls
-        );
-
-        const retDeadlyValue = getTraitValue(defenderMelee.profile.specialRules, 'deadly') ?? 1;
-        applyOutcomeWounds(ledger, charger, retCombat, retDeadlyValue);
+        backStrikes = resolveStrikes(backEntries, defender, charger, dice, ledger, {
+          isCharging: false,
+          hasMoved: defender.hasMoved,
+          isFatigued: isTargetFatigued,
+          distance: 1,
+        });
         markInMelee(newState, defender.id, charger.id);
 
         if (!defender.status.includes('fatigued')) {
@@ -3342,33 +3287,23 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         : settleStrikeBack(newState, action.id, charger, defender);
 
       let diceResolution: DiceResolution | undefined;
-      if (retCombat && dice && defenderMelee) {
-        const totalRetAttacks = retCombat.attackCount;
+      if (backStrikes && dice) {
         diceResolution = {
           rollId: action.id,
-          specs: getDiceSpecs(state, action) ?? getAttackDiceSpecs(totalRetAttacks),
+          specs: getDiceSpecs(state, action) ?? [],
           results: dice,
           context: {
             attackerId: defender.id,
             targetId: charger.id,
-            weaponId: defenderMelee.id,
+            weaponId: backEntries[0].weapon.id,
             actionId: action.id,
           },
           outcome: {
-            attackCount: retCombat.attackCount,
-            hitCount: retCombat.hitCount,
-            blockedCount: retCombat.blockedCount,
-            blockedRolls: retCombat.blockedRolls,
-            wounds: retCombat.wounds,
-            ...(retCombat.shredWounds ? { shredWounds: retCombat.shredWounds } : {}),
+            ...summarizeStrikes(backStrikes),
             targetDestroyed: charger.isDestroyed,
             targetShaken: chargerShaken,
             baseQuality: defender.quality,
-            effectiveQuality: retCombat.effectiveQuality,
-            hitModifiers: retCombat.hitModifiers,
             baseDefense: charger.defense,
-            effectiveDefense: retCombat.effectiveDefense,
-            defenseModifiers: retCombat.defenseModifiers,
             pushedBack,
             pushBackPosition: pushBackPos,
           },
@@ -3618,11 +3553,17 @@ function resolveShoot(
     }
   }
 
-  for (let i = 0; i < allocations.length; i++) {
+  // Deadly weapons put their wounds on first (the dice stay numbered by declared index)
+  const resolveOrder = deadlyFirst(
+    allocations.map((_, i) => i),
+    (i) => getWeapon(attacker, allocations[i].weaponId)
+  );
+  for (const i of resolveOrder) {
     const alloc = allocations[i];
     const weapon = getWeapon(attacker, alloc.weaponId)!;
     const target = getUnit(newState, alloc.targetId)!;
     const distance = unitDistance(attacker, target);
+    noteAttackedFrom(newState, target.id, 'shot', distance);
     // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
     const sightless = ignoresSight(attacker, weapon);
     const firing = firingModels(newState, attacker, target, weapon);
@@ -3693,6 +3634,8 @@ function resolveShoot(
           const spill = participants[k].unit;
           const count = shares[k];
           if (count === 0) continue;
+          // A unit that takes spilled hits was shot at too, measured from the shooter to that unit
+          noteAttackedFrom(newState, spill.id, 'shot', unitDistance(attacker, spill));
           const spillRolls = extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i);
           const spillOutcome = resolveAttack(
             attackerStats,
@@ -3751,7 +3694,7 @@ function resolveShoot(
       primaryTargetShaken = target.status.includes('shaken');
     }
 
-    allocationOutcomes.push({
+    allocationOutcomes[i] = {
       weaponId: weapon.id,
       weaponName: weapon.name,
       targetId: target.id,
@@ -3774,8 +3717,9 @@ function resolveShoot(
       defenseModifiers: outcome.defenseModifiers,
       coverApplied: outcome.coverApplied,
       apApplied: outcome.apApplied,
-    });
+    };
   }
+  prompts?.sort((a, b) => a.allocIndex - b.allocIndex);
 
   // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
   deferCasualties(newState, ledger, action.id, attacker, { kind: 'shoot', attackerId: attacker.id });
@@ -3850,14 +3794,13 @@ function applyPileIn(
   target.position = computeSquadCentroid(placed.modelPositions);
   newState.turnState.pendingReaction = null;
 
-  const weapon = getWeapon(attacker, pending.data?.weaponId);
-  if (!weapon || !dice) {
+  if (!hasMeleeWeapon(attacker) || !dice) {
     refreshEngagements(newState);
     return { ok: true, logEntry: acceptedEntry(action) };
   }
   let resolution: DiceResolution;
   try {
-    resolution = resolveChargeStrike(state, newState, action, attacker, target, weapon, dice, pending.data?.chargeDistance ?? 1);
+    resolution = resolveChargeStrike(state, newState, action, attacker, target, dice, pending.data?.chargeDistance ?? 1);
   } catch (error) {
     return { ok: false, reason: (error as Error).message };
   }
@@ -3867,10 +3810,6 @@ function applyPileIn(
 /** The parts of a charge exchange, in order. Each part after Impact can wait for a casualty pick first. */
 type ChargeStage = 'impact' | 'counter' | 'strike';
 
-/** What a charged unit strikes back with: after Counter strikes only its non-Counter melee weapon, otherwise its default melee weapon. */
-function strikeBackWeapon(target: Unit, counterStruck: boolean): Weapon | undefined {
-  return counterStruck ? findNonCounterMeleeWeapon(target) : findMeleeWeapon(target);
-}
 
 /**
  * The charge exchange once the defenders are in their final places, in tabletop order: the charger's Impact
@@ -3889,7 +3828,6 @@ function resolveChargeStrike(
   action: GameAction,
   attacker: Unit,
   target: Unit,
-  weapon: Weapon,
   dice: DiceResult[],
   chargeDistance: number,
   stage: ChargeStage = 'impact',
@@ -3898,7 +3836,6 @@ function resolveChargeStrike(
   const attackerId = attacker.id;
   const targetId = target.id;
   const ledger: WoundLedger = new Map();
-  const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
   const attackerWasFatigued = attacker.status.includes('fatigued');
   const rollsOf = (purpose: string): number[] => dice.find((d) => d.purpose === purpose)?.rolls ?? [];
   let counterStruck = counterStruckBefore;
@@ -3908,7 +3845,7 @@ function resolveChargeStrike(
     stage: next,
     attackerId,
     targetId,
-    weaponId: weapon.id,
+    weaponId: findMeleeWeapon(attacker)?.id ?? '',
     chargeDistance,
     dice,
     ...(counterStruck ? { counterStruck: true } : {}),
@@ -3918,7 +3855,7 @@ function resolveChargeStrike(
   // 1. Impact(X): hits land before anyone strikes (none while the charger is Fatigued)
   let impact: SpecialStrikeOutcome | undefined;
   if (stage === 'impact') {
-    const impactDice = impactDiceCount(attacker, weapon, strikers(attacker, target));
+    const impactDice = chargeImpactDice(attacker, target);
     if (impactDice > 0) {
       const rolled = resolveImpact(
         impactDice,
@@ -3938,7 +3875,7 @@ function resolveChargeStrike(
       };
     }
     // A squad that is about to Counter has its Impact casualties picked first: the Counter counts the survivors
-    if (counterStrikeWeapons(target).length > 0 && deferCasualties(newState, ledger, action.id, attacker, resumeAt('counter'))) {
+    if (counterStrikeEntries(target, attacker).length > 0 && deferCasualties(newState, ledger, action.id, attacker, resumeAt('counter'))) {
       paused = true;
     }
   }
@@ -3946,17 +3883,17 @@ function resolveChargeStrike(
   // 2. Counter: the charged unit strikes first with every Counter weapon, unless it is Fatigued, Shaken or already gone
   const counterStrikes: SpecialStrikeOutcome[] = [];
   if (!paused && stage !== 'strike') {
-    const counterWeapons = counterStrikeWeapons(target);
+    const counterWeapons = deadlyFirst(counterStrikeEntries(target, attacker), (c) => c.weapon);
     for (let i = 0; i < counterWeapons.length && !attacker.isDestroyed; i++) {
-      const counterWeapon = counterWeapons[i];
-      const prefix = counterPurposePrefix(i);
+      const { weapon: counterWeapon, index: counterIndex, strikers: counterStrikers } = counterWeapons[i];
+      const prefix = counterPurposePrefix(counterIndex);
       const counterRegen = rollsOf(`${prefix}regeneration`);
       const counterRolls: AttackRolls = {
         toHit: rollsOf(`${prefix}to-hit`),
         defense: rollsOf(`${prefix}defense`),
         ...(counterRegen.length > 0 ? { regeneration: counterRegen } : {}),
       };
-      const counterAttacks = (counterWeapon.profile.attacks as number) * strikers(target, attacker);
+      const counterAttacks = (counterWeapon.profile.attacks as number) * counterStrikers;
       const counterOutcome = resolveAttack(
         {
           quality: target.quality,
@@ -3999,35 +3936,16 @@ function resolveChargeStrike(
     }
   }
 
-  // 3. The charger's own strike, if it and its target are still standing
-  let outcome: CombatOutcome | undefined;
-  let totalAttacks = 0;
+  // 3. The charger's own strike with every melee weapon it carries (one resolution each), if it and its target are
+  // still standing. Models are counted now: casualties from Impact or Counter take their weapons with them.
+  let strikes: StrikeResult[] = [];
   if (!paused && !attacker.isDestroyed && !target.isDestroyed) {
-    const rolls = extractAttackRolls(dice);
-    const aliveModels = target.models?.filter((m) => !m.isDestroyed).length ?? 1;
-    totalAttacks = (weapon.profile.attacks as number) * strikers(attacker, target);
-    outcome = resolveAttack(
-      {
-        quality: attacker.quality,
-        specialRules: attacker.specialRules,
-        weaponRules: weapon.profile.specialRules,
-        isMelee: true,
-        isCharging: true,
-        hasMoved: true,
-        isFatigued: attackerWasFatigued || attacker.status.includes('shaken'),
-        distance: chargeDistance,
-      },
-      {
-        defense: target.defense,
-        inCover: false,
-        specialRules: target.specialRules,
-        hasMoved: target.hasMoved,
-        modelCount: aliveModels,
-      },
-      totalAttacks,
-      rolls
-    );
-    applyOutcomeWounds(ledger, target, outcome, deadlyValue);
+    strikes = resolveStrikes(strikeEntries(attacker, target), attacker, target, dice, ledger, {
+      isCharging: true,
+      hasMoved: true,
+      isFatigued: attackerWasFatigued || attacker.status.includes('shaken'),
+      distance: chargeDistance,
+    });
   }
 
   let pushedBack = false;
@@ -4038,7 +3956,7 @@ function resolveChargeStrike(
       kind: 'charge-strike',
       attackerId: attacker.id,
       targetId: target.id,
-      weaponId: weapon.id,
+      weaponId: findMeleeWeapon(attacker)?.id,
       ...(counterStruck ? { counterStruck: true } : {}),
     });
     if (!attacker.status.includes('fatigued')) {
@@ -4047,40 +3965,29 @@ function resolveChargeStrike(
     if (!deferred) ({ pushedBack, pushBackPos } = settleChargeStrike(newState, action.id, attacker, target, counterStruck));
   }
   const targetShaken = target.status.includes('shaken');
-  const defenderMelee = paused ? undefined : strikeBackWeapon(target, counterStruck);
+  const defenderMelee = paused ? undefined : strikeBackWeapons(target, counterStruck)[0];
+  const summary = summarizeStrikes(strikes);
   // A resumed part only shows the dice it used (the earlier parts are in the entry of the action that rolled them)
   const resumed = stage !== 'impact';
 
   return {
     rollId: action.id,
-    specs: resumed ? [] : getDiceSpecs(state, action) ?? getAttackDiceSpecs(Math.max(1, totalAttacks)),
+    specs: resumed ? [] : getDiceSpecs(state, action) ?? [],
     results: !resumed ? dice : stage === 'strike' ? dice.filter((d) => !/^(impact|counter\d+-)/.test(d.purpose ?? '')) : [],
     context: {
       attackerId,
       targetId,
-      weaponId: weapon.id,
+      weaponId: strikes[0]?.entry.weapon.id ?? findMeleeWeapon(attacker)?.id,
       retaliationWeaponId: defenderMelee?.id,
       actionId: action.id,
     },
     outcome: {
-      attackCount: outcome?.attackCount ?? 0,
-      hitCount: outcome?.hitCount ?? 0,
-      ...(outcome && outcome.bonusHits > 0 ? { bonusHits: outcome.bonusHits } : {}),
-      blockedCount: outcome?.blockedCount ?? 0,
-      blockedRolls: outcome?.blockedRolls ?? [],
-      ...(outcome && outcome.regenerationSavedCount > 0 ? { regenerationSavedCount: outcome.regenerationSavedCount } : {}),
-      wounds: outcome?.wounds ?? 0,
-      ...(outcome?.shredWounds ? { shredWounds: outcome.shredWounds } : {}),
+      ...summary,
       targetDestroyed: target.isDestroyed,
       targetShaken,
       baseQuality: attacker.quality,
-      effectiveQuality: outcome?.effectiveQuality,
-      hitModifiers: outcome?.hitModifiers,
       baseDefense: target.defense,
-      effectiveDefense: outcome?.effectiveDefense,
-      defenseModifiers: outcome?.defenseModifiers,
       coverApplied: false,
-      ...(outcome && outcome.apApplied > 0 ? { apApplied: outcome.apApplied } : {}),
       pushedBack,
       ...(pushBackPos ? { pushBackPosition: pushBackPos } : {}),
       ...(impact ? { impact } : {}),
@@ -4097,14 +4004,12 @@ function resumeChargeStrike(
 ): DiceResolution {
   const attacker = getUnit(newState, after.attackerId)!;
   const target = getUnit(newState, after.targetId)!;
-  const weapon = getWeapon(attacker, after.weaponId)!;
   return resolveChargeStrike(
     newState,
     newState,
     action,
     attacker,
     target,
-    weapon,
     after.dice,
     after.chargeDistance,
     after.stage,
@@ -4125,7 +4030,7 @@ function settleChargeStrike(
 ): { pushedBack: boolean; pushBackPos?: Vector3 } {
   // The charger fell to the Counter strike: it is the defender's win
   if (attacker.isDestroyed) return settleStrikeBack(newState, actionId, attacker, target);
-  const defenderMelee = strikeBackWeapon(target, counterStruck);
+  const defenderMelee = strikeBackWeapons(target, counterStruck);
   let pushedBack = false;
   let pushBackPos: Vector3 | undefined;
 
@@ -4133,7 +4038,7 @@ function settleChargeStrike(
     // If defender is destroyed, victor may consolidate up to 3"
     newState.turnState.pendingReaction = createConsolidationReaction(actionId, attacker, target.name);
     refreshEngagements(newState);
-  } else if (!defenderMelee) {
+  } else if (defenderMelee.length === 0) {
     pushBackPos = pushBackChargerModels(newState, attacker, target);
     pushedBack = true;
     attacker.status = attacker.status.filter((s) => s !== 'engaged');
@@ -4148,14 +4053,14 @@ function settleChargeStrike(
       sourceUnitId: attacker.id,
       targetUnitId: target.id,
       title: 'Melee Retaliation',
-      description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.name}?`,
+      description: `${attacker.name} charged ${target.name}! Strike back with ${defenderMelee.map((w) => w.name).join(' + ')}?`,
       warning: target.status.includes('fatigued') || target.status.includes('shaken')
         ? 'This unit is already Fatigued/Shaken (hits on natural 6s only).'
         : 'Striking back will make this unit Fatigued (hits on natural 6s in melee for the rest of the round).',
       options: [
         {
           id: 'strike-back',
-          label: `Strike Back (${defenderMelee.name})`,
+          label: `Strike Back (${defenderMelee.map((w) => w.name).join(' + ')})`,
           isDefault: true,
           style: 'primary',
         },
@@ -4171,7 +4076,8 @@ function settleChargeStrike(
         chargeActionId: actionId,
         attackerId: attacker.id,
         targetId: target.id,
-        weaponId: defenderMelee.id,
+        weaponId: defenderMelee[0].id,
+        weaponIds: defenderMelee.map((w) => w.id),
       },
     };
   }
@@ -4252,9 +4158,238 @@ function engagementPosition(target: Unit, fromPosition: Vector3): Vector3 {
   };
 }
 
-/** Models that strike in melee (within 2" / 4" of an enemy model); at least one so a lone fighter always swings. */
-function strikers(striker: Unit, foe: Unit): number {
-  return Math.max(1, strikingModelCount(striker, foe));
+/**
+ * Models that strike in melee (within 3" / 4" of an enemy model); at least one so a lone fighter always swings.
+ * With a `weapon`, only the models that carry it count: 0 means that weapon does not strike (a squad whose only
+ * carrier is out of reach or dead). When nobody is in reach at all (a charge still being measured) a carried
+ * weapon counts one striker, as the unit always did.
+ */
+function strikers(striker: Unit, foe: Unit, weapon?: Weapon): number {
+  const any = strikingModelCount(striker, foe);
+  if (!weapon) return Math.max(1, any);
+  if (any === 0) return isCarried(striker, weapon) ? 1 : 0;
+  return strikingModelCount(striker, foe, weapon.id);
+}
+
+/** Dice purpose prefix of a melee weapon's batch: the first slot is unprefixed (as the single weapon always was), later ones `w1-`, `w2-`, ... */
+function strikePrefix(slot: number): string {
+  return slot === 0 ? '' : `w${slot}-`;
+}
+
+/** One melee weapon taking part in a strike: its slot in the unit's fixed melee order and how many models strike with it. */
+interface StrikeEntry {
+  weapon: Weapon;
+  slot: number;
+  strikers: number;
+}
+
+/**
+ * The melee weapons that strike `foe`: every equipped melee weapon (Assault included) in equipment order that at
+ * least one living model within reach carries, with that model count. `only` restricts to named weapon ids.
+ * Slots come from the unit's whole melee list, so a weapon losing its last carrier never renumbers the others.
+ */
+function strikeEntries(striker: Unit, foe: Unit, only?: string[]): StrikeEntry[] {
+  const entries: StrikeEntry[] = [];
+  meleeWeaponSlots(striker).forEach((weapon, slot) => {
+    if (only && !only.includes(weapon.id)) return;
+    const attacks = weapon.profile.attacks;
+    if (typeof attacks !== 'number' || !Number.isInteger(attacks) || attacks < 1) return;
+    const count = strikers(striker, foe, weapon);
+    if (count > 0) entries.push({ weapon, slot, strikers: count });
+  });
+  return entries;
+}
+
+/** What a charged unit strikes back with: the weapons the prompt named, otherwise all it can strike with. */
+function strikeBackEntries(defender: Unit, charger: Unit, pending: PendingReaction): StrikeEntry[] {
+  const ids = pending.data?.weaponIds as string[] | undefined;
+  const only = ids ?? (pending.data?.weaponId ? [pending.data.weaponId as string] : undefined);
+  // The strike-back is sized and resolved from the same state, so its dice are numbered in the order they strike
+  return strikeEntries(defender, charger, only).map((entry, i) => ({ ...entry, slot: i }));
+}
+
+/** The weapons a charged unit strikes back with: after Counter strikes only its non-Counter weapons, otherwise all of them. */
+function strikeBackWeapons(target: Unit, counterStruck: boolean): Weapon[] {
+  return counterStruck ? findNonCounterMeleeWeapons(target) : findMeleeWeapons(target);
+}
+
+/** Reason a charge has no weapon to strike with (a named weapon must be a melee one; some living model must carry one). */
+function chargeWeaponProblem(unit: Unit, weaponId?: string): boolean {
+  if (weaponId) {
+    const named = unit.weapons.find((w) => w.id === weaponId);
+    if (!named || !isMeleeWeapon(named)) return true;
+  }
+  return !hasMeleeWeapon(unit);
+}
+
+/** Dice for every striking weapon: one batch each, sized by attacks x models striking with it. */
+function strikeSpecs(
+  entries: StrikeEntry[],
+  striker: Unit,
+  foe: Unit | undefined,
+  ctx: { isCharging: boolean; isFatigued?: boolean; distance: number }
+): DiceSpec[] {
+  const specs: DiceSpec[] = [];
+  const foeModels = Math.max(1, foe?.models?.filter((m) => !m.isDestroyed).length ?? 1);
+  for (const { weapon, slot, strikers: count } of entries) {
+    const prefix = strikePrefix(slot);
+    const batch = getAttackDiceSpecs((weapon.profile.attacks as number) * count, {
+      attackerRules: striker.specialRules,
+      weaponRules: weapon.profile.specialRules,
+      defenderRules: foe?.specialRules ?? [],
+      defenderModelCount: foeModels,
+      isMelee: true,
+      isCharging: ctx.isCharging,
+      ...(ctx.isFatigued !== undefined ? { isFatigued: ctx.isFatigued } : {}),
+      distance: ctx.distance,
+    });
+    specs.push(...batch.map((sp) => ({ ...sp, purpose: `${prefix}${sp.purpose}` })));
+  }
+  return specs;
+}
+
+/** The to-hit / defense / regeneration rolls of one melee weapon's batch. */
+function strikeRolls(dice: DiceResult[], slot: number): AttackRolls {
+  if (slot === 0) return extractAttackRolls(dice);
+  const prefix = strikePrefix(slot);
+  const find = (purpose: string) => dice.find((d) => d.purpose === `${prefix}${purpose}`);
+  const toHit = find('to-hit');
+  const defense = find('defense');
+  const regeneration = find('regeneration');
+  if (!toHit || !defense) throw new Error(`Dice results must include '${prefix}to-hit' and '${prefix}defense' purposes`);
+  return { toHit: toHit.rolls, defense: defense.rolls, ...(regeneration ? { regeneration: regeneration.rolls } : {}) };
+}
+
+interface StrikeResult {
+  entry: StrikeEntry;
+  outcome: CombatOutcome;
+  targetName: string;
+  targetId: string;
+  targetDestroyed: boolean;
+  targetShaken: boolean;
+}
+
+/**
+ * Resolve each striking weapon in order against `foe`, adding its wounds to `ledger`. Every weapon uses its own
+ * pre-rolled batch, so a later weapon may still be resolved after an earlier one destroyed the foe (the wounds
+ * simply run past the end, as for a multi-weapon shot).
+ */
+function resolveStrikes(
+  entries: StrikeEntry[],
+  striker: Unit,
+  foe: Unit,
+  dice: DiceResult[],
+  ledger: WoundLedger,
+  ctx: { isCharging: boolean; hasMoved: boolean; isFatigued: boolean; distance: number }
+): StrikeResult[] {
+  const results: StrikeResult[] = [];
+  const foeModels = Math.max(1, foe.models?.filter((m) => !m.isDestroyed).length ?? 1);
+  // Deadly weapons put their wounds on first; the results stay in weapon order
+  const resolveOrder = deadlyFirst(entries, (e) => e.weapon);
+  for (const entry of resolveOrder) {
+    const { weapon, slot } = entry;
+    const outcome = resolveAttack(
+      {
+        quality: striker.quality,
+        specialRules: striker.specialRules,
+        weaponRules: weapon.profile.specialRules,
+        isMelee: true,
+        isCharging: ctx.isCharging,
+        hasMoved: ctx.hasMoved,
+        isFatigued: ctx.isFatigued,
+        distance: ctx.distance,
+      },
+      {
+        defense: foe.defense,
+        inCover: false,
+        specialRules: foe.specialRules,
+        modelCount: foeModels,
+        hasMoved: foe.hasMoved,
+      },
+      (weapon.profile.attacks as number) * entry.strikers,
+      strikeRolls(dice, slot)
+    );
+    applyOutcomeWounds(ledger, foe, outcome, getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1);
+    results.push({
+      entry,
+      outcome,
+      targetId: foe.id,
+      targetName: foe.name,
+      targetDestroyed: foe.isDestroyed,
+      targetShaken: foe.status.includes('shaken'),
+    });
+  }
+  return entries.map((e) => results.find((r) => r.entry === e)!);
+}
+
+/** The totals of a melee exchange (sums over every weapon) plus the per-weapon results, for the dice outcome. */
+function summarizeStrikes(results: StrikeResult[]): Pick<
+  DiceResolution['outcome'],
+  | 'attackCount'
+  | 'hitCount'
+  | 'bonusHits'
+  | 'blockedCount'
+  | 'blockedRolls'
+  | 'regenerationSavedCount'
+  | 'wounds'
+  | 'shredWounds'
+  | 'effectiveQuality'
+  | 'effectiveDefense'
+  | 'baseQuality'
+  | 'hitModifiers'
+  | 'baseDefense'
+  | 'defenseModifiers'
+  | 'coverApplied'
+  | 'apApplied'
+  | 'meleeStrikes'
+> {
+  const first = results[0]?.outcome;
+  const sum = (pick: (o: CombatOutcome) => number) => results.reduce((n, r) => n + pick(r.outcome), 0);
+  const bonusHits = sum((o) => o.bonusHits);
+  const regenerationSavedCount = sum((o) => o.regenerationSavedCount);
+  const shredWounds = sum((o) => o.shredWounds ?? 0);
+  const apApplied = Math.max(0, ...results.map((r) => r.outcome.apApplied));
+  return {
+    attackCount: sum((o) => o.attackCount),
+    hitCount: sum((o) => o.hitCount),
+    ...(bonusHits > 0 ? { bonusHits } : {}),
+    blockedCount: sum((o) => o.blockedCount),
+    blockedRolls: results.flatMap((r) => r.outcome.blockedRolls),
+    ...(regenerationSavedCount > 0 ? { regenerationSavedCount } : {}),
+    wounds: sum((o) => o.wounds),
+    ...(shredWounds > 0 ? { shredWounds } : {}),
+    effectiveQuality: first?.effectiveQuality,
+    effectiveDefense: first?.effectiveDefense,
+    baseQuality: first?.baseQuality,
+    hitModifiers: first?.hitModifiers,
+    baseDefense: first?.baseDefense,
+    defenseModifiers: first?.defenseModifiers,
+    ...(first?.coverApplied ? { coverApplied: true } : {}),
+    ...(apApplied > 0 ? { apApplied } : {}),
+    meleeStrikes: results.map((r) => ({
+      weaponId: r.entry.weapon.id,
+      weaponName: r.entry.weapon.name,
+      targetId: r.targetId,
+      targetName: r.targetName,
+      attackCount: r.outcome.attackCount,
+      hitCount: r.outcome.hitCount,
+      ...(r.outcome.bonusHits > 0 ? { bonusHits: r.outcome.bonusHits } : {}),
+      blockedCount: r.outcome.blockedCount,
+      blockedRolls: r.outcome.blockedRolls,
+      ...(r.outcome.regenerationSavedCount > 0 ? { regenerationSavedCount: r.outcome.regenerationSavedCount } : {}),
+      wounds: r.outcome.wounds,
+      ...(r.outcome.shredWounds ? { shredWounds: r.outcome.shredWounds } : {}),
+      targetDestroyed: r.targetDestroyed,
+      targetShaken: r.targetShaken,
+      effectiveQuality: r.outcome.effectiveQuality,
+      effectiveDefense: r.outcome.effectiveDefense,
+      baseQuality: r.outcome.baseQuality,
+      hitModifiers: r.outcome.hitModifiers,
+      baseDefense: r.outcome.baseDefense,
+      defenseModifiers: r.outcome.defenseModifiers,
+      ...(r.outcome.apApplied > 0 ? { apApplied: r.outcome.apApplied } : {}),
+    })),
+  };
 }
 
 /** Move a charging unit (anchor and every living model) as one block so its anchor stands at `end`. */
@@ -4287,6 +4422,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   delete unit.hazardTestedPieceIds;
   resetModelMovement(unit);
   recordWoundBaseline(state);
+  delete state.turnState.attackedFrom;
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
   state.turnState.charge = null;
@@ -4339,6 +4475,7 @@ function finishActivation(state: GameState, dice?: DiceResult[], action?: GameAc
   delete state.turnState.woundBaseline;
   delete state.turnState.meleeUnitIds;
   delete state.turnState.meleePairs;
+  delete state.turnState.attackedFrom;
   advanceActivation(state);
   if (state.status !== 'game-over') startNextPush(state, action?.id ?? 'push', queue);
 }

@@ -1,5 +1,5 @@
 import type { Vector3 } from '../types';
-import type { Unit } from '../gameTypes';
+import type { Model, Unit } from '../gameTypes';
 import { UNIT_BASE_RADIUS } from './terrainStructure';
 
 /**
@@ -74,10 +74,20 @@ export const ENEMY_KEEP_AWAY_GAP = 1;
 // Per-model geometry (squads). `unit.position` is only an anchor; rules measure between models.
 // ---------------------------------------------------------------------------
 
-/** World position of every living model (a unit with no model list is one model at its anchor). */
-export function livingModelPositions(unit: Pick<Unit, 'position' | 'models'>): Vector3[] {
+/** True when `model` carries the weapon (a model with no `weaponIds` carries every weapon of its unit). */
+export function modelCarries(model: Pick<Model, 'weaponIds'>, weaponId: string): boolean {
+  return !model.weaponIds || model.weaponIds.includes(weaponId);
+}
+
+/**
+ * World position of every living model (a unit with no model list is one model at its anchor). With `weaponId`,
+ * only the living models that carry that weapon.
+ */
+export function livingModelPositions(unit: Pick<Unit, 'position' | 'models'>, weaponId?: string): Vector3[] {
   if (!unit.models || unit.models.length === 0) return [{ ...unit.position }];
-  return unit.models.filter((m) => !m.isDestroyed).map((m) => ({ ...(m.position ?? unit.position) }));
+  return unit.models
+    .filter((m) => !m.isDestroyed && (weaponId === undefined || modelCarries(m, weaponId)))
+    .map((m) => ({ ...(m.position ?? unit.position) }));
 }
 
 export interface ModelPair {
@@ -205,13 +215,14 @@ export function unitsInContact(a: ModelSource, b: ModelSource): boolean {
 /**
  * Number of `striker`'s living models that can strike `foe` in melee: within 3" (base edge, horizontal) and 4"
  * (vertical) of some living model of `foe`. Attacks are pooled by the caller (weapon attacks x this count).
+ * With `weaponId`, only the models that carry that weapon are counted.
  */
-export function strikingModelCount(striker: ModelSource, foe: ModelSource): number {
+export function strikingModelCount(striker: ModelSource, foe: ModelSource, weaponId?: string): number {
   const rS = baseRadius(striker);
   const rF = baseRadius(foe);
   const foePositions = livingModelPositions(foe);
   let count = 0;
-  for (const from of livingModelPositions(striker)) {
+  for (const from of livingModelPositions(striker, weaponId)) {
     if (
       foePositions.some(
         (to) =>

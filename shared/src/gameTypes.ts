@@ -70,6 +70,18 @@ export interface TurnState {
    * alternates (starting with the player who activates first); `currentPlayerId` is the player placing.
    */
   ambushStep?: AmbushStep | null;
+  /**
+   * Distances at which units were attacked during the current activation (unit id to the attacker's distance
+   * when a shot was fired or a charge was declared). Used by the end-of-activation Morale Test (Hold the Line).
+   * Cleared when the activation ends.
+   */
+  attackedFrom?: Record<string, AttackedFrom>;
+}
+
+/** How far away the active unit was from a target when it shot at it or started charging it. */
+export interface AttackedFrom {
+  shot?: number;
+  charged?: number;
 }
 
 /** The pre-activation Ambush placement step of a round. */
@@ -104,6 +116,12 @@ export interface Model {
   isDestroyed: boolean;
   position?: Vector3;
   rotation?: Vector3;
+  /**
+   * Ids of the weapons (of `Unit.weapons`) this model carries. Absent = it carries all of them (the unit has no
+   * per-model loadout). A weapon fires or strikes once per living model that carries it and qualifies; a model
+   * removed as a casualty takes its weapons with it.
+   */
+  weaponIds?: string[];
 }
 
 export interface WeaponProfile {
@@ -469,6 +487,8 @@ export interface MoraleTestRecord {
   roll?: number;
   /** Quality the roll had to meet (the Hero's when better). */
   effectiveQuality: number;
+  /** Net modifier added to the roll (e.g. +1 from Hold the Line); absent when 0. */
+  modifier?: number;
   /** Fearless die, rolled after a failed test. */
   fearlessRoll?: number;
   /** The attacker's push die (4+ lets them move a model of the unit this test just made Shaken). */
@@ -577,6 +597,11 @@ export interface DiceResolution {
     meleeResults?: MeleeResultRecord[];
     retaliation?: RetaliationOutcome;
     allocations?: WeaponAttackOutcome[];
+    /**
+     * Melee (charge, fight, strike-back, pile-in strike): one result per melee weapon that struck, in equipment
+     * order. The totals above are the sum over these entries.
+     */
+    meleeStrikes?: WeaponAttackOutcome[];
     /** Blast hits that spilled onto other enemy units near the target (totals above count the target only). */
     blastSplash?: BlastSplashOutcome[];
     /** Per Blast weapon: the multiplication and the split between units (for the dice panel). */

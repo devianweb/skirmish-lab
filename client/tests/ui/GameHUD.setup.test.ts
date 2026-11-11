@@ -345,7 +345,14 @@ describe('GameHUD setup: Ambush step', () => {
     const enemyModels = state.units.filter((u) => u.ownerId === GUEST && u.isDeployed).reduce((n, u) => n + u.models.length, 0);
     const circles = last().placement!.circles;
     expect(circles).toHaveLength(enemyModels);
-    expect(circles.every((c) => c.kind === 'exclusion' && c.radius === 10)).toBe(true);
+    expect(circles.every((c) => c.kind === 'exclusion')).toBe(true);
+    // 9" + both base radii around ordinary units, 12" + both radii around a unit with Repel Ambushers
+    const repelModels = state.units
+      .filter((u) => u.ownerId === GUEST && u.isDeployed && u.specialRules.includes('repel-ambushers'))
+      .reduce((n, u) => n + u.models.length, 0);
+    expect(repelModels).toBeGreaterThan(0);
+    expect(circles.filter((c) => c.radius === 13)).toHaveLength(repelModels);
+    expect(circles.filter((c) => c.radius === 10)).toHaveLength(enemyModels - repelModels);
     // The Ambush step has no shaded deployment zones
     expect(last().deploymentZones ?? null).toBeNull();
 

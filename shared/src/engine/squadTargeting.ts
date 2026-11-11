@@ -34,6 +34,7 @@ export interface FiringModel {
  * (3D line of sight from its eye; own squad-mates never block, other units' models do) and that same
  * target model is within the weapon's range by base-edge gap. An Indirect weapon needs range only while its
  * unit has not moved (a Hold); after moving it needs line of sight like any other weapon.
+ * Only living models that carry `weapon` are considered (per-model loadouts).
  * A target is valid when this list is non-empty; its length is the number of models whose attacks count.
  */
 export function firingModels(state: GameState, attacker: Unit, target: Unit, weapon: Weapon): FiringModel[] {
@@ -43,7 +44,7 @@ export function firingModels(state: GameState, attacker: Unit, target: Unit, wea
   const rT = baseRadius(target);
   const targetModels = livingModelPositions(target);
   const result: FiringModel[] = [];
-  for (const from of livingModelPositions(attacker)) {
+  for (const from of livingModelPositions(attacker, weapon.id)) {
     const shooter = modelAsUnit(attacker, from);
     const canFire = targetModels.some((to) => {
       if (modelGap(from, to, rA, rT) > range + 0.01) return false;
@@ -142,7 +143,7 @@ export function squadAim(
 
   const aims: ModelAim[] = [];
   const firing: FiringModel[] = [];
-  for (const shooter of livingModelPositions(attacker)) {
+  for (const shooter of livingModelPositions(attacker, weapon.id)) {
     const byDistance = [...targetModels].sort((a, b) => centreDistance(shooter, a) - centreDistance(shooter, b));
     // Preview only: aim at the clicked model when this shooter sees it in range, else the nearest visible.
     const visible = pickedPos && sees(shooter, pickedPos) ? pickedPos : byDistance.find((to) => sees(shooter, to));

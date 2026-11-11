@@ -22,8 +22,19 @@ export interface FighterDefinition {
   modelType: 'leader' | 'trooper' | 'specialist' | 'heavy';
   /** Number of models in the unit/squad (defaults to 1). */
   modelCount?: number;
-  weapons: string[];      // Weapon profile IDs
+  weapons: string[];      // Weapon profile IDs (the distinct weapons the unit carries)
+  /**
+   * Per-model weapon profile IDs, one list per model (length must equal `modelCount`). Absent = every model
+   * carries all of `weapons`. When present, the spawned unit's weapons are the distinct IDs across the lists
+   * and each model records its own in `Model.weaponIds`.
+   */
+  modelLoadouts?: string[][];
   specialRules: string[];
+}
+
+/** The distinct weapon IDs across a unit's per-model loadouts, in order of first appearance. */
+export function distinctLoadoutWeapons(loadouts: string[][]): string[] {
+  return [...new Set(loadouts.flat())];
 }
 
 export interface ArmyDefinition {
@@ -193,6 +204,10 @@ export function createUnitFromFighter(
 ): Unit {
   unitCounter += 1;
   const unitId = options.unitId ?? `unit-${unitCounter}`;
+  const loadouts = definition.modelLoadouts;
+  if (loadouts && loadouts.length !== (definition.modelCount ?? 1)) {
+    throw new Error(`${definition.id}: modelLoadouts has ${loadouts.length} entries for ${definition.modelCount ?? 1} models`);
+  }
   const baseStatus: UnitStatus[] = [];
 
   return {
@@ -221,9 +236,10 @@ export function createUnitFromFighter(
         isDestroyed: false,
         position: { ...pos },
         rotation: { x: 0, y: 0, z: 0 },
+        ...(loadouts ? { weaponIds: [...loadouts[idx]] } : {}),
       }));
     })(),
-    weapons: resolveWeapons(definition.weapons),
+    weapons: resolveWeapons(loadouts ? distinctLoadoutWeapons(loadouts) : definition.weapons),
     specialRules: [...definition.specialRules],
     hasMoved: false,
     hasAttacked: false,
@@ -584,7 +600,8 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
     ],
   },
   /**
-   * TEST force for checking setup by hand (14C-2 PR 9): two ordinary squads, two Scout squads (deploy now or hold
+   * TEST force for checking setup by hand (14C-2 PR 9): two ordinary squads (one, Test Guard, has Repel Ambushers and Hold the Line: enemy Ambush arrivals stay
+   * 12" away), two Scout squads (deploy now or hold
    * back) and two Ambush squads (arrive from round 2). Use it with the same army on both sides on any open map
    * (Standard Battlefield). Not a balanced army.
    */
@@ -621,7 +638,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         modelType: 'trooper',
         modelCount: 2,
         weapons: ['rifle', 'blade'],
-        specialRules: [],
+        specialRules: ['repel-ambushers', 'hold-the-line'],
       },
       {
         id: 'test-setup-scouts',
@@ -681,6 +698,55 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
       },
     ],
   },
+  /**
+   * TEST force for checking per-model loadouts and all-weapons melee by hand (14C-3 PR 1C): a 3-model squad where
+   * two models carry a Rifle and one a Frag Launcher (Blast), all three with a Blade, and one Leader-style model
+   * with a Power Sword and an Assault Rifle (it strikes with both). Use the same army on both sides on any open
+   * map (Standard Battlefield). Not a balanced army.
+   */
+  'test-loadouts-army': {
+    id: 'test-loadouts-army',
+    name: 'TEST: Loadouts Check',
+    factionId: 'test',
+    theme: 'Playtesting only: mixed per-model weapons and a model that strikes with two melee weapons',
+    totalPoints: 0,
+    fighters: [
+      {
+        id: 'test-loadout-squad',
+        name: 'Test Mixed Squad',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['rifle', 'blade', 'frag-launcher'],
+        modelLoadouts: [
+          ['rifle', 'blade'],
+          ['rifle', 'blade'],
+          ['frag-launcher', 'blade'],
+        ],
+        specialRules: [],
+      },
+      {
+        id: 'test-loadout-leader',
+        name: 'Test Two-Weapon Leader',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'leader',
+        modelCount: 1,
+        weapons: ['power-sword', 'assault-rifle'],
+        modelLoadouts: [['power-sword', 'assault-rifle']],
+        specialRules: [],
+      },
+    ],
+  },
   'test-army': {
     id: 'test-army',
     name: 'TEST: Single Runner (speed 24")',
@@ -700,6 +766,83 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         modelType: 'trooper',
         weapons: ['rifle', 'blade'],
         specialRules: [],
+      },
+    ],
+  },
+  /**
+   * Human Defense Force: the 400-pt Force Org list from the v3.6 army book (14C-3 PR 1D). Mixed squads carry
+   * per-model loadouts. Tough is per model, so a [3] squad with Tough(3) has 3 models of 3 wounds each.
+   */
+  hdf: {
+    id: 'hdf',
+    name: 'Human Defense Force',
+    factionId: 'hdf',
+    theme: 'Citizen soldiers of the human colonies: disciplined line infantry backed by a sharpshooter',
+    totalPoints: 400,
+    fighters: [
+      {
+        id: 'hdf-company-leader',
+        name: 'Company Leader',
+        faction: 'hdf',
+        points: 100,
+        quality: 4,
+        defense: 5,
+        wounds: 9,
+        speed: 6,
+        modelType: 'leader',
+        weapons: ['hand-weapon', 'pistol'],
+        specialRules: ['hero', 'hold-the-line', 'tough(9)'],
+      },
+      {
+        id: 'hdf-veterans',
+        name: 'Veterans',
+        faction: 'hdf',
+        points: 125,
+        quality: 4,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['strike', 'battle-rifle', 'grenade-launcher'],
+        modelLoadouts: [
+          ['strike', 'battle-rifle'],
+          ['strike', 'battle-rifle'],
+          ['strike', 'grenade-launcher'],
+        ],
+        specialRules: ['hold-the-line', 'tough(3)'],
+      },
+      {
+        id: 'hdf-infantry-squad',
+        name: 'Infantry Squad',
+        faction: 'hdf',
+        points: 120,
+        quality: 5,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['strike', 'plasma-rifle', 'plasma-pistol', 'sgt-hand-weapon', 'battle-rifle'],
+        modelLoadouts: [
+          ['strike', 'plasma-rifle'],
+          ['plasma-pistol', 'sgt-hand-weapon'],
+          ['strike', 'battle-rifle'],
+        ],
+        specialRules: ['hold-the-line', 'tough(3)'],
+      },
+      {
+        id: 'hdf-sniper',
+        name: 'Sniper',
+        faction: 'hdf',
+        points: 55,
+        quality: 5,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'specialist',
+        weapons: ['strike', 'sniper-rifle'],
+        specialRules: ['hold-the-line', 'scout', 'stealth', 'tough(3)'],
       },
     ],
   },
