@@ -4,8 +4,8 @@ import {
   MapValidationNotice,
   Objective,
   createBlankMap,
-  createBalancedObjectives,
   DEFAULT_BOARD_SIZE,
+  getDeploymentZoneDepth,
   MIN_BOARD_SIZE,
   MAX_BOARD_SIZE,
   GameState,
@@ -26,6 +26,36 @@ import {
 import { GameView, PickTarget } from '../renderer/GameView';
 import { ModelLoader } from '../renderer/ModelLoader';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
+
+/**
+ * Balanced objective markers for a board: one per quadrant, outside both deployment zones and more than 9" apart.
+ * Maps no longer define objectives (players place them in the game), so these are ignored when a map is played;
+ * this helper goes away with the editor's objective tool.
+ */
+function balancedEditorObjectives(board: { width: number; height: number }): Objective[] {
+  const innerEdge = board.height / 2 - getDeploymentZoneDepth(board.height);
+  const half = (v: number) => Math.round(v * 2) / 2;
+  const zo = half(Math.max(0, innerEdge - 3));
+  const xo = half(board.width / 4);
+  const candidates = [
+    { name: 'Objective Alpha', x: -xo, z: zo },
+    { name: 'Objective Bravo', x: xo, z: -zo },
+    { name: 'Objective Charlie', x: -xo, z: -zo },
+    { name: 'Objective Delta', x: xo, z: zo },
+  ];
+  const chosen: typeof candidates = [];
+  for (const c of candidates) {
+    if (Math.abs(c.z) >= innerEdge || Math.abs(c.x) > board.width / 2) continue;
+    if (chosen.every((o) => Math.hypot(o.x - c.x, o.z - c.z) > 9)) chosen.push(c);
+  }
+  return chosen.map((c) => ({
+    id: `objective-${c.name.split(' ')[1].toLowerCase()}`,
+    name: c.name,
+    position: { x: c.x, y: 0, z: c.z },
+    controllingPlayerId: null,
+    isContested: false,
+  }));
+}
 
 export interface MapEditorOptions {
   gameView?: GameView;
@@ -356,7 +386,7 @@ export class MapEditor {
   autoDistributeObjectives(): void {
     // Balanced objectives sized to the board, outside both deployment zones
     const board = this.currentMap.board ?? { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE };
-    this.currentMap.objectives = createBalancedObjectives(board);
+    this.currentMap.objectives = balancedEditorObjectives(board);
     this.validateCurrentMap();
     this.render();
     this.syncGameView();

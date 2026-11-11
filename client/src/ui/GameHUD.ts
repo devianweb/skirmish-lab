@@ -37,6 +37,7 @@ import {
   getEffectiveMaxMovement,
   getUnitTough,
   hasTrait,
+  getTraitValue,
   isPathDangerous,
   woundsToDestroy,
   getEffectiveSpeed,
@@ -3542,14 +3543,26 @@ export class GameHUD {
     const toastHtml = this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : '';
     const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}${toastHtml}</div>` : '';
 
+    const isObjectivesPhase = state.turnState.phase === 'objectives';
+    const isAmbushStep = Boolean(state.turnState.ambushStep);
     const isDeployPhase = state.turnState.phase === 'deployment';
-    const roundBadge = isDeployPhase
+    const roundBadge = isObjectivesPhase
+      ? `<span class="sl-hud-round" style="background: #ffd54f; color: #12161c; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Objectives</span>`
+      : isDeployPhase
       ? `<span class="sl-hud-round" style="background: #ffd54f; color: #12161c; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Deployment</span>`
-      : `<span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4</span>`;
+      : `<span class="sl-hud-round">Round ${state.turnState.roundNumber} / 4${isAmbushStep ? ' · Ambush' : ''}</span>`;
 
     const turnLabel =
       state.status === 'game-over'
         ? this.gameOverText(opponentName)
+        : isObjectivesPhase
+        ? this.myTurn
+          ? 'Your turn to place an objective'
+          : `${opponentName}'s turn to place an objective`
+        : isAmbushStep
+        ? this.myTurn
+          ? 'Your turn to place Ambush units'
+          : `${opponentName}'s turn to place Ambush units`
         : isDeployPhase
         ? this.myTurn
           ? 'Your turn to deploy'
@@ -3820,12 +3833,38 @@ export class GameHUD {
       </div>`;
   }
 
-  /** "X took 3 wounds, Y took 1 (+1 Fear): X loses" for one melee result. */
+  /** "Alice's X" for a unit: the owner's name in front, so two units sharing a name stay apart in a mirror match. */
+  private ownedUnitLabel(unitId: string, fallbackName: string): string {
+    const unit = this.state?.units.find((u) => u.id === unitId);
+    const owner = unit ? this.state?.players.find((p) => p.id === unit.ownerId) : undefined;
+    const ownerName = owner?.name ?? (unit ? (unit.ownerId === this.state?.hostId ? 'Host' : 'Guest') : '');
+    return ownerName ? `${ownerName}'s ${fallbackName}` : fallbackName;
+  }
+
+  /**
+   * "Alice's X took 3 wounds, Bob's Y took 1 (+2 Fear from Alice's 2 models in reach): Bob's Y loses" for one
+   * melee result. Each unit is prefixed with its owner; Fear names the owner of the Fear unit and the number of its
+   * models that were in reach (the bonus divided by the Fear value).
+   */
   private meleeResultText(r: MeleeResultRecord): string {
-    const side = (x: MeleeResultRecord['sides'][number]) =>
-      `${x.unitName} took ${x.wounds} wound${x.wounds === 1 ? '' : 's'}${x.fearBonus ? ` (+${x.fearBonus} Fear)` : ''}`;
+    const state = this.state;
+    const side = (x: MeleeResultRecord['sides'][number], other: MeleeResultRecord['sides'][number]) => {
+      let fear = '';
+      if (x.fearBonus) {
+        const fearUnit = state?.units.find((u) => u.id === other.unitId);
+        const fearValue = fearUnit ? (getTraitValue(fearUnit.specialRules, 'fear') ?? 0) : 0;
+        const models = fearValue > 0 ? Math.round(x.fearBonus / fearValue) : 0;
+        const owner = fearUnit ? (state?.players.find((p) => p.id === fearUnit.ownerId)?.name ?? '') : '';
+        fear =
+          models > 0 && owner
+            ? ` (+${x.fearBonus} Fear from ${owner}'s ${models} model${models === 1 ? '' : 's'} in reach)`
+            : ` (+${x.fearBonus} Fear)`;
+      }
+      return `${this.ownedUnitLabel(x.unitId, x.unitName)} took ${x.wounds} wound${x.wounds === 1 ? '' : 's'}${fear}`;
+    };
     const loser = r.sides.find((x) => x.unitId === r.loserId);
-    return `${side(r.sides[0])}, ${side(r.sides[1])}: ${loser ? `${loser.unitName} loses` : 'tied, nobody tests Morale'}`;
+    const verdict = loser ? `${this.ownedUnitLabel(loser.unitId, loser.unitName)} loses` : 'tied, nobody tests Morale';
+    return `${side(r.sides[0], r.sides[1])}, ${side(r.sides[1], r.sides[0])}: ${verdict}`;
   }
 
   private meleeResultsHtml(results: MeleeResultRecord[]): string {
@@ -4225,22 +4264,53 @@ export class GameHUD {
         const hazards = entry.dice?.outcome.traversal;
         const hazardText = hazards && hazards.length > 0 ? ` — ${hazards.map((e) => e.text).join('; ')}` : '';
         const morale = entry.dice?.outcome.moraleTests;
-        const moraleText =
+        const moraleLine =
           morale && morale.length > 0
-            ? ` — Morale: ${morale
-                .map((t) => `${t.unitName} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
-                .join(', ')}`
+            ? `<div class="sl-hud-log-sub">Morale: ${morale
+                .map((t) => `${this.ownedUnitLabel(t.unitId, t.unitName)} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
+                .join(', ')}</div>`
             : '';
         const melee = entry.dice?.outcome.meleeResults;
-        const meleeText = melee && melee.length > 0 ? ` — ${melee.map((r) => this.meleeResultText(r)).join('; ')}` : '';
+        const meleeLines =
+          melee && melee.length > 0
+            ? melee.map((r) => `<div class="sl-hud-log-sub">Melee: ${this.meleeResultText(r)}</div>`).join('')
+            : '';
         const specialText = entry.dice ? this.specialStrikeLines(entry.dice.outcome).map((l) => ` — ${l}`).join('') : '';
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${specialText}${meleeText}${moraleText}</div>`;
+        const setupText = entry.dice ? this.setupRollText(entry.dice.outcome) : '';
+        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${specialText}${setupText}${meleeLines}${moraleLine}</div>`;
       })
       .join('');
   }
 
+  /** The objective count roll and roll-off results of a setup action, as short text for the log. */
+  private setupRollText(outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome']): string {
+    const parts: string[] = [];
+    if (outcome.objectiveCount) {
+      parts.push(`rolled a ${outcome.objectiveCount.roll}: ${outcome.objectiveCount.count} objectives`);
+    }
+    const off = outcome.rollOff;
+    if (off) {
+      const winner = this.state?.players.find((p) => p.id === off.winnerId)?.name ?? 'Player';
+      const label = off.kind === 'mission' ? 'Mission roll-off (first objective)' : 'Deployment roll-off (deploys and activates first)';
+      const how =
+        off.decidingPair === null
+          ? 'all ten pairs tied, the Host wins'
+          : `pair ${off.decidingPair + 1}: ${off.hostRolls[off.decidingPair]} against ${off.guestRolls[off.decidingPair]}`;
+      parts.push(`${label}: ${winner} wins (${how})`);
+    }
+    return parts.map((p) => ` — ${p}`).join('');
+  }
+
   private logVerb(action: GameAction): string {
     switch (action.type) {
+      case 'roll-objectives':
+        return 'rolled for the objectives';
+      case 'place-objective':
+        return 'placed an objective';
+      case 'hold-scout':
+        return `held back ${this.unitName((action.payload as any).unitId)} as a Scout`;
+      case 'skip-ambush':
+        return 'declined to place Ambush units this round';
       case 'deploy-unit':
         return `deployed ${this.unitName((action.payload as any).unitId)}`;
       case 'activate-unit':
@@ -4394,6 +4464,22 @@ export class GameHUD {
               <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
               <button class="sl-hud-btn" data-action="cancel">Cancel</button>
             </div>
+          </div>
+        </div>`;
+    }
+
+    if (this.state.turnState.phase === 'objectives') {
+      const count = this.state.setupRolls?.objectiveCount;
+      const placed = (this.state.objectives ?? []).length;
+      // The placement controls arrive with the objective placement HUD; until then the phase is only announced
+      const text =
+        count === undefined
+          ? 'Rolling for the number of objectives and who places first...'
+          : `Objectives: ${placed} of ${count} placed — ${this.myTurn ? 'your turn to place' : 'waiting for opponent to place'}`;
+      return `
+        <div class="sl-hud-bottom-dock">
+          <div class="sl-hud-bottom sl-hud-deployment-bar" style="display: flex; align-items: center; justify-content: center; padding: 12px 20px; background: rgba(18, 22, 28, 0.95); border: 1px solid #ffd54f; border-radius: 8px;">
+            <span class="sl-hud-deploy-prompt" style="font-size: 14px; color: #e0e6ed;">${text}</span>
           </div>
         </div>`;
     }
@@ -5590,7 +5676,7 @@ export class GameHUD {
           ? this.state.units.find((u) => u.id === this.selectedDeployUnitId)
           : null) ?? deployable[0];
 
-      if (this.myTurn && currentDeployUnit && hasTrait(currentDeployUnit.specialRules, 'scout')) {
+      if (this.myTurn && currentDeployUnit?.heldAsScout) {
         const vBounds = getDeploymentZoneBounds(this.state, currentDeployUnit.ownerId, true);
         previewUnitZone = {
           ...vBounds,
@@ -6064,6 +6150,7 @@ export class GameHUD {
 .sl-hud-dice-summary { font-size: 12px; color: #b0bec5; margin-top: 4px; }
 .sl-hud-dice-empty, .sl-hud-log-empty { color: #607d8b; font-size: 12px; }
 .sl-hud-log-entry { font-size: 12px; color: #b0bec5; padding: 2px 0; }
+.sl-hud-log-sub { padding-left: 14px; color: #90a4ae; }
 .sl-hud-keepaway-legend { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%);
   background: rgba(38,50,56,0.92); color: #ffcdd2; border: 1px solid #e53935; border-radius: 8px;
   padding: 6px 12px; font-size: 12px; pointer-events: none; max-width: 520px; text-align: center; }

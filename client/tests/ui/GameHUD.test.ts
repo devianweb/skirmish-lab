@@ -699,6 +699,7 @@ describe('GameHUD', () => {
     const state = scenarioState();
     const [a] = state.units.filter((u) => u.ownerId === GUEST);
     const h = state.units.find((u) => u.ownerId === HOST)!;
+    a.specialRules = [...a.specialRules, 'fear(1)']; // Alpha's Fear is what counts against Bravo
     const action = createAction(HOST, 'end-activation', { type: 'end-activation' });
     state.actionLog.push({
       action,
@@ -728,7 +729,56 @@ describe('GameHUD', () => {
       },
     });
     const { container } = setup(GUEST, state);
-    expect(container.textContent).toContain('Alpha took 3 wounds, Bravo took 1 wound (+1 Fear): Alpha loses');
+    // Both units are named with their owner (a mirror match gives them the same name)
+    const guestName = state.players.find((p) => p.id === GUEST)!.name;
+    const hostName = state.players.find((p) => p.id === HOST)!.name;
+    expect(container.textContent).toContain(
+      `${guestName}'s Alpha took 3 wounds, ${hostName}'s Bravo took 1 wound (+1 Fear from ${guestName}'s 1 model in reach): ${guestName}'s Alpha loses`
+    );
+  });
+
+  it('spells out how many Fear models were in reach, and puts the melee line under the activation entry', () => {
+    const state = scenarioState();
+    const guestUnit = state.units.find((u) => u.ownerId === GUEST)!;
+    const hostUnit = state.units.find((u) => u.ownerId === HOST)!;
+    hostUnit.specialRules = [...hostUnit.specialRules, 'fear(2)'];
+    guestUnit.name = hostUnit.name; // a mirror match: both units share a name
+    const action = createAction(HOST, 'end-activation', { type: 'end-activation' });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [],
+        results: [],
+        context: { attackerId: hostUnit.id, targetId: hostUnit.id, actionId: action.id },
+        outcome: {
+          attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, targetDestroyed: false,
+          meleeResults: [
+            {
+              sides: [
+                { unitId: guestUnit.id, unitName: guestUnit.name, wounds: 2, fearBonus: 6 }, // 3 models x Fear(2)
+                { unitId: hostUnit.id, unitName: hostUnit.name, wounds: 5 },
+              ],
+              loserId: hostUnit.id,
+            },
+          ],
+        },
+      },
+    });
+    const { container } = setup(GUEST, state);
+    const hostName = state.players.find((p) => p.id === HOST)!.name;
+    const guestName = state.players.find((p) => p.id === GUEST)!.name;
+    const text = container.textContent ?? '';
+    expect(text).toContain(`(+6 Fear from ${hostName}'s 3 models in reach)`);
+    expect(text).toContain(`${guestName}'s ${hostUnit.name} took 2 wounds`);
+    expect(text).toContain(`${hostName}'s ${hostUnit.name} took 5 wounds`);
+    // Own indented line below the "ended an activation" entry, not appended to it
+    const entry = Array.from(container.querySelectorAll('.sl-hud-log-entry')).find((e) => e.textContent?.includes('ended an activation'))!;
+    const sub = entry.querySelector('.sl-hud-log-sub');
+    expect(sub?.textContent).toContain('Melee:');
+    expect(entry.firstChild?.textContent).toContain('ended an activation');
   });
 
   it('surfaces host rejections and stops waiting', () => {
@@ -1634,6 +1684,8 @@ describe('GameHUD', () => {
         guestArmyId: 'rust-raiders-starter',
         useDeploymentPhase: true,
       });
+      // The objectives phase (rolls and placement) is covered by the shared tests: start at deployment
+      state.turnState.phase = 'deployment';
       return state;
     }
 

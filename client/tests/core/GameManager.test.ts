@@ -238,6 +238,44 @@ describe('GameManager', () => {
       );
     });
 
+    it('rolls the objective count and mission roll-off through the server dice as soon as a deployment game starts', async () => {
+      const rolls = (first: number) => Array.from({ length: 10 }, () => [first, 1]).flat();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'objective-count' },
+          { rolls: rolls(5), total: 0, finalTotal: 0, purpose: 'mission-roll-off' },
+        ]),
+      };
+      const manager = new GameManager(mockWebRTC, true, { diceProvider });
+      manager.startGame('Host', 'Guest', { useDeploymentPhase: true });
+      await new Promise((r) => setTimeout(r, 0));
+
+      const [, specs] = diceProvider.requestRoll.mock.calls[0];
+      expect(specs).toEqual([
+        { count: 1, sides: 6, purpose: 'objective-count' },
+        { count: 20, sides: 6, purpose: 'mission-roll-off' },
+      ]);
+      const state = manager.getGameState()!;
+      expect(state.turnState.phase).toBe('objectives');
+      expect(state.setupRolls?.objectiveCount).toBe(5);
+      expect(state.setupRolls?.missionRollOff?.winnerId).toBe(HOST_PLAYER_ID);
+      expect(state.turnState.currentPlayerId).toBe(HOST_PLAYER_ID);
+      // Broadcast to the guest with the rolls in the log entry
+      expect(mockWebRTC.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'state-update', state: expect.objectContaining({ setupRolls: expect.anything() }) })
+      );
+      // Not rolled again
+      expect(diceProvider.requestRoll).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not roll objectives for a game without the deployment phase', async () => {
+      const diceProvider = { requestRoll: vi.fn() };
+      const manager = new GameManager(mockWebRTC, true, { diceProvider });
+      manager.startGame('Host', 'Guest', {});
+      await new Promise((r) => setTimeout(r, 0));
+      expect(diceProvider.requestRoll).not.toHaveBeenCalled();
+    });
+
     it('requests server dice for the dangerous terrain test of a unit (a die per wound to destroy it) standing in a hazard pool', async () => {
       const diceProvider = {
         requestRoll: vi.fn().mockResolvedValue([{ rolls: [1, 5, 5], total: 11, finalTotal: 11, purpose: 'hazard_pool' }]),
@@ -1356,6 +1394,10 @@ describe('GameManager', () => {
       // Set round 4 and position units so Host controls 1 objective and Guest controls 0
       const patched = host.getGameState()!;
       patched.turnState.roundNumber = 4;
+      // Objectives are placed by the players now: put one marker down directly
+      patched.objectives = [
+        { id: 'objective-1', name: 'Objective 1', position: { x: -10, y: 0, z: -4 }, controllingPlayerId: null, isContested: false },
+      ];
       // Host unit at Objective Alpha (-10, 0, -4)
       patched.units[0].position = { x: -10, y: 0, z: -4 };
       if (patched.units[0].models) {

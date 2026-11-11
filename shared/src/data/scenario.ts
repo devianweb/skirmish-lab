@@ -1,4 +1,4 @@
-import { GameState, MatchSetup, Objective, TerrainPiece, Unit } from '../gameTypes';
+import { GameState, MatchSetup, Objective, SetupRolls, TerrainPiece, Unit } from '../gameTypes';
 import {
   ARMY_FRONTIER_WARDENS,
   ARMY_RUST_RAIDERS,
@@ -6,7 +6,7 @@ import {
   createUnitFromFighter,
   createUnitsFromStarterArmy,
 } from './armies';
-import { CustomMapDefinition, DEFAULT_BOARD_SIZE, getDeploymentZoneDepth } from './mapSchema';
+import { CustomMapDefinition, DEFAULT_BOARD_SIZE } from './mapSchema';
 import { settleSpawnPositions } from '../engine/activation';
 
 /**
@@ -49,91 +49,19 @@ export function createDefaultScenarioUnits(hostId: string, guestId: string): Uni
   ];
 }
 
-/**
- * Create default scenario objective markers.
- * Standard skirmish rules place 3 to 5 objectives outside deployment zones
- * and > 9" apart from each other.
- *
- * Here we provide 4 balanced objectives in open ground:
- *   - Alpha:   x: -10, z: -4
- *   - Bravo:   x:  10, z:  4
- *   - Charlie: x:  -4, z:  5
- *   - Delta:   x:   4, z: -5
- *
- * Pairwise distances: min 10.82" (all > 9"), all within z: -5..5 (outside
- * deployment zones at z = ±12), and positioned with clearance from obstacles.
- */
-export function createDefaultScenarioObjectives(): Objective[] {
-  return [
-    {
-      id: 'objective-alpha',
-      name: 'Objective Alpha',
-      position: { x: -10, y: 0, z: -4 },
-      controllingPlayerId: null,
-      isContested: false,
-    },
-    {
-      id: 'objective-bravo',
-      name: 'Objective Bravo',
-      position: { x: 10, y: 0, z: 4 },
-      controllingPlayerId: null,
-      isContested: false,
-    },
-    {
-      id: 'objective-charlie',
-      name: 'Objective Charlie',
-      position: { x: -4, y: 0, z: 5 },
-      controllingPlayerId: null,
-      isContested: false,
-    },
-    {
-      id: 'objective-delta',
-      name: 'Objective Delta',
-      position: { x: 4, y: 0, z: -5 },
-      controllingPlayerId: null,
-      isContested: false,
-    },
-  ];
-}
-
 export interface ScenarioOptions {
   hostArmyId?: string;
   guestArmyId?: string;
   useDeploymentPhase?: boolean;
   customMap?: CustomMapDefinition;
+  /**
+   * A rematch replays the same game: the objectives already placed and both roll-off results are kept, so the
+   * match starts straight in deployment (with the same player deploying first).
+   */
+  restoreSetup?: { objectives: Objective[]; setupRolls: SetupRolls };
 }
 
-/**
- * Balanced objectives for a board of the given size: four markers, one per quadrant, at +-25% of the width and
- * 3" inside each deployment zone's inner edge. Every marker is outside both zones and more than 9" from every other;
- * candidates that would break that (tiny boards) are dropped, so the result may have fewer markers.
- */
-export function createBalancedObjectives(board: { width: number; height: number }): Objective[] {
-  const innerEdge = board.height / 2 - getDeploymentZoneDepth(board.height); // |z| of the zone's inner edge
-  const half = (v: number) => Math.round(v * 2) / 2;
-  const zo = half(Math.max(0, innerEdge - 3));
-  const xo = half(board.width / 4);
-  const candidates = [
-    { name: 'Objective Alpha', x: -xo, z: zo },
-    { name: 'Objective Bravo', x: xo, z: -zo },
-    { name: 'Objective Charlie', x: -xo, z: -zo },
-    { name: 'Objective Delta', x: xo, z: zo },
-  ];
-  const chosen: typeof candidates = [];
-  for (const c of candidates) {
-    if (Math.abs(c.z) >= innerEdge || Math.abs(c.x) > board.width / 2) continue;
-    if (chosen.every((o) => Math.hypot(o.x - c.x, o.z - c.z) > 9)) chosen.push(c);
-  }
-  return chosen.map((c) => ({
-    id: `objective-${c.name.split(' ')[1].toLowerCase()}`,
-    name: c.name,
-    position: { x: c.x, y: 0, z: c.z },
-    controllingPlayerId: null,
-    isContested: false,
-  }));
-}
-
-/** Empty 48"x48" battlefield with the standard objectives — the default when no custom map is chosen. */
+/** Empty 48"x48" battlefield — the default when no custom map is chosen. */
 export function createBlankMap(): CustomMapDefinition {
   return {
     id: 'blank',
@@ -141,7 +69,6 @@ export function createBlankMap(): CustomMapDefinition {
     version: 1,
     board: { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE },
     terrain: [],
-    objectives: createDefaultScenarioObjectives(),
   };
 }
 
@@ -176,13 +103,6 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     rotation: { ...t.rotation },
     scale: { ...t.scale },
   }));
-  const mapObjectives = (selectedMap.objectives ?? createDefaultScenarioObjectives()).map((o) => ({
-    ...o,
-    position: { ...o.position },
-    controllingPlayerId: o.controllingPlayerId ?? null,
-    isContested: o.isContested ?? false,
-  }));
-
   if (options.useDeploymentPhase) {
     const hostForce = hostStarter ?? STARTER_ARMIES['frontier-wardens-starter'];
     const guestForce = guestStarter ?? STARTER_ARMIES['rust-raiders-starter'];
@@ -201,12 +121,29 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     state.units = [...hostUnits, ...guestUnits];
     state.terrain = mapTerrain;
     state.markers = [];
-    state.objectives = mapObjectives;
     state.status = 'in-progress';
-    state.turnState.phase = 'deployment';
     state.turnState.roundNumber = 0;
-    state.turnState.startingPlayerId = state.hostId;
-    state.turnState.currentPlayerId = state.hostId;
+    const restored = options.restoreSetup;
+    const firstDeployer = restored?.setupRolls.deploymentRollOff?.winnerId;
+    if (restored && firstDeployer) {
+      // Rematch: same objectives and roll-offs, no objectives phase
+      state.objectives = restored.objectives.map((o) => ({
+        ...o,
+        position: { ...o.position },
+        controllingPlayerId: null,
+        isContested: false,
+      }));
+      state.setupRolls = JSON.parse(JSON.stringify(restored.setupRolls));
+      state.turnState.phase = 'deployment';
+      state.turnState.startingPlayerId = firstDeployer;
+      state.turnState.currentPlayerId = firstDeployer;
+    } else {
+      // The players roll for the objective count and place the markers before anyone deploys
+      state.objectives = [];
+      state.turnState.phase = 'objectives';
+      state.turnState.startingPlayerId = state.hostId;
+      state.turnState.currentPlayerId = state.hostId;
+    }
     state.turnState.activeUnitId = null;
     state.turnState.unitsActivatedThisRound = [];
     return;
@@ -233,7 +170,8 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
 
   state.terrain = mapTerrain;
   state.markers = [];
-  state.objectives = mapObjectives;
+  // Without a deployment phase there is no objectives phase either: the match starts without markers
+  state.objectives = [];
   state.status = 'in-progress';
   state.turnState.phase = 'activation';
 }

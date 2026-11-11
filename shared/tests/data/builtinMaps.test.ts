@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../../src/gameState';
 import { GameState, TerrainPiece, Unit, Vector3 } from '../../src/gameTypes';
 import { BUILTIN_MAPS, createStandardBattlefieldMap } from '../../src/data/builtinMaps';
-import { applyDefaultScenario, createBalancedObjectives } from '../../src/data/scenario';
+import { applyDefaultScenario } from '../../src/data/scenario';
 import { TERRAIN_PALETTE_CATALOG, CustomMapDefinition } from '../../src/data/mapSchema';
 import { WEAPONS } from '../../src/data/weapons';
 import { getDeploymentZoneBounds } from '../../src/engine/activation';
@@ -179,11 +179,11 @@ describe('Standard Battlefield: data integrity', () => {
     expect(problems).toEqual([]);
   });
 
-  it('takes its objectives from createBalancedObjectives for 48x48', () => {
-    expect(map.objectives).toEqual(createBalancedObjectives({ width: 48, height: 48 }));
+  it('defines no objectives (the players place them after the roll-offs)', () => {
+    expect(map.objectives ?? []).toEqual([]);
   });
 
-  it('applyDefaultScenario copies the board, terrain and objectives (no shared references)', () => {
+  it('applyDefaultScenario copies the board and terrain (no shared references)', () => {
     const source: CustomMapDefinition = createStandardBattlefieldMap();
     const state = createInitialGameState(HOST, GUEST);
     applyDefaultScenario(state, { customMap: source });
@@ -191,11 +191,8 @@ describe('Standard Battlefield: data integrity', () => {
     expect(state.board.height).toBe(48);
     expect(state.terrain).toHaveLength(source.terrain.length);
     expect(state.terrain).toEqual(source.terrain);
-    expect(state.objectives).toHaveLength(source.objectives!.length);
     state.terrain[0].position.x += 5;
-    state.objectives[0].position.x += 5;
     expect(source.terrain[0].position.x).not.toBe(state.terrain[0].position.x);
-    expect(source.objectives![0].position.x).not.toBe(state.objectives[0].position.x);
   });
 });
 
@@ -257,28 +254,6 @@ describe('Standard Battlefield: spacing', () => {
     expect(decks).toHaveLength(2);
     for (const d of decks) expect(pieceGap(d, catwalk), d.id).toBeLessThan(1e-6);
   });
-
-  it('puts every objective on the ground, outside both zones, clear of pieces and obstacles', () => {
-    const state = stateWithMap();
-    const zones = [getDeploymentZoneBounds(state, HOST), getDeploymentZoneBounds(state, GUEST)];
-    const problems: string[] = [];
-    for (const o of map.objectives!) {
-      if ((o.position.y ?? 0) !== 0) problems.push(`${o.id}: not on the ground`);
-      for (const z of zones) {
-        if (o.position.x >= z.minX && o.position.x <= z.maxX && o.position.z >= z.minZ && o.position.z <= z.maxZ) {
-          problems.push(`${o.id}: inside a deployment zone`);
-        }
-      }
-      for (const p of map.terrain) {
-        if (pointInPiece(p, o.position)) problems.push(`${o.id}: inside ${p.id}`);
-      }
-      for (const p of obstacles) {
-        const d = pointToPieceDistance(o.position, p);
-        if (d < 1.5) problems.push(`${o.id}: ${d.toFixed(2)}" from ${p.id}`);
-      }
-    }
-    expect(problems).toEqual([]);
-  });
 });
 
 describe('Standard Battlefield: access fittings', () => {
@@ -321,19 +296,27 @@ describe('Standard Battlefield: access fittings', () => {
 });
 
 describe('Standard Battlefield: traversal sweep', () => {
+  // Open ground in each quadrant, just outside the zones (where players are likely to put objectives)
+  const quadrantSpots: Vector3[] = [
+    { x: -12, y: 0, z: 9 },
+    { x: 12, y: 0, z: -9 },
+    { x: -12, y: 0, z: -9 },
+    { x: 12, y: 0, z: 9 },
+  ];
   const zones: Array<[string, Vector3]> = [
     ['host zone', { x: 0, y: 0, z: -20 }],
     ['guest zone', { x: 0, y: 0, z: 20 }],
   ];
 
   for (const [label, from] of zones) {
-    it(`reaches every objective from the ${label} without jumps`, () => {
+    it(`reaches open ground in every quadrant from the ${label} without jumps`, () => {
       const state = stateWithMap();
       const problems: string[] = [];
-      for (const o of map.objectives!) {
-        const r = walkable(state, from, o.position);
-        if (!r.arrived) problems.push(`${o.id}: stopped at (${r.end.x}, ${r.end.z})`);
-        else if (!r.noJump) problems.push(`${o.id}: needs a jump`);
+      for (const spot of quadrantSpots) {
+        const r = walkable(state, from, spot);
+        const id = `(${spot.x}, ${spot.z})`;
+        if (!r.arrived) problems.push(`${id}: stopped at (${r.end.x}, ${r.end.z})`);
+        else if (!r.noJump) problems.push(`${id}: needs a jump`);
       }
       expect(problems).toEqual([]);
     });

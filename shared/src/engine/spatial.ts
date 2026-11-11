@@ -498,7 +498,7 @@ export function findKeepAwayViolation(
   ignoreUnitId?: string
 ): { unitId: string } | null {
   for (const other of state.units) {
-    if (other.isDestroyed || other.id === unitId || other.id === ignoreUnitId) continue;
+    if (other.isDestroyed || other.isDeployed === false || other.id === unitId || other.id === ignoreUnitId) continue;
     for (const pos of livingModelPositions(other)) {
       const limit = keepAwayLimitGap(keepAwayGap3D(start, pos));
       if (keepAwayGap3D(point, pos) < limit - KEEP_AWAY_TOLERANCE) {
@@ -693,7 +693,7 @@ export function findMoveBlocker(
     }
 
     for (const other of state.units) {
-      if (other.isDestroyed || other.id === movingUnit.id) continue;
+      if (other.isDestroyed || other.isDeployed === false || other.id === movingUnit.id) continue;
       const isIgnored = other.id === options.ignoreUnitId;
       const otherModels = other.models && other.models.length > 0
         ? other.models.filter((m) => !m.isDestroyed)
@@ -756,7 +756,7 @@ function findFlyerStopBlocker(
   const to = path[path.length - 1];
   const toY = to.y ?? 0;
   for (const other of state.units) {
-    if (other.isDestroyed || other.id === movingUnit.id || other.id === options.ignoreUnitId) continue;
+    if (other.isDestroyed || other.isDeployed === false || other.id === movingUnit.id || other.id === options.ignoreUnitId) continue;
     for (const m of livingModelPositions(other)) {
       // Physical overlap only counts at a similar height; the 1" keep-away is measured in 3D
       const endDist = Math.hypot(to.x - m.x, to.z - m.z);
@@ -900,7 +900,7 @@ export function clampMoveDestinationWithObstacles(
     }
 
     for (const other of state.units) {
-      if (other.isDestroyed || other.id === unit.id) continue;
+      if (other.isDestroyed || other.isDeployed === false || other.id === unit.id) continue;
       const otherY = other.position.y ?? 0;
       if (minVerticalOffset(startY, y, otherY) >= TIER_OVERLAP_DY) {
         continue;
@@ -1137,7 +1137,7 @@ export function findEndOverlap(state: GameState, unitId: string, point: Vector3)
     }
   }
   for (const other of state.units) {
-    if (other.isDestroyed || other.id === unitId) continue;
+    if (other.isDestroyed || other.isDeployed === false || other.id === unitId) continue;
     const models =
       other.models && other.models.length > 0
         ? other.models.filter((m) => !m.isDestroyed).map((m) => m.position ?? other.position)
@@ -1299,7 +1299,7 @@ function unitBlockingSegment(
   const dirX = dx / dist;
   const dirZ = dz / dist;
   for (const other of state.units) {
-    if (other.isDestroyed || other.id === attackerId || other.id === targetId) continue;
+    if (other.isDestroyed || other.isDeployed === false || other.id === attackerId || other.id === targetId) continue;
     const otherModels =
       other.models && other.models.length > 0
         ? other.models.filter((m) => !m.isDestroyed)
@@ -1806,7 +1806,7 @@ export function computeLosVisibilityPolygon(
 
   // Add tangent angles of other living units for crisp unit shadows.
   for (const other of state.units) {
-    if (other.isDestroyed || other.id === attackerId) continue;
+    if (other.isDestroyed || other.isDeployed === false || other.id === attackerId) continue;
     const dx = other.position.x - origin.x;
     const dz = other.position.z - origin.z;
     const d = Math.hypot(dx, dz);
@@ -1880,7 +1880,7 @@ export function computeLosVisibilityPolygon(
     }
 
     for (const other of state.units) {
-      if (other.isDestroyed || other.id === attackerId) continue;
+      if (other.isDestroyed || other.isDeployed === false || other.id === attackerId) continue;
       const hit = intersectRayCircle(
         origin,
         dirX,
@@ -2661,7 +2661,7 @@ export function findNavPath(
 
   // 3d. Other fighters clearance
   for (const other of state.units) {
-    if (other.isDestroyed || other.id === unit.id || other.id === options.ignoreUnitId) {
+    if (other.isDestroyed || other.isDeployed === false || other.id === unit.id || other.id === options.ignoreUnitId) {
       continue;
     }
     // Corners of an octagon round the keep-away circle, so legs between them stay outside it

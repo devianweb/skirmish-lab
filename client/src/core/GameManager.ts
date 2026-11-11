@@ -136,6 +136,7 @@ export class GameManager {
     this.emitStateUpdate();
     if (this.isHost) {
       this.broadcastState('state-restored');
+      this.beginObjectivesIfNeeded();
     }
   }
 
@@ -247,6 +248,19 @@ export class GameManager {
     this.syncReactionTimer();
     this.broadcastState('game-start');
     this.emitStateUpdate();
+    this.beginObjectivesIfNeeded();
+  }
+
+  /**
+   * Host only: the objectives phase opens with the server-rolled objective count and mission roll-off. Nobody
+   * clicks for that, so the host submits it as soon as the phase starts (new match, rematch or a restored game).
+   */
+  private beginObjectivesIfNeeded(): void {
+    const state = this.gameState;
+    if (!this.isHost || !state || this.pendingActionId || !this.diceProvider) return;
+    if (state.status !== 'in-progress') return;
+    if (state.turnState.phase !== 'objectives' || state.setupRolls?.objectiveCount !== undefined) return;
+    void this.processAction(createAction(state.hostId, 'roll-objectives', { type: 'roll-objectives' }));
   }
 
   initializeGame(
@@ -337,6 +351,8 @@ export class GameManager {
       this.pendingActionId = null;
     }
     this.drainQueuedConcedes();
+    // A rematch can start over in the objectives phase (when the first match never got past it)
+    if (action.type === 'request-rematch') this.beginObjectivesIfNeeded();
   }
 
   private drainQueuedConcedes(): void {

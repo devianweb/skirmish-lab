@@ -2,9 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState, HOST_PLAYER_ID, GUEST_PLAYER_ID } from '../../src/gameState';
 import {
   applyDefaultScenario,
-  createBalancedObjectives,
   createBlankMap,
-  createDefaultScenarioObjectives,
   createDefaultScenarioUnits,
 } from '../../src/data/scenario';
 import {
@@ -94,7 +92,7 @@ describe('scenario data pack', () => {
     expect(state.turnState.phase).toBe('activation');
     expect(state.units).toHaveLength(10);
     expect(state.terrain).toHaveLength(0); // no presets: default is an empty battlefield
-    expect(state.objectives).toHaveLength(4);
+    expect(state.objectives).toHaveLength(0); // markers are placed by the players, only in the objectives phase
 
     // Round 1 has not started: both players have all units activatable.
     expect(isRoundComplete(state)).toBe(false);
@@ -122,30 +120,6 @@ describe('scenario data pack', () => {
   it('exposes deterministic player ids used by both peers', () => {
     expect(HOST_PLAYER_ID).toBe('player-host');
     expect(GUEST_PLAYER_ID).toBe('player-guest');
-  });
-
-  it('spawns 3 to 5 objective markers placed > 9" apart outside deployment zones', () => {
-    const objectives = createDefaultScenarioObjectives();
-    expect(objectives).toHaveLength(4);
-    expect(objectives.length).toBeLessThanOrEqual(5);
-
-    // All objectives are placed outside deployment zones (deployment is z = ±12)
-    for (const obj of objectives) {
-      expect(Math.abs(obj.position.z)).toBeLessThan(10);
-      expect(obj.controllingPlayerId).toBeNull();
-      expect(obj.isContested).toBe(false);
-    }
-
-    // Check pairwise distance > 9"
-    for (let i = 0; i < objectives.length; i++) {
-      for (let j = i + 1; j < objectives.length; j++) {
-        const dist = Math.hypot(
-          objectives[i].position.x - objectives[j].position.x,
-          objectives[i].position.z - objectives[j].position.z
-        );
-        expect(dist).toBeGreaterThanOrEqual(9.0);
-      }
-    }
   });
 
   describe('Phase 10A: Point-Balanced Pre-Canned Starter Forces', () => {
@@ -203,9 +177,12 @@ describe('scenario data pack', () => {
         useDeploymentPhase: true,
       });
 
-      expect(state.turnState.phase).toBe('deployment');
+      // Players roll for and place the objectives before anyone deploys
+      expect(state.turnState.phase).toBe('objectives');
       expect(state.turnState.roundNumber).toBe(0);
       expect(state.turnState.currentPlayerId).toBe(HOST);
+      expect(state.objectives).toEqual([]);
+      expect(state.setupRolls).toBeUndefined();
       expect(state.units).toHaveLength(8); // 4 host units + 4 guest units
       for (const unit of state.units) {
         expect(unit.isDeployed).toBe(false);
@@ -214,11 +191,11 @@ describe('scenario data pack', () => {
   });
 
   describe('Phase 13A: Map Schema, Presets & Validation', () => {
-    it('falls back to an empty battlefield with standard objectives when no map is given', () => {
+    it('falls back to an empty battlefield when no map is given', () => {
       const state = createInitialGameState(HOST, GUEST);
       applyDefaultScenario(state);
       expect(state.terrain).toHaveLength(0);
-      expect(state.objectives).toHaveLength(4);
+      expect(state.objectives).toHaveLength(0);
     });
 
     it('applies custom map directly to game state via customMap option', () => {
@@ -253,8 +230,8 @@ describe('scenario data pack', () => {
 
       expect(state.terrain).toHaveLength(1);
       expect(state.terrain[0].id).toBe('custom-wall-1');
-      expect(state.objectives).toHaveLength(1);
-      expect(state.objectives[0].name).toBe('Central Bunker');
+      // Maps no longer define objectives: an old map's markers are ignored
+      expect(state.objectives).toHaveLength(0);
     });
 
     it('catalog defines rich metadata and categories for all terrain types', () => {
@@ -361,7 +338,7 @@ describe('custom map board size and the TEST army', () => {
     expect(state.board.height).toBe(48);
   });
 
-  it('an old 44x30 map keeps its size, 3" zones, and its objectives', () => {
+  it('an old 44x30 map keeps its size and 3" zones', () => {
     const state = createInitialGameState(HOST, GUEST);
     const map: CustomMapDefinition = { ...createBlankMap(), board: { width: 44, height: 30 } };
     applyDefaultScenario(state, { customMap: map });
@@ -406,7 +383,7 @@ describe('deployment zones keep armies 24" apart', () => {
     expect(z.host.minZ).toBe(-15);
     expect(z.host.maxZ).toBe(-12);
     expect(z.guest.minZ - z.host.maxZ).toBe(24);
-    expect(z.scout.maxZ).toBe(0);
+    expect(z.scout.maxZ).toBe(-3); // 9" beyond the zone
   });
   it('60" deep: still 12" zones (36" apart)', () => {
     const z = zones(48, 60);
@@ -416,7 +393,7 @@ describe('deployment zones keep armies 24" apart', () => {
 
 describe('board size validation', () => {
   const mapOf = (width: number, height: number): CustomMapDefinition => ({
-    id: 'm', name: 'M', version: 1, board: { width, height }, terrain: [], objectives: createBalancedObjectives({ width, height }),
+    id: 'm', name: 'M', version: 1, board: { width, height }, terrain: [],
   });
   const errors = (m: CustomMapDefinition) => validateMapDefinition(m).filter((n) => n.severity === 'error');
 
@@ -466,41 +443,6 @@ describe('board size validation', () => {
     const n = validateMapDefinition(map);
     expect(n.some((x) => x.severity === 'warning' && x.message.includes('Terrain piece "far" is outside'))).toBe(true);
     expect(n.some((x) => x.severity === 'warning' && x.message.includes('Objective "Out" is outside'))).toBe(true);
-  });
-});
-
-describe('createBalancedObjectives', () => {
-  it.each([[24, 36], [36, 36], [48, 48], [44, 30], [72, 72], [30, 26]])(
-    'on %i x %i: more than 9" apart, outside both zones, inside the board',
-    (width, height) => {
-      const objectives = createBalancedObjectives({ width, height });
-      expect(objectives).toHaveLength(4);
-      const state = createInitialGameState(HOST, GUEST);
-      state.board.width = width;
-      state.board.height = height;
-      const host = getDeploymentZoneBounds(state, HOST, false);
-      const guest = getDeploymentZoneBounds(state, GUEST, false);
-      for (const [i, a] of objectives.entries()) {
-        expect(a.position.z).toBeGreaterThan(host.maxZ);
-        expect(a.position.z).toBeLessThan(guest.minZ);
-        expect(Math.abs(a.position.x)).toBeLessThanOrEqual(width / 2);
-        for (const b of objectives.slice(i + 1)) {
-          expect(Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)).toBeGreaterThan(9);
-        }
-      }
-      expect(new Set(objectives.map((o) => o.id)).size).toBe(objectives.length);
-      const map: CustomMapDefinition = { id: 'x', name: 'x', board: { width, height }, terrain: [], objectives };
-      expect(validateMapDefinition(map).filter((n) => n.message.includes('Objective'))).toEqual([]);
-    },
-  );
-
-  it('scales positions with the board and falls back to fewer markers when space runs out', () => {
-    const big = createBalancedObjectives({ width: 72, height: 72 });
-    expect(Math.max(...big.map((o) => Math.abs(o.position.x)))).toBe(18);
-    expect(createBalancedObjectives({ width: 24, height: 36 }).length).toBe(4);
-    const tiny = createBalancedObjectives({ width: 8, height: 26 });
-    expect(tiny.length).toBeGreaterThanOrEqual(1);
-    expect(tiny.length).toBeLessThan(4);
   });
 });
 
