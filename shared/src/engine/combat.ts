@@ -1,5 +1,5 @@
 import { DiceSpec, DiceResult } from '../types';
-import { getTraitValue, hasTrait, sumTraitValue } from '../rules/traits';
+import { DISTANT_ATTACK_MORALE_TRAITS, getTraitValue, hasTrait, sumTraitValue } from '../rules/traits';
 
 /**
  * Quality/Defense d6 combat and morale resolution (first principles).
@@ -29,6 +29,8 @@ export interface MoraleTestInput {
   heroQuality?: number;
   /** Optional 1d6 roll for Fearless (Fearless 4+ pass on failure). */
   fearlessRoll?: number;
+  /** How far away the attacker was when this unit was shot or charged (Hold the Line). */
+  attackedFrom?: { shot?: number; charged?: number };
   /** Optional dice rolls for Iron Will (No Retreat self-wounds on 1-3). */
   ironWillRolls?: number[];
 }
@@ -604,6 +606,18 @@ export function resolveAttack(
   };
 }
 
+/** +1 for Hold the Line style rules: the unit was shot from over 9" or charged from over 6" away. */
+export function distantAttackMoraleBonus(
+  rules: readonly string[],
+  attackedFrom?: { shot?: number; charged?: number }
+): number {
+  if (!attackedFrom) return 0;
+  if (!DISTANT_ATTACK_MORALE_TRAITS.some((t) => hasTrait(rules, t))) return 0;
+  const shotFar = attackedFrom.shot !== undefined && attackedFrom.shot > 9;
+  const chargedFar = attackedFrom.charged !== undefined && attackedFrom.charged > 6;
+  return shotFar || chargedFar ? 1 : 0;
+}
+
 /**
  * Resolve a Morale Test: a Quality test (1d6 + moraleMod >= effectiveQuality).
  *   - A Shaken unit always fails (no roll needed).
@@ -632,6 +646,7 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
   if (hasTrait(rules, 'morale-debuff')) {
     modifier -= 1;
   }
+  modifier += distantAttackMoraleBonus(rules, input.attackedFrom);
 
   let passed: boolean;
   if (input.alreadyShaken) {

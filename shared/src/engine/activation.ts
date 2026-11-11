@@ -253,7 +253,7 @@ export function advanceAmbushStep(state: GameState): void {
 
 /** The distance an enemy keeps Ambush arrivals away: 9", or 12" from a unit with Perimeter Watch. */
 export function ambushKeepOut(enemy: Unit): number {
-  return hasTrait(enemy.specialRules, 'perimeter-watch') ? 12 : AMBUSH_MIN_DISTANCE;
+  return hasTrait(enemy.specialRules, 'repel-ambushers') ? 12 : AMBUSH_MIN_DISTANCE;
 }
 
 /**
@@ -305,6 +305,17 @@ export function recordWoundBaseline(state: GameState): void {
   state.turnState.woundBaseline = baseline;
   state.turnState.meleeUnitIds = [];
   state.turnState.meleePairs = [];
+}
+
+/** Remember the distance a unit was shot from or charged from, for its end-of-activation Morale Test. */
+export function noteAttackedFrom(
+  state: GameState,
+  targetId: string,
+  kind: 'shot' | 'charged',
+  distance: number
+): void {
+  const all = state.turnState.attackedFrom ?? (state.turnState.attackedFrom = {});
+  all[targetId] = { ...all[targetId], [kind]: distance };
 }
 
 /** Note that units were in melee during this activation (they skip the wound-based Morale Test). */
@@ -489,6 +500,7 @@ export function applyEndOfActivationMorale(
       alreadyShaken,
       heroQuality,
       fearlessRoll,
+      attackedFrom: state.turnState.attackedFrom?.[unit.id],
     });
 
     // Consume one-shot morale-debuff if present.
@@ -511,6 +523,7 @@ export function applyEndOfActivationMorale(
       unitName: unit.name,
       ...(roll !== undefined ? { roll } : {}),
       effectiveQuality: result.effectiveQuality,
+      ...(result.modifier !== 0 ? { modifier: result.modifier } : {}),
       ...(fearlessRoll !== undefined && testFailed ? { fearlessRoll } : {}),
       passed: result.passed,
       outcome,

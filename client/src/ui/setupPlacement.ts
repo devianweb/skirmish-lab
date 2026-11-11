@@ -78,7 +78,7 @@ export function objectiveSpacingCircles(state: GameState): PlacementCircleMarker
 
 /**
  * Ground the unit may not use because of enemy units: around every enemy model for an Ambush arrival (9", or 12"
- * from Perimeter Watch) and, for a held Scout, around every enemy model that is not a Scout (9"). Radii are
+ * from Repel Ambushers) and, for a held Scout, around every enemy model that is not a Scout (9"). Radii are
  * centre distances (the limit plus both base radii), matching the host's base-edge gap.
  */
 export function exclusionCircles(state: GameState, kind: PlacementKind, unit: Unit): PlacementCircleMarker[] {

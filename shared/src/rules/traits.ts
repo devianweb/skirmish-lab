@@ -47,7 +47,8 @@ export type FactionTraitId =
   | 'marksman'
   | 'iron-will'
   | 'double-time'
-  | 'perimeter-watch'
+  | 'repel-ambushers'
+  | 'hold-the-line'
   | 'riot-shield'
   | 'signal-relay'
   | 'entrenched'
@@ -227,9 +228,14 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     displayName: 'Double Time',
     description: 'Moves +4" when using Advance actions.',
   },
-  'perimeter-watch': {
-    displayName: 'Perimeter Watch',
-    description: 'Enemy Ambush units must deploy >12" away.',
+  'repel-ambushers': {
+    displayName: 'Repel Ambushers',
+    description: 'Enemy units using Ambush must be placed more than 12" away from this unit (measured per unit).',
+  },
+  'hold-the-line': {
+    displayName: 'Hold the Line',
+    description:
+      'Gets +1 to Morale Test rolls when it was shot from more than 9" away or charged from more than 6" away. Only counts when most of its models have the rule.',
   },
   'riot-shield': {
     displayName: 'Riot Shield',
@@ -284,6 +290,13 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     description: 'Friendly units gain Regeneration (5+ wound ignore) while bearer lives.',
   },
 };
+
+/**
+ * Faction rules that add +1 to Morale Test rolls when the unit was shot from over 9" or charged from over 6"
+ * (the attacker's distance when the shot or charge started). Rules are unit-level here, so "most models have
+ * the rule" is true exactly when the unit carries it. Alien Hives' Hive Bond joins this list.
+ */
+export const DISTANT_ATTACK_MORALE_TRAITS: readonly string[] = ['hold-the-line'];
 
 const TRAIT_PATTERN = /^([a-z0-9-]+)(?:\((-?\d+)\))?$/i;
 
