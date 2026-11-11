@@ -113,7 +113,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   fear: {
     displayName: 'Fear',
-    description: 'When melee results are compared, the enemy counts as having taken X extra wounds for each living model with Fear.',
+    description: 'When melee results are compared, the enemy counts as having taken X extra wounds for each living model with Fear that is within 3" of it.',
   },
   fearless: {
     displayName: 'Fearless',

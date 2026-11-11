@@ -501,8 +501,8 @@ export interface DiceResolution {
     targetDestroyed: boolean;
     /** Impact(X) hits the charger landed before any strike. */
     impact?: SpecialStrikeOutcome;
-    /** The charged unit's Counter strike (before the charger's own strike). */
-    counterStrike?: SpecialStrikeOutcome;
+    /** The charged unit's Counter strikes, one per Counter weapon (before the charger's own strike). */
+    counterStrikes?: SpecialStrikeOutcome[];
     /** Movement hazards resolved by this action (gap/drop jumps, falls, dangerous terrain). */
     traversal?: TraversalEvent[];
     targetShaken?: boolean;

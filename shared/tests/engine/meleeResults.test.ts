@@ -296,3 +296,29 @@ describe('melee results from a real fight', () => {
     expect(result.sides[1].wounds).toBeGreaterThan(0);
   });
 });
+
+describe('Fear counts only models in the fight (14C-2 PR 7B, Decision 46)', () => {
+  /** A 4-model Fear(x) unit whose models stand at the given spots, against a lone model at the origin. */
+  const feared = (spots: Vector3[], x = 1) => {
+    const g1 = mkUnit('g1', GUEST, 0, 1, { count: 4, rules: [`fear(${x})`] });
+    g1.models.forEach((m, i) => (m.position = spots[i]));
+    return endOfActivation([mkUnit('h1', HOST, 0, 0, { count: 1 }), g1], {});
+  };
+  const far = P(30, 30);
+
+  it('only the models within 3" of the enemy add Fear, 3.0" yes and 3.1" no', () => {
+    // Centre-to-centre 4.0" is 3.0" between 1"-wide bases; 4.1" is just out of reach
+    const state = feared([P(0, 4.0), P(0, -4.0), P(0, 4.1), P(0, -4.1)]);
+    expect(getMeleeResults(state)[0].sides[0].fearBonus).toBe(2);
+  });
+
+  it('multiplies by X: Fear(2) with 3 models in reach adds 6', () => {
+    const state = feared([P(1, 1), P(2, 1), P(0, 2), far], 2);
+    expect(getMeleeResults(state)[0].sides[0].fearBonus).toBe(6);
+  });
+
+  it('a Fear unit that fought counts at least one model even when none is in reach', () => {
+    const state = feared([far, P(31, 30), P(32, 30), P(33, 30)]);
+    expect(getMeleeResults(state)[0].sides[0].fearBonus).toBe(1);
+  });
+});
