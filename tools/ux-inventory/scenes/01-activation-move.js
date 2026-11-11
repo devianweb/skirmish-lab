@@ -1,0 +1,31 @@
+const { launch, harness, shot } = require('../lib');
+const { pageHelpers } = require('../common');
+const H = 'player-host-test-special-', G = 'player-guest-test-';
+(async () => {
+  const b = await launch(); const p = await harness(b); await p.evaluate(pageHelpers);
+  await p.evaluate(({ H, G }) => {
+    ux.mountHud(ux.HOST);
+    ux.start({ hostArmyId: 'test-special-rules-army', guestArmyId: 'test-rules-army', useDeploymentPhase: false, customMap: ux.BUILTIN_MAPS['hazard-range']() });
+    const s = JSON.parse(JSON.stringify(ux.state));
+    window.H.hide(s, [H + 'impact-3', G + 'rules-squad-a-2', G + 'heavy-gunner-4', H + 'assault-7']);
+    window.H.arrange(s, H + 'impact-3', 0, -4);
+    window.H.arrange(s, G + 'rules-squad-a-2', 0, 5, { facing: Math.PI });
+    window.H.arrange(s, G + 'heavy-gunner-4', 9, 9, { facing: Math.PI });
+    window.H.arrange(s, H + 'assault-7', -7, -5);
+    ux.setState(s);
+    ux.focus(0, 0, 22);
+  }, { H, G });
+  const click = async (x, y, z) => { const c = await p.evaluate(([x, y, z]) => ux.project(x, y, z), [x, y, z]); await p.mouse.click(c.x, c.y); };
+  const hover = async (x, y, z) => { const c = await p.evaluate(([x, y, z]) => ux.project(x, y, z), [x, y, z]); await p.mouse.move(c.x, c.y); };
+  await shot(p, '01-idle-your-turn', { wait: 1500 });
+  await click(0, 0.4, -4);
+  await shot(p, '02-activate-confirm');
+  await p.click('[data-action="confirm"]');
+  await shot(p, '03-action-bar', { wait: 1000 });
+  await p.click('[data-action="move"]');
+  await hover(1, 0, 0);
+  await shot(p, '04-advance-preview');
+  await hover(0, 0, 3.6);
+  await shot(p, '05-advance-keepaway-stop');
+  await b.close();
+})();

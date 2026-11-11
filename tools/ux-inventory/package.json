@@ -1,0 +1,8 @@
+{
+  "name": "skirmish-lab-ux-inventory",
+  "private": true,
+  "description": "Screenshot tooling for doc/ux/inventory (not a workspace; install separately)",
+  "devDependencies": {
+    "playwright": "^1.65.0"
+  }
+}
