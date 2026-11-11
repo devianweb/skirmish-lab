@@ -3700,6 +3700,8 @@ function resolveShoot(
           const spill = participants[k].unit;
           const count = shares[k];
           if (count === 0) continue;
+          // A unit that takes spilled hits was shot at too, measured from the shooter to that unit
+          noteAttackedFrom(newState, spill.id, 'shot', unitDistance(attacker, spill));
           const spillRolls = extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i);
           const spillOutcome = resolveAttack(
             attackerStats,
