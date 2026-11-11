@@ -410,6 +410,7 @@ export class Lobby {
               <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
+                <option value="hdf" ${this.hostArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
                 ${testOptions(this.hostArmyId)}
               </select>
             </div>
@@ -418,6 +419,7 @@ export class Lobby {
               <select id="guestArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
                 <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
+                <option value="hdf" ${this.guestArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
                 ${testOptions(this.guestArmyId)}
               </select>
             </div>

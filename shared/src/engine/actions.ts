@@ -249,6 +249,15 @@ function getUnit(state: GameState, unitId: string): Unit | undefined {
   return state.units.find((u) => u.id === unitId);
 }
 
+/**
+ * Deadly weapons put their wounds on before the others when one attack uses several weapons. A stable
+ * partition: Deadly items first, everything else keeps its order.
+ */
+function deadlyFirst<T>(items: T[], weaponOf: (item: T) => Weapon | undefined): T[] {
+  const isDeadly = (item: T) => hasTrait(weaponOf(item)?.profile.specialRules ?? [], 'deadly');
+  return [...items.filter(isDeadly), ...items.filter((item) => !isDeadly(item))];
+}
+
 function getWeapon(unit: Unit, weaponId: string): Weapon | undefined {
   return unit.weapons.find((w) => w.id === weaponId && w.isEquipped);
 }
@@ -3544,7 +3553,12 @@ function resolveShoot(
     }
   }
 
-  for (let i = 0; i < allocations.length; i++) {
+  // Deadly weapons put their wounds on first (the dice stay numbered by declared index)
+  const resolveOrder = deadlyFirst(
+    allocations.map((_, i) => i),
+    (i) => getWeapon(attacker, allocations[i].weaponId)
+  );
+  for (const i of resolveOrder) {
     const alloc = allocations[i];
     const weapon = getWeapon(attacker, alloc.weaponId)!;
     const target = getUnit(newState, alloc.targetId)!;
@@ -3680,7 +3694,7 @@ function resolveShoot(
       primaryTargetShaken = target.status.includes('shaken');
     }
 
-    allocationOutcomes.push({
+    allocationOutcomes[i] = {
       weaponId: weapon.id,
       weaponName: weapon.name,
       targetId: target.id,
@@ -3703,8 +3717,9 @@ function resolveShoot(
       defenseModifiers: outcome.defenseModifiers,
       coverApplied: outcome.coverApplied,
       apApplied: outcome.apApplied,
-    });
+    };
   }
+  prompts?.sort((a, b) => a.allocIndex - b.allocIndex);
 
   // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
   deferCasualties(newState, ledger, action.id, attacker, { kind: 'shoot', attackerId: attacker.id });
@@ -3868,7 +3883,7 @@ function resolveChargeStrike(
   // 2. Counter: the charged unit strikes first with every Counter weapon, unless it is Fatigued, Shaken or already gone
   const counterStrikes: SpecialStrikeOutcome[] = [];
   if (!paused && stage !== 'strike') {
-    const counterWeapons = counterStrikeEntries(target, attacker);
+    const counterWeapons = deadlyFirst(counterStrikeEntries(target, attacker), (c) => c.weapon);
     for (let i = 0; i < counterWeapons.length && !attacker.isDestroyed; i++) {
       const { weapon: counterWeapon, index: counterIndex, strikers: counterStrikers } = counterWeapons[i];
       const prefix = counterPurposePrefix(counterIndex);
@@ -4269,7 +4284,9 @@ function resolveStrikes(
 ): StrikeResult[] {
   const results: StrikeResult[] = [];
   const foeModels = Math.max(1, foe.models?.filter((m) => !m.isDestroyed).length ?? 1);
-  for (const entry of entries) {
+  // Deadly weapons put their wounds on first; the results stay in weapon order
+  const resolveOrder = deadlyFirst(entries, (e) => e.weapon);
+  for (const entry of resolveOrder) {
     const { weapon, slot } = entry;
     const outcome = resolveAttack(
       {
@@ -4302,7 +4319,7 @@ function resolveStrikes(
       targetShaken: foe.status.includes('shaken'),
     });
   }
-  return results;
+  return entries.map((e) => results.find((r) => r.entry === e)!);
 }
 
 /** The totals of a melee exchange (sums over every weapon) plus the per-weapon results, for the dice outcome. */

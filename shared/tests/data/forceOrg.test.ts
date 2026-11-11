@@ -90,6 +90,10 @@ describe('Force Org checker', () => {
 });
 
 describe('every non-TEST army follows Force Org at 400 pts', () => {
+  it('checks Human Defense Force explicitly (400 pts, Force Org)', () => {
+    expect(rosters.map((a) => a.id)).toContain('hdf');
+    expect(forceOrgProblems(rosters.find((a) => a.id === 'hdf')!)).toEqual([]);
+  });
   it('has armies to check once the legacy ones are gone', () => {
     // Until PR 4 deletes the legacy armies this is empty; it must never silently skip a new army.
     for (const a of rosters) expect(a.id.startsWith('test')).toBe(false);
