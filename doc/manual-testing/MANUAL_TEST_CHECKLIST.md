@@ -37,7 +37,7 @@ Items marked **(known bug)** have a fix planned in `doc/plans/bugfix-playtest-ba
 ### 14C-2 PR 7: special rules
 **Setup:** dev mode (F9 in the lobby), both players pick army `TEST: Special Rules Check` (`test-special-rules-army`: Fast and Slow runners, Impact(3) brutes, Counter Blade guard, Assault Rifle troops, Shred Blade fighters) on the Standard Battlefield or any open map. For the casualty-pick items use the `Hazard Range` map and `TEST: Hazard Check` (`test-hazard-army`).
 - [ ] Fast: the Fast runners show Advance 8" / Rush 16" (data card and move ring); the host refuses an Advance of more than 8". Slow walkers: 4" / 8".
-- [ ] Impact: the Impact brutes charging a fresh unit show an "Impact: ... rolled 3 dice" line with hits, blocked and wounds in the dice panel before the melee strike.
+- [ ] Impact: the Impact brutes (3 models, Impact(3)) charging a fresh unit show an "Impact" line rolling 3 dice per model in melee reach (9 with all three in reach), with hits, blocked and wounds in the dice panel before the melee strike.
 - [ ] Impact skipped when Fatigued: charge once (Fatigued), then charge again next round while still Fatigued (e.g. after a strike back): no Impact line appears.
 - [ ] Counter: charge the Counter guard with another unit. Its "Counter strike first" line appears before your own strike, no Strike Back prompt follows for the Counter Blade, and it ends Fatigued. Charge it while it is Fatigued: no Counter line and the normal Strike Back prompt appears.
 - [ ] Counter does not reduce your Impact hits: charge the Counter guard with the Impact brutes; all Impact dice still count.
