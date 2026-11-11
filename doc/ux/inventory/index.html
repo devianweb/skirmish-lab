@@ -533,7 +533,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
           <p class="num">36</p>
           <h3>Weapon counts in the unit list (per-model loadouts)</h3>
           <dl>
-            <dt>What it is</dt><dd>Unit card of &quot;Test Mixed Squad 1&quot; (TEST: Loadouts Check): &quot;2× Rifle (24&quot;, A1), 3× Blade (A2), 1× Frag Launcher (24&quot;, A1, Blast(3))&quot;. The data card below it lists the weapons per model by fixed number (&quot;Model 1: Rifle, Blade&quot;, &quot;Model 2: Rifle, Blade&quot;, &quot;Model 3: Blade, Frag Launcher&quot;; a dead model reads &quot;Model N: removed&quot;, greyed and struck through, and the others keep their numbers). Units whose models all carry the same weapons keep the plain list. A weapon whose carriers are all dead disappears from the unit list; a single model shows no count.</dd>
+            <dt>What it is</dt><dd>Unit card of &quot;Test Mixed Squad 1&quot; (TEST: Loadouts Check): &quot;2× Rifle (24&quot;, A1), 3× Blade (A2), 1× Frag Launcher (24&quot;, A1, Blast(3))&quot;. The data card below it splits its weapons table by model: a sub-heading row per model by fixed number (&quot;Model 1&quot;, &quot;Model 2&quot;, &quot;Model 3&quot;), each followed by that model's weapon rows (type, range, dice, traits). A dead model's heading reads &quot;Model N — removed&quot;, greyed, with no rows, and the others keep their numbers. Units whose models all carry the same weapons keep the plain table. A weapon whose carriers are all dead disappears from the unit list; a single model shows no count.</dd>
             <dt>Purpose</dt><dd>Models carry their own weapons: the unit list counts living carriers, the data card says which model carries what, and each carrier fires or strikes with its weapon.</dd>
           </dl>
         </div>
@@ -557,7 +557,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
           <p class="num">38</p>
           <h3>Hovering a model</h3>
           <dl>
-            <dt>What it is</dt><dd>Hovering one model of &quot;Test Mixed Squad 1&quot; on the board adds &quot;Model 3 · Blade, Frag Launcher&quot; in yellow to the data card header and highlights that model's line in the per-model list.</dd>
+            <dt>What it is</dt><dd>Hovering one model of &quot;Test Mixed Squad 1&quot; on the board adds &quot;Model 3 · Blade, Frag Launcher&quot; in yellow to the data card header and highlights that model's sub-heading and weapon rows in the weapons table.</dd>
             <dt>Purpose</dt><dd>Find out which model of a mixed squad carries which weapon, with the same fixed number used everywhere.</dd>
           </dl>
         </div>
