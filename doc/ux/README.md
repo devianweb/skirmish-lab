@@ -10,4 +10,4 @@ It is the starting point for the 14G2 UI design pass in [`doc/ROADMAP.md`](../RO
 - Lobby and Map Builder screens ran the normal app against the local signaling server (`npm run dev`), with two browser contexts for host and guest.
 - Not captured: the dangerous-terrain casualty selector on a squad move and the "jump N dice" chip (described in the movement section instead).
 
-Re-take the screenshots after UI changes so the inventory stays current.
+Re-take the screenshots after UI changes so the inventory stays current: the tooling and steps are in [`tools/ux-inventory/`](../../tools/ux-inventory/README.md).
