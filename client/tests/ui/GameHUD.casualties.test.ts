@@ -206,3 +206,179 @@ describe('GameHUD casualty pick prompt (batch 1I PR 36)', () => {
     expect(confirmBtn(container).disabled).toBe(false);
   });
 });
+
+// --- Wounds follow the tabletop order (14C-3 PR 1H-2) ---------------------------------------------
+
+/** A Tough 3 squad of `n` models 1.5" apart; `left` maps a model index to the wounds it has left. */
+function mkTough(id: string, ownerId: string, n: number, left: Record<number, number> = {}): Unit {
+  const unit = mkUnit(id, ownerId, Array.from({ length: n }, (_, i) => [i * 1.5, 9] as [number, number]));
+  unit.models!.forEach((m, i) => {
+    m.maxWounds = 3;
+    m.wounds = left[i] ?? 3;
+  });
+  unit.maxWounds = 3 * n;
+  unit.wounds = unit.models!.reduce((a, m) => a + m.wounds, 0);
+  return unit;
+}
+
+function toughState(
+  unit: Unit,
+  entry: { count: number; removed: number; lockedModelIds?: string[]; applications: Array<{ wounds: number; deadlyValue: number }> }
+): GameState {
+  const state = pickState();
+  state.units = [state.units[0], unit];
+  state.turnState.pendingReaction = createPickCasualtiesReaction('act1', 0, unit, state.units[0], {
+    entry: { unitId: unit.id, lockedModelIds: [], ...entry },
+    rest: [],
+    after: { kind: 'shoot', attackerId: 'h1' },
+  });
+  return state;
+}
+
+/** Model 2 (index 1) is on 1 wound left; 5 plain wounds: it dies, the 1st pick dies, the 2nd survives with 1 taken. */
+function lockedState(): GameState {
+  const unit = mkTough('g1', GUEST, 4, { 1: 1 });
+  return toughState(unit, {
+    count: 2,
+    removed: 2,
+    lockedModelIds: ['g1-m1'],
+    applications: [{ wounds: 5, deadlyValue: 1 }],
+  });
+}
+const lockedChip = (root: HTMLElement) => root.querySelector('[data-locked-model="true"]') as HTMLButtonElement | null;
+const pickChips = (root: HTMLElement) => Array.from(root.querySelectorAll('[data-action="toggle-casualty-model"]')) as HTMLElement[];
+
+describe('GameHUD ordered wound assignment (Tough above 1, 14C-3 PR 1H-2)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('shows the hurt model first as a disabled chip with its outcome, and the Assign wounds wording', () => {
+    const { container } = setup(GUEST, lockedState());
+    expect(container.textContent).toContain('Assign wounds: g1');
+    expect(container.querySelector('.sl-hud-reaction-timer')?.textContent).toMatch(/\d+s/);
+    expect(container.textContent).toContain('Model 2 is already wounded and takes wounds first.');
+    expect(container.textContent).toContain('pick 2 models in order (0/2)');
+    const locked = lockedChip(container)!;
+    expect(locked.disabled).toBe(true);
+    expect(locked.textContent).toContain('Model 2 · 2/3 W · takes wounds first · removed');
+    // The locked chip comes first, and is not one of the clickable chips
+    expect(container.querySelector('.sl-hud-squad-chips')!.firstElementChild).toBe(locked);
+    expect(pickChips(container)).toHaveLength(3);
+    expect(pickChips(container).map((c) => c.dataset.modelId)).toEqual(['g1-m0', 'g1-m2', 'g1-m3']);
+  });
+
+  it('a board click on the hurt model toasts and picks nothing', () => {
+    const { container, hud } = setup(GUEST, lockedState());
+    hud.handleBoardPick({ kind: 'unit', unitId: 'g1', modelId: 'g1-m1' });
+    expect(container.textContent).toContain('Model 2 is already wounded: it takes wounds first');
+    expect(container.textContent).toContain('(0/2)');
+    expect(confirmBtn(container).disabled).toBe(true);
+  });
+
+  it('picked chips show their place and outcome; unpicking the first renumbers the rest', () => {
+    const { container } = setup(GUEST, lockedState());
+    pickChips(container)[2].click(); // Model 4 first
+    pickChips(container)[0].click(); // Model 1 second
+    let chips = pickChips(container);
+    expect(chips[2].textContent).toContain('1 · Model 4 · removed');
+    expect(chips[0].textContent).toContain('2 · Model 1 · survives, 1/3 W');
+    // Unpick Model 4: Model 1 moves up to place 1 and now takes the wounds until it is removed
+    chips[2].click();
+    chips = pickChips(container);
+    expect(chips[0].textContent).toContain('1 · Model 1 · removed');
+    expect(chips[2].textContent).not.toMatch(/\d · Model 4/);
+  });
+
+  it('Deadly first: the first pick is removed, the second survives wounded', () => {
+    const unit = mkTough('g1', GUEST, 4);
+    const state = toughState(unit, {
+      count: 2,
+      removed: 1,
+      applications: [
+        { wounds: 3, deadlyValue: 3 },
+        { wounds: 2, deadlyValue: 1 },
+      ],
+    });
+    const { container } = setup(GUEST, state);
+    expect(container.textContent).not.toContain('already wounded');
+    expect(container.textContent).toContain('Pick 2 models in order (0/2)');
+    pickChips(container)[0].click();
+    pickChips(container)[1].click();
+    expect(pickChips(container)[0].textContent).toContain('1 · Model 1 · removed');
+    expect(pickChips(container)[1].textContent).toContain('2 · Model 2 · survives, 2/3 W');
+  });
+
+  it('a wound that kills nobody still asks for one model, and says no model is removed', () => {
+    const unit = mkTough('g1', GUEST, 3);
+    const state = toughState(unit, { count: 1, removed: 0, applications: [{ wounds: 1, deadlyValue: 1 }] });
+    const { container, controller } = setup(GUEST, state);
+    expect(container.textContent).toContain('Assign wounds: g1');
+    expect(container.textContent).toContain('No model is removed');
+    pickChips(container)[1].click();
+    expect(pickChips(container)[1].textContent).toContain('1 · Model 2 · survives, 1/3 W');
+    confirmBtn(container).click();
+    expect(controller.submitAction.mock.calls[0][0].payload.modelIds).toEqual(['g1-m1']);
+  });
+
+  it('Confirm sends the models in click order, and the host accepts them', () => {
+    const state = lockedState();
+    const { container, controller } = setup(GUEST, state);
+    pickChips(container)[2].click();
+    expect(confirmBtn(container).disabled).toBe(true);
+    pickChips(container)[0].click();
+    confirmBtn(container).click();
+    const action = controller.submitAction.mock.calls[0][0];
+    expect(action.payload.modelIds).toEqual(['g1-m3', 'g1-m0']);
+    expect(validateAction(state, action).valid).toBe(true);
+  });
+
+  it('Auto pick fills the ordered list with unhurt models only, and it stays editable', () => {
+    const state = lockedState();
+    const { container, controller } = setup(GUEST, state);
+    const entry = (state.turnState.pendingReaction!.data as any).entry;
+    const expected = autoPickCasualties(state.units[1], entry);
+    expect(expected).toHaveLength(2);
+    expect(expected).not.toContain('g1-m1');
+    click(container, 'Auto pick');
+    expect(confirmBtn(container).disabled).toBe(false);
+    const order = pickChips(container)
+      .filter((c) => /^\d · /.test(c.textContent!.trim()))
+      .sort((a, b) => parseInt(a.textContent!.trim()) - parseInt(b.textContent!.trim()))
+      .map((c) => c.dataset.modelId);
+    expect(order).toEqual(expected);
+    pickChips(container).find((c) => c.dataset.modelId === expected[0])!.click(); // unpick the first
+    expect(confirmBtn(container).disabled).toBe(true);
+    click(container, 'Auto pick');
+    confirmBtn(container).click();
+    expect(controller.submitAction.mock.calls[0][0].payload.modelIds).toEqual(expected);
+  });
+
+  it('the other player sees "assign wounds" for a Tough squad, and Tough 1 keeps "remove casualties"', () => {
+    const tough = setup(HOST, lockedState());
+    expect(tough.container.textContent).toContain('Waiting for Bob to assign wounds');
+    document.body.innerHTML = '';
+    const one = setup(HOST);
+    expect(one.container.textContent).toContain('Waiting for Bob to remove casualties');
+  });
+
+  it('Tough 1 keeps the old prompt: no order numbers, no outcome text', () => {
+    const { container } = setup(GUEST);
+    expect(container.textContent).toContain('Choose the casualties (0/2)');
+    chip(container, 0).click();
+    expect(chip(container, 0).textContent).not.toMatch(/removed|survives|^\s*1 ·/);
+    expect(container.querySelector('[data-locked-model]')).toBeNull();
+  });
+
+  it('"splits the squad" looks at the models that would be removed, not at a pick that survives', () => {
+    // Middle model of a line of 3 is the only link: picking it first with 1 wound only wounds it
+    const unit = mkTough('g1', GUEST, 3);
+    const state = toughState(unit, { count: 1, removed: 0, applications: [{ wounds: 1, deadlyValue: 1 }] });
+    const { container } = setup(GUEST, state);
+    expect(pickChips(container)[1].textContent).not.toContain('splits the squad');
+    const kill = toughState(mkTough('g1', GUEST, 3), { count: 1, removed: 1, applications: [{ wounds: 3, deadlyValue: 1 }] });
+    document.body.innerHTML = '';
+    const again = setup(GUEST, kill);
+    expect(pickChips(again.container)[1].textContent).toContain('splits the squad');
+  });
+});
