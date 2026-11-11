@@ -49,27 +49,30 @@ export function loadoutsDiffer(unit: Pick<Unit, 'weapons' | 'models'>): boolean 
   return models.some((m) => key(m) !== first);
 }
 
-export interface ModelWeaponLine {
+export interface ModelWeaponBlock {
   number: number;
   modelId: string;
   removed: boolean;
-  /** "Battle Rifle, Strike"; empty for a removed model. */
-  weapons: string;
+  /** The weapons this model carries, in the unit's weapon order; empty for a removed model. */
+  weapons: Weapon[];
 }
 
-/** One entry per model in fixed order, for the data card's per-model list. */
-export function modelWeaponLines(unit: Pick<Unit, 'weapons' | 'models'>): ModelWeaponLine[] {
+/**
+ * One block per model in fixed order, for the data card's weapons table (14C-3 PR 1F): a sub-heading row per
+ * model followed by that model's weapon rows. A removed model keeps its heading and number but lists no weapons.
+ */
+export function modelWeaponBlocks(unit: Pick<Unit, 'weapons' | 'models'>): ModelWeaponBlock[] {
   return (unit.models ?? []).map((m, i) => ({
     number: i + 1,
     modelId: m.id,
     removed: m.isDestroyed,
-    weapons: m.isDestroyed ? '' : modelWeaponNames(unit, m),
+    weapons: m.isDestroyed ? [] : modelWeapons(unit, m),
   }));
 }
 
-/** The text for one model: "Model 2: Battle Rifle, Strike" or "Model 2: removed". */
-export function modelWeaponText(line: ModelWeaponLine): string {
-  return `Model ${line.number}: ${line.removed ? 'removed' : line.weapons || 'no weapons'}`;
+/** The sub-heading text for one model: "Model 2" or "Model 2 — removed". */
+export function modelBlockHeading(block: Pick<ModelWeaponBlock, 'number' | 'removed'>): string {
+  return `Model ${block.number}${block.removed ? ' — removed' : ''}`;
 }
 
 /** One weapon's view of a shooter model for the aim preview (the engine's `ModelAim`). */

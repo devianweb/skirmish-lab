@@ -36,4 +36,11 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - All items verified.
 
 ## 10. Armies and faction rules (14C-3)
-- Verified items removed (owner pass, 2026-11-11): Repel Ambushers, Hold the Line, loadout counts, Blast on the launcher only, two-weapon melee and strike-back, HDF list, squad-mates don't block sight, which model has which weapon, Deadly first. Follow-up from the pass: the per-model weapon list becomes sub-headings in the weapons table (plan PR 1F).
+- Verified items removed (owner pass, 2026-11-11): Repel Ambushers, Hold the Line, loadout counts, Blast on the launcher only, two-weapon melee and strike-back, HDF list, squad-mates don't block sight, which model has which weapon, Deadly first.
+- **Per-model weapons as table sub-headings (14C-3 PR 1F).** Setup: both players pick **TEST: Loadouts Check** (developer mode), map **Standard Battlefield**.
+  - [ ] Hover or select **Test Mixed Squad**: the data card's weapons table has a sub-heading row per model ("Model 1", "Model 2", "Model 3"), each followed by that model's own weapon rows with type, range, dice and traits (Models 1 and 2: Rifle, Blade; Model 3: Blade, Frag Launcher). There are no "Model N: weapons" lines under the table any more.
+  - [ ] Hover one model of the squad on the board: that model's sub-heading and its weapon rows turn yellow; moving to another model moves the highlight; hovering off the squad clears it.
+  - [ ] Shoot the enemy Test Mixed Squad until a model is removed (the defender picks, say, Model 2): its heading reads "Model 2 — removed", greyed, with no weapon rows; Models 1 and 3 keep their numbers and rows.
+  - [ ] **Test Deadly Squad** (one Fusion Rifle, two Rifles) is split by model the same way; **Test Two-Weapon Leader** (one model) and any HDF unit whose models all carry the same weapons keep the plain table with no sub-headings.
+  - [ ] HDF (lobby picker): **Veterans** and **Infantry Squad** show sub-headings (e.g. the Grenade Launcher only under its carrier); **Company Leader** and **Sniper** show the plain table.
+  - [ ] Unchanged: the unit list on the left still shows counts ("2× Rifle"), the aim lines are still labelled per model, and the casualty prompt still shows each model's number and weapons.

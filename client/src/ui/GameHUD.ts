@@ -117,9 +117,9 @@ import {
   mergeAimLines,
   modelLabel,
   modelNumber,
-  modelWeaponLines,
+  modelWeaponBlocks,
   modelWeaponNames,
-  modelWeaponText,
+  modelBlockHeading,
 } from './modelLoadout';
 import { soundFx } from '../audio/SoundFx';
 import {
@@ -5338,34 +5338,20 @@ export class GameHUD {
     const unitTraits = unit.specialRules
       .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
       .join(' · ');
-    // Models that carry different weapons are listed one by one (fixed numbers); the table keeps the weapon stats
+    // Models that carry different weapons get a sub-heading row each in the weapons table (fixed numbers, PR 1F)
     const perModel = loadoutsDiffer(unit);
     const hoveredModel =
       perModel && this.hoveredUnitId === unit.id && this.hoveredModelId
         ? (unit.models ?? []).find((m) => m.id === this.hoveredModelId && !m.isDestroyed)
         : undefined;
-    const modelListHtml = perModel
-      ? `<div class="sl-hud-model-weapons" style="margin-top: 6px; font-size: 12px; display: flex; flex-direction: column; gap: 2px;">
-          ${modelWeaponLines(unit)
-            .map(
-              (l) =>
-                `<div class="sl-hud-model-line${l.removed ? ' sl-hud-model-removed' : ''}" style="${
-                  l.removed ? 'opacity: 0.45; text-decoration: line-through;' : ''
-                }${l.modelId === hoveredModel?.id ? 'color: #ffeb3b; font-weight: 600;' : ''}">${escapeHtmlAttr(modelWeaponText(l))}</div>`
-            )
-            .join('')}
-        </div>`
-      : '';
     const hoveredModelHtml = hoveredModel
       ? `<div class="sl-hud-hovered-model" style="margin-top: 4px; font-size: 12px; color: #ffeb3b;">${modelLabel(unit, hoveredModel.id)} · ${escapeHtmlAttr(
           modelWeaponNames(unit, hoveredModel) || 'no weapons'
         )}</div>`
       : '';
-    const weaponRows = carriedWeapons(unit)
-      .map(
-        (w) => `
-          <tr>
-            <td>${perModel ? '' : carrierPrefix(unit, w)}${w.name}</td>
+    const weaponRow = (w: Weapon, name: string, rowClass = '') => `
+          <tr${rowClass ? ` class="${rowClass}"` : ''}>
+            <td>${name}</td>
             <td>${w.profile.type === 'ranged' ? (isMeleeWeapon(w) ? 'Ranged + Melee' : 'Ranged') : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
@@ -5374,9 +5360,20 @@ export class GameHUD {
                 .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
                 .join(', ') || '—'
             }</td>
-          </tr>`
-      )
-      .join('');
+          </tr>`;
+    const weaponRows = perModel
+      ? modelWeaponBlocks(unit)
+          .map((b) => {
+            const state = b.removed ? ' sl-hud-model-removed' : b.modelId === hoveredModel?.id ? ' sl-hud-model-hovered' : '';
+            return `
+          <tr class="sl-hud-model-heading${state}" data-model-number="${b.number}">
+            <th colspan="5">${modelBlockHeading(b)}</th>
+          </tr>${b.weapons.map((w) => weaponRow(w, w.name, `sl-hud-model-row${state}`)).join('')}`;
+          })
+          .join('')
+      : carriedWeapons(unit)
+          .map((w) => weaponRow(w, `${carrierPrefix(unit, w)}${w.name}`))
+          .join('');
 
     const totalModels = unit.models ? unit.models.length : 1;
     const aliveModels = unit.models ? unit.models.filter((m) => !m.isDestroyed).length : 1;
@@ -5418,7 +5415,6 @@ export class GameHUD {
             </tbody>
           </table>
         </div>
-        ${modelListHtml}
       </div>`;
   }
 
@@ -6600,6 +6596,13 @@ export class GameHUD {
 .sl-hud-table th { text-align: left; color: #90a4ae; font-weight: 600; padding: 2px 8px 2px 0;
   border-bottom: 1px solid #263238; text-transform: uppercase; font-size: 10px; }
 .sl-hud-table td { padding: 3px 10px 2px 0; color: #eceff1; font-weight: 500; }
+.sl-hud-table tr.sl-hud-model-heading th { padding: 5px 8px 1px 0; color: #cfd8dc; font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; border-top: 1px solid rgba(144, 164, 174, 0.3); border-bottom: none; }
+.sl-hud-table tr.sl-hud-model-heading:first-child th { border-top: none; padding-top: 2px; }
+.sl-hud-table tr.sl-hud-model-row td:first-child { padding-left: 8px; }
+.sl-hud-table tr.sl-hud-model-removed th { color: #78909c; opacity: 0.6; }
+.sl-hud-table tr.sl-hud-model-hovered th, .sl-hud-table tr.sl-hud-model-hovered td { color: #ffeb3b; }
+.sl-hud-table tr.sl-hud-model-hovered th { font-weight: 700; }
 .sl-hud-bottom { pointer-events: auto; display: flex; align-items: center; gap: 10px;
   background: rgba(10, 12, 16, 0.88); border: 1px solid #2a2f3a; border-radius: 10px;
   padding: 10px 16px; }

@@ -5,9 +5,9 @@ import {
   mergeAimLines,
   modelLabel,
   modelNumber,
-  modelWeaponLines,
+  modelWeaponBlocks,
   modelWeaponNames,
-  modelWeaponText,
+  modelBlockHeading,
 } from '../../src/ui/modelLoadout';
 
 const weapon = (id: keyof typeof WEAPONS) => ({ ...WEAPONS[id], profile: { ...WEAPONS[id].profile }, isEquipped: true });
@@ -52,11 +52,12 @@ describe('loadoutsDiffer', () => {
   });
 });
 
-describe('modelWeaponLines', () => {
-  it('lists each model by fixed number and shows a dead model as removed', () => {
+describe('modelWeaponBlocks', () => {
+  it('gives one block per model in fixed order, each with its own weapons; a dead model keeps its number and lists none', () => {
     const unit = unitOf([model('a', ['rifle', 'blade']), model('b', ['rifle', 'blade'], true), model('c', ['frag-launcher', 'blade'])]);
-    const texts = modelWeaponLines(unit).map(modelWeaponText);
-    expect(texts).toEqual(['Model 1: Rifle, Blade', 'Model 2: removed', 'Model 3: Blade, Frag Launcher']);
+    const blocks = modelWeaponBlocks(unit);
+    expect(blocks.map(modelBlockHeading)).toEqual(['Model 1', 'Model 2 — removed', 'Model 3']);
+    expect(blocks.map((b) => b.weapons.map((w) => w.name))).toEqual([['Rifle', 'Blade'], [], ['Blade', 'Frag Launcher']]);
     expect(modelWeaponNames(unit, unit.models![2])).toBe('Blade, Frag Launcher');
   });
 });
