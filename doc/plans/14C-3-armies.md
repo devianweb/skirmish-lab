@@ -95,6 +95,12 @@ Owner feedback, 2026-11-11 (checklist section 10):
 - **Deadly-first manual check.** HDF step 8 can't be run. Give a unit in TEST: Loadouts Check a Deadly weapon and a plain ranged weapon that fire together, and rewrite the check to use it.
 - **Docs:** UI inventory (data card, hover, aim labels, casualty prompt), manual checklist items with Setup lines, SYSTEMS (sight fix).
 
+## PR 1F: Per-model weapons as table sub-headings  (branch: `14C-3-armies-1f`)
+Owner feedback on PR 1E, 2026-11-11: "Not a huge fan of this approach. Can you make it so the weapons table has sub headings to split it up for each model?"
+- **Layer:** client UI. For units whose models' loadouts differ, the data card's weapons table is split by model: a sub-heading row per model ("Model 1", "Model 2", …, fixed numbers; a dead model's heading reads "Model N — removed" with no rows or greyed rows), each followed by that model's weapon rows (type, range, dice, traits). This replaces the separate "Model N: weapons" lines under the table. Units whose models all carry the same weapons keep the plain table. Hover highlighting moves to the hovered model's sub-heading block. Compact unit list, aim-line labels and casualty prompt unchanged.
+- **Tests first** (jsdom): sub-heading per model in fixed order, a dead model's block, identical-loadout units unchanged, hover highlight.
+- **Docs:** UI inventory (data card shots), manual check with Setup "TEST: Loadouts Check", Standard Battlefield.
+
 ## PR 2: Orc Marauders  (branch: `14C-3-armies-2`)
 - **Tests first:** Bad Shot -1; Ferocious extra hit on 6 at >9" shooting and on charges started >6" away, not at 9.0"/6.0"; list totals.
 
