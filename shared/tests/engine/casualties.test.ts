@@ -8,8 +8,11 @@ import { livingModelPositions, strikingModelCount } from '../../src/engine/unitG
 import {
   PICK_CASUALTIES_AUTO_CHOICE,
   PickCasualtiesData,
+  allocateWounds,
   autoPickCasualties,
+  previewCasualtyPick,
 } from '../../src/engine/casualties';
+import { TERRAIN_PALETTE_CATALOG } from '../../src/data/mapSchema';
 
 const HOST = 'host1';
 const GUEST = 'guest1';
@@ -245,7 +248,7 @@ describe('casualties: the owner picks (shooting)', () => {
     expect(unitOf(again.state!, 'g1').isDestroyed).toBe(true);
   });
 
-  it('Tough 2 models: wounds fill one model before the next, and the owner picks the model that dies', () => {
+  it('Tough 2 models: wounds fill the first picked model before the next, and the owner picks both in order', () => {
     const state = shootingState();
     for (const m of unitOf(state, 'g1').models) {
       m.wounds = 2;
@@ -255,10 +258,12 @@ describe('casualties: the owner picks (shooting)', () => {
     // 3 wounds: one model takes 2 and dies, the next takes 1 and survives wounded; only one model must go
     const next = resolve(state, shootAction(['g1']), [3]);
     const pending = next.state!;
-    expect(dataOf(pending).entry.count).toBe(1);
+    // Two unhurt models have to start taking wounds, so the owner picks two in order (3 wounds: 2 then 1)
+    expect(dataOf(pending).entry.count).toBe(2);
+    expect(dataOf(pending).entry.removed).toBe(1);
     expect(unitOf(pending, 'g1').models.every((m) => !m.isDestroyed)).toBe(true); // not applied until the pick
 
-    const done = applyAction(pending, pickAction(GUEST, 'g1', ['g1-m3'])).state!;
+    const done = applyAction(pending, pickAction(GUEST, 'g1', ['g1-m3', 'g1-m0'])).state!;
     const g1 = unitOf(done, 'g1');
     expect(aliveIds(done, 'g1')).toEqual(['g1-m0', 'g1-m1', 'g1-m2']);
     expect(g1.models.map((m) => m.wounds)).toEqual([1, 2, 2, 0]);
@@ -509,5 +514,281 @@ describe('casualties: melee', () => {
     const done = applyAction(out.state!, pickAction(GUEST, 'g1', ['g1-m0', 'g1-m1'])).state!;
     expect(aliveIds(done, 'g1')).toEqual(['g1-m2', 'g1-m3']);
     expect(done.turnState.pendingReaction ?? null).toBeNull();
+  });
+});
+
+
+describe('casualties: wounds in squads follow the tabletop order (Decision 3g)', () => {
+  /** A target squad of `n` models, each Tough `tough`, with `taken[i]` wounds already taken by model i. */
+  function toughState(n: number, tough: number, taken: number[] = []): GameState {
+    const spots: Array<[number, number]> = Array.from({ length: n }, (_, i) => [i, 10]);
+    const state = mkState([
+      mkUnit('h1', HOST, [[0, 0], [1, 0], [2, 0], [3, 0]], ['rifle', 'carbine']),
+      mkUnit('g1', GUEST, spots),
+    ]);
+    const g1 = unitOf(state, 'g1');
+    g1.models.forEach((m, i) => {
+      m.maxWounds = tough;
+      m.wounds = tough - (taken[i] ?? 0);
+    });
+    g1.maxWounds = n * tough;
+    g1.wounds = g1.models.reduce((a, m) => a + m.wounds, 0);
+    return state;
+  }
+  const wounded = (state: GameState) => unitOf(state, 'g1').models.map((m) => (m.isDestroyed ? 'x' : m.wounds));
+
+  it("the owner's case: a model on 2 wounds and 4 new wounds remove two models, the hurt one and the picked one", () => {
+    const next = resolve(toughState(3, 3, [2]), shootAction(['g1']), [4]).state!;
+    expect(next.turnState.pendingReaction?.type).toBe('pick-casualties');
+    expect(dataOf(next).entry).toMatchObject({ count: 1, lockedModelIds: ['g1-m0'], removed: 2 });
+    expect(wounded(next)).toEqual([1, 3, 3]); // nothing applied yet
+    const done = applyAction(next, pickAction(GUEST, 'g1', ['g1-m2'])).state!;
+    expect(wounded(done)).toEqual(['x', 3, 'x']);
+    expect(unitOf(done, 'g1').wounds).toBe(3);
+  });
+
+  it('wounds that fit on the wounded model need no prompt', () => {
+    // One wound kills the model on 1 left
+    const one = resolve(toughState(3, 3, [2]), shootAction(['g1']), [1]).state!;
+    expect(one.turnState.pendingReaction ?? null).toBeNull();
+    expect(wounded(one)).toEqual(['x', 3, 3]);
+    // A model with 2 left dies exactly at its Tough on 2 wounds; 1 wound leaves it on 1
+    const exact = resolve(toughState(3, 3, [1]), shootAction(['g1']), [2]).state!;
+    expect(exact.turnState.pendingReaction ?? null).toBeNull();
+    expect(wounded(exact)).toEqual(['x', 3, 3]);
+    const partial = resolve(toughState(3, 3, [1]), shootAction(['g1']), [1]).state!;
+    expect(partial.turnState.pendingReaction ?? null).toBeNull();
+    expect(wounded(partial)).toEqual([1, 3, 3]);
+  });
+
+  it('one wound on an unhurt Tough 3 squad still asks which model takes it; nobody is removed', () => {
+    const next = resolve(toughState(3, 3), shootAction(['g1']), [1]).state!;
+    expect(dataOf(next).entry).toMatchObject({ count: 1, lockedModelIds: [], removed: 0 });
+    const done = applyAction(next, pickAction(GUEST, 'g1', ['g1-m1'])).state!;
+    expect(wounded(done)).toEqual([3, 2, 3]);
+    expect(done.turnState.pendingReaction ?? null).toBeNull();
+  });
+
+  it('4 wounds on an unhurt Tough 3 squad: the first pick dies, the second takes 1; order matters', () => {
+    const next = resolve(toughState(4, 3), shootAction(['g1']), [4]).state!;
+    expect(dataOf(next).entry).toMatchObject({ count: 2, removed: 1 });
+    expect(wounded(applyAction(next, pickAction(GUEST, 'g1', ['g1-m2', 'g1-m0'])).state!)).toEqual([2, 3, 'x', 3]);
+    expect(wounded(applyAction(next, pickAction(GUEST, 'g1', ['g1-m0', 'g1-m2'])).state!)).toEqual(['x', 3, 2, 3]);
+  });
+
+  it('rejects a wounded model in the picks, a wrong count, a dead model and the wrong player', () => {
+    const next = resolve(toughState(4, 3, [2]), shootAction(['g1']), [5]).state!;
+    expect(dataOf(next).entry).toMatchObject({ count: 1, lockedModelIds: ['g1-m0'] });
+    const reason = (a: ReturnType<typeof pickAction>) => {
+      const res = validateAction(next, a);
+      return res.valid ? '' : res.reason;
+    };
+    expect(reason(pickAction(GUEST, 'g1', ['g1-m0']))).toMatch(/already wounded/);
+    expect(reason(pickAction(GUEST, 'g1', []))).toMatch(/exactly 1/);
+    expect(reason(pickAction(GUEST, 'g1', ['g1-m1', 'g1-m2']))).toMatch(/exactly 1/);
+    expect(reason(pickAction(GUEST, 'g1', ['nobody']))).toMatch(/not a living model/);
+    expect(reason(pickAction(HOST, 'g1', ['g1-m1']))).toMatch(/Not your|pending/);
+    expect(validateAction(next, pickAction(GUEST, 'g1', ['g1-m3']))).toEqual({ valid: true });
+    unitOf(next, 'g1').models[3].isDestroyed = true;
+    expect(reason(pickAction(GUEST, 'g1', ['g1-m3']))).toMatch(/not a living model/);
+  });
+
+  it('a duplicate pick is still rejected', () => {
+    const next = resolve(toughState(4, 3), shootAction(['g1']), [4]).state!;
+    const res = validateAction(next, pickAction(GUEST, 'g1', ['g1-m1', 'g1-m1']));
+    expect(res.valid).toBe(false);
+    expect(res.valid ? '' : res.reason).toMatch(/distinct/);
+  });
+
+  it('no prompt when only one unhurt model is left to take the spill', () => {
+    // Two Tough 2 models, one on 1 left: 2 wounds kill it and the spill lands on the only other model
+    const next = resolve(toughState(2, 2, [1]), shootAction(['g1']), [2]).state!;
+    expect(next.turnState.pendingReaction ?? null).toBeNull();
+    expect(wounded(next)).toEqual(['x', 1]);
+  });
+
+  it('no prompt for a wipe-out or a single model', () => {
+    const out = resolve(toughState(2, 2), shootAction(['g1']), [4]).state!;
+    expect(out.turnState.pendingReaction ?? null).toBeNull();
+    expect(unitOf(out, 'g1').isDestroyed).toBe(true);
+    const single = resolve(toughState(1, 3), shootAction(['g1']), [2]).state!;
+    expect(single.turnState.pendingReaction ?? null).toBeNull();
+    expect(unitOf(single, 'g1').wounds).toBe(1);
+  });
+
+  it('Tough 1 squads keep the old prompt text, and any pick order gives the same result', () => {
+    const next = resolve(shootingState(), shootAction(['g1']), [2]).state!;
+    const reaction = next.turnState.pendingReaction!;
+    expect(reaction.title).toBe('Remove Casualties');
+    expect(reaction.description).toBe('g1 lost 2 models: choose which ones are removed.');
+    expect(dataOf(next).entry).toMatchObject({ count: 2, lockedModelIds: [], removed: 2 });
+    const a = applyAction(next, pickAction(GUEST, 'g1', ['g1-m0', 'g1-m1'])).state!;
+    const b = applyAction(next, pickAction(GUEST, 'g1', ['g1-m1', 'g1-m0'])).state!;
+    expect(aliveIds(a, 'g1')).toEqual(aliveIds(b, 'g1'));
+  });
+
+  it('Tough above 1 asks to assign wounds', () => {
+    const next = resolve(toughState(3, 3, [2]), shootAction(['g1']), [4]).state!;
+    expect(next.turnState.pendingReaction!.title).toBe('Assign Wounds');
+    expect(next.turnState.pendingReaction!.description).toMatch(/pick 1 model in order/);
+  });
+
+  it('the timeout pick takes only unhurt models and equals a manual pick of the same ids', () => {
+    // g1 is a chain at the link limit; m0 (an end, wounded) dies first, then one more model goes
+    const state = toughState(4, 3, [2]);
+    unitOf(state, 'g1').models.forEach((m, i) => (m.position = P([0, 2, 4, 6][i], 10)));
+    const next = resolve(state, shootAction(['g1']), [4]).state!;
+    const entry = dataOf(next).entry;
+    expect(entry).toMatchObject({ count: 1, lockedModelIds: ['g1-m0'] });
+    const picks = autoPickCasualties(unitOf(next, 'g1'), entry);
+    // Without m0 the chain is m1-m2-m3; taking its end m1 keeps the rest connected (list order breaks the tie)
+    expect(picks).toEqual(['g1-m1']);
+    const manual = applyAction(next, pickAction(GUEST, 'g1', picks)).state!;
+    const auto = applyAction(next, autoAction(next, GUEST)).state!;
+    expect(JSON.parse(JSON.stringify(auto.units))).toEqual(JSON.parse(JSON.stringify(manual.units)));
+    expect(wounded(auto)).toEqual(['x', 'x', 3, 3]);
+  });
+
+  it('previewCasualtyPick shows where wounds land for full and partial picks and leaves the unit alone', () => {
+    const next = resolve(toughState(4, 3, [2]), shootAction(['g1']), [4]).state!;
+    const unit = unitOf(next, 'g1');
+    const before = JSON.stringify(unit);
+    const entry = dataOf(next).entry;
+    expect(previewCasualtyPick(unit, entry, [])).toEqual([{ modelId: 'g1-m0', wounds: 0, destroyed: true }]);
+    expect(previewCasualtyPick(unit, entry, ['g1-m2'])).toEqual([
+      { modelId: 'g1-m0', wounds: 0, destroyed: true },
+      { modelId: 'g1-m2', wounds: 0, destroyed: true },
+    ]);
+    expect(JSON.stringify(unit)).toBe(before);
+
+    // 4 wounds on an unhurt squad: first pick dies, second takes 1; a partial list leaves the rest unassigned
+    const fresh = resolve(toughState(4, 3), shootAction(['g1']), [4]).state!;
+    const fe = dataOf(fresh).entry;
+    const fu = unitOf(fresh, 'g1');
+    expect(previewCasualtyPick(fu, fe, ['g1-m1'])).toEqual([{ modelId: 'g1-m1', wounds: 0, destroyed: true }]);
+    expect(previewCasualtyPick(fu, fe, ['g1-m1', 'g1-m3'])).toEqual([
+      { modelId: 'g1-m1', wounds: 0, destroyed: true },
+      { modelId: 'g1-m3', wounds: 2, destroyed: false },
+    ]);
+    expect(previewCasualtyPick(fu, fe, [])).toEqual([]);
+  });
+
+  it('a pending pick with the new fields survives a JSON round trip', () => {
+    const next = resolve(toughState(3, 3, [2]), shootAction(['g1']), [4]).state!;
+    const revived = JSON.parse(JSON.stringify(next)) as GameState;
+    expect(revived.turnState.pendingReaction).toEqual(next.turnState.pendingReaction);
+    const pick = pickAction(GUEST, 'g1', ['g1-m1']);
+    expect(JSON.parse(JSON.stringify(applyAction(revived, pick).state!.units))).toEqual(
+      JSON.parse(JSON.stringify(applyAction(next, pick).state!.units))
+    );
+  });
+
+  it("a charge strike that wounds a Tough 3 squad without killing anyone stops at the defender's prompt before the strike-back", () => {
+    const state = mkState([
+      mkUnit('h1', HOST, [[0, 0], [1, 0], [2, 0], [3, 0]]),
+      mkUnit('g1', GUEST, [[0, 9], [1, 9], [0, 20], [1, 20]]),
+    ]);
+    for (const m of unitOf(state, 'g1').models) {
+      m.wounds = 3;
+      m.maxWounds = 3;
+    }
+    unitOf(state, 'g1').wounds = 12;
+    const ends = [P(0, 8), P(1, 8), P(2, 8), P(3, 8)];
+    const charge = createAction(HOST, 'charge', {
+      type: 'charge',
+      attackerId: 'h1',
+      targetId: 'g1',
+      weaponId: 'blade',
+      path: [P(0, 0), ends[0]],
+      modelPositions: ends,
+      modelPaths: livingModelPositions(unitOf(state, 'h1')).map((p, i) => [p, ends[i]]),
+    } as any);
+    const charged = applyAction(state, charge, undefined).state!;
+    const auto = createAction(GUEST, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: charged.turnState.pendingReaction!.id,
+      choiceId: 'auto-pile-in',
+    });
+    const struck = applyAction(charged, auto, diceFor(getDiceSpecs(charged, auto)!, [2])).state!;
+    expect(struck.turnState.pendingReaction?.type).toBe('pick-casualties');
+    expect(dataOf(struck).entry).toMatchObject({ count: 1, removed: 0 });
+    expect(dataOf(struck).after.kind).toBe('charge-strike');
+    expect(aliveIds(struck, 'g1')).toHaveLength(4);
+    const done = applyAction(struck, pickAction(GUEST, 'g1', ['g1-m0'])).state!;
+    expect(unitOf(done, 'g1').models[0].wounds).toBe(1);
+    expect(done.turnState.pendingReaction?.type).toBe('melee-retaliation');
+  });
+
+  it('the activation hazard follows the same order', () => {
+    const meta = TERRAIN_PALETTE_CATALOG['hazard-pool'];
+    const state = mkState([mkUnit('h1', HOST, [[-1, 0], [0, 0], [1, 0]]), mkUnit('g1', GUEST, [[0, 40]])]);
+    state.terrain = [
+      {
+        id: 'pool-0-0',
+        terrainType: 'hazard-pool',
+        position: P(0, 0),
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { ...meta.defaultScale },
+        blocksLineOfSight: meta.blocksLineOfSight,
+        providesCover: meta.providesCover,
+        isObstacle: meta.isObstacle,
+      } as any,
+    ];
+    const h1 = unitOf(state, 'h1');
+    h1.isActivated = false;
+    state.turnState.activeUnitId = null as any;
+    h1.models.forEach((m) => {
+      m.maxWounds = 3;
+      m.wounds = 3;
+    });
+    h1.wounds = 9;
+    h1.maxWounds = 9;
+    const activate = createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' });
+    const dice = getDiceSpecs(state, activate)!.map((spec) => {
+      const rolls = Array.from({ length: spec.count }, (_, i) => (i < 4 ? 1 : 6)); // four 1s: four wounds
+      return { rolls, total: 0, finalTotal: 0, purpose: spec.purpose };
+    });
+    const out = applyAction(state, activate, dice);
+    expect(out.ok, JSON.stringify(out)).toBe(true);
+    expect(out.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
+    expect(dataOf(out.state!).entry).toMatchObject({ count: 2, removed: 1 });
+    const done = applyAction(out.state!, pickAction(HOST, 'h1', ['h1-m2', 'h1-m0'])).state!;
+    expect(unitOf(done, 'h1').models.map((m) => (m.isDestroyed ? 'x' : m.wounds))).toEqual([2, 3, 'x']);
+  });
+});
+
+describe('allocateWounds', () => {
+  const models = (...left: number[]) =>
+    left.map((w, i) => ({ id: `m${i}`, wounds: w, maxWounds: 3, isDestroyed: false }) as any);
+  const state = (ms: any[]) => ms.map((m) => (m.isDestroyed ? 'x' : m.wounds));
+
+  it('the most wounded model takes wounds first, then the other, then a pick', () => {
+    const ms = models(2, 1, 3, 3); // m1 has taken 2, m0 has taken 1
+    const stats = allocateWounds(ms, 4, 1, ['m3']);
+    // m1 dies (1), m0 dies (2), then the pick m3 takes the last wound
+    expect(state(ms)).toEqual(['x', 'x', 3, 2]);
+    expect(stats).toEqual({ unhurtStarts: 1, unhurtAtFirstStart: 2 });
+  });
+
+  it('ties between equally wounded models go to list order', () => {
+    const ms = models(2, 2, 3);
+    allocateWounds(ms, 1, 1, []);
+    expect(state(ms)).toEqual([1, 2, 3]);
+  });
+
+  it('a Deadly(3) hit on a model with 1 left kills it and the rest of the chunk is lost', () => {
+    const ms = models(1, 3, 3);
+    const stats = allocateWounds(ms, 3, 3, []);
+    expect(state(ms)).toEqual(['x', 3, 3]);
+    expect(stats.unhurtStarts).toBe(0);
+  });
+
+  it('Deadly(3) first then 2 plain wounds on an unhurt squad: the first pick dies, the second takes 2', () => {
+    const ms = models(3, 3, 3);
+    const picks = ['m2', 'm0'];
+    const a = allocateWounds(ms, 3, 3, picks);
+    const b = allocateWounds(ms, 2, 1, picks);
+    expect(state(ms)).toEqual([1, 3, 'x']);
+    expect(a.unhurtStarts + b.unhurtStarts).toBe(2);
   });
 });

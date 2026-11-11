@@ -126,7 +126,7 @@ Owner feedback on PR 1F, 2026-11-11 (all PR 1F manual checks passed): "Header li
 - **Docs:** UI inventory (re-take the `l13-*` shots that show the data card with `tools/ux-inventory/scenes/13-loadouts.js`; update the two entries' notes in `catalog.js` and in `doc/ux/inventory/index.html`; add a shot with a wounded and a removed model if the scene reaches it), manual checks with Setup "TEST: Loadouts Check, Standard Battlefield", SYSTEMS (the "Which model carries which weapon" paragraph), ROADMAP.
 
 ## PR 1H: Wounds in squads follow the tabletop order  (two PRs: 1H-1 engine, then 1H-2 HUD)
-Status: draft, waiting for the owner's approval (written 2026-11-11). Do after PR 1G is merged (both touch the data card / casualty prompt area). Implements Decision 3g.
+Status: approved by the owner 2026-11-11; 1H-1 implemented, PR open. Do after PR 1G is merged (both touch the data card / casualty prompt area). Implements Decision 3g.
 
 **Why (owner, 2026-11-11):** today the prompt only asks which models are removed, and the replay puts wounds on the picked models first. A Tough 3 squad with one model on 2 wounds that takes 4 new wounds should lose two models, but picking two unhurt models kills only one. Wounds that kill nobody go on the first living model without asking.
 
@@ -200,4 +200,4 @@ Status: draft, waiting for the owner's approval (written 2026-11-11). Do after P
 - **Docs:** README/GDD army list, ROADMAP (14C done), manual checks for all four armies.
 
 ## Open questions
-PR 1H waits for the owner's approval (2026-11-11). Otherwise none. The owner asked only that the lists make sense; they were checked against the books (see Status).
+None for PR 1H. The owner asked only that the lists make sense; they were checked against the books (see Status).

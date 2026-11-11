@@ -680,6 +680,12 @@ describe('Counter, tabletop order (14C-2 PR 7B, Decisions 43-45)', () => {
     // The survivors are counted for the Counter strike (the charger took wounds), the exchange went on
     expect(picked.logEntry!.dice!.outcome.counterStrikes).toHaveLength(1);
     expect(picked.logEntry!.dice!.outcome.counterStrikes![0].attackCount).toBe(2); // one surviving model x 2 attacks
-    expect(unit(picked.state!, 'h1').wounds).toBeLessThan(15);
+    // The Counter wounds land on the unhurt Tough 5 charger squad: its owner assigns them (no model dies)
+    const chargerPick = picked.state!.turnState.pendingReaction!;
+    expect(chargerPick.type).toBe('pick-casualties');
+    expect(chargerPick.promptingPlayerId).toBe(HOST);
+    const settled = applyAction(picked.state!, createAction(HOST, 'pick-casualties', { type: 'pick-casualties', unitId: 'h1', modelIds: ['h1-m0'] } as any));
+    expect(settled.ok).toBe(true);
+    expect(unit(settled.state!, 'h1').wounds).toBeLessThan(15);
   });
 });
