@@ -89,10 +89,11 @@ describe('scenario data pack', () => {
     applyDefaultScenario(state);
 
     expect(state.status).toBe('in-progress');
-    expect(state.turnState.phase).toBe('activation');
+    // Without the deployment phase the objectives phase still runs first; the units already stand in place
+    expect(state.turnState.phase).toBe('objectives');
     expect(state.units).toHaveLength(10);
     expect(state.terrain).toHaveLength(0); // no presets: default is an empty battlefield
-    expect(state.objectives).toHaveLength(0); // markers are placed by the players, only in the objectives phase
+    expect(state.objectives).toHaveLength(0); // markers are placed by the players in the objectives phase
 
     // Round 1 has not started: both players have all units activatable.
     expect(isRoundComplete(state)).toBe(false);

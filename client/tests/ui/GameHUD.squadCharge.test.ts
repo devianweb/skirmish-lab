@@ -14,6 +14,7 @@ import {
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { GameHUD } from '../../src/ui/GameHUD';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
@@ -30,7 +31,7 @@ function setup() {
   const state: GameState = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   applyDefaultScenario(state, {
     customMap: { ...createBlankMap(), id: 'fixture', terrain: legacyScenarioTerrain() },
-  });
+  }); startRoundOne(state);
   state.terrain = [];
   const unit = state.units.find((u) => u.ownerId === HOST)!;
   const spots: Array<[number, number]> = [[-1, -10], [0, -10], [1, -10]];

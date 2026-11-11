@@ -9,6 +9,7 @@ import {
   applyDefaultScenario,
   createBlankMap,
 } from '@skirmish-lab/shared';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
@@ -33,7 +34,7 @@ function toSquad(unit: GameState['units'][number], spots: Spot[]): void {
 /** Open field: a 3-model host squad with rifles facing a 2-model guest squad. */
 function squadState(): GameState {
   const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
-  applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'open', terrain: [] } });
+  applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'open', terrain: [] } }); startRoundOne(state);
   const attacker = state.units.find((u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle'))!;
   const target = state.units.find((u) => u.ownerId === GUEST)!;
   toSquad(attacker, [{ x: -2, z: 0 }, { x: 0, z: 0 }, { x: 2, z: 0 }]);

@@ -50,7 +50,7 @@ Relevant code paths (`file:line` / function names), existing behaviour, known go
 - **Files:** expected files to change
 - **Tests first:** the failing tests to write (behaviour + boundaries)
 - **Implementation steps:** short, ordered
-- **Docs:** ROADMAP ticks, SYSTEMS/RULES/DATA_MODEL/ASSETS updates
+- **Docs:** ROADMAP ticks, SYSTEMS/RULES/DATA_MODEL/ASSETS updates, UI inventory entries (`doc/ux/inventory/`) for any screen or prompt the PR changes
 - **Manual checks:** items to add to MANUAL_TEST_CHECKLIST.md
 - **Done when:** concrete acceptance criteria
 

@@ -56,6 +56,7 @@ You cannot ask the owner questions. If something blocks you, stop and say so in 
 
 ## 5. Docs (part of the PR, not optional)
 - `doc/ROADMAP.md`: tick the tasks your section completes.
+- `doc/ux/inventory/index.html` (UI inventory): when your PR adds, removes or visibly changes a screen, panel, prompt, marker or HUD text, update its entry (screenshot, "what it is", "purpose"), using the tooling in `tools/ux-inventory/` (see its README). If you can't take the screenshots, say so in the report and list the entries that are now stale.
 - `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`: add or adjust items for anything a human must verify (feel, visuals, two-player flows), in the matching section. One checklist only. Never create per-phase files.
 - `doc/SYSTEMS.md` / `RULES_SPECIFICATION.md` / `DATA_MODEL.md`: update when mechanics or schema change. `doc/ASSETS.md`: update when terrain pieces, models, or markers change. `NETWORKING.md` / `ARCHITECTURE.md`: protocol or structural changes.
 - The rule PDFs live in the gitignored `assets-src/` of the main checkout (`/home/webst/dev-stuff/trench-heresy/assets-src/`); a worktree won't have them, so use absolute paths. `OPR_TERM_MAPPING.md` there is historical and needs no updates.
