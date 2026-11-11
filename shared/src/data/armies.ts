@@ -584,7 +584,8 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
     ],
   },
   /**
-   * TEST force for checking setup by hand (14C-2 PR 9): two ordinary squads, two Scout squads (deploy now or hold
+   * TEST force for checking setup by hand (14C-2 PR 9): two ordinary squads (one, Test Guard, has Repel Ambushers and Hold the Line: enemy Ambush arrivals stay
+   * 12" away), two Scout squads (deploy now or hold
    * back) and two Ambush squads (arrive from round 2). Use it with the same army on both sides on any open map
    * (Standard Battlefield). Not a balanced army.
    */
@@ -621,7 +622,7 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
         modelType: 'trooper',
         modelCount: 2,
         weapons: ['rifle', 'blade'],
-        specialRules: [],
+        specialRules: ['repel-ambushers', 'hold-the-line'],
       },
       {
         id: 'test-setup-scouts',

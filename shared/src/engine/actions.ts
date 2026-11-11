@@ -45,6 +45,7 @@ import {
   getMeleeResults,
   moraleDiceCounts,
   recordWoundBaseline,
+  noteAttackedFrom,
   validateDeploymentPosition,
 } from './activation';
 import {
@@ -3082,6 +3083,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       attacker.remainingMovement = chargeBudget(attacker);
       resetModelMovement(attacker);
       newState.turnState.charge = { unitId: attackerId, targetId, legs: 0 };
+      const declaredTarget = getUnit(newState, targetId);
+      if (declaredTarget) noteAttackedFrom(newState, targetId, 'charged', unitDistance(attacker, declaredTarget));
       logEntry = acceptedEntry(action);
       break;
     }
@@ -3135,9 +3138,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         path: Vector3[];
         weaponId?: string;
       };
+      const wasDeclared = newState.turnState.charge?.unitId === attackerId;
       newState.turnState.charge = null;
       const attacker = getUnit(newState, attackerId)!;
       const target = getUnit(newState, targetId)!;
+      // A one-click charge starts here; a declared one was measured when it was declared
+      if (!wasDeclared) noteAttackedFrom(newState, targetId, 'charged', unitDistance(attacker, target));
       const squadMoves = action.payload as SquadChargePayload;
       const squadCharge = isSquadChargePayload(attacker, squadMoves);
       const squadAlive = livingModels(attacker);
@@ -3623,6 +3629,7 @@ function resolveShoot(
     const weapon = getWeapon(attacker, alloc.weaponId)!;
     const target = getUnit(newState, alloc.targetId)!;
     const distance = unitDistance(attacker, target);
+    noteAttackedFrom(newState, target.id, 'shot', distance);
     // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
     const sightless = ignoresSight(attacker, weapon);
     const firing = firingModels(newState, attacker, target, weapon);
@@ -4287,6 +4294,7 @@ function beginActivation(state: GameState, unit: Unit): void {
   delete unit.hazardTestedPieceIds;
   resetModelMovement(unit);
   recordWoundBaseline(state);
+  delete state.turnState.attackedFrom;
   state.turnState.unitsActivatedThisRound.push(unit.id);
   state.turnState.activeUnitId = unit.id;
   state.turnState.charge = null;
@@ -4339,6 +4347,7 @@ function finishActivation(state: GameState, dice?: DiceResult[], action?: GameAc
   delete state.turnState.woundBaseline;
   delete state.turnState.meleeUnitIds;
   delete state.turnState.meleePairs;
+  delete state.turnState.attackedFrom;
   advanceActivation(state);
   if (state.status !== 'game-over') startNextPush(state, action?.id ?? 'push', queue);
 }

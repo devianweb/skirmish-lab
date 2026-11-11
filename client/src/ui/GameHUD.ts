@@ -4163,7 +4163,7 @@ export class GameHUD {
             : '';
         const note = t.roll === undefined ? ' (already Shaken: fails without a roll)' : '';
         return `
-          <div class="sl-hud-dice-label">${t.unitName} Morale (need Q${t.effectiveQuality}+)${note}:</div>
+          <div class="sl-hud-dice-label">${t.unitName} Morale (need Q${t.effectiveQuality}+${t.modifier ? `, roll ${t.modifier > 0 ? '+' : ''}${t.modifier}` : ''})${note}:</div>
           <div class="sl-hud-dice-row">${dieHtml}${fearlessHtml}<span class="sl-hud-dice-summary" style="margin-left:8px;">${result}</span></div>`;
       })
       .join('');

@@ -516,9 +516,9 @@ describe('Ambush', () => {
     expect(check(s, HOST, 'deploy-unit', deploy('h-amb', { x: 0, y: 0, z: guestZ - 10 })).reason).toMatch(/more than 9"/);
   });
 
-  it('keeps 12" from enemy units with Perimeter Watch', () => {
+  it('keeps 12" from enemy units with Repel Ambushers', () => {
     const s = endOfRoundOne([reserve('h-amb', HOST)], (st) => {
-      st.units.find((u) => u.id === 'g1')!.specialRules = ['perimeter-watch'];
+      st.units.find((u) => u.id === 'g1')!.specialRules = ['repel-ambushers'];
     });
     expect(check(s, HOST, 'deploy-unit', deploy('h-amb', { x: 0, y: 0, z: 20 - 11 })).valid).toBe(false); // gap 10
     expect(check(s, HOST, 'deploy-unit', deploy('h-amb', { x: 0, y: 0, z: 20 - 13 })).valid).toBe(false); // gap 12.0

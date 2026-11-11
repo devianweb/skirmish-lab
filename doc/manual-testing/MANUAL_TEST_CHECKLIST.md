@@ -34,3 +34,8 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 
 ## 9. Multiplayer & custom maps
 - All items verified.
+
+## 10. Armies and faction rules (14C-3)
+- [ ] **Repel Ambushers (14C-3 PR 1).** Setup: press F9 in the lobby (developer mode), both players pick "TEST: Scout & Ambush Check", map Standard Battlefield. Deploy everything; play round 1. In the round-2 Ambush step, with an Ambush unit to place, hover the board near the enemy's "Test Guard" (it carries Repel Ambushers): the red exclusion circle around it is 12" wide (9" around the enemy's other units), and a spot between 9" and 12" from the Guard is refused with a reason while the same distance from another enemy unit is accepted.
+- [ ] **Hold the Line (14C-3 PR 1).** Setup: same lobby entries and map. Shoot the enemy "Test Guard" (Hold the Line, Q4+, 2 models, 1 wound each) from more than 9" away until one model dies, so it must take a Morale Test: the Morale line in the dice panel reads "(need Q4+, roll +1)" and a roll of 3 passes. Repeat from 9" or less (move closer first): the line shows no "+1" and a 3 fails (Shaken). Charge it from more than 6" away and make it lose the melee: "+1" shows again; from 6" or less it does not.
+- [ ] **Human Defense Force list** is not in the pickers yet (blocked, see the PR 1 report); add its checks here when it lands.

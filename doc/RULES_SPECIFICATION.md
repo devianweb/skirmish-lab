@@ -225,7 +225,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 
 | Trait ID | Display Name | Mechanical Specification |
 | :--- | :--- | :--- |
-| **`ambush`** | **Ambush** | Unit is set aside at deployment. At the start of each round from round 2, before the first activation, players alternate placing Ambush units (one per placement, the player who activates first begins) anywhere $>9"$ from enemy units ($>12"$ from a unit with Perimeter Watch), or decline for the round (`skip-ambush`; the unit waits for a later round and, if it never arrives, never enters play and is not counted as destroyed). Cannot seize/contest objectives in the round it arrives. |
+| **`ambush`** | **Ambush** | Unit is set aside at deployment. At the start of each round from round 2, before the first activation, players alternate placing Ambush units (one per placement, the player who activates first begins) anywhere $>9"$ from enemy units ($>12"$ from a unit with Repel Ambushers), or decline for the round (`skip-ambush`; the unit waits for a later round and, if it never arrives, never enters play and is not counted as destroyed). Cannot seize/contest objectives in the round it arrives. |
 | **`ap(X)`** | **AP(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
 | **`bane`** | **Bane** | Ignores target's `regeneration`. Target must re-roll unmodified saving throw results of 6. |
 | **`assault`** | **Assault** | A ranged weapon that can also be used in melee (same attacks and special rules, melee reach). Data-driven by the trait: no duplicate weapon entries. A unit's default melee weapon is its first true melee weapon, else its first Assault weapon. |

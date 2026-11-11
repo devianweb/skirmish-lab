@@ -96,6 +96,7 @@ interface TurnState {
   charge?: ChargeState | null; // Declared split charge in progress (batch 1D PR 16); cleared by the final charge, a fall or the end of the activation
   woundBaseline?: Record<string, number>; // 14C-2: wounds each living unit had when the active unit's activation began (unit id -> total wounds across living models); the end-of-activation Morale Test trigger compares against it; cleared when the activation ends
   meleePairs?: [string, string][]; // 14C-2 PR 2: the pairs that fought this activation (their melee result is compared at its end)
+  attackedFrom?: Record<string, { shot?: number; charged?: number }>; // 14C-3: the active unit's distance to each unit it shot (shot) or started charging (charged); read by Hold the Line at the end-of-activation Morale Test; cleared when the activation ends
   meleeUnitIds?: string[];     // 14C-2: units that fought in melee during this activation (they skip the wound-based Morale Test); cleared when the activation ends
 }
 
