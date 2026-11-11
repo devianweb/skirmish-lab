@@ -19,6 +19,9 @@ import {
   MoraleTestRecord,
   BlastSplashOutcome,
   BlastSplitRecord,
+  BlastSplitData,
+  assignableBlastHits,
+  validateBlastRow,
   classifySegment,
   findNavPath,
   JumpOption,
@@ -190,6 +193,12 @@ interface PushContext {
   alive: Model[];
 }
 
+/** What the Blast split prompt works from (see GameHUD.blastSplitContext). */
+interface BlastSplitContext {
+  pending: PendingReaction;
+  data: BlastSplitData;
+}
+
 /** What the casualty-pick prompt works from (see GameHUD.casualtyContext). */
 interface CasualtyContext {
   pending: PendingReaction;
@@ -318,6 +327,9 @@ export class GameHUD {
   private pushNote: { text: string; ok: boolean } | null = null;
   private casualtyPicked: string[] = [];
   private casualtyReactionId: string | null = null;
+  /** The defender's working Blast split: one row of counts per Blast weapon (see blastSplitContext). */
+  private blastRows: number[][] = [];
+  private blastReactionId: string | null = null;
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
@@ -534,6 +546,8 @@ export class GameHUD {
     this.resetPushState(null);
     this.casualtyPicked = [];
     this.casualtyReactionId = null;
+    this.blastRows = [];
+    this.blastReactionId = null;
     this.lastSeenLogIndex = 0;
     this.lastRoundNumber = null;
     this.prevCurrentPlayerId = null;
@@ -1630,6 +1644,107 @@ export class GameHUD {
           <div class="sl-hud-reaction-actions">
             <button class="sl-hud-btn" data-action="auto-pick-casualties">Auto pick</button>
             <button class="sl-hud-btn primary" data-action="confirm-casualties" ${ready ? '' : 'disabled'}>Confirm</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // --- Blast split prompt (defender) ----------------------------------------
+
+  /** The pending Blast split when the local player is the defender who chooses it, else null. */
+  private blastSplitContext(): BlastSplitContext | null {
+    const pending = this.state?.turnState.pendingReaction;
+    if (!this.state || !pending || pending.type !== 'blast-split' || pending.promptingPlayerId !== this.localPlayerId) {
+      return null;
+    }
+    const data = pending.data as unknown as BlastSplitData;
+    if (this.blastReactionId !== pending.id) {
+      this.blastReactionId = pending.id;
+      this.blastRows = data.blasts.map((b) => [...b.auto]);
+    }
+    return { pending, data };
+  }
+
+  private stepBlastHits(row: number, col: number, delta: number): void {
+    const ctx = this.blastSplitContext();
+    if (!ctx) return;
+    const prompt = ctx.data.blasts[row];
+    const cap = prompt?.participants[col]?.cap ?? 0;
+    const next = (this.blastRows[row]?.[col] ?? 0) + delta;
+    if (next < 0 || next > cap) return;
+    this.blastRows[row][col] = next;
+    this.render();
+  }
+
+  private autoBlastSplit(): void {
+    const ctx = this.blastSplitContext();
+    if (!ctx) return;
+    this.blastRows = ctx.data.blasts.map((b) => [...b.auto]);
+    this.render();
+  }
+
+  private confirmBlastSplit(): void {
+    const ctx = this.blastSplitContext();
+    if (!ctx || !this.state) return;
+    const action = createAction(this.localPlayerId, 'blast-split', {
+      type: 'blast-split',
+      splits: this.blastRows.map((r) => [...r]),
+    });
+    const check = validateAction(this.state, action);
+    if (!check.valid) {
+      this.showToast(check.reason ?? 'That split is not allowed');
+      return;
+    }
+    this.flow = { mode: 'waiting' };
+    this.render();
+    this.controller.submitAction(action);
+  }
+
+  private blastSplitPromptHtml(ctx: BlastSplitContext, remainingSec: number, dataCardSlot: string): string {
+    const plural = (n: number) => `${n} hit${n === 1 ? '' : 's'}`;
+    let allValid = true;
+    const blocks = ctx.data.blasts
+      .map((b, row) => {
+        const counts = this.blastRows[row] ?? b.auto;
+        const assigned = counts.reduce((sum, n) => sum + n, 0);
+        const required = assignableBlastHits(b);
+        const valid = validateBlastRow(b, counts).valid;
+        if (!valid) allValid = false;
+        const lines = b.participants
+          .map((p, col) => {
+            const n = counts[col] ?? 0;
+            return `<div class="sl-hud-blast-row" style="display: flex; align-items: center; gap: 6px; justify-content: center;">
+              <span style="min-width: 150px; text-align: right;">${p.unitName} <span style="opacity: 0.7; font-size: 11px;">(max ${p.cap})</span></span>
+              <button class="sl-hud-btn" data-action="blast-step" data-row="${row}" data-col="${col}" data-delta="-1" ${n <= 0 ? 'disabled' : ''}>−</button>
+              <strong style="min-width: 20px; text-align: center;">${n}</strong>
+              <button class="sl-hud-btn" data-action="blast-step" data-row="${row}" data-col="${col}" data-delta="1" ${n >= p.cap ? 'disabled' : ''}>+</button>
+            </div>`;
+          })
+          .join('');
+        const heading = ctx.data.blasts.length > 1 ? `<div class="sl-hud-dice-label" style="color: #fbbf24;">${b.weaponName}</div>` : '';
+        return `<div class="sl-hud-blast-weapon">
+          ${heading}
+          ${lines}
+          <div class="sl-hud-hint sl-hud-blast-count" style="${valid ? '' : 'color: #f87171;'}">${assigned} of ${plural(required)} assigned${
+          required < b.totalHits ? ` (${b.totalHits - required} more cannot land: every unit is at its max)` : ''
+        }</div>
+        </div>`;
+      })
+      .join('');
+    const shooter = this.unitName(ctx.pending.sourceUnitId);
+    return `
+      <div class="sl-hud-bottom-dock">
+        ${dataCardSlot}
+        <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+          <div class="sl-hud-reaction-header">
+            <span class="sl-hud-reaction-title">${ctx.pending.title}</span>
+            <span class="sl-hud-reaction-timer">${remainingSec}s</span>
+          </div>
+          <div class="sl-hud-reaction-desc">${shooter}'s Blast reaches more than one of your units. Share the hits out between them: any split works as long as no unit takes more hits than it has models and every hit that can land is assigned.</div>
+          ${blocks}
+          <div class="sl-hud-reaction-actions">
+            <button class="sl-hud-btn" data-action="blast-auto">Auto split</button>
+            <button class="sl-hud-btn primary" data-action="blast-confirm" ${allValid ? '' : 'disabled'}>Confirm</button>
           </div>
         </div>
       </div>`;
@@ -4491,12 +4606,15 @@ export class GameHUD {
         return `fought ${this.unitName((action.payload as any).targetId)}`;
       case 'pile-in-move':
         return 'piled in';
+      case 'blast-split':
+        return 'split the Blast hits';
       case 'pick-casualties':
         return `removed casualties from ${this.unitName((action.payload as any).unitId)}`;
       case 'respond-reaction': {
         const p = action.payload as { choiceId: string };
         if (p.choiceId === 'auto-pile-in') return 'piled in (auto)';
         if (p.choiceId === 'auto-pick-casualties') return 'casualties picked (auto)';
+        if (p.choiceId === 'auto-blast-split') return 'Blast hits split (auto)';
         return p.choiceId === 'strike-back' ? 'struck back in retaliation' : 'declined retaliation';
       }
       case 'end-activation':
@@ -4712,6 +4830,18 @@ export class GameHUD {
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-reaction-waiting">
             <span class="sl-hud-hint">Waiting for ${ownerName} to remove casualties (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+          </div>
+        </div>`;
+      }
+      const blastPrompt = this.blastSplitContext();
+      if (blastPrompt) return this.blastSplitPromptHtml(blastPrompt, remainingSec, dataCardSlot);
+      if (pendingReaction.type === 'blast-split' && pendingReaction.promptingPlayerId !== this.localPlayerId) {
+        const defenderName = this.state.players.find((p) => p.id === pendingReaction.promptingPlayerId)?.name ?? 'opponent';
+        return `
+        <div class="sl-hud-bottom-dock">
+          ${dataCardSlot}
+          <div class="sl-hud-bottom sl-hud-reaction-waiting">
+            <span class="sl-hud-hint">Waiting for ${defenderName} to split the Blast hits (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
           </div>
         </div>`;
       }
@@ -5656,6 +5786,15 @@ export class GameHUD {
             break;
           case 'confirm-casualties':
             this.confirmCasualties();
+            break;
+          case 'blast-step':
+            this.stepBlastHits(Number(el.dataset.row), Number(el.dataset.col), Number(el.dataset.delta));
+            break;
+          case 'blast-auto':
+            this.autoBlastSplit();
+            break;
+          case 'blast-confirm':
+            this.confirmBlastSplit();
             break;
           case 'push-confirm':
             this.beginPushPicking();

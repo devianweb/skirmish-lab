@@ -64,6 +64,14 @@ import {
 } from './combat';
 import { autoSplitForParticipants, getBlastParticipants } from './blast';
 import {
+  BLAST_SPLIT_AUTO_CHOICE,
+  createBlastSplitReaction,
+  validateBlastSplit,
+  type BlastSplitData,
+  type BlastSplitPayload,
+  type BlastSplitPrompt,
+} from './blastSplit';
+import {
   computeSquadCentroid,
   pushBackChargerModels,
   createSquadPositions,
@@ -674,6 +682,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       action.type !== 'consolidate-move' &&
       action.type !== 'pile-in-move' &&
       action.type !== 'pick-casualties' &&
+      action.type !== 'blast-split' &&
       action.type !== 'push-move'
     ) {
       return { valid: false, reason: 'A reaction is pending — waiting for opponent' };
@@ -1622,6 +1631,15 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'No pending casualty pick' };
       }
       const result = validatePickCasualties(state, pending, action.actorId, action.payload as PickCasualtiesPayload);
+      return result.valid ? { valid: true } : { valid: false, reason: result.reason };
+    }
+
+    case 'blast-split': {
+      const pending = state.turnState.pendingReaction;
+      if (!pending || pending.type !== 'blast-split') {
+        return { valid: false, reason: 'No pending Blast split' };
+      }
+      const result = validateBlastSplit(state, pending, action.actorId, action.payload as BlastSplitPayload);
       return result.valid ? { valid: true } : { valid: false, reason: result.reason };
     }
 
@@ -2789,246 +2807,20 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'shoot': {
-      const payload = action.payload as PayloadWithAttacker;
-      const attacker = getUnit(newState, payload.attackerId)!;
-      const allocations = getShootAllocations(payload);
-
-      if (!dice) {
-        return { ok: false, reason: 'Dice results required' };
+      // A Blast shot that reaches several units waits for the defender's split (nothing is resolved yet)
+      const pause = blastSplitPause(newState, action, dice);
+      if (pause) {
+        if (!pause.ok) return pause;
+        newState.turnState.pendingReaction = pause.reaction;
+        logEntry = acceptedEntry(action);
+        break;
       }
-
-      const isSingle = allocations.length === 1;
-      const allocationOutcomes: WeaponAttackOutcome[] = [];
-
-      let totalAttackCount = 0;
-      let totalHitCount = 0;
-      let totalBonusHits = 0;
-      let totalBlockedCount = 0;
-      const allBlockedRolls: boolean[] = [];
-      let totalRegenerationSavedCount = 0;
-      let totalWounds = 0;
-      let primaryTargetDestroyed = false;
-      let primaryTargetShaken = false;
-      const ledger: WoundLedger = new Map();
-      const blastSplash: BlastSplashOutcome[] = [];
-      const blastSplits: BlastSplitRecord[] = [];
-
-      // Turn attacker to face the primary target
-      const primaryTarget = getUnit(newState, allocations[0].targetId);
-      if (primaryTarget) {
-        const adx = primaryTarget.position.x - attacker.position.x;
-        const adz = primaryTarget.position.z - attacker.position.z;
-        if (Math.hypot(adx, adz) > 1e-4) {
-          attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
-        }
-        if (attacker.models && attacker.models.length > 0) {
-          for (const m of attacker.models) {
-            if (!m.isDestroyed) {
-              const mPos = m.position ?? attacker.position;
-              const mdx = primaryTarget.position.x - mPos.x;
-              const mdz = primaryTarget.position.z - mPos.z;
-              if (Math.hypot(mdx, mdz) > 1e-4) {
-                m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
-              } else {
-                m.rotation = { ...attacker.rotation };
-              }
-            }
-          }
-        }
-      }
-
-      for (let i = 0; i < allocations.length; i++) {
-        const alloc = allocations[i];
-        const weapon = getWeapon(attacker, alloc.weaponId)!;
-        const target = getUnit(newState, alloc.targetId)!;
-        const distance = unitDistance(attacker, target);
-        // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
-        const sightless = ignoresSight(attacker, weapon);
-        const firing = firingModels(newState, attacker, target, weapon);
-        const inCover =
-          target.status.includes('in-cover') ||
-          (!sightless && targetCoverByMajority(newState, firing, attacker, target));
-        const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
-        const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
-
-        const attackerStats = {
-          quality: attacker.quality,
-          specialRules: attacker.specialRules,
-          weaponRules: weapon.profile.specialRules,
-          isMelee: false,
-          isCharging: false,
-          hasMoved: attacker.hasMoved,
-          isFatigued: false,
-          distance,
-        };
-        const targetStats = {
-          defense: target.defense,
-          inCover,
-          specialRules: target.specialRules,
-          modelCount: aliveModels,
-          hasMoved: target.hasMoved,
-        };
-        const isBlast = hasTrait(weapon.profile.specialRules, 'blast');
-        const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
-
-        let outcome: CombatOutcome;
-        try {
-          const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
-          if (isBlast) {
-            // Spread the shot's hits over the target and its neighbours; each unit rolls its own defense batch
-            const participants = getBlastParticipants(newState, attacker, target);
-            const shotHits = countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit);
-            const shares = autoSplitForParticipants(shotHits, participants);
-            blastSplits.push({
-              weaponId: weapon.id,
-              weaponName: weapon.name,
-              multiplier: getTraitValue(weapon.profile.specialRules, 'blast') ?? 1,
-              totalHits: shotHits,
-              shares: participants.map((p, k) => ({
-                targetId: p.unit.id,
-                targetName: p.unit.name,
-                hits: shares[k],
-                cap: p.cap,
-              })),
-              lostHits: Math.max(0, shotHits - shares.reduce((sum, n) => sum + n, 0)),
-            });
-            let offset = 0;
-            const share = (count: number): BlastShare => ({ offset, count, aimedAt: targetStats });
-            outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls, share(shares[0]));
-            offset += shares[0];
-            for (let k = 1; k < participants.length; k++) {
-              const spill = participants[k].unit;
-              const count = shares[k];
-              if (count === 0) continue;
-              const spillRolls = extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i);
-              const spillOutcome = resolveAttack(
-                attackerStats,
-                {
-                  defense: spill.defense,
-                  inCover: false,
-                  specialRules: spill.specialRules,
-                  modelCount: participants[k].cap,
-                  hasMoved: spill.hasMoved,
-                },
-                totalAttacks,
-                spillRolls,
-                share(count)
-              );
-              offset += count;
-              applyOutcomeWounds(ledger, spill, spillOutcome, deadlyValue);
-              blastSplash.push({
-                weaponId: weapon.id,
-                targetId: spill.id,
-                targetName: spill.name,
-                hitCount: spillOutcome.hitCount,
-                blockedCount: spillOutcome.blockedCount,
-                blockedRolls: spillOutcome.blockedRolls,
-                regenerationSavedCount: spillOutcome.regenerationSavedCount,
-                wounds: spillOutcome.wounds,
-                targetDestroyed: spill.isDestroyed,
-                targetShaken: spill.status.includes('shaken'),
-                effectiveDefense: spillOutcome.effectiveDefense,
-                baseDefense: spillOutcome.baseDefense,
-                defenseModifiers: spillOutcome.defenseModifiers,
-                defenseRolls: spillRolls.defense.slice(0, spillOutcome.hitCount),
-              });
-            }
-          } else {
-            outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls);
-          }
-        } catch (error) {
-          return { ok: false, reason: (error as Error).message };
-        }
-
-        if (hasTrait(weapon.profile.specialRules, 'limited')) {
-          weapon.isEquipped = false;
-        }
-
-        applyOutcomeWounds(ledger, target, outcome, deadlyValue);
-
-        totalAttackCount += outcome.attackCount;
-        totalHitCount += outcome.hitCount;
-        totalBonusHits += outcome.bonusHits;
-        totalBlockedCount += outcome.blockedCount;
-        allBlockedRolls.push(...outcome.blockedRolls);
-        totalRegenerationSavedCount += outcome.regenerationSavedCount;
-        totalWounds += outcome.wounds;
-        if (i === 0) {
-          primaryTargetDestroyed = target.isDestroyed;
-          primaryTargetShaken = target.status.includes('shaken');
-        }
-
-        allocationOutcomes.push({
-          weaponId: weapon.id,
-          weaponName: weapon.name,
-          targetId: target.id,
-          targetName: target.name,
-          attackCount: outcome.attackCount,
-          hitCount: outcome.hitCount,
-          bonusHits: outcome.bonusHits,
-          blockedCount: outcome.blockedCount,
-          blockedRolls: outcome.blockedRolls,
-          regenerationSavedCount: outcome.regenerationSavedCount,
-          wounds: outcome.wounds,
-          ...(outcome.shredWounds ? { shredWounds: outcome.shredWounds } : {}),
-          targetDestroyed: target.isDestroyed,
-          targetShaken: target.status.includes('shaken'),
-          effectiveQuality: outcome.effectiveQuality,
-          effectiveDefense: outcome.effectiveDefense,
-          baseQuality: outcome.baseQuality,
-          hitModifiers: outcome.hitModifiers,
-          baseDefense: outcome.baseDefense,
-          defenseModifiers: outcome.defenseModifiers,
-          coverApplied: outcome.coverApplied,
-          apApplied: outcome.apApplied,
-        });
-      }
-
-      // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
-      deferCasualties(newState, ledger, action.id, attacker, { kind: 'shoot', attackerId: attacker.id });
-
-      attacker.hasAttacked = true;
-      attacker.remainingMovement = 0;
-      refreshEngagements(newState);
-
-      const firstAlloc = allocationOutcomes[0];
-      diceResolution = {
-        rollId: action.id,
-        specs: getDiceSpecs(state, action) ?? [],
-        results: dice,
-        context: {
-          attackerId: attacker.id,
-          targetId: allocations[0].targetId,
-          weaponId: allocations[0].weaponId,
-          actionId: action.id,
-        },
-        outcome: {
-          attackCount: totalAttackCount,
-          hitCount: totalHitCount,
-          bonusHits: totalBonusHits,
-          blockedCount: totalBlockedCount,
-          blockedRolls: allBlockedRolls,
-          regenerationSavedCount: totalRegenerationSavedCount,
-          wounds: totalWounds,
-          targetDestroyed: primaryTargetDestroyed,
-          targetShaken: primaryTargetShaken,
-          effectiveQuality: firstAlloc.effectiveQuality,
-          effectiveDefense: firstAlloc.effectiveDefense,
-          baseQuality: firstAlloc.baseQuality,
-          hitModifiers: firstAlloc.hitModifiers,
-          baseDefense: firstAlloc.baseDefense,
-          defenseModifiers: firstAlloc.defenseModifiers,
-          coverApplied: firstAlloc.coverApplied,
-          apApplied: firstAlloc.apApplied,
-          allocations: allocationOutcomes,
-          ...(blastSplash.length > 0 ? { blastSplash } : {}),
-          ...(blastSplits.length > 0 ? { blastSplits } : {}),
-        },
-      };
-
-      logEntry = acceptedEntry(action, diceResolution);
+      const shot = resolveShoot(state, newState, action, dice);
+      if (!shot.ok) return shot;
+      logEntry = shot.logEntry;
       break;
     }
+
 
     case 'fight': {
       const { attackerId, targetId, weaponId } = action.payload as {
@@ -3459,6 +3251,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         logEntry = piled.logEntry;
         break;
       }
+      if (pending.type === 'blast-split') {
+        // Auto split (the defender's choice or the host's timeout fallback): the host splits every weapon itself
+        const blastData = pending.data as unknown as BlastSplitData;
+        logEntry = applyBlastSplit(state, newState, action, blastData.blasts.map((b) => b.auto));
+        break;
+      }
       if (pending.type === 'pick-casualties') {
         // The owner ran out of time (the only option is the host's own pick)
         const pickData = pending.data as unknown as PickCasualtiesData;
@@ -3601,6 +3399,11 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'blast-split': {
+      logEntry = applyBlastSplit(state, newState, action, (action.payload as BlastSplitPayload).splits ?? []);
+      break;
+    }
+
     case 'pick-casualties': {
       const payload = action.payload as PickCasualtiesPayload;
       logEntry = applyPickCasualties(newState, action, payload.modelIds ?? []);
@@ -3702,6 +3505,323 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
 }
 
 // --- internals ------------------------------------------------------------
+
+/**
+ * A Blast shot that reaches more than one unit pauses for the defender's split. This resolves the shot on a
+ * throwaway copy to find the Blast weapons that need a split (the dice are already rolled); null means the shot
+ * can resolve at once. The reaction carries the shot's action and dice so it resolves after the choice.
+ */
+function blastSplitPause(
+  newState: GameState,
+  action: GameAction,
+  dice?: DiceResult[]
+): { ok: true; reaction: PendingReaction } | { ok: false; reason: string } | null {
+  const payload = action.payload as PayloadWithAttacker;
+  const attacker = getUnit(newState, payload.attackerId);
+  if (!attacker || !dice) return null;
+  const hasBlast = getShootAllocations(payload).some((a) => {
+    const w = getWeapon(attacker, a.weaponId);
+    return !!w && hasTrait(w.profile.specialRules, 'blast');
+  });
+  if (!hasBlast) return null;
+  const prompts: BlastSplitPrompt[] = [];
+  const trial = resolveShoot(newState, cloneGameState(newState), action, dice, undefined, prompts);
+  if (!trial.ok) return trial;
+  if (prompts.length === 0) return null;
+  const firstTarget = getUnit(newState, getShootAllocations(payload)[prompts[0].allocIndex].targetId)!;
+  return {
+    ok: true,
+    reaction: createBlastSplitReaction(action.id, firstTarget.ownerId, attacker.id, firstTarget.id, {
+      shoot: JSON.parse(JSON.stringify(action)) as GameAction,
+      dice: JSON.parse(JSON.stringify(dice)) as DiceResult[],
+      blasts: prompts,
+    }),
+  };
+}
+
+/** The defender's split (or the host's Auto) is in: resolve the paused shot with its stored dice. */
+function applyBlastSplit(state: GameState, newState: GameState, action: GameAction, rows: number[][]): ActionLogEntry {
+  const data = newState.turnState.pendingReaction!.data as unknown as BlastSplitData;
+  newState.turnState.pendingReaction = null;
+  const splits: Record<number, number[]> = {};
+  data.blasts.forEach((b, k) => {
+    splits[b.allocIndex] = rows[k] ?? b.auto;
+  });
+  // The shot resolves from the state it paused in (nothing changed meanwhile); the original action id is kept
+  // for the dice resolution so both peers render the same roll.
+  const resolved = resolveShoot(state, newState, data.shoot, data.dice, splits, undefined, action);
+  if (!resolved.ok) throw new Error(resolved.reason);
+  return resolved.logEntry;
+}
+
+/**
+ * Resolve a shoot action with its dice. A Blast weapon with more than one eligible unit takes its split from
+ * `splits` (by allocation index); without one the Auto split is used, and when `prompts` is given the weapon is
+ * reported there instead (the caller then discards this trial run and asks the defender).
+ */
+function resolveShoot(
+  state: GameState,
+  newState: GameState,
+  action: GameAction,
+  dice: DiceResult[] | undefined,
+  splits?: Record<number, number[]>,
+  prompts?: BlastSplitPrompt[],
+  /** The action the log entry is written for (the Blast split answer when the shot was paused). */
+  logAction: GameAction = action
+): { ok: true; logEntry: ActionLogEntry } | { ok: false; reason: string } {
+  let diceResolution: DiceResolution | undefined;
+  const payload = action.payload as PayloadWithAttacker;
+  const attacker = getUnit(newState, payload.attackerId)!;
+  const allocations = getShootAllocations(payload);
+
+  if (!dice) {
+    return { ok: false, reason: 'Dice results required' };
+  }
+
+  const isSingle = allocations.length === 1;
+  const allocationOutcomes: WeaponAttackOutcome[] = [];
+
+  let totalAttackCount = 0;
+  let totalHitCount = 0;
+  let totalBonusHits = 0;
+  let totalBlockedCount = 0;
+  const allBlockedRolls: boolean[] = [];
+  let totalRegenerationSavedCount = 0;
+  let totalWounds = 0;
+  let primaryTargetDestroyed = false;
+  let primaryTargetShaken = false;
+  const ledger: WoundLedger = new Map();
+  const blastSplash: BlastSplashOutcome[] = [];
+  const blastSplits: BlastSplitRecord[] = [];
+
+  // Turn attacker to face the primary target
+  const primaryTarget = getUnit(newState, allocations[0].targetId);
+  if (primaryTarget) {
+    const adx = primaryTarget.position.x - attacker.position.x;
+    const adz = primaryTarget.position.z - attacker.position.z;
+    if (Math.hypot(adx, adz) > 1e-4) {
+      attacker.rotation = { ...attacker.rotation, y: Math.atan2(adx, adz) };
+    }
+    if (attacker.models && attacker.models.length > 0) {
+      for (const m of attacker.models) {
+        if (!m.isDestroyed) {
+          const mPos = m.position ?? attacker.position;
+          const mdx = primaryTarget.position.x - mPos.x;
+          const mdz = primaryTarget.position.z - mPos.z;
+          if (Math.hypot(mdx, mdz) > 1e-4) {
+            m.rotation = { x: 0, y: Math.atan2(mdx, mdz), z: 0 };
+          } else {
+            m.rotation = { ...attacker.rotation };
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < allocations.length; i++) {
+    const alloc = allocations[i];
+    const weapon = getWeapon(attacker, alloc.weaponId)!;
+    const target = getUnit(newState, alloc.targetId)!;
+    const distance = unitDistance(attacker, target);
+    // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
+    const sightless = ignoresSight(attacker, weapon);
+    const firing = firingModels(newState, attacker, target, weapon);
+    const inCover =
+      target.status.includes('in-cover') ||
+      (!sightless && targetCoverByMajority(newState, firing, attacker, target));
+    const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
+    const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
+
+    const attackerStats = {
+      quality: attacker.quality,
+      specialRules: attacker.specialRules,
+      weaponRules: weapon.profile.specialRules,
+      isMelee: false,
+      isCharging: false,
+      hasMoved: attacker.hasMoved,
+      isFatigued: false,
+      distance,
+    };
+    const targetStats = {
+      defense: target.defense,
+      inCover,
+      specialRules: target.specialRules,
+      modelCount: aliveModels,
+      hasMoved: target.hasMoved,
+    };
+    const isBlast = hasTrait(weapon.profile.specialRules, 'blast');
+    const deadlyValue = getTraitValue(weapon.profile.specialRules, 'deadly') ?? 1;
+
+    let outcome: CombatOutcome;
+    try {
+      const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
+      if (isBlast) {
+        // Spread the shot's hits over the target and its neighbours; each unit rolls its own defense batch
+        const participants = getBlastParticipants(newState, attacker, target);
+        const shotHits = countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit);
+        const auto = autoSplitForParticipants(shotHits, participants);
+      const chosen = splits?.[i];
+      if (!chosen && prompts && participants.length > 1 && shotHits > 0) {
+        prompts.push({
+          allocIndex: i,
+          weaponId: weapon.id,
+          weaponName: weapon.name,
+          totalHits: shotHits,
+          participants: participants.map((p) => ({ unitId: p.unit.id, unitName: p.unit.name, cap: p.cap })),
+          auto,
+        });
+      }
+      const shares = chosen ?? auto;
+        blastSplits.push({
+          weaponId: weapon.id,
+          weaponName: weapon.name,
+          multiplier: getTraitValue(weapon.profile.specialRules, 'blast') ?? 1,
+          totalHits: shotHits,
+          shares: participants.map((p, k) => ({
+            targetId: p.unit.id,
+            targetName: p.unit.name,
+            hits: shares[k],
+            cap: p.cap,
+          })),
+          lostHits: Math.max(0, shotHits - shares.reduce((sum, n) => sum + n, 0)),
+        });
+        let offset = 0;
+        const share = (count: number): BlastShare => ({ offset, count, aimedAt: targetStats });
+        outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls, share(shares[0]));
+        offset += shares[0];
+        for (let k = 1; k < participants.length; k++) {
+          const spill = participants[k].unit;
+          const count = shares[k];
+          if (count === 0) continue;
+          const spillRolls = extractBlastRolls(dice, spill.id, rolls.toHit, isSingle ? undefined : i);
+          const spillOutcome = resolveAttack(
+            attackerStats,
+            {
+              defense: spill.defense,
+              inCover: false,
+              specialRules: spill.specialRules,
+              modelCount: participants[k].cap,
+              hasMoved: spill.hasMoved,
+            },
+            totalAttacks,
+            spillRolls,
+            share(count)
+          );
+          offset += count;
+          applyOutcomeWounds(ledger, spill, spillOutcome, deadlyValue);
+          blastSplash.push({
+            weaponId: weapon.id,
+            targetId: spill.id,
+            targetName: spill.name,
+            hitCount: spillOutcome.hitCount,
+            blockedCount: spillOutcome.blockedCount,
+            blockedRolls: spillOutcome.blockedRolls,
+            regenerationSavedCount: spillOutcome.regenerationSavedCount,
+            wounds: spillOutcome.wounds,
+            targetDestroyed: spill.isDestroyed,
+            targetShaken: spill.status.includes('shaken'),
+            effectiveDefense: spillOutcome.effectiveDefense,
+            baseDefense: spillOutcome.baseDefense,
+            defenseModifiers: spillOutcome.defenseModifiers,
+            defenseRolls: spillRolls.defense.slice(0, spillOutcome.hitCount),
+          });
+        }
+      } else {
+        outcome = resolveAttack(attackerStats, targetStats, totalAttacks, rolls);
+      }
+    } catch (error) {
+      return { ok: false, reason: (error as Error).message };
+    }
+
+    if (hasTrait(weapon.profile.specialRules, 'limited')) {
+      weapon.isEquipped = false;
+    }
+
+    applyOutcomeWounds(ledger, target, outcome, deadlyValue);
+
+    totalAttackCount += outcome.attackCount;
+    totalHitCount += outcome.hitCount;
+    totalBonusHits += outcome.bonusHits;
+    totalBlockedCount += outcome.blockedCount;
+    allBlockedRolls.push(...outcome.blockedRolls);
+    totalRegenerationSavedCount += outcome.regenerationSavedCount;
+    totalWounds += outcome.wounds;
+    if (i === 0) {
+      primaryTargetDestroyed = target.isDestroyed;
+      primaryTargetShaken = target.status.includes('shaken');
+    }
+
+    allocationOutcomes.push({
+      weaponId: weapon.id,
+      weaponName: weapon.name,
+      targetId: target.id,
+      targetName: target.name,
+      attackCount: outcome.attackCount,
+      hitCount: outcome.hitCount,
+      bonusHits: outcome.bonusHits,
+      blockedCount: outcome.blockedCount,
+      blockedRolls: outcome.blockedRolls,
+      regenerationSavedCount: outcome.regenerationSavedCount,
+      wounds: outcome.wounds,
+      ...(outcome.shredWounds ? { shredWounds: outcome.shredWounds } : {}),
+      targetDestroyed: target.isDestroyed,
+      targetShaken: target.status.includes('shaken'),
+      effectiveQuality: outcome.effectiveQuality,
+      effectiveDefense: outcome.effectiveDefense,
+      baseQuality: outcome.baseQuality,
+      hitModifiers: outcome.hitModifiers,
+      baseDefense: outcome.baseDefense,
+      defenseModifiers: outcome.defenseModifiers,
+      coverApplied: outcome.coverApplied,
+      apApplied: outcome.apApplied,
+    });
+  }
+
+  // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
+  deferCasualties(newState, ledger, action.id, attacker, { kind: 'shoot', attackerId: attacker.id });
+
+  attacker.hasAttacked = true;
+  attacker.remainingMovement = 0;
+  refreshEngagements(newState);
+
+  const firstAlloc = allocationOutcomes[0];
+  diceResolution = {
+    rollId: action.id,
+    specs: getDiceSpecs(state, action) ?? [],
+    results: dice,
+    context: {
+      attackerId: attacker.id,
+      targetId: allocations[0].targetId,
+      weaponId: allocations[0].weaponId,
+      actionId: action.id,
+    },
+    outcome: {
+      attackCount: totalAttackCount,
+      hitCount: totalHitCount,
+      bonusHits: totalBonusHits,
+      blockedCount: totalBlockedCount,
+      blockedRolls: allBlockedRolls,
+      regenerationSavedCount: totalRegenerationSavedCount,
+      wounds: totalWounds,
+      targetDestroyed: primaryTargetDestroyed,
+      targetShaken: primaryTargetShaken,
+      effectiveQuality: firstAlloc.effectiveQuality,
+      effectiveDefense: firstAlloc.effectiveDefense,
+      baseQuality: firstAlloc.baseQuality,
+      hitModifiers: firstAlloc.hitModifiers,
+      baseDefense: firstAlloc.baseDefense,
+      defenseModifiers: firstAlloc.defenseModifiers,
+      coverApplied: firstAlloc.coverApplied,
+      apApplied: firstAlloc.apApplied,
+      allocations: allocationOutcomes,
+      ...(blastSplash.length > 0 ? { blastSplash } : {}),
+      ...(blastSplits.length > 0 ? { blastSplits } : {}),
+    },
+  };
+
+  return { ok: true, logEntry: acceptedEntry(logAction, diceResolution) };
+}
+
 
 type RequireResult = { result: Unit } | { valid: false; reason: string };
 

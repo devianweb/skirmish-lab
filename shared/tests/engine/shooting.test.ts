@@ -8,6 +8,7 @@ import { autoSplitBlastHits, computeCombatModifiers, resolveAttack } from '../..
 import { getBlastParticipants } from '../../src/engine/blast';
 import { firingModels } from '../../src/engine/squadTargeting';
 import { PICK_CASUALTIES_AUTO_CHOICE } from '../../src/engine/casualties';
+import { BLAST_SPLIT_AUTO_CHOICE } from '../../src/engine/blastSplit';
 
 const HOST = 'host-1';
 const GUEST = 'guest-1';
@@ -113,6 +114,27 @@ function fire(state: GameState, action = shootAt([{ weaponId: 'frag-launcher', t
   return { specs, out: applyAction(state, action, dice) };
 }
 
+/** Like `fire`, but a Blast shot that reaches several units is answered with the Auto split, so `out` is the resolved shot. */
+function fireAndResolve(
+  state: GameState,
+  action = shootAt([{ weaponId: 'frag-launcher', targetId: 'g1' }]),
+  toHit = [6],
+  fill = 1
+) {
+  const fired = fire(state, action, toHit, fill);
+  const pending = fired.out.state?.turnState.pendingReaction;
+  if (!fired.out.ok || pending?.type !== 'blast-split') return fired;
+  const out = applyAction(
+    fired.out.state!,
+    createAction(pending.promptingPlayerId, 'respond-reaction', {
+      type: 'respond-reaction',
+      reactionId: pending.id,
+      choiceId: BLAST_SPLIT_AUTO_CHOICE,
+    })
+  );
+  return { specs: fired.specs, out };
+}
+
 describe('autoSplitBlastHits', () => {
   const cands = (...caps: number[]) => caps.map((cap, i) => ({ unitId: `u${i}`, cap }));
 
@@ -215,7 +237,7 @@ describe('Blast: spread on the table', () => {
     const state = scene();
     // Both attacks hit: 6 Blast hits; 3 models each: 3 / 3. g1 defends with D5, g2 with D2.
     unitOf(state, 'g2').defense = 2;
-    const { out } = fire(state, undefined, [5, 5], 3); // every defense die shows 3: fails D5, blocks D2
+    const { out } = fireAndResolve(state, undefined, [5, 5], 3); // every defense die shows 3: fails D5, blocks D2
     expect(out.ok).toBe(true);
     const outcome = out.logEntry!.dice!.outcome;
     expect(outcome.hitCount).toBe(3);
@@ -235,7 +257,7 @@ describe('Blast: spread on the table', () => {
       mkUnit('g1', GUEST, 0, 10, { count: 5 }),
       mkUnit('g2', GUEST, 0, 13, { count: 5 }),
     ]);
-    const { out } = fire(state, undefined, [5]);
+    const { out } = fireAndResolve(state, undefined, [5]);
     const outcome = out.logEntry!.dice!.outcome;
     expect(outcome.hitCount).toBe(2);
     expect(outcome.blastSplash![0]).toMatchObject({ targetId: 'g2', hitCount: 1 });
@@ -262,7 +284,7 @@ describe('Blast: spread on the table', () => {
       mkUnit('h1', HOST, 0, 0, { count: 2, weapons: [weapon('frag-launcher')] }),
       mkUnit('g1', GUEST, 0, 10, { count: 4 }),
     ]);
-    const { out } = fire(state, undefined, [5, 5]);
+    const { out } = fireAndResolve(state, undefined, [5, 5]);
     const split = out.logEntry!.dice!.outcome.blastSplits![0];
     expect(split).toMatchObject({ totalHits: 6, lostHits: 2 });
     expect(split.shares).toEqual([{ targetId: 'g1', targetName: expect.any(String), hits: 4, cap: 4 }]);
@@ -280,7 +302,7 @@ describe('Blast: spread on the table', () => {
         []
       );
     // Defense 4 on D5: fails without cover; with cover (+1) it would block. Blast: both fail.
-    const { out } = fire(mk('frag-launcher'), shootAt([{ weaponId: 'frag-launcher', targetId: 'g1' }]), [5], 4);
+    const { out } = fireAndResolve(mk('frag-launcher'), shootAt([{ weaponId: 'frag-launcher', targetId: 'g1' }]), [5], 4);
     const outcome = out.logEntry!.dice!.outcome;
     expect(outcome.coverApplied).toBe(false);
     expect(outcome.wounds).toBe(1);
@@ -303,7 +325,7 @@ describe('Blast: spread on the table', () => {
     unitOf(state, 'g2').wounds = 4;
     // Baseline is recorded when the activation began
     state.turnState.woundBaseline = { h1: 1, g1: 6, g2: 4 };
-    let s = fire(state, undefined, [5]).out.state!;
+    let s = fireAndResolve(state, undefined, [5]).out.state!;
     while (s.turnState.pendingReaction) {
       const r = s.turnState.pendingReaction;
       s = applyAction(

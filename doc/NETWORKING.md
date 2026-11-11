@@ -114,6 +114,9 @@ After a final charge that leaves some defender models out of base contact, the h
 ### Casualty-pick reaction
 When an attack's wounds would remove models from a surviving multi-model unit, the host leaves the unit untouched, logs the attack as usual (all its dice were rolled up front, including the wound-effect roll) and sets `turnState.pendingReaction` of type `pick-casualties` (30 s) for that unit's owner; further damaged units of the same action queue behind it. The owner's peer answers with an ordinary `action-request`: `pick-casualties { unitId, modelIds }`, or `respond-reaction` with `auto-pick-casualties`; no dice are requested for either (the wounds were rolled with the attack, so reconnection and `rollId` idempotency are unaffected). The host validates, applies the picks, then either sets the next pick or continues the interrupted flow (end of shooting, the strike-back prompt, the step back, consolidation) and broadcasts the state. If the countdown ends the host submits `auto-pick-casualties` itself (the existing reaction timer). The pending reaction, with its queued entries, is part of `GameState`, so a reconnecting peer sees it in the snapshot.
 
+### Blast split prompt (`blast-split`)
+A Blast shot that reaches more than one enemy unit pauses before it resolves: the host sets `turnState.pendingReaction` of type `blast-split` for the target's owner (30 s). `data` carries the shoot action, its server-rolled dice and, per Blast weapon, the hits to share, each eligible unit with its cap (living models) and the Auto split. The owner answers with a `blast-split` action (`{ splits: number[][] }`, validated by the host) or `respond-reaction` with `auto-blast-split`; the host's timeout fallback sends the latter. The shot then resolves with the stored dice, so no new dice are requested for the answer, and its log entry holds the dice resolution for both peers.
+
 ### Action Flow
 ```
 Guest wants to move unit:
