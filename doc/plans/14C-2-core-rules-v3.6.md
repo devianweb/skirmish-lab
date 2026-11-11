@@ -79,6 +79,10 @@ Reference: `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6
 ### Melee result display (owner, 2026-11-11: "Roll this into the next PR", rides with PR 8)
 47. **Melee result line names the owners.** In a mirror match both units can share a name, so the melee result text (`GameHUD.meleeResultText`, used by the log and the "Melee result & Morale" dice panel) prefixes each unit with its owner ("Host's" / "Guest's", or the player's name where the HUD already uses one) and spells out Fear as `(+N Fear from <owner>'s M models in reach)`, where M = N / X (X = the Fear unit's Fear value). Give the end-of-activation melee/morale part of the log entry its own indented line(s) under "… ended an activation" so it stands out. Display only: no engine or rule change. Add a client test (mirror names, Fear wording).
 
+### PR 9B: setup fixes from the PR 8 + 9 playtest (owner, 2026-11-11)
+48. **Units in reserve can't activate.** A unit that is not on the table (`isDeployed === false`: an Ambush unit still in reserve, or a held Scout before the Scout stage) can't be activated, held, moved, or targeted. The host rejects `activate-unit` and `hold` for it (today only `getActivatableUnits` filters it; `validateAction` doesn't), and the HUD neither offers it as activatable nor counts it in "N available". Owner playtest: a Lurkers unit left in reserve after both players skipped the Ambush step was activated and advanced in round 2.
+49. **Objectives in games without the deployment phase.** A game started with "Interactive Pre-Match Deployment" unticked still runs the objectives phase (count roll, mission roll-off, alternate placement, exactly as Decisions 26–28) before round 1. Units keep their automatic starting positions; after the last marker the deployment roll-off decides who activates first in round 1, and play goes straight to round 1 (no deployment or Scout stage). Rematch keeps the objectives and roll-offs as in Decision 30. Owner playtest: "Starting a game with auto deployment doesn't trigger objective placement."
+
 ## Out of scope
 - Army data (14C-3). TEST armies only get the trait changes needed for tests.
 - Casters/spells.
@@ -160,6 +164,13 @@ Reference: `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6
 - **Status:** implemented. Fixture: dev-mode army `test-scout-ambush-army`; manual checks in the checklist section "14C-2 PR 8 + 9".
 - **Layer:** client HUD + editor + renderer markers.
 - Click-to-place with a legality preview (red/green ring, 9" circles around placed markers), roll-off and count announcements, Scout/Ambush placement steps reuse deployment UI, remove the editor objective tool.
+
+## PR 9B: Setup fixes  (branch: `14C-2-core-9b`)
+- **Layer:** shared engine + minimal HUD.
+- **Decisions:** 48, 49.
+- **Tests first:** reserve Ambush unit (round 2, after both players skip) → `activate-unit` and `hold` rejected, not in the HUD's activatable list or "N available"; a held Scout during deployment likewise; a deployed unit still activates. Auto-deployment game: starts in `objectives` with units already placed, the host's `roll-objectives` fires, placement alternates from the mission winner, the last marker records the deployment roll-off and moves to round 1 activation with the winner first; rematch of such a game keeps objectives and roll-offs and starts in round 1.
+- **Fixtures:** reuse `TEST: Scout & Ambush Check` and the Standard Battlefield.
+- **Docs:** RULES_SPECIFICATION / SYSTEMS setup sections; replace the checklist item "A new game without the deployment phase starts in round 1 with no objective markers" with the new behaviour, and add an item for reserve units not activating. Update the UI inventory only if a screen changes.
 
 ## PR 10: Blast split prompt  (branch: `14C-2-core-10`)
 - **Layer:** shared reaction + client HUD.
