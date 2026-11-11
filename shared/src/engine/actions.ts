@@ -2374,7 +2374,10 @@ function pileInPlacement(
  * they stand after the charge move and pile-in.
  */
 function chargeExtraSpecs(attacker: Unit, target: Unit, weapon: Weapon): DiceSpec[] {
-  const specs: DiceSpec[] = getImpactDiceSpecs(impactDiceCount(attacker, weapon), target.specialRules ?? []);
+  const specs: DiceSpec[] = getImpactDiceSpecs(
+    impactDiceCount(attacker, weapon, strikers(attacker, target)),
+    target.specialRules ?? []
+  );
   const counterWeapon = findCounterWeapon(target);
   if (
     counterWeapon &&
@@ -3578,7 +3581,7 @@ function resolveChargeStrike(
 
   // 1. Impact(X): hits land before anyone strikes (none while the charger is Fatigued)
   let impact: SpecialStrikeOutcome | undefined;
-  const impactDice = impactDiceCount(attacker, weapon);
+  const impactDice = impactDiceCount(attacker, weapon, strikers(attacker, target));
   if (impactDice > 0) {
     const rolled = resolveImpact(
       impactDice,

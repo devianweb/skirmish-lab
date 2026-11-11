@@ -149,22 +149,32 @@ describe('melee results: who loses', () => {
       { h1: 1, g1: 1 }
     );
     const [result] = getMeleeResults(state);
-    expect(result.sides[1].fearBonus).toBe(2);
+    expect(result.sides[1].fearBonus).toBe(4); // Fear(2) on each of its 2 living models (the wound killed one)
     expect(result.sides[0].fearBonus).toBeUndefined();
     expect(result.loserId).toBe('g1');
   });
 
-  it('Fear loses to more real wounds: 3 wounds against 1 + Fear(1) is still a loss for the wounded side', () => {
+  it('Fear(X) counts per living model: dead models add nothing', () => {
+    const state = endOfActivation(
+      [mkUnit('h1', HOST, 0, 0, { count: 3, rules: ['fear(1)'] }), squad()],
+      { h1: 1, g1: 1 }
+    );
+    expect(unitOf(state, 'h1').models.filter((m) => !m.isDestroyed)).toHaveLength(2);
+    const [result] = getMeleeResults(state);
+    expect(result.sides[1].fearBonus).toBe(2); // two living models x Fear(1)
+  });
+
+  it('Fear adds to the real wounds of the enemy side: 3 wounds plus Fear(1) per model against 1', () => {
     const state = endOfActivation(
       [mkUnit('h1', HOST, 0, 0, { count: 5 }), mkUnit('g1', GUEST, 0, 1, { count: 5, rules: ['fear(1)'] })],
       { h1: 3, g1: 1 }
     );
     const [result] = getMeleeResults(state);
-    expect(result.sides.map((s) => s.fearBonus)).toEqual([1, undefined]);
-    expect(result.loserId).toBe('h1'); // 3 + 1 against 1
+    expect(result.sides.map((s) => s.fearBonus)).toEqual([4, undefined]); // g1 lost a model: 4 left
+    expect(result.loserId).toBe('h1'); // 3 + Fear(1) x 4 living models against 1
   });
 
-  it('Fear counts once per unit, however many melees it fought, using its highest value', () => {
+  it('Fear counts once per unit, however many melees it fought', () => {
     const state = endOfActivation(
       [
         mkUnit('h1', HOST, 0, 0, { count: 4, rules: ['fear(2)'] }),
@@ -175,7 +185,7 @@ describe('melee results: who loses', () => {
       [['h1', 'g1'], ['h1', 'g2']]
     );
     const results = getMeleeResults(state);
-    expect(results[0].sides[1].fearBonus).toBe(2);
+    expect(results[0].sides[1].fearBonus).toBe(8); // Fear(2) x 4 models
     expect(results[1].sides[1].fearBonus).toBeUndefined();
   });
 

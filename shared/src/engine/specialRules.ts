@@ -47,10 +47,11 @@ export function findCounterWeapon(unit: Pick<Unit, 'weapons'>): Weapon | undefin
 }
 
 /**
- * Impact dice a charging unit rolls: the Impact(X) of the unit plus that of the weapon it strikes with.
- * None while the unit is Fatigued.
+ * Impact dice a charging unit rolls: X per striking model, where X is the Impact(X) of the unit plus that of
+ * the weapon it strikes with (Impact is a per-model rule, as in OPR). None while the unit is Fatigued.
  */
-export function impactDiceCount(unit: Unit, weapon?: Weapon): number {
+export function impactDiceCount(unit: Unit, weapon?: Weapon, strikingModels: number = 1): number {
   if (unit.status.includes('fatigued')) return 0;
-  return sumTraitValue(unit.specialRules, 'impact') + (weapon ? sumTraitValue(weapon.profile.specialRules, 'impact') : 0);
+  const perModel = sumTraitValue(unit.specialRules, 'impact') + (weapon ? sumTraitValue(weapon.profile.specialRules, 'impact') : 0);
+  return perModel * Math.max(0, strikingModels);
 }

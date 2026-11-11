@@ -113,7 +113,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   fear: {
     displayName: 'Fear',
-    description: 'When melee results are compared, the enemy counts as having taken X extra wounds.',
+    description: 'When melee results are compared, the enemy counts as having taken X extra wounds for each living model with Fear.',
   },
   fearless: {
     displayName: 'Fearless',
@@ -137,7 +137,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   impact: {
     displayName: 'Impact',
-    description: 'When charging, rolls X dice (none if the charging unit is already Fatigued). Each 2+ is a hit on the target before any melee strikes.',
+    description: 'When charging, each striking model rolls X dice (none if the charging unit is already Fatigued). Each 2+ is a hit on the target before any melee strikes.',
   },
   indirect: {
     displayName: 'Indirect',

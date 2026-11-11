@@ -225,6 +225,11 @@ describe('Impact on a charge', () => {
     expect(out.logEntry!.dice!.outcome.impact).toBeUndefined();
   });
 
+  it('rolls X dice per striking model of a squad', () => {
+    const state = setup({ models: 3 });
+    expect(getDiceSpecs(state, CHARGE())!.find((s) => s.purpose === 'impact')?.count).toBe(9);
+  });
+
   it('Impact on the weapon counts too', () => {
     const state = setup({ rules: [], weapons: [weapon('blade', ['impact(2)'])] });
     expect(getDiceSpecs(state, CHARGE())!.find((s) => s.purpose === 'impact')?.count).toBe(2);
