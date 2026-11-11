@@ -12,6 +12,8 @@ const H = 'player-host-test-special-', G = 'player-guest-test-';
     window.H.arrange(s, G + 'rules-squad-a-2', 0, 5, { facing: Math.PI });
     window.H.arrange(s, G + 'heavy-gunner-4', 9, 9, { facing: Math.PI });
     window.H.arrange(s, H + 'assault-7', -7, -5);
+    if (s.turnState.phase === 'objectives') { s.turnState.phase = 'activation'; s.turnState.roundNumber = 1; s.turnState.currentPlayerId = ux.HOST; }
+    if (!s.objectives || s.objectives.length === 0) s.objectives = [[-12, 0], [12, 0], [0, 9], [0, -9]].map(([x, z], i) => ux.shared.createObjectiveMarker(i + 1, { x, y: 0, z }));
     ux.setState(s);
     ux.focus(0, 0, 22);
   }, { H, G });

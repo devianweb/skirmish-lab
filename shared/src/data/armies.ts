@@ -698,6 +698,55 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
       },
     ],
   },
+  /**
+   * TEST force for checking per-model loadouts and all-weapons melee by hand (14C-3 PR 1C): a 3-model squad where
+   * two models carry a Rifle and one a Frag Launcher (Blast), all three with a Blade, and one Leader-style model
+   * with a Power Sword and an Assault Rifle (it strikes with both). Use the same army on both sides on any open
+   * map (Standard Battlefield). Not a balanced army.
+   */
+  'test-loadouts-army': {
+    id: 'test-loadouts-army',
+    name: 'TEST: Loadouts Check',
+    factionId: 'test',
+    theme: 'Playtesting only: mixed per-model weapons and a model that strikes with two melee weapons',
+    totalPoints: 0,
+    fighters: [
+      {
+        id: 'test-loadout-squad',
+        name: 'Test Mixed Squad',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 1,
+        speed: 6,
+        modelType: 'trooper',
+        modelCount: 3,
+        weapons: ['rifle', 'blade', 'frag-launcher'],
+        modelLoadouts: [
+          ['rifle', 'blade'],
+          ['rifle', 'blade'],
+          ['frag-launcher', 'blade'],
+        ],
+        specialRules: [],
+      },
+      {
+        id: 'test-loadout-leader',
+        name: 'Test Two-Weapon Leader',
+        faction: 'test',
+        points: 0,
+        quality: 4,
+        defense: 5,
+        wounds: 3,
+        speed: 6,
+        modelType: 'leader',
+        modelCount: 1,
+        weapons: ['power-sword', 'assault-rifle'],
+        modelLoadouts: [['power-sword', 'assault-rifle']],
+        specialRules: [],
+      },
+    ],
+  },
   'test-army': {
     id: 'test-army',
     name: 'TEST: Single Runner (speed 24")',
