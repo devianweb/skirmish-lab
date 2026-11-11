@@ -1,4 +1,5 @@
 import { Unit, Weapon } from '../gameTypes';
+import { modelCarries } from './unitGeometry';
 import { hasTrait, sumTraitValue } from '../rules/traits';
 
 /**
@@ -25,20 +26,39 @@ export function isMeleeWeapon(weapon: Weapon): boolean {
   return weapon.profile.type === 'melee' || hasTrait(weapon.profile.specialRules, 'assault');
 }
 
-/**
- * The melee weapon a unit strikes with by default: its first equipped true melee weapon, otherwise its first
- * equipped Assault weapon. Undefined when it has nothing to strike with.
- */
-export function findMeleeWeapon(unit: Pick<Unit, 'weapons'>): Weapon | undefined {
-  return (
-    unit.weapons.find((w) => w.isEquipped && w.profile.type === 'melee') ??
-    unit.weapons.find((w) => w.isEquipped && isMeleeWeapon(w))
-  );
+/** True when some living model of the unit carries the weapon (a unit without a model list carries all its weapons). */
+export function isCarried(unit: Pick<Unit, 'models'>, weapon: Weapon): boolean {
+  const models = unit.models ?? [];
+  if (models.length === 0) return true;
+  return models.some((m) => !m.isDestroyed && modelCarries(m, weapon.id));
 }
 
-/** True when the unit has an equipped weapon that can strike in melee. */
-export function hasMeleeWeapon(unit: Pick<Unit, 'weapons'>): boolean {
-  return unit.weapons.some((w) => w.isEquipped && isMeleeWeapon(w));
+/**
+ * Every equipped melee weapon (Assault included) in equipment order. Whatever model carries it, the order is
+ * fixed: the index in this list is the weapon's slot in a melee exchange (dice purposes, results). Casualties
+ * do not change it; a slot whose carriers are all gone simply does not strike.
+ */
+export function meleeWeaponSlots(unit: Pick<Unit, 'weapons'>): Weapon[] {
+  return unit.weapons.filter((w) => w.isEquipped && isMeleeWeapon(w));
+}
+
+/** The melee weapons a unit strikes with: every equipped melee weapon that a living model carries, in equipment order. */
+export function findMeleeWeapons(unit: Pick<Unit, 'weapons' | 'models'>): Weapon[] {
+  return meleeWeaponSlots(unit).filter((w) => isCarried(unit, w));
+}
+
+/**
+ * The first melee weapon a unit strikes with (its first equipped true melee weapon, otherwise its first Assault
+ * weapon). The host strikes with all of them (`findMeleeWeapons`); this is only a label / compatibility default.
+ */
+export function findMeleeWeapon(unit: Pick<Unit, 'weapons' | 'models'>): Weapon | undefined {
+  const carried = findMeleeWeapons(unit);
+  return carried.find((w) => w.profile.type === 'melee') ?? carried[0];
+}
+
+/** True when the unit has an equipped weapon that a living model carries and that can strike in melee. */
+export function hasMeleeWeapon(unit: Pick<Unit, 'weapons' | 'models'>): boolean {
+  return findMeleeWeapons(unit).length > 0;
 }
 
 /** Every equipped melee weapon with Counter, in equipment order: all of them strike first when the unit is charged. */
@@ -46,9 +66,14 @@ export function findCounterWeapons(unit: Pick<Unit, 'weapons'>): Weapon[] {
   return unit.weapons.filter((w) => w.isEquipped && isMeleeWeapon(w) && hasTrait(w.profile.specialRules, 'counter'));
 }
 
-/** The first equipped melee weapon without Counter (Assault counts): what a charged unit strikes back with after its Counter strikes. */
-export function findNonCounterMeleeWeapon(unit: Pick<Unit, 'weapons'>): Weapon | undefined {
-  const plain = unit.weapons.filter((w) => w.isEquipped && isMeleeWeapon(w) && !hasTrait(w.profile.specialRules, 'counter'));
+/** The equipped melee weapons without Counter (Assault counts) that a living model carries: what a charged unit strikes back with after its Counter strikes. */
+export function findNonCounterMeleeWeapons(unit: Pick<Unit, 'weapons' | 'models'>): Weapon[] {
+  return findMeleeWeapons(unit).filter((w) => !hasTrait(w.profile.specialRules, 'counter'));
+}
+
+/** The first of `findNonCounterMeleeWeapons`, true melee weapons before Assault ones. */
+export function findNonCounterMeleeWeapon(unit: Pick<Unit, 'weapons' | 'models'>): Weapon | undefined {
+  const plain = findNonCounterMeleeWeapons(unit);
   return plain.find((w) => w.profile.type === 'melee') ?? plain[0];
 }
 
