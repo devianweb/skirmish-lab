@@ -1,5 +1,15 @@
 import { cloneGameState } from '../gameState';
 import { createRematchState } from './rematch';
+import {
+  DEPLOYMENT_ROLL_OFF_PURPOSE,
+  MISSION_ROLL_OFF_PURPOSE,
+  OBJECTIVE_COUNT_PURPOSE,
+  createObjectiveMarker,
+  objectiveCountFromRoll,
+  objectivePlacementProblem,
+  resolveRollOff,
+  rollOffSpec,
+} from './setup';
 import { closestApproach } from './closestApproach';
 import {
   ActionLogEntry,
@@ -23,6 +33,8 @@ import {
 import { DiceSpec, DiceResult, Vector3 } from '../types';
 import {
   advanceActivation,
+  advanceAmbushStep,
+  ambushFootprintProblem,
   advanceDeployment,
   applyEndOfActivationMorale,
   endRound,
@@ -676,6 +688,21 @@ export function validateAction(state: GameState, action: GameAction): Validation
   if (state.status !== 'in-progress' && state.status !== 'setting-up') {
     return { valid: false, reason: `Game is ${state.status}` };
   }
+  // Before the first round only the setup actions are valid; during the Ambush step only placements
+  const phase = state.turnState.phase;
+  if (phase === 'objectives' && action.type !== 'roll-objectives' && action.type !== 'place-objective') {
+    return { valid: false, reason: 'Objectives are being set up' };
+  }
+  if (phase === 'deployment' && action.type !== 'deploy-unit' && action.type !== 'hold-scout') {
+    return { valid: false, reason: 'Units are being deployed' };
+  }
+  if (
+    state.turnState.ambushStep &&
+    action.type !== 'deploy-unit' &&
+    action.type !== 'skip-ambush'
+  ) {
+    return { valid: false, reason: 'Ambush units are being placed before the round starts' };
+  }
   // A declared charge can't be undone or turned into another action: legs, the final charge, or abandoning it.
   if (
     state.turnState.charge &&
@@ -735,8 +762,61 @@ export function validateAction(state: GameState, action: GameAction): Validation
       return incoherentStartBlock(unit) ?? { valid: true };
     }
 
+    case 'roll-objectives': {
+      if (state.turnState.phase !== 'objectives') {
+        return { valid: false, reason: 'Objectives can only be rolled in the objectives phase' };
+      }
+      if (state.setupRolls?.objectiveCount !== undefined) {
+        return { valid: false, reason: 'The objective count has already been rolled' };
+      }
+      return { valid: true };
+    }
+
+    case 'place-objective': {
+      if (state.turnState.phase !== 'objectives') {
+        return { valid: false, reason: 'Objectives can only be placed in the objectives phase' };
+      }
+      const count = state.setupRolls?.objectiveCount;
+      if (count === undefined) {
+        return { valid: false, reason: 'The objective count has not been rolled yet' };
+      }
+      if ((state.objectives ?? []).length >= count) {
+        return { valid: false, reason: 'All objectives are already placed' };
+      }
+      const { position } = action.payload as { position: Vector3 };
+      if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) {
+        return { valid: false, reason: 'Objective needs a position' };
+      }
+      const problem = objectivePlacementProblem(state, position);
+      return problem ? { valid: false, reason: problem } : { valid: true };
+    }
+
+    case 'hold-scout': {
+      if (state.turnState.phase !== 'deployment' || state.turnState.scoutStage) {
+        return { valid: false, reason: 'Scouts can only be held back while units are being deployed' };
+      }
+      const { unitId } = action.payload as PayloadWithUnitId;
+      const unit = getUnit(state, unitId);
+      if (!unit) return { valid: false, reason: 'Unit not found' };
+      if (unit.ownerId !== action.actorId) return { valid: false, reason: 'Cannot hold back an opponent unit' };
+      if (unit.isDeployed !== false || unit.isDestroyed) return { valid: false, reason: 'Unit is already deployed' };
+      if (!hasTrait(unit.specialRules, 'scout') || hasTrait(unit.specialRules, 'ambush')) {
+        return { valid: false, reason: 'Only Scout units can be held back' };
+      }
+      if (unit.heldAsScout) return { valid: false, reason: 'Unit is already held back' };
+      return { valid: true };
+    }
+
+    case 'skip-ambush': {
+      if (!state.turnState.ambushStep) {
+        return { valid: false, reason: 'No Ambush units are being placed' };
+      }
+      return { valid: true };
+    }
+
     case 'deploy-unit': {
-      if (state.turnState.phase !== 'deployment') {
+      const inAmbushStep = Boolean(state.turnState.ambushStep);
+      if (state.turnState.phase !== 'deployment' && !inAmbushStep) {
         return { valid: false, reason: 'Units can only be deployed during the deployment phase' };
       }
       const { unitId, position } = action.payload as {
@@ -756,6 +836,13 @@ export function validateAction(state: GameState, action: GameAction): Validation
       }
       if (unit.isDeployed !== false) {
         return { valid: false, reason: 'Unit is already deployed' };
+      }
+      if (inAmbushStep) {
+        if (unit.isDestroyed || !hasTrait(unit.specialRules, 'ambush')) {
+          return { valid: false, reason: 'Only Ambush units are placed now' };
+        }
+        const problem = ambushFootprintProblem(state, unit, position);
+        return problem ? { valid: false, reason: problem } : { valid: true };
       }
       const val = validateDeploymentPosition(state, unit, position);
       if (!val.valid) {
@@ -823,6 +910,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const wouldEngage = state.units.some(
           (u) =>
             !u.isDestroyed &&
+            u.isDeployed !== false &&
             u.ownerId !== action.actorId &&
             pointEngagesUnit(end, u)
         );
@@ -976,6 +1064,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const wouldEngage = state.units.some(
         (u) =>
           !u.isDestroyed &&
+          u.isDeployed !== false &&
           u.ownerId !== action.actorId &&
           modelPositions!.some((pos) => pointEngagesUnit(pos, u))
       );
@@ -1338,6 +1427,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         const wouldEngage = state.units.some(
           (u) =>
             !u.isDestroyed &&
+            u.isDeployed !== false &&
             u.ownerId !== action.actorId &&
             pointEngagesUnit(end, u)
         );
@@ -1457,6 +1547,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
       const wouldEngage = state.units.some(
         (u) =>
           !u.isDestroyed &&
+          u.isDeployed !== false &&
           u.ownerId !== action.actorId &&
           modelPositions!.some((pos) => pointEngagesUnit(pos, u))
       );
@@ -1637,6 +1728,17 @@ export function getDiceSpecs(state: GameState, action: GameAction): DiceSpec[] |
 }
 
 function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | null {
+  if (action.type === 'roll-objectives') {
+    // One d6 for the objective count, then the mission roll-off (who places the first objective)
+    return [{ count: 1, sides: 6, purpose: OBJECTIVE_COUNT_PURPOSE }, rollOffSpec(MISSION_ROLL_OFF_PURPOSE)];
+  }
+  if (action.type === 'place-objective') {
+    // The last marker ends the phase: the deployment roll-off (who deploys and activates first) is rolled with it
+    const count = state.setupRolls?.objectiveCount;
+    const placed = (state.objectives ?? []).length;
+    return count !== undefined && placed + 1 === count ? [rollOffSpec(DEPLOYMENT_ROLL_OFF_PURPOSE)] : null;
+  }
+
   if (action.type === 'end-activation') {
     // Every unit that took a wound this activation and is now at half strength or less tests Morale
     const counts = moraleDiceCounts(getUnitsRequiringMorale(state));
@@ -2477,6 +2579,63 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       break;
     }
 
+    case 'roll-objectives': {
+      const countRoll = dice?.find((d) => d.purpose === OBJECTIVE_COUNT_PURPOSE)?.rolls[0];
+      const missionRolls = dice?.find((d) => d.purpose === MISSION_ROLL_OFF_PURPOSE)?.rolls;
+      if (countRoll === undefined || !missionRolls || missionRolls.length < 2) {
+        return { ok: false, reason: 'The objective count and mission roll-off dice are missing' };
+      }
+      const objectiveCount = objectiveCountFromRoll(countRoll);
+      const missionRollOff = resolveRollOff('mission', missionRolls, newState.hostId, newState.guestId);
+      newState.setupRolls = { objectiveRoll: countRoll, objectiveCount, missionRollOff };
+      newState.turnState.currentPlayerId = missionRollOff.winnerId;
+      logEntry = acceptedEntry(
+        action,
+        setupResolution(action, dice!, { objectiveCount: { roll: countRoll, count: objectiveCount }, rollOff: missionRollOff })
+      );
+      break;
+    }
+
+    case 'place-objective': {
+      const { position } = action.payload as { position: Vector3 };
+      const objectives = newState.objectives ?? (newState.objectives = []);
+      objectives.push(createObjectiveMarker(objectives.length + 1, position));
+      let resolution: DiceResolution | undefined;
+      if (objectives.length >= (newState.setupRolls?.objectiveCount ?? Infinity)) {
+        // All markers are down: the deployment roll-off decides who deploys and activates first
+        const offRolls = dice?.find((d) => d.purpose === DEPLOYMENT_ROLL_OFF_PURPOSE)?.rolls;
+        if (!offRolls || offRolls.length < 2) {
+          return { ok: false, reason: 'The deployment roll-off dice are missing' };
+        }
+        const deploymentRollOff = resolveRollOff('deployment', offRolls, newState.hostId, newState.guestId);
+        newState.setupRolls = { ...newState.setupRolls, deploymentRollOff };
+        newState.turnState.phase = 'deployment';
+        newState.turnState.startingPlayerId = deploymentRollOff.winnerId;
+        newState.turnState.currentPlayerId = deploymentRollOff.winnerId;
+        resolution = setupResolution(action, dice!, { rollOff: deploymentRollOff });
+      } else {
+        newState.turnState.currentPlayerId = action.actorId === newState.hostId ? newState.guestId : newState.hostId;
+      }
+      logEntry = acceptedEntry(action, resolution);
+      break;
+    }
+
+    case 'hold-scout': {
+      const { unitId } = action.payload as PayloadWithUnitId;
+      getUnit(newState, unitId)!.heldAsScout = true;
+      advanceDeployment(newState, true);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
+    case 'skip-ambush': {
+      const step = newState.turnState.ambushStep!;
+      step.skippedPlayerIds.push(action.actorId);
+      advanceAmbushStep(newState);
+      logEntry = acceptedEntry(action);
+      break;
+    }
+
     case 'deploy-unit': {
       const { unitId, position, rotation } = action.payload as {
         unitId: string;
@@ -2484,6 +2643,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         rotation?: Vector3;
       };
       const unit = getUnit(newState, unitId)!;
+      const byAmbush = Boolean(newState.turnState.ambushStep);
       unit.isDeployed = true;
       unit.position = { ...position };
       if (rotation) {
@@ -2500,7 +2660,12 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
           unit.models[i].rotation = { ...unit.rotation };
         }
       }
-      advanceDeployment(newState);
+      if (byAmbush) {
+        unit.ambushArrivedRound = newState.turnState.roundNumber;
+        advanceAmbushStep(newState);
+      } else {
+        advanceDeployment(newState);
+      }
       logEntry = acceptedEntry(action);
       break;
     }
@@ -3936,6 +4101,7 @@ function requireTarget(state: GameState, actorId: string, targetId: string): Req
   if (!target) return { valid: false, reason: 'Unknown target' };
   if (!isEnemyOf(state, target, actorId)) return { valid: false, reason: 'Target is not an enemy unit' };
   if (target.isDestroyed) return { valid: false, reason: 'Target is destroyed' };
+  if (target.isDeployed === false) return { valid: false, reason: 'Target is not on the table yet' };
   return { result: target };
 }
 
@@ -4358,6 +4524,7 @@ function refreshEngagements(state: GameState): void {
     const hasEnemyInRange = state.units.some(
       (other) =>
         !other.isDestroyed &&
+        other.isDeployed !== false &&
         other.ownerId !== unit.ownerId &&
         unitsInContact(unit, other) &&
         (hasMeleeWeapon(other) ||
@@ -4392,6 +4559,21 @@ function checkGameEnd(state: GameState): void {
   } else {
     state.endReason = 'Mutual elimination';
   }
+}
+
+/** The dice story of a setup action: the raw results plus the objective count and/or roll-off they decided. */
+function setupResolution(
+  action: GameAction,
+  dice: DiceResult[],
+  outcome: Pick<DiceResolution['outcome'], 'objectiveCount' | 'rollOff'>
+): DiceResolution {
+  return {
+    rollId: action.id,
+    specs: dice.map((d) => ({ count: d.rolls.length, sides: 6, purpose: d.purpose })),
+    results: dice,
+    context: { attackerId: action.actorId, targetId: action.actorId, actionId: action.id },
+    outcome: { attackCount: 0, hitCount: 0, blockedCount: 0, wounds: 0, targetDestroyed: false, ...outcome },
+  };
 }
 
 function acceptedEntry(action: GameAction, dice?: DiceResolution): ActionLogEntry {

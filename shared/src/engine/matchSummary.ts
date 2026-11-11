@@ -1,4 +1,5 @@
 import { GameState, MAX_ROUNDS, Unit } from '../gameTypes';
+import { hasTrait } from '../rules/traits';
 
 /** Unit and model losses for one side. */
 export interface SideLosses {
@@ -51,8 +52,9 @@ export function summarizeMatch(state: GameState): MatchSummary {
   // A concede during deployment flips the phase to game-over, so an unfinished deployment also counts as "not started".
   const notStarted =
     phase === 'setup' ||
+    phase === 'objectives' ||
     phase === 'deployment' ||
-    (state.status === 'game-over' && state.units.some((u) => !u.isDestroyed && u.isDeployed === false));
+    (state.status === 'game-over' && state.units.some((u) => !u.isDestroyed && u.isDeployed === false && !hasTrait(u.specialRules, 'ambush')));
   const roundsPlayed = notStarted ? 0 : Math.min(MAX_ROUNDS, Math.max(0, state.turnState.roundNumber));
   const objectives = state.objectives ?? [];
   const score = (id: string) => objectives.filter((o) => o.controllingPlayerId === id).length;

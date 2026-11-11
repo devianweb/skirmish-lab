@@ -37,8 +37,9 @@ $$\text{Blocked} \iff (\text{Roll} + \text{CoverMod} - \text{AP}) \ge D$$
 - **Proximity Exclusion Zone (the 1" rule):** a model may not come within **1"** (base edge to base edge) of any living model of **another unit, friendly or enemy**, unless it is charging, and then only toward the declared charge target. It applies to the whole move or rush path, not just the end: the host rejects a path that brushes closer, and the pathfinder stops short or routes around. A model that already starts closer than 1" (for example next to a friendly squad) may move away but not get any closer than it began. Exactly 1.0" is allowed. Deployment uses the same gap (an enemy must be more than 1" away, measured to the closest enemy model). A move or rush that would end with its base edge within **0.5"** of an enemy is reported as melee contact (use a charge). Models also never move **through** other models: every living model of every other unit is an obstacle along the whole path (a charge may touch its target's models, never pass through one).
 
 ### 2.2 Objective Placement & Control
-- **Quantity:** $N = \lfloor\text{d}3\rfloor + 2$ objectives (3 to 5 markers).
-- **Placement Rules:** Placed alternately by players outside deployment zones and $> 9"$ apart from each other.
+- **Setup order:** `setup` -> `objectives` -> `deployment` -> `activation`. In the objectives phase the server rolls one d6 for the objective count, then the **mission roll-off** decides who places first. At the end of the last placement the **deployment roll-off** decides who deploys first and activates first in round 1. A **roll-off** is ten pairs of d6 (host die, guest die): the first unequal pair decides and the higher die wins; if all ten pairs tie the host wins. Sides stay fixed (host south, guest north).
+- **Quantity:** one d6, halved and rounded up, plus 2: $N = \lceil\text{d6}/2\rceil + 2$ objectives (3 to 5 markers).
+- **Placement Rules:** placed alternately by the players, starting with the mission roll-off winner (`place-objective`). A marker must be on the board, **outside both deployment zones** (a spot on the zone edge counts as inside), **more than 9" horizontally** from every marker already placed, and where a model could stand: on the ground or on top of a walkable surface (its height is that surface's), clear of terrain solids, stairs and ladders. The host validates every placement. Maps do not define objectives (any in an old map are ignored). A match without the deployment phase has no markers.
 - **Seizure & Contest Rules:**
   - Evaluated at the **end of each round**.
   - A marker is **controlled** by a player if they have at least one friendly model within **3" horizontal** of the marker, measured to the model's base edge (centre up to 3.5"), and zero enemy models within the same distance.
@@ -82,14 +83,14 @@ stateDiagram-v2
 ```
 
 ### 3.1 Initiative Progression
-1. **Round 1:** Player who won the pre-game deployment roll-off takes the first activation.
+1. **Round 1:** Player who won the deployment roll-off (rolled with the last objective placement) takes the first activation; deployment alternates one unit at a time starting with them.
 2. **Subsequent Rounds (2–4):** The player who finished activating all of their units first in the preceding round takes the first activation.
 
 ### 3.1.1 Match End
 The match ends in one of three ways:
 - **Objectives (end of round 4):** the player holding more objectives wins. **A tie is a draw**: there is no tie-break (no destruction points or other tournament scoring) for now.
 - **Elimination:** a player with no living units loses (mutual elimination has no winner).
-- **Rematch:** once the match is over, either player may ask to play again; when both have asked, the same room restarts the exact same game (same board, terrain, objectives with control reset, armies, unit ids and starting positions, deployment mode, sides and starting player) with an empty log. Only the game id differs. The ask needs no dice and is the only action accepted after game over; there is no withdraw.
+- **Rematch:** once the match is over, either player may ask to play again; when both have asked, the same room restarts the exact same game (same board, terrain, placed objectives with control reset, both roll-off results (the objectives phase is skipped), armies, unit ids and starting positions, deployment mode, sides and starting player) with an empty log. Only the game id differs. The ask needs no dice and is the only action accepted after game over; there is no withdraw.
 - **Concede:** either player may concede at any moment until the match is over (deployment, either player's turn, during a pending reaction or a declared charge). The conceding player loses and the opponent wins; the reason reads "<name> conceded". Concede needs no dice.
 
 The results screen is built from `summarizeMatch(state)`: winner, reason, rounds played, objectives held and per-side losses. A unit counts as lost when it is destroyed or routed; models count as lost only when destroyed.
@@ -224,7 +225,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 
 | Trait ID | Display Name | Mechanical Specification |
 | :--- | :--- | :--- |
-| **`ambush`** | **Ambush** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
+| **`ambush`** | **Ambush** | Unit is set aside at deployment. At the start of each round from round 2, before the first activation, players alternate placing Ambush units (one per placement, the player who activates first begins) anywhere $>9"$ from enemy units ($>12"$ from a unit with Perimeter Watch), or decline for the round (`skip-ambush`; the unit waits for a later round and, if it never arrives, never enters play and is not counted as destroyed). Cannot seize/contest objectives in the round it arrives. |
 | **`ap(X)`** | **AP(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
 | **`bane`** | **Bane** | Ignores target's `regeneration`. Target must re-roll unmodified saving throw results of 6. |
 | **`assault`** | **Assault** | A ranged weapon that can also be used in melee (same attacks and special rules, melee reach). Data-driven by the trait: no duplicate weapon entries. A unit's default melee weapon is its first true melee weapon, else its first Assault weapon. |
@@ -246,7 +247,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`relentless`** | **Relentless** | When shooting at targets $>9"$ away, unmodified hit rolls of 6 generate 1 additional hit. |
 | **`reliable`** | **Reliable** | Attacks made with this weapon always hit on a Quality test of **2+**, regardless of unit's base Quality. |
 | **`rending`** | **Rending** | Ignores `regeneration`. Unmodified hit rolls of 6 gain **`ap(4)`**. |
-| **`scout`** | **Scout** | Infiltrates during deployment. Deployed after all standard units, placed anywhere fully within 12" of friendly deployment zone. |
+| **`scout`** | **Scout** | A Scout may deploy like any other unit, or be held back (`hold-scout`). Held Scouts are placed after every other unit is deployed, alternating and starting with the player who activates first in round 1, fully within 9" of their own deployment zone and more than 9" from every enemy unit that is not a Scout. |
 | **`shred`** | **Shred** | Each unmodified Defense roll of 1 against this weapon adds one extra wound (a plain wound, not multiplied by Deadly; Regeneration still applies). Not Rending. |
 | **`slow`** | **Slow** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
 | **`stealth`** | **Stealth** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
