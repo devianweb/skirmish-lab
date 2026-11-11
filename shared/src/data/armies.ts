@@ -22,8 +22,19 @@ export interface FighterDefinition {
   modelType: 'leader' | 'trooper' | 'specialist' | 'heavy';
   /** Number of models in the unit/squad (defaults to 1). */
   modelCount?: number;
-  weapons: string[];      // Weapon profile IDs
+  weapons: string[];      // Weapon profile IDs (the distinct weapons the unit carries)
+  /**
+   * Per-model weapon profile IDs, one list per model (length must equal `modelCount`). Absent = every model
+   * carries all of `weapons`. When present, the spawned unit's weapons are the distinct IDs across the lists
+   * and each model records its own in `Model.weaponIds`.
+   */
+  modelLoadouts?: string[][];
   specialRules: string[];
+}
+
+/** The distinct weapon IDs across a unit's per-model loadouts, in order of first appearance. */
+export function distinctLoadoutWeapons(loadouts: string[][]): string[] {
+  return [...new Set(loadouts.flat())];
 }
 
 export interface ArmyDefinition {
@@ -193,6 +204,10 @@ export function createUnitFromFighter(
 ): Unit {
   unitCounter += 1;
   const unitId = options.unitId ?? `unit-${unitCounter}`;
+  const loadouts = definition.modelLoadouts;
+  if (loadouts && loadouts.length !== (definition.modelCount ?? 1)) {
+    throw new Error(`${definition.id}: modelLoadouts has ${loadouts.length} entries for ${definition.modelCount ?? 1} models`);
+  }
   const baseStatus: UnitStatus[] = [];
 
   return {
@@ -221,9 +236,10 @@ export function createUnitFromFighter(
         isDestroyed: false,
         position: { ...pos },
         rotation: { x: 0, y: 0, z: 0 },
+        ...(loadouts ? { weaponIds: [...loadouts[idx]] } : {}),
       }));
     })(),
-    weapons: resolveWeapons(definition.weapons),
+    weapons: resolveWeapons(loadouts ? distinctLoadoutWeapons(loadouts) : definition.weapons),
     specialRules: [...definition.specialRules],
     hasMoved: false,
     hasAttacked: false,

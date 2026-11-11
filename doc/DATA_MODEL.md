@@ -189,7 +189,7 @@ interface Unit {
   
   // Game State
   models: Model[];
-  weapons: Weapon[];
+  weapons: Weapon[];         // The distinct weapons the unit carries (the union of its models' loadouts)
   specialRules: string[];
   
   // Movement/Action State
@@ -211,6 +211,12 @@ interface Model {
   isDestroyed: boolean;
   position?: Vector3;
   rotation?: Vector3;
+  /**
+   * Per-model loadout (14C-3 PR 1B): ids of the entries of `Unit.weapons` this model carries.
+   * Absent = it carries all of them (every army without `modelLoadouts`). A weapon fires or strikes once
+   * per living model that carries it and qualifies; a casualty takes its weapons with it.
+   */
+  weaponIds?: string[];
 }
 
 interface Vector3 {
@@ -520,6 +526,10 @@ interface DiceResult {
 
 The v1 game ships a data pack in `shared/src/data/` — pure data, no engine logic:
 
+- **`armies.ts` loadouts (14C-3 PR 1B)** — `FighterDefinition.modelLoadouts?: string[][]` lists the weapon
+  profile IDs each model carries (length = `modelCount`); `weapons` is then the distinct union. A spawned
+  `Model` records its own list in `weaponIds`. Melee dice outcomes carry `outcome.meleeStrikes`
+  (`WeaponAttackOutcome[]`, one per melee weapon that struck, in order) next to the summed totals.
 - **`weapons.ts`** — weapon profiles by ID (`rifle`, `carbine`, `scattergun`,
   `handcannon`, `cannon`, `blade`, `fists`); originals with first-principles stats.
 - **`armies.ts`** — two original armies (**Frontier Wardens**, **Rust Raiders**),

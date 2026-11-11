@@ -116,6 +116,12 @@ export interface Model {
   isDestroyed: boolean;
   position?: Vector3;
   rotation?: Vector3;
+  /**
+   * Ids of the weapons (of `Unit.weapons`) this model carries. Absent = it carries all of them (the unit has no
+   * per-model loadout). A weapon fires or strikes once per living model that carries it and qualifies; a model
+   * removed as a casualty takes its weapons with it.
+   */
+  weaponIds?: string[];
 }
 
 export interface WeaponProfile {
@@ -591,6 +597,11 @@ export interface DiceResolution {
     meleeResults?: MeleeResultRecord[];
     retaliation?: RetaliationOutcome;
     allocations?: WeaponAttackOutcome[];
+    /**
+     * Melee (charge, fight, strike-back, pile-in strike): one result per melee weapon that struck, in equipment
+     * order. The totals above are the sum over these entries.
+     */
+    meleeStrikes?: WeaponAttackOutcome[];
     /** Blast hits that spilled onto other enemy units near the target (totals above count the target only). */
     blastSplash?: BlastSplashOutcome[];
     /** Per Blast weapon: the multiplication and the split between units (for the dice panel). */
