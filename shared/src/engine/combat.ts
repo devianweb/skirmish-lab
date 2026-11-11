@@ -13,6 +13,33 @@ import { DISTANT_ATTACK_MORALE_TRAITS, getTraitValue, hasTrait, sumTraitValue } 
  * Dice are always rolled by the signaling server (never client-side).
  */
 
+/** Where an attack comes from, for the rules that care about how far away the target was (Ferocious). */
+interface DistanceContext {
+  isMelee: boolean;
+  isCharging: boolean;
+  distance: number;
+  /** Distance when the charge began; `'any'` sizes dice for the worst case before it is known. */
+  chargedFrom?: number | 'any';
+}
+
+/** Ferocious: unmodified 6s add a hit when shooting over 9" or when the charge began over 6" away. */
+function ferociousApplies(rules: readonly string[], ctx: DistanceContext): boolean {
+  if (!hasTrait(rules, 'ferocious')) return false;
+  if (!ctx.isMelee) return ctx.distance > 9;
+  if (!ctx.isCharging || ctx.chargedFrom === undefined) return false;
+  return ctx.chargedFrom === 'any' || ctx.chargedFrom > 6;
+}
+
+/** Extra hits each unmodified 6 to hit adds (Surge, Relentless, Furious, Ferocious). */
+function bonusHitsPerSix(rules: readonly string[], ctx: DistanceContext): number {
+  return (
+    (hasTrait(rules, 'surge') ? 1 : 0) +
+    (!ctx.isMelee && ctx.distance > 9 && hasTrait(rules, 'relentless') ? 1 : 0) +
+    (ctx.isMelee && ctx.isCharging && hasTrait(rules, 'furious') ? 1 : 0) +
+    (ferociousApplies(rules, ctx) ? 1 : 0)
+  );
+}
+
 export interface AttackRolls {
   toHit: number[];
   defense: number[];
@@ -94,6 +121,8 @@ export interface CombatStats {
   isFatigued?: boolean;
   /** Distance to target in board units (inches). */
   distance?: number;
+  /** How far away the target was when this attacker's charge began (Ferocious). Unknown = not over 6". */
+  chargedFrom?: number;
 }
 
 export interface DefenseStats {
@@ -144,10 +173,8 @@ export function getAttackDiceSpecs(
   const isCharging = !!options.isCharging;
   const distance = options.distance ?? (isMelee ? 1 : 12);
 
-  const bonusPerSix =
-    (hasTrait(allAttackerRules, 'surge') ? 1 : 0) +
-    (!isMelee && distance > 9 && hasTrait(allAttackerRules, 'relentless') ? 1 : 0) +
-    (isMelee && isCharging && hasTrait(allAttackerRules, 'furious') ? 1 : 0);
+  // A charge's start distance is not known here, so Ferocious is sized for the worst case (an upper bound)
+  const bonusPerSix = bonusHitsPerSix(allAttackerRules, { isMelee, isCharging, distance, chargedFrom: 'any' });
 
   const blastVal = getTraitValue(allAttackerRules, 'blast');
   const modelCap = Math.max(1, options.defenderModelCount ?? 1);
@@ -220,6 +247,10 @@ export function computeCombatModifiers(
       hitMod += 1;
       hitModifiers.push('+1 Marksman');
     }
+    if (hasTrait(allAttackerRules, 'bad-shot')) {
+      hitMod -= 1;
+      hitModifiers.push('-1 Bad Shot');
+    }
     if (hasTrait(defenderRules, 'stealth') && distance > 9) {
       hitMod -= 1;
       hitModifiers.push('-1 Stealth (>9")');
@@ -238,6 +269,10 @@ export function computeCombatModifiers(
   if (hasTrait(allAttackerRules, 'unstoppable') && hitMod < 0) {
     hitModifiers.push('Unstoppable (negates penalty)');
     hitMod = 0;
+  }
+
+  if (ferociousApplies(allAttackerRules, { isMelee, isCharging, distance, chargedFrom: attacker.chargedFrom })) {
+    hitModifiers.push('Ferocious (6s add a hit)');
   }
 
   const isFatiguedMelee = isMelee && !!attacker.isFatigued;
@@ -312,10 +347,12 @@ export function countShotHits(
   const { baseQuality, effectiveQuality } = computeCombatModifiers(attacker, defender);
   const hitMod = baseQuality - effectiveQuality;
   const fatigued = isMelee && !!attacker.isFatigued;
-  const bonusPerSix =
-    (hasTrait(allAttackerRules, 'surge') ? 1 : 0) +
-    (!isMelee && distance > 9 && hasTrait(allAttackerRules, 'relentless') ? 1 : 0) +
-    (isMelee && !!attacker.isCharging && hasTrait(allAttackerRules, 'furious') ? 1 : 0);
+  const bonusPerSix = bonusHitsPerSix(allAttackerRules, {
+    isMelee,
+    isCharging: !!attacker.isCharging,
+    distance,
+    chargedFrom: attacker.chargedFrom,
+  });
   const multiplier = getTraitValue(allAttackerRules, 'blast') ?? 1;
   let hits = 0;
   for (const roll of toHit.slice(0, attackCount)) {
@@ -472,10 +509,7 @@ export function resolveAttack(
     hasTrait(allAttackerRules, 'unstoppable') ||
     hasTrait(allAttackerRules, 'rending');
 
-  const bonusPerSix =
-    (hasTrait(allAttackerRules, 'surge') ? 1 : 0) +
-    (!isMelee && distance > 9 && hasTrait(allAttackerRules, 'relentless') ? 1 : 0) +
-    (isMelee && isCharging && hasTrait(allAttackerRules, 'furious') ? 1 : 0);
+  const bonusPerSix = bonusHitsPerSix(allAttackerRules, { isMelee, isCharging, distance, chargedFrom: attacker.chargedFrom });
 
   const blastVal = getTraitValue(allAttackerRules, 'blast');
   const modelCap = Math.max(1, defender.modelCount ?? 1);
@@ -499,7 +533,8 @@ export function resolveAttack(
     bonusHits += extraFromSix;
     const copies = (1 + extraFromSix) * blastMultiplier;
     for (let c = 0; c < copies; c++) {
-      expandedHits.push({ ap: hitAp, ignoresRegeneration: baseIgnoresRegeneration });
+      // Only the original hit (and its Blast copies) counts as a 6 for Rending / Rupture; extra hits are plain
+      expandedHits.push({ ap: c < blastMultiplier ? hitAp : baseAp, ignoresRegeneration: baseIgnoresRegeneration });
     }
   }
 

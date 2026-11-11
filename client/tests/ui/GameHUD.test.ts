@@ -958,6 +958,51 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Charger pushed back 1" — both units Fatigued');
   });
 
+  it('dice panel shows the Ferocious extra hit and the Bad Shot modifier of a shot', () => {
+    const state = scenarioState();
+    const attacker = state.units.find((u) => u.ownerId === HOST && u.weapons.some((w) => w.profile.type === 'ranged'))!;
+    const target = state.units.find((u) => u.ownerId === GUEST)!;
+    const weapon = attacker.weapons.find((w) => w.profile.type === 'ranged')!;
+    const action = createAction(HOST, 'shoot', { type: 'shoot', attackerId: attacker.id, targetId: target.id, weaponId: weapon.id });
+    state.actionLog.push({
+      action,
+      result: 'accepted',
+      appliedAt: Date.now(),
+      dice: {
+        rollId: action.id,
+        specs: [
+          { count: 2, sides: 6, purpose: 'to-hit' },
+          { count: 4, sides: 6, purpose: 'defense' },
+        ],
+        results: [
+          { rolls: [6, 3], total: 9, finalTotal: 9, purpose: 'to-hit' },
+          { rolls: [1, 1, 1, 1], total: 4, finalTotal: 4, purpose: 'defense' },
+        ],
+        context: { attackerId: attacker.id, targetId: target.id, weaponId: weapon.id, actionId: action.id },
+        outcome: {
+          attackCount: 2,
+          hitCount: 2,
+          bonusHits: 1,
+          blockedCount: 0,
+          wounds: 2,
+          targetDestroyed: false,
+          targetShaken: false,
+          baseQuality: 4,
+          effectiveQuality: 5,
+          hitModifiers: ['-1 Bad Shot', 'Ferocious (6s add a hit)'],
+          baseDefense: 5,
+          effectiveDefense: 5,
+          defenseModifiers: [],
+        },
+      },
+    });
+
+    const { container } = setup(HOST, state);
+    expect(container.textContent).toContain('-1 Bad Shot');
+    expect(container.textContent).toContain('Ferocious (6s add a hit)');
+    expect(container.textContent).toContain('2 hits (incl. 1 extra from 6s)');
+  });
+
   it('renders an RTS-style unit data card above the action bar when a unit is active or selected', () => {
     const state = scenarioState();
     const unit = state.units.find((u) => u.ownerId === HOST)!;

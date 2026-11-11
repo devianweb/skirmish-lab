@@ -48,6 +48,16 @@ Fighters in SkirmishLab are rendered procedurally by [`client/src/renderer/Model
 | **Infantry Squad** (`hdf-infantry-squad`) | `trooper` | 3 |
 | **Sniper** (`hdf-sniper`) | `specialist` | 1 |
 
+**Orc Marauders (`orc-marauders`, 14C-3 PR 2)** reuses these roles; no new models. There is no bike model yet, so the Orc Biker uses the largest existing role (`heavy`); Fast is a rule, not a look.
+
+| Unit (`id`) | Role (`modelType`) | Models |
+| :--- | :--- | :---: |
+| **Orc Leader** (`orc-leader`) | `leader` | 1 |
+| **Orc Biker** (`orc-biker`) | `heavy` | 1 |
+| **Veteran** (`orc-veteran`) | `trooper` | 1 |
+| **Infiltrator** (`orc-infiltrator`) | `specialist` | 1 |
+| **Specialist** (`orc-specialist`) | `specialist` | 1 |
+
 ---
 
 ## 2. Default Battlefield Scenario Terrain Mapping
