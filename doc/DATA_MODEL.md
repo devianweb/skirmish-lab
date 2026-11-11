@@ -155,7 +155,7 @@ interface Board {
   terrain: string[];         // Terrain piece IDs
 }
 ```
-**Board limits** (`validateMapDefinition`, constants in `mapSchema.ts`): `CustomMapDefinition.board` width and height are whole inches in [24, 72] (error otherwise). Depth (height) under 36" warns (deployment zones under 6" deep); under 26" is an error (the zones can't stay 24" apart). Terrain pieces or objectives outside the board are warnings. Objectives an old map still carries are checked against the real zone depth for that board (`getDeploymentZoneDepth`) but are ignored when the map is played (players place objectives in the game).
+**Board limits** (`validateMapDefinition`, constants in `mapSchema.ts`): `CustomMapDefinition.board` width and height are whole inches in [24, 72] (error otherwise). Depth (height) under 36" warns (deployment zones under 6" deep); under 26" is an error (the zones can't stay 24" apart). Terrain pieces outside the board are warnings. `CustomMapDefinition.objectives` is legacy: an old save may still carry markers, but `validateMapDefinition` no longer says anything about them, the editor drops them on load and never saves or exports them, `MapStore` strips them on save and import, and `applyDefaultScenario` ignores them (players place objectives in the game).
 
 ## Unit
 ```typescript

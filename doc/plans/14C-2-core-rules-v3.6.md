@@ -157,6 +157,7 @@ Reference: `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6
 - **Tests first:** D3+2 mapping; roll-off tie-break; placement legality (zones, 9", surfaces); alternation; deployment starts with deployment roll-off winner; round 1 order; Scout zone and 9" rule; Ambush alternation, skip, 9" rule, can't seize the round it arrives; rematch skips objectives and keeps roll-offs; old maps' objectives ignored.
 
 ## PR 9: Objective placement & roll-off HUD, editor clean-up  (branch: `14C-2-core-9`)
+- **Status:** implemented. Fixture: dev-mode army `test-scout-ambush-army`; manual checks in the checklist section "14C-2 PR 8 + 9".
 - **Layer:** client HUD + editor + renderer markers.
 - Click-to-place with a legality preview (red/green ring, 9" circles around placed markers), roll-off and count announcements, Scout/Ambush placement steps reuse deployment UI, remove the editor objective tool.
 

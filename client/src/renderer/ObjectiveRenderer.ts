@@ -47,9 +47,9 @@ export class ObjectiveRenderer {
     );
 
     if (signature === this.currentSignature) return;
-    this.currentSignature = signature;
-
     this.clear();
+    // After clear(), which forgets the signature: otherwise every sync would rebuild all the markers
+    this.currentSignature = signature;
 
     for (const obj of objectives) {
       const color = this.getObjectiveColor(obj, state.hostId, state.guestId);
@@ -72,7 +72,8 @@ export class ObjectiveRenderer {
   private createObjectiveMesh(obj: Objective, color: number): THREE.Group {
     const group = new THREE.Group();
     group.name = `objective-${obj.id}`;
-    group.position.set(obj.position.x, 0, obj.position.z);
+    // A marker placed on a deck sits on that surface, not on the table
+    group.position.set(obj.position.x, obj.position.y ?? 0, obj.position.z);
 
     const radius = OBJECTIVE_CONTROL_RADIUS; // 3.0"
 

@@ -138,4 +138,32 @@ describe('ObjectiveRenderer', () => {
     renderer.dispose();
     expect(scene.children).not.toContain(group);
   });
+
+  it('puts a marker placed on a raised surface at that height, and ground markers on the table', () => {
+    const { renderer, group } = setup();
+    const state = makeState();
+    state.objectives = [
+      { id: 'deck', name: 'Objective 1', position: { x: 1, y: 3, z: 2 }, controllingPlayerId: null, isContested: false },
+      { id: 'floor', name: 'Objective 2', position: { x: -9, y: 0, z: 2 }, controllingPlayerId: null, isContested: false },
+    ];
+    renderer.syncFromState(state);
+    expect(group.getObjectByName('objective-deck')!.position.y).toBe(3);
+    expect(group.getObjectByName('objective-floor')!.position.y).toBe(0);
+  });
+
+  it('shows an objective as soon as the state gains one (placement), and keeps it unchanged on later syncs', () => {
+    const { renderer, group } = setup();
+    const state = makeState();
+    state.objectives = [];
+    renderer.syncFromState(state);
+    expect(group.children.length).toBe(0);
+    state.objectives = [
+      { id: 'objective-1', name: 'Objective 1', position: { x: 0, y: 0, z: 0 }, controllingPlayerId: null, isContested: false },
+    ];
+    renderer.syncFromState(state);
+    expect(group.children.length).toBe(1);
+    const first = group.children[0];
+    renderer.syncFromState(state);
+    expect(group.children[0]).toBe(first);
+  });
 });

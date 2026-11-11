@@ -76,6 +76,28 @@ export interface KeepAwayZoneMarker {
   otherTier: boolean;
 }
 
+/** A ring around a spot that matters while placing something (see ui/setupPlacement.ts). */
+export interface PlacementCircleMarker {
+  x: number;
+  y: number;
+  z: number;
+  /** Centre distance covered by the circle. */
+  radius: number;
+  /** `spacing`: the 9" around a placed objective; `exclusion`: ground a Scout or Ambush unit can't use. */
+  kind: 'spacing' | 'exclusion';
+}
+
+/** The placement preview: a ring at the cursor (green when legal, red when not) and the circles that explain why. */
+export interface PlacementMarker {
+  cursor?: { position: Vector3; valid: boolean; radius: number } | null;
+  circles: PlacementCircleMarker[];
+}
+
+const PLACEMENT_VALID_COLOR = 0x69f0ae;
+const PLACEMENT_INVALID_COLOR = 0xef5350;
+const PLACEMENT_SPACING_COLOR = 0xffd54f;
+const PLACEMENT_EXCLUSION_COLOR = 0xff9800;
+
 const KEEP_AWAY_COLOR = 0xe53935;
 const KEEP_AWAY_ALLOWED_COLOR = 0x66bb6a;
 
@@ -169,6 +191,7 @@ export class MarkerRenderer {
   private squadCoherency: THREE.Object3D | null = null;
   private casualtyPicks: THREE.Object3D | null = null;
   private keepAwayZones: THREE.Object3D | null = null;
+  private placement: THREE.Object3D | null = null;
   private keepAwaySignature: string | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1100,6 +1123,52 @@ export class MarkerRenderer {
   }
 
   /**
+   * The setup placement preview (objectives, deployment, Scout and Ambush): a bold ring at the cursor that is green
+   * where the host would accept the placement and red where it would not, the 9" circles around placed
+   * objectives (gold) and the ground a Scout or Ambush unit may not use around enemy units (orange).
+   */
+  setPlacement(marker: PlacementMarker | null): void {
+    this.removeMarker('placement');
+    if (!marker || (!marker.cursor && marker.circles.length === 0)) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-placement';
+    const addRing = (x: number, y: number, z: number, radius: number, color: number, ringOpacity: number, fillOpacity: number, thickness: number) => {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(0.01, radius - thickness), radius, 64),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: ringOpacity, side: THREE.DoubleSide, depthWrite: false })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, y + 0.04, z);
+      ring.renderOrder = 2;
+      group.add(ring);
+      if (fillOpacity > 0) {
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(radius, 64),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: fillOpacity, side: THREE.DoubleSide, depthWrite: false })
+        );
+        disc.rotation.x = -Math.PI / 2;
+        disc.position.set(x, y + 0.035, z);
+        disc.renderOrder = 1;
+        group.add(disc);
+      }
+    };
+    for (const circle of marker.circles) {
+      if (circle.kind === 'spacing') {
+        addRing(circle.x, circle.y, circle.z, circle.radius, PLACEMENT_SPACING_COLOR, 0.7, 0.06, 0.08);
+      } else {
+        addRing(circle.x, circle.y, circle.z, circle.radius, PLACEMENT_EXCLUSION_COLOR, 0.6, 0.1, 0.08);
+      }
+    }
+    if (marker.cursor) {
+      const { position, valid, radius } = marker.cursor;
+      addRing(position.x, position.y ?? 0, position.z, radius, valid ? PLACEMENT_VALID_COLOR : PLACEMENT_INVALID_COLOR, 0.95, 0.25, 0.18);
+    }
+    this.markerGroup.add(group);
+    this.placement = group;
+  }
+
+  /**
    * Highlight for the models the owner has picked to remove as casualties: a bold orange ring on the floor
    * under each model plus a smaller ring at head height (so it reads from the side and on decks).
    */
@@ -1171,6 +1240,7 @@ export class MarkerRenderer {
     this.removeMarker('casualtyPicks');
     this.keepAwaySignature = null;
     this.removeMarker('keepAwayZones');
+    this.removeMarker('placement');
     this.clearOutcome();
   }
 
@@ -1213,6 +1283,7 @@ export class MarkerRenderer {
       | 'squadCoherency'
       | 'casualtyPicks'
       | 'keepAwayZones'
+      | 'placement'
   ): void {
     const current = this[kind];
     if (current) {

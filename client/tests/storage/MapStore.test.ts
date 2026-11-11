@@ -66,6 +66,18 @@ describe('MapStore', () => {
     expect(single?.terrain).toHaveLength(1);
   });
 
+  it('does not store objective markers (the players place objectives in the game), also from an imported old file', () => {
+    mapStore.saveMap(sampleMap); // the sample still carries an old marker
+    expect(mapStore.getMap('test-map-1')?.objectives).toBeUndefined();
+    expect(mapStore.getMap('test-map-1')?.terrain).toHaveLength(1);
+
+    const imported = mapStore.importMapJson(
+      JSON.stringify({ id: 'old', name: 'Old', terrain: [], objectives: [{ id: 'o', name: 'O', position: { x: 0, y: 0, z: 0 } }] })
+    );
+    expect(imported.objectives).toBeUndefined();
+    expect(mapStore.getMap('old')?.objectives).toBeUndefined();
+  });
+
   it('updates an existing map if saved with the same id', () => {
     mapStore.saveMap(sampleMap);
 
