@@ -440,7 +440,7 @@ interface DiceResolution {
     wounds: number;
     shredWounds?: number;      // 14C-2 PR 7: of `wounds`, the extra ones Shred added
     impact?: SpecialStrikeOutcome;        // 14C-2 PR 7: the charger's Impact hits (before any strike)
-    counterStrike?: SpecialStrikeOutcome; // 14C-2 PR 7: the charged unit's Counter strike (before the charger's strike)
+    counterStrikes?: SpecialStrikeOutcome[]; // 14C-2 PR 7B: the charged unit's Counter strikes, one per Counter weapon (before the charger's strike)
     targetDestroyed: boolean;
     targetShaken?: boolean;
     effectiveQuality?: number;

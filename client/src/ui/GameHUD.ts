@@ -4206,8 +4206,7 @@ export class GameHUD {
       const i = outcome.impact;
       lines.push(`Impact: ${this.unitName(i.attackerId)} rolled ${i.attackCount} ${i.attackCount === 1 ? 'die' : 'dice'} → ${i.hitCount} hit${i.hitCount === 1 ? '' : 's'}, ${i.blockedCount} blocked, ${wounds(i.wounds)}`);
     }
-    if (outcome.counterStrike) {
-      const c = outcome.counterStrike;
+    for (const c of outcome.counterStrikes ?? []) {
       lines.push(`Counter strike first${c.weaponName ? ` (${c.weaponName})` : ''}: ${this.unitName(c.attackerId)} → ${this.unitName(c.targetId)}: ${c.hitCount} hit${c.hitCount === 1 ? '' : 's'}, ${c.blockedCount} blocked, ${wounds(c.wounds)}${c.targetDestroyed ? ' · charger down' : ''}`);
     }
     if (outcome.shredWounds) {
