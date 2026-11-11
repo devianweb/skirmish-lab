@@ -44,6 +44,7 @@ import {
   woundsToDestroy,
   getEffectiveSpeed,
   findMeleeWeapon,
+  strikingModelCount,
   isMeleeWeapon,
   isPathDifficult,
   isUnitInObjectiveRange,
@@ -107,6 +108,7 @@ import {
   setupAnnouncements,
 } from './setupPlacement';
 import { explainStop, StopNote } from './stopNote';
+import { carriedWeapons, carrierCount, carrierPrefix, meleeWeaponNames, meleeAttackBreakdown, rangedWeaponsOf } from './loadout';
 import { soundFx } from '../audio/SoundFx';
 import {
   DeploymentZoneBounds,
@@ -1524,7 +1526,7 @@ export class GameHUD {
 
     if (action === 'shoot') {
       this.shootAllocations.clear();
-      const ranged = active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+      const ranged = rangedWeaponsOf(active);
       for (const w of ranged) {
         this.shootAllocations.set(w.id, null);
       }
@@ -2896,8 +2898,18 @@ export class GameHUD {
     const cost = Math.max(...orderedPaths.map((p) => pathMovementCost(state, p, active)), 0);
     let summary: string;
     if (inContact) {
-      const attacks = (weapon.profile.attacks as number) * Math.max(1, strikers);
-      summary = `${active.name} charges ${target.name} (${alive.length} models, furthest walk ${cost.toFixed(1)}") & strikes with ${weapon.name} · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (${attacks} attacks before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
+      // Every model strikes with each melee weapon it carries: count, per weapon, the carriers that end in reach
+      const breakdown = meleeAttackBreakdown(active, (w) =>
+        Math.max(
+          1,
+          orderedPositions.filter(
+            (pos, i) =>
+              (!alive[i]?.weaponIds || alive[i].weaponIds!.includes(w.id)) &&
+              targetModels.some((t) => modelGap(pos, t) <= MELEE_STRIKE_EDGE_GAP + 0.001)
+          ).length
+        )
+      );
+      summary = `${active.name} charges ${target.name} (${alive.length} models, furthest walk ${cost.toFixed(1)}") & strikes with all its melee weapons: ${breakdown.text} attacks · ${strikers} of ${alive.length} models within ${MELEE_STRIKE_EDGE_GAP}" strike (before the defenders pile in up to 3") · defender retaliates if surviving; chargers step back 1"`;
     } else {
       // Each model keeps its own distance: report the most any model has left after this leg
       const left = Math.max(
@@ -3228,9 +3240,7 @@ export class GameHUD {
     if (actionKind === 'shoot') {
       const canFire = (w: Weapon): boolean =>
         !!this.state && firingModels(this.state, active, target, w).length > 0;
-      const rangedWeapons = active.weapons.filter(
-        (w) => w.isEquipped && w.profile.type === 'ranged'
-      );
+      const rangedWeapons = rangedWeaponsOf(active);
       if (rangedWeapons.length === 0) {
         this.showToast('No ranged weapon');
         return;
@@ -3451,9 +3461,8 @@ export class GameHUD {
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
       const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const attacks = (weapon.profile.attacks as number) * livingCount;
-      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+      const breakdown = meleeAttackBreakdown(active, (w) => Math.max(1, carrierCount(active, w)));
+      const diceText = `${breakdown.totalAttacks}d6 across ${breakdown.text} (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
 
       this.movePreview = end;
       this.movePathPreview = path;
@@ -3469,7 +3478,7 @@ export class GameHUD {
           path,
           weaponId: weapon.id,
         }),
-        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into base contact) & strikes with ${weapon.name} · ${diceText} (defender retaliates if surviving; 1" separation)`
+        `${active.name} charges ${target.name} (${chargeDistance.toFixed(1)}" into base contact) & strikes with ${meleeWeaponNames(active)} · ${diceText} (defender retaliates if surviving; 1" separation)`
       );
       return;
     }
@@ -3509,9 +3518,8 @@ export class GameHUD {
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
       const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
-      const livingCount = Math.max(1, active.models?.filter((m) => !m.isDestroyed).length ?? 1);
-      const attacks = (weapon.profile.attacks as number) * livingCount;
-      const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
+      const breakdown = meleeAttackBreakdown(active, (w) => Math.max(1, strikingModelCount(active, target, w.id)));
+      const diceText = `${breakdown.totalAttacks}d6 across ${breakdown.text} (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
       this.beginConfirmation(
         createAction(this.localPlayerId, 'fight', {
           type: 'fight',
@@ -3519,9 +3527,20 @@ export class GameHUD {
           targetId: target.id,
           weaponId: weapon.id,
         }),
-        `${active.name} strikes ${target.name} with ${weapon.name} · ${diceText}`
+        `${active.name} strikes ${target.name} with ${meleeWeaponNames(active)} · ${diceText}`
       );
     }
+  }
+
+  /**
+   * The target half of a weapon chip. With a target it also says how many models fire the weapon at it, counted by
+   * the same `firingModels` the host uses (a model out of range or sight does not add its weapon).
+   */
+  private shootChipTargetText(active: Unit, weapon: Weapon, target: Unit | null | undefined): string {
+    if (!target) return '➔ Unassigned';
+    const living = (active.models ?? []).filter((m) => !m.isDestroyed).length;
+    const firing = this.state ? firingModels(this.state, active, target, weapon).length : 0;
+    return living > 1 ? `➔ ${target.name} · ${firing} fire` : `➔ ${target.name}`;
   }
 
   private confirmShootTargets(): void {
@@ -3532,8 +3551,9 @@ export class GameHUD {
     const active = this.activeUnit;
     if (!active || !this.state) return;
 
-    const allocations: Array<{ weapon: Weapon; target: Unit; mods: CombatModifierBreakdown; diceText: string }> = [];
-    const rangedWeapons = active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+    const allocations: Array<{ weapon: Weapon; target: Unit; mods: CombatModifierBreakdown; diceText: string; firingText: string }> = [];
+    const livingModels = (active.models ?? []).filter((m) => !m.isDestroyed).length;
+    const rangedWeapons = rangedWeaponsOf(active);
 
     for (const weapon of rangedWeapons) {
       const targetId = this.shootAllocations.get(weapon.id);
@@ -3578,7 +3598,8 @@ export class GameHUD {
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
       const defModText = mods.defenseModifiers.length ? ` · D${mods.baseDefense} ${mods.defenseModifiers.join(' ')}` : '';
       const diceText = `${attacks}d6 (Hit Q${mods.effectiveQuality}+${hitModText}, Def D${mods.effectiveDefense}+${defModText})`;
-      allocations.push({ weapon, target, mods, diceText });
+      const firingText = livingModels > 1 ? `${firing.length}× ` : '';
+      allocations.push({ weapon, target, mods, diceText, firingText });
     }
 
     if (allocations.length === 0) {
@@ -3603,14 +3624,14 @@ export class GameHUD {
     if (uniqueTargets.size === 1) {
       const target = allocations[0].target;
       const distance = unitDistance(active, target);
-      const weaponNames = allocations.map((a) => a.weapon.name).join(' & ');
+      const weaponNames = allocations.map((a) => `${a.firingText}${a.weapon.name}`).join(' & ');
       const diceSummaries = allocations.map((a) => `${a.weapon.name}: ${a.diceText}`).join(' | ');
       summary = `${active.name} fires ${weaponNames} at ${target.name} (${distance.toFixed(1)}") · ${diceSummaries}`;
     } else {
       const splitSummaries = allocations
         .map(
           (a) =>
-            `${a.weapon.name} at ${a.target.name} (${unitDistance(active, a.target).toFixed(1)}") [${a.diceText}]`
+            `${a.firingText}${a.weapon.name} at ${a.target.name} (${unitDistance(active, a.target).toFixed(1)}") [${a.diceText}]`
         )
         .join(' · ');
       summary = `${active.name} split fires: ${splitSummaries}`;
@@ -4023,16 +4044,17 @@ export class GameHUD {
 
     const canActivate = this.canActivateUnit(unit);
     const isActive = this.activeUnit?.id === unit.id;
-    const weaponSummary = unit.weapons
-      .filter((w) => w.isEquipped)
+    // Weapons a living model still carries, with how many do (a weapon whose carriers all died is dropped)
+    const weaponSummary = carriedWeapons(unit)
       .map((w) => {
         const traits = w.profile.specialRules
           .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
           .join(', ');
         const suffix = traits ? `, ${traits}` : '';
+        const qty = carrierPrefix(unit, w);
         return w.profile.type === 'ranged'
-          ? `${w.name} (${w.profile.range}", A${w.profile.attacks}${suffix})`
-          : `${w.name} (A${w.profile.attacks}${suffix})`;
+          ? `${qty}${w.name} (${w.profile.range}", A${w.profile.attacks}${suffix})`
+          : `${qty}${w.name} (A${w.profile.attacks}${suffix})`;
       })
       .join(', ');
 
@@ -4521,6 +4543,10 @@ export class GameHUD {
     for (const c of outcome.counterStrikes ?? []) {
       lines.push(`Counter strike first${c.weaponName ? ` (${c.weaponName})` : ''}: ${this.unitName(c.attackerId)} → ${this.unitName(c.targetId)}: ${c.hitCount} hit${c.hitCount === 1 ? '' : 's'}, ${c.blockedCount} blocked, ${wounds(c.wounds)}${c.targetDestroyed ? ' · charger down' : ''}`);
     }
+    const strikes = outcome.meleeStrikes ?? [];
+    for (const m of strikes) {
+      lines.push(`${m.weaponName ?? m.weaponId}: ${m.attackCount} attack${m.attackCount === 1 ? '' : 's'}, ${m.hitCount} hit${m.hitCount === 1 ? '' : 's'}, ${wounds(m.wounds)}`);
+    }
     if (outcome.shredWounds) {
       lines.push(`Shred: ${outcome.shredWounds} extra wound${outcome.shredWounds === 1 ? '' : 's'} from Defense rolls of 1`);
     }
@@ -4732,7 +4758,7 @@ export class GameHUD {
 
       let shootChipsHtml = '';
       if (this.flow.action.type === 'shoot' && active) {
-        const rangedWeapons = active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+        const rangedWeapons = rangedWeaponsOf(active);
         if (rangedWeapons.length > 1) {
           const chips = rangedWeapons
             .map((w) => {
@@ -4741,10 +4767,8 @@ export class GameHUD {
               const isSelected = w.id === this.selectedShootWeaponId;
               return `
                 <button class="sl-hud-weapon-chip ${isSelected ? 'selected' : ''} ${assignedUnit ? 'assigned' : ''}" data-weapon-id="${w.id}">
-                  <span class="sl-chip-weapon-name">${w.name} (${w.profile.range}")</span>
-                  <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${
-                assignedUnit ? `➔ ${assignedUnit.name}` : '➔ Unassigned'
-              }</span>
+                  <span class="sl-chip-weapon-name">${carrierPrefix(active, w)}${w.name} (${w.profile.range}")</span>
+                  <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${this.shootChipTargetText(active, w, assignedUnit)}</span>
                 </button>`;
             })
             .join('');
@@ -4899,10 +4923,10 @@ export class GameHUD {
     if (this.flow.mode === 'targeting') {
       const rangedWeapons =
         this.flow.action === 'shoot' && active
-          ? active.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged')
+          ? rangedWeaponsOf(active)
           : [];
 
-      if (this.flow.action === 'shoot' && rangedWeapons.length > 1) {
+      if (this.flow.action === 'shoot' && rangedWeapons.length > 1 && active) {
         const chipsHtml = rangedWeapons
           .map((w) => {
             const assignedId = this.shootAllocations.get(w.id);
@@ -4910,10 +4934,8 @@ export class GameHUD {
             const isSelected = w.id === this.selectedShootWeaponId;
             return `
               <button class="sl-hud-weapon-chip ${isSelected ? 'selected' : ''} ${assignedUnit ? 'assigned' : ''}" data-weapon-id="${w.id}">
-                <span class="sl-chip-weapon-name">${w.name} (${w.profile.range}")</span>
-                <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${
-              assignedUnit ? `➔ ${assignedUnit.name}` : '➔ Unassigned'
-            }</span>
+                <span class="sl-chip-weapon-name">${carrierPrefix(active, w)}${w.name} (${w.profile.range}")</span>
+                <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${this.shootChipTargetText(active, w, assignedUnit)}</span>
               </button>`;
           })
           .join('');
@@ -5077,7 +5099,7 @@ export class GameHUD {
         !isShaken &&
         !engaged &&
         ((!hasMoved && !hasAttacked) || (isRushing && hasMovementLeft));
-      const rangedWeapon = active.weapons.find((w) => w.isEquipped && w.profile.type === 'ranged');
+      const rangedWeapon = rangedWeaponsOf(active)[0];
       const meleeWeapon = findMeleeWeapon(active);
             const canCharge = !active.isDestroyed && !isShaken && !engaged && !hasMoved && !hasAttacked && !isRushing && !!meleeWeapon;
 
@@ -5246,12 +5268,11 @@ export class GameHUD {
     const unitTraits = unit.specialRules
       .map((r) => `<span class="sl-trait-badge" title="${escapeHtmlAttr(describeTrait(r))}">${formatTraitLabel(r)}</span>`)
       .join(' · ');
-    const weaponRows = unit.weapons
-      .filter((w) => w.isEquipped)
+    const weaponRows = carriedWeapons(unit)
       .map(
         (w) => `
           <tr>
-            <td>${w.name}</td>
+            <td>${carrierPrefix(unit, w)}${w.name}</td>
             <td>${w.profile.type === 'ranged' ? (isMeleeWeapon(w) ? 'Ranged + Melee' : 'Ranged') : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
@@ -5346,7 +5367,7 @@ export class GameHUD {
 
   /** The ranged weapon the shooting preview uses: the selected one, else the first that can fire, else the first. */
   private shootPreviewWeapon(attacker: Unit, target: Unit): Weapon | null {
-    const ranged = attacker.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+    const ranged = rangedWeaponsOf(attacker);
     if (ranged.length === 0) return null;
     const selected = this.selectedShootWeaponId ? ranged.find((w) => w.id === this.selectedShootWeaponId) : null;
     if (selected) return selected;
@@ -6119,9 +6140,7 @@ export class GameHUD {
             attackAction === 'shoot'
               ? Array.from(
                   new Set(
-                    active.weapons
-                      .filter((w) => w.isEquipped && w.profile.type === 'ranged')
-                      .map((w) => w.profile.range)
+                    rangedWeaponsOf(active).map((w) => w.profile.range)
                   )
                 ).sort((a, b) => a - b)
               : undefined;
@@ -6327,9 +6346,7 @@ export class GameHUD {
   private actionMaxRange(unit: Unit, action: 'shoot' | 'charge' | 'fight'): number {
     if (action === 'shoot') {
       return Math.max(
-        ...unit.weapons
-          .filter((w) => w.isEquipped && w.profile.type === 'ranged')
-          .map((w) => w.profile.range),
+        ...rangedWeaponsOf(unit).map((w) => w.profile.range),
         0
       );
     }
@@ -6358,7 +6375,7 @@ export class GameHUD {
         if (weaponToCheck && weaponToCheck.profile.type === 'ranged') {
           return firingModels(this.state!, unit, candidate, weaponToCheck).length > 0;
         }
-        const rangedWeapons = unit.weapons.filter((w) => w.isEquipped && w.profile.type === 'ranged');
+        const rangedWeapons = rangedWeaponsOf(unit);
         return rangedWeapons.some((w) => firingModels(this.state!, unit, candidate, w).length > 0);
       }
       const distance = unitDistance(unit, candidate);
