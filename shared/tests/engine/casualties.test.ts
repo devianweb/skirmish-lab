@@ -649,6 +649,16 @@ describe('casualties: wounds in squads follow the tabletop order (Decision 3g)',
     expect(wounded(auto)).toEqual(['x', 'x', 3, 3]);
   });
 
+  it('the timeout pick names every model when all of them take wounds and the last survives', () => {
+    // 2 unhurt Tough 3 models, 4 wounds: one dies, the other ends on 1 taken, so both are picked in order
+    const next = resolve(toughState(2, 3), shootAction(['g1']), [4]).state!;
+    const entry = dataOf(next).entry;
+    expect(entry).toMatchObject({ count: 2, removed: 1 });
+    const picks = autoPickCasualties(unitOf(next, 'g1'), entry);
+    expect(picks).toHaveLength(2);
+    expect(validateAction(next, pickAction(GUEST, 'g1', picks))).toEqual({ valid: true });
+  });
+
   it('previewCasualtyPick shows where wounds land for full and partial picks and leaves the unit alone', () => {
     const next = resolve(toughState(4, 3, [2]), shootAction(['g1']), [4]).state!;
     const unit = unitOf(next, 'g1');

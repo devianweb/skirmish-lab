@@ -279,7 +279,10 @@ export function autoPickCasualties(unit: Unit, countOrEntry: number | CasualtyEn
     .filter((m) => !gone.has(m.id))
     .map((m) => ({ id: m.id, p: m.position ?? unit.position, ok: !entry || isUnhurt(m) }));
   const picked: string[] = [];
-  for (let k = 0; k < count && remaining.length > 1; k++) {
+  // With an entry the last pick may survive wounded, so every remaining model can be needed (two unhurt
+  // Tough 3 models taking 4 wounds: both are picked, in order)
+  const floor = entry ? 0 : 1;
+  for (let k = 0; k < count && remaining.length > floor; k++) {
     let best = -1;
     let bestShortfall = Infinity;
     for (let i = 0; i < remaining.length; i++) {
