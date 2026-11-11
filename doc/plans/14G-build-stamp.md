@@ -1,5 +1,5 @@
 # 14G: Build stamp and "new version" notice
-Status: draft, waiting for the owner's approval (written 2026-11-11)
+Status: draft, parked as a ROADMAP entry under 14G (owner, 2026-11-11: keep it on the roadmap for now). Needs the owner's approval before an implementer starts.
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G (Playtest & UX polish)
 
 ## Goal

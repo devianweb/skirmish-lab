@@ -201,12 +201,19 @@ Owner, 2026-11-11: go. Follow PR 1D (Human Defense Force) as the pattern.
 - **Docs:** ASSETS (Decision 7: map each unit to an existing model role, the Biker to the bike), RULES_SPECIFICATION trait matrix, SYSTEMS, ROADMAP, the dice panel / log wording if a Ferocious extra hit is shown.
 - **Manual checks** (section 10; Setup: Orc Marauders vs Human Defense Force, Standard Battlefield): the five units and their weapons read right in the unit list and data card; shooting shows the -1 for Bad Shot; a 6 to hit at over 9" adds a hit and says so in the dice panel, and does not at 9" or closer; a charge started over 6" away does the same in melee; the Heavy Flamer-Mod fires once (Limited); the Biker moves as Fast. If a check can't be reached with this matchup, add a dev TEST army or map for it and name it in the Setup line.
 
+## PR 2B: Remove Frontier Wardens / Rust Raiders, default matchup HDF vs Orc Marauders  (branch: `14C-3-armies-2b`, after PR 2 is merged)
+Owner, 2026-11-11: "Yes, remove the old armies." Approved.
+- **Layer:** shared data + lobby + docs. Delete the Frontier Wardens and Rust Raiders armies (every `frontier-wardens*` / `rust-raiders*` entry), their fighters, their weapons that nothing else uses, and the old faction traits no other army uses (Decision 5: keep a trait only if a TEST army still needs it, and then only for that army). Delete the Force Org harness's legacy exemption list (PR 1A). The picker then offers Human Defense Force and Orc Marauders, plus the TEST armies in dev mode.
+- **Default matchup (Decision 8):** host Human Defense Force vs guest Orc Marauders, in the lobby defaults and in the `applyDefaultScenario` fallbacks.
+- **Tests first:** the old army IDs are gone from data and from the lobby options; the default game is HDF vs Orc Marauders and deploys inside its zones; every non-TEST army passes Force Org with no exemptions. Tests that used the old armies move to a TEST army or to HDF / Orc Marauders without weakening what they assert.
+- **Docs:** README and GDD army list (two armies), ASSETS, RULES_SPECIFICATION trait matrix (removed traits), ROADMAP, UI inventory (lobby shots and any shot showing the old armies; re-take what the scenes reach and list the rest), manual check: the lobby offers the two armies, the default game is HDF vs Orc Marauders. Old saved rooms with the removed armies are a clean break (no compatibility).
+
 ## PR 3: Prime Brothers  — deferred (owner, 2026-11-11), see ROADMAP "Future Considerations"
 - **Tests first:** Primeborn AP(-1) min 0 (AP(2) → 1, AP(0) stays 0, Rending's AP(+4) on 6s → 3); list totals.
 
 ## PR 4: Alien Hives  — deferred (owner, 2026-11-11), see ROADMAP "Future Considerations"
 - **Tests first:** Hive Bond (shares the Hold the Line logic); list totals.
-- The rest of the old PR 4 (remove Frontier Wardens / Rust Raiders, default matchup HDF vs Orc Marauders, README/GDD army list) is not tied to Alien Hives: see Open questions.
+- The rest of the old PR 4 (remove Frontier Wardens / Rust Raiders, default matchup HDF vs Orc Marauders, README/GDD army list) is now PR 2B.
 
 ## Open questions
-- **Old armies and the default matchup (waiting for the owner, 2026-11-11).** With Prime Brothers and Alien Hives deferred, should a small PR 2B after Orc Marauders still remove Frontier Wardens and Rust Raiders (leaving two armies: Human Defense Force and Orc Marauders) and make HDF vs Orc Marauders the default matchup (Decision 8)? Recommended: yes, so every army in the picker uses OPR's names and v3.6 rules. PR 2 does not depend on the answer.
+None. (The old armies go in PR 2B: owner, 2026-11-11.)
