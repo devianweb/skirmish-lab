@@ -4471,7 +4471,7 @@ export class GameHUD {
                   <span class="sl-hud-dice-sublabel" style="font-size:10px; margin: 0 4px 0 8px;">Def (D${alloc.effectiveDefense ?? 5}+):</span> ${aDefDice}
                 </div>
                 <div class="sl-hud-dice-summary" style="font-size: 10px; margin-top: 2px;">
-                  ${alloc.hitCount} hit${alloc.hitCount === 1 ? '' : 's'} · ${alloc.blockedCount} blocked ·
+                  ${alloc.hitCount} hit${alloc.hitCount === 1 ? '' : 's'}${this.extraHitsText(alloc.bonusHits)} · ${alloc.blockedCount} blocked ·
                   <strong>${alloc.wounds} wound${alloc.wounds === 1 ? '' : 's'}</strong>
                   ${alloc.targetDestroyed ? ' · target down' : alloc.targetShaken ? ' · shaken' : ''}
                 </div>
@@ -4633,7 +4633,7 @@ export class GameHUD {
           <div class="sl-hud-dice-title">${titleText}</div>
           ${rollsHtml}
           <div class="sl-hud-dice-summary">
-            ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
+            ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'}${this.extraHitsText(outcome.bonusHits)} ·
             ${outcome.blockedCount} blocked ·
             ${summaryWounds}
           </div>
@@ -4685,10 +4685,15 @@ export class GameHUD {
             <div class="sl-hud-dice-row">${hitDice}</div>
             <div class="sl-hud-dice-label">Defense (need D${d}+${defMods}):</div>
             <div class="sl-hud-dice-row">${defDice}</div>
-            <div class="sl-hud-dice-summary" style="font-size: 10px;">${m.hitCount} hit${m.hitCount === 1 ? '' : 's'} · ${m.blockedCount} blocked · ${m.wounds} unsaved wound${m.wounds === 1 ? '' : 's'}</div>
+            <div class="sl-hud-dice-summary" style="font-size: 10px;">${m.hitCount} hit${m.hitCount === 1 ? '' : 's'}${this.extraHitsText(m.bonusHits)} · ${m.blockedCount} blocked · ${m.wounds} unsaved wound${m.wounds === 1 ? '' : 's'}</div>
           </div>`;
       })
       .join('');
+  }
+
+  /** " (incl. N extra from 6s)" when unmodified 6s added hits (Ferocious, Relentless, Furious, Surge). */
+  private extraHitsText(bonusHits: number | undefined): string {
+    return bonusHits && bonusHits > 0 ? ` (incl. ${bonusHits} extra from 6s)` : '';
   }
 
   private specialStrikesHtml(

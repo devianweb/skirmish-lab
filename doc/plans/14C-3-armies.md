@@ -192,6 +192,7 @@ Status: approved by the owner 2026-11-11; 1H-1 merged as #358; 1H-2 merged as #3
 - **Done when:** all workspaces green, the prompt matches the above on TEST: Loadouts Check, inventory shots updated.
 
 ## PR 2: Orc Marauders  (branch: `14C-3-armies-2`)
+Status: done, merged as #362 (2026-11-11). Waiting for the owner's manual checks. Note: an extra hit from a 6 (Ferocious, and also Surge, Relentless, Furious) is now a plain hit: only the original hit counts as a 6 for Rending and similar rules, as v3.6 says.
 Owner, 2026-11-11: go. Follow PR 1D (Human Defense Force) as the pattern.
 - **Layer:** shared data (army `orc-marauders`, weapons, the two trait registry entries) + the engine hooks for the two faction rules + the lobby picker entry. One PR: the rules are small and data-driven (Decision 5).
 - **The list:** Decision 6, Orc Marauders (400 pts, Tough 27, 5 units, all single models). Re-check every cost, stat and weapon against `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Orc Maraudersv3.6.0.pdf`; stop and report if a number differs or a rule the list uses (Limited, Reliable, Relentless, Strider, Fast, Scout, Stealth, Blast, Assault) is missing from the engine or behaves differently from v3.6.

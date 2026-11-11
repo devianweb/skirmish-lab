@@ -49,6 +49,8 @@ export type FactionTraitId =
   | 'double-time'
   | 'repel-ambushers'
   | 'hold-the-line'
+  | 'bad-shot'
+  | 'ferocious'
   | 'riot-shield'
   | 'signal-relay'
   | 'entrenched'
@@ -236,6 +238,15 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     displayName: 'Hold the Line',
     description:
       'Gets +1 to Morale Test rolls when it was shot from more than 9" away or charged from more than 6" away. Only counts when most of its models have the rule.',
+  },
+  'bad-shot': {
+    displayName: 'Bad Shot',
+    description: '-1 to hit rolls when shooting. No effect in melee.',
+  },
+  ferocious: {
+    displayName: 'Ferocious',
+    description:
+      'When shooting at enemies more than 9" away, or charging enemies that were more than 6" away when the charge began, each unmodified 6 to hit scores 1 extra hit. The extra hit does not count as a 6 for other rules.',
   },
   'riot-shield': {
     displayName: 'Riot Shield',

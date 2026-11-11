@@ -164,7 +164,7 @@ export const WEAPONS: Record<string, Weapon> = {
     profile: {
       type: 'ranged',
       range: 12,
-      attacks: 1,
+      attacks: 2,
       specialRules: ['blast(3)', 'reliable'],
     },
     isEquipped: true,
@@ -224,6 +224,35 @@ export const WEAPONS: Record<string, Weapon> = {
     weaponType: 'sniper-rifle',
     name: 'Sniper Rifle',
     profile: { type: 'ranged', range: 30, attacks: 1, specialRules: ['ap(1)', 'deadly(2)', 'reliable'] },
+    isEquipped: true,
+  },
+  // --- Orc Marauders (14C-3 PR 2) ---
+  'orc-hand-weapon': {
+    id: 'orc-hand-weapon',
+    weaponType: 'orc-hand-weapon',
+    name: 'Hand Weapon',
+    profile: { type: 'melee', range: 1, attacks: 2, specialRules: [] },
+    isEquipped: true,
+  },
+  'heavy-flamer-mod': {
+    id: 'heavy-flamer-mod',
+    weaponType: 'heavy-flamer-mod',
+    name: 'Heavy Flamer-Mod',
+    profile: { type: 'ranged', range: 12, attacks: 2, specialRules: ['ap(1)', 'blast(3)', 'limited'] },
+    isEquipped: true,
+  },
+  'orc-carbine': {
+    id: 'orc-carbine',
+    weaponType: 'orc-carbine',
+    name: 'Carbine',
+    profile: { type: 'ranged', range: 18, attacks: 4, specialRules: [] },
+    isEquipped: true,
+  },
+  'bike-gun': {
+    id: 'bike-gun',
+    weaponType: 'bike-gun',
+    name: 'Bike-Gun',
+    profile: { type: 'ranged', range: 24, attacks: 4, specialRules: [] },
     isEquipped: true,
   },
 };
