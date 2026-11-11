@@ -44,6 +44,9 @@ import {
   woundsToDestroy,
   getEffectiveSpeed,
   findMeleeWeapon,
+  DiceResult,
+  WeaponAttackOutcome,
+  meleeWeaponSlots,
   strikingModelCount,
   isMeleeWeapon,
   isPathDifficult,
@@ -4504,21 +4507,29 @@ export class GameHUD {
           ? `Defender Retaliation: ${attacker?.name ?? 'Defender'} → ${target?.name ?? 'Charger'}`
           : `${attacker?.name ?? 'Attacker'} → ${target?.name ?? 'target'}`;
 
-      return `
-        <div class="sl-hud-dice">
-          <div class="sl-hud-dice-title">${titleText}</div>
-          <div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
+      // Several melee weapons struck: each has its own dice batch (`w<slot>-` purposes), target numbers and AP
+      const meleeBlocks = outcome.meleeStrikes && outcome.meleeStrikes.length > 1 && attacker
+        ? this.meleeWeaponBlocksHtml(entry.dice.results, outcome.meleeStrikes, attacker)
+        : '';
+      const rollsHtml = meleeBlocks
+        ? meleeBlocks
+        : `<div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
           ${this.blastSplitHtml(outcome.blastSplits)}
           <div class="sl-hud-dice-label">${outcome.blastSplash?.length ? `${target?.name ?? 'Target'} ` : ''}Defense (need D${targetD}+${defMods}):</div>
-          <div class="sl-hud-dice-row">${defDiceHtml}</div>
+          <div class="sl-hud-dice-row">${defDiceHtml}</div>`;
+
+      return `
+        <div class="sl-hud-dice">
+          <div class="sl-hud-dice-title">${titleText}</div>
+          ${rollsHtml}
           <div class="sl-hud-dice-summary">
             ${outcome.hitCount} hit${outcome.hitCount === 1 ? '' : 's'} ·
             ${outcome.blockedCount} blocked ·
             ${summaryWounds}
           </div>
           ${this.blastSplashHtml(outcome.blastSplash)}
-          ${this.specialStrikesHtml(outcome)}
+          ${this.specialStrikesHtml(outcome, !!meleeBlocks)}
           ${retaliationHtml}
           ${pushBackHtml}
         </div>`;
@@ -4527,13 +4538,63 @@ export class GameHUD {
   }
 
   /** Impact hits, the Counter strike and Shred's extra wounds of an attack, as short notes under the dice. */
-  private specialStrikesHtml(outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome']): string {
-    const lines = this.specialStrikeLines(outcome);
+  /**
+   * To-Hit and Defense dice of a melee with several weapons, one block per weapon that struck. A weapon's dice use
+   * its fixed slot in the unit's melee weapon list: slot 0 is plain `to-hit` / `defense`, later slots `w1-`, `w2-`.
+   */
+  private meleeWeaponBlocksHtml(
+    results: DiceResult[],
+    strikes: WeaponAttackOutcome[],
+    striker: Unit
+  ): string {
+    const slots = meleeWeaponSlots(striker);
+    return strikes
+      .map((m) => {
+        const slot = Math.max(0, slots.findIndex((w) => w.id === m.weaponId));
+        const prefix = slot === 0 ? '' : `w${slot}-`;
+        const toHit = results.find((r) => r.purpose === `${prefix}to-hit`);
+        const defense = results.find((r) => r.purpose === `${prefix}defense`);
+        const q = m.effectiveQuality ?? striker.quality;
+        const d = m.effectiveDefense ?? 5;
+        const hitDice = (toHit?.rolls ?? [])
+          .map((r) => `<span class="sl-die ${r > 1 && (r >= 6 || r >= q) ? 'hit-pass' : 'hit-miss'}">${r}</span>`)
+          .join('');
+        const defRolls = (defense?.rolls ?? []).slice(0, m.hitCount);
+        const defDice = defRolls.length
+          ? defRolls
+              .map((r, i) => {
+                const blocked = m.blockedRolls ? (m.blockedRolls[i] ?? false) : r > 1 && r >= d;
+                return `<span class="sl-die ${blocked ? 'def-pass' : 'def-fail'}">${r}</span>`;
+              })
+              .join('')
+          : '<span class="sl-hud-dice-empty">no hits to defend</span>';
+        const hitMods = m.hitModifiers?.length ? ` · Base Q${m.baseQuality ?? striker.quality} ${m.hitModifiers.join(' ')}` : '';
+        const defMods = m.defenseModifiers?.length ? ` · Base D${m.baseDefense ?? 5} ${m.defenseModifiers.join(' ')}` : '';
+        return `
+          <div class="sl-hud-melee-weapon-block" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">
+            <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold;">${m.weaponName ?? m.weaponId} — To-Hit (need Q${q}+${hitMods}):</div>
+            <div class="sl-hud-dice-row">${hitDice}</div>
+            <div class="sl-hud-dice-label">Defense (need D${d}+${defMods}):</div>
+            <div class="sl-hud-dice-row">${defDice}</div>
+            <div class="sl-hud-dice-summary" style="font-size: 10px;">${m.hitCount} hit${m.hitCount === 1 ? '' : 's'} · ${m.blockedCount} blocked · ${m.wounds} unsaved wound${m.wounds === 1 ? '' : 's'}</div>
+          </div>`;
+      })
+      .join('');
+  }
+
+  private specialStrikesHtml(
+    outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome'],
+    skipMeleeLines = false
+  ): string {
+    const lines = this.specialStrikeLines(outcome, skipMeleeLines);
     if (lines.length === 0) return '';
     return `<div class="sl-hud-dice-summary">${lines.map((l) => `<div>${l}</div>`).join('')}</div>`;
   }
 
-  private specialStrikeLines(outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome']): string[] {
+  private specialStrikeLines(
+    outcome: NonNullable<GameState['actionLog'][number]['dice']>['outcome'],
+    skipMeleeLines = false
+  ): string[] {
     const lines: string[] = [];
     const wounds = (n: number) => `${n} unsaved wound${n === 1 ? '' : 's'}`;
     if (outcome.impact) {
@@ -4543,7 +4604,7 @@ export class GameHUD {
     for (const c of outcome.counterStrikes ?? []) {
       lines.push(`Counter strike first${c.weaponName ? ` (${c.weaponName})` : ''}: ${this.unitName(c.attackerId)} → ${this.unitName(c.targetId)}: ${c.hitCount} hit${c.hitCount === 1 ? '' : 's'}, ${c.blockedCount} blocked, ${wounds(c.wounds)}${c.targetDestroyed ? ' · charger down' : ''}`);
     }
-    const strikes = outcome.meleeStrikes ?? [];
+    const strikes = skipMeleeLines ? [] : outcome.meleeStrikes ?? [];
     for (const m of strikes) {
       lines.push(`${m.weaponName ?? m.weaponId}: ${m.attackCount} attack${m.attackCount === 1 ? '' : 's'}, ${m.hitCount} hit${m.hitCount === 1 ? '' : 's'}, ${wounds(m.wounds)}`);
     }

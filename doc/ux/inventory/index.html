@@ -717,7 +717,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
           <p class="num">51</p>
           <h3>Melee dice, one line per weapon</h3>
           <dl>
-            <dt>What it is</dt><dd>Dice panel with the combined To-Hit and Defense dice, the totals line, then one line per melee weapon (&quot;Power Sword: 2 attacks, 2 hits, 2 unsaved wounds&quot;, &quot;Assault Rifle: ...&quot;). The log entry repeats the lines.</dd>
+            <dt>What it is</dt><dd>Dice panel with one block per melee weapon: &quot;Power Sword — To-Hit (need Q4+)&quot; with its dice, &quot;Defense (need D6+ · Base D5 -1 AP(1))&quot; with its dice and a hit/blocked/wounds line, then the same for &quot;Assault Rifle&quot; (its own target numbers, no AP), and the totals line. The log entry has one text line per weapon.</dd>
             <dt>Purpose</dt><dd>Shows what each weapon contributed to the melee; totals still add up the weapons.</dd>
           </dl>
         </div>
@@ -741,7 +741,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
           <p class="num">53</p>
           <h3>Strike-back dice, one line per weapon</h3>
           <dl>
-            <dt>What it is</dt><dd>The strike-back result in the dice panel with a line per weapon.</dd>
+            <dt>What it is</dt><dd>The strike-back result in the dice panel with a To-Hit / Defense block per weapon, each with its own target numbers.</dd>
             <dt>Purpose</dt><dd>Same per-weapon breakdown for the defender's strike.</dd>
           </dl>
         </div>

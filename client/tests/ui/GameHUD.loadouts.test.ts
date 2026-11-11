@@ -210,7 +210,7 @@ describe('GameHUD per-model loadouts (14C-3 PR 1C)', () => {
   });
 
   describe('dice panel and log', () => {
-    it('shows one line per melee weapon with attacks, hits and wounds, and keeps the totals', () => {
+    it('shows a dice block per melee weapon (log: one line each with attacks, hits, wounds) and keeps the totals', () => {
       const mine = armyUnits(HOST, P(0, 0), P(0, 5));
       const foe = armyUnits(GUEST, P(0, 6.5), P(30, 20));
       mine.leader.status = ['engaged'];
@@ -230,7 +230,7 @@ describe('GameHUD per-model loadouts (14C-3 PR 1C)', () => {
       const { container } = setup(HOST, out.state!);
       const panel = container.querySelector('.sl-hud-dice')!.textContent!;
       for (const s of strikes) {
-        expect(panel).toContain(`${s.weaponName}: ${s.attackCount} attacks, ${s.hitCount} hit`);
+        expect(panel).toContain(`${s.weaponName} — To-Hit`);
       }
       const total = out.logEntry!.dice!.outcome;
       expect(panel).toContain(`${total.hitCount} hit`); // totals still shown
@@ -238,6 +238,70 @@ describe('GameHUD per-model loadouts (14C-3 PR 1C)', () => {
       const log = container.querySelector('.sl-hud-log-entry')!.textContent!;
       expect(log).toContain('Power Sword: 2 attacks');
       expect(log).toContain('Assault Rifle: 2 attacks');
+    });
+  });
+
+  describe('multi-weapon melee dice rows', () => {
+    it('renders To-Hit and Defense dice per weapon, each with its own target numbers and AP', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(0, 5));
+      const foe = armyUnits(GUEST, P(0, 6.5), P(30, 20));
+      mine.leader.status = ['engaged'];
+      foe.squad.status = ['engaged'];
+      const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.leader.id);
+      const fight = createAction(HOST, 'fight', {
+        type: 'fight',
+        attackerId: mine.leader.id,
+        targetId: foe.squad.id,
+        weaponId: 'power-sword',
+      } as any);
+      const specs = getDiceSpecs(state, fight)!;
+      // Power Sword: both hit; Assault Rifle: dice show 6 then 2 (one hit, one miss)
+      const results = specs.map((spec) => {
+        const rolls =
+          spec.purpose === 'w1-to-hit' ? [6, 2].slice(0, spec.count) : Array(spec.count).fill(spec.purpose.endsWith('to-hit') ? 6 : 1);
+        const total = rolls.reduce((a: number, b: number) => a + b, 0);
+        return { rolls, total, finalTotal: total, purpose: spec.purpose };
+      });
+      const out = applyAction(state, fight, results);
+      expect(out.ok).toBe(true);
+      const { container } = setup(HOST, out.state!);
+      const panel = container.querySelector('.sl-hud-dice')!;
+      const blocks = Array.from(panel.querySelectorAll('.sl-hud-melee-weapon-block'));
+      expect(blocks).toHaveLength(2);
+      const [sword, rifle] = blocks as HTMLElement[];
+      expect(sword.textContent).toContain('Power Sword');
+      expect(sword.textContent).toContain('Defense (need D6+');
+      expect(sword.textContent).toContain('AP(1)');
+      expect(sword.querySelectorAll('.sl-die.hit-pass')).toHaveLength(2);
+      expect(rifle.textContent).toContain('Assault Rifle');
+      expect(rifle.textContent).not.toContain('AP(1)');
+      expect(rifle.textContent).toContain('Defense (need D5+');
+      expect(rifle.querySelectorAll('.sl-die.hit-pass')).toHaveLength(1);
+      expect(rifle.querySelectorAll('.sl-die.hit-miss')).toHaveLength(1);
+      // Defense dice are only the rolls for that weapon's hits
+      expect(rifle.querySelectorAll('.sl-die.def-pass, .sl-die.def-fail')).toHaveLength(1);
+      // totals still shown, and the per-weapon text lines are not repeated in the panel
+      expect(panel.textContent).toContain('3 hits');
+    });
+
+    it('a single-weapon strike keeps the single To-Hit / Defense rows', () => {
+      const mine = armyUnits(HOST, P(0, 0), P(0, 5));
+      const foe = armyUnits(GUEST, P(0, 6.5), P(30, 20));
+      mine.squad.status = ['engaged'];
+      foe.squad.status = ['engaged'];
+      mine.squad.models = [mine.squad.models[0]];
+      mine.squad.position = P(0, 5);
+      mine.squad.models[0].position = P(0, 5);
+      mine.squad.models[0].weaponIds = ['rifle', 'blade'];
+      const state = baseState([mine.squad, mine.leader, foe.squad, foe.leader], mine.squad.id);
+      mine.leader.position = P(-20, -20);
+      mine.leader.models[0].position = P(-20, -20);
+      const fight = createAction(HOST, 'fight', { type: 'fight', attackerId: mine.squad.id, targetId: foe.squad.id, weaponId: 'blade' } as any);
+      const out = applyAction(state, fight, diceFor(getDiceSpecs(state, fight)!, 6));
+      expect(out.ok).toBe(true);
+      const { container } = setup(HOST, out.state!);
+      expect(container.querySelector('.sl-hud-melee-weapon-block')).toBeNull();
+      expect(container.querySelector('.sl-hud-dice')!.textContent).toContain('To-Hit (need Q4+');
     });
   });
 
