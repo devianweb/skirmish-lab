@@ -5,9 +5,10 @@ import {
   mergeAimLines,
   modelLabel,
   modelNumber,
-  modelWeaponBlocks,
+  modelWeaponGroups,
   modelWeaponNames,
-  modelBlockHeading,
+  modelMemberText,
+  showsModelHeadings,
 } from '../../src/ui/modelLoadout';
 
 const weapon = (id: keyof typeof WEAPONS) => ({ ...WEAPONS[id], profile: { ...WEAPONS[id].profile }, isEquipped: true });
@@ -52,13 +53,55 @@ describe('loadoutsDiffer', () => {
   });
 });
 
-describe('modelWeaponBlocks', () => {
-  it('gives one block per model in fixed order, each with its own weapons; a dead model keeps its number and lists none', () => {
-    const unit = unitOf([model('a', ['rifle', 'blade']), model('b', ['rifle', 'blade'], true), model('c', ['frag-launcher', 'blade'])]);
-    const blocks = modelWeaponBlocks(unit);
-    expect(blocks.map(modelBlockHeading)).toEqual(['Model 1', 'Model 2 — removed', 'Model 3']);
-    expect(blocks.map((b) => b.weapons.map((w) => w.name))).toEqual([['Rifle', 'Blade'], [], ['Blade', 'Frag Launcher']]);
+const tough = (m: Model, maxWounds: number, wounds = maxWounds): Model => ({ ...m, maxWounds, wounds });
+const texts = (g: ReturnType<typeof modelWeaponGroups>[number]) => g.members.map(modelMemberText);
+
+describe('modelWeaponGroups', () => {
+  it('groups models carrying the same weapons under one entry, ordered by lowest model number', () => {
+    const unit = unitOf([model('a', ['rifle', 'blade']), model('b', ['rifle', 'blade']), model('c', ['frag-launcher', 'blade'])]);
+    const groups = modelWeaponGroups(unit);
+    expect(groups.map(texts)).toEqual([['Model 1', 'Model 2'], ['Model 3']]);
+    expect(groups.map((g) => g.weapons.map((w) => w.name))).toEqual([['Rifle', 'Blade'], ['Blade', 'Frag Launcher']]);
     expect(modelWeaponNames(unit, unit.models![2])).toBe('Blade, Frag Launcher');
+  });
+
+  it('groups non-adjacent identical models, members in number order', () => {
+    const unit = unitOf([model('a', ['rifle']), model('b', ['blade']), model('c', ['rifle'])]);
+    expect(modelWeaponGroups(unit).map(texts)).toEqual([['Model 1', 'Model 3'], ['Model 2']]);
+  });
+
+  it('keeps a removed model in its group, marked removed, and keeps the rows while a member lives', () => {
+    const unit = unitOf([model('a', ['rifle', 'blade']), model('b', ['rifle', 'blade'], true), model('c', ['frag-launcher', 'blade'])]);
+    const groups = modelWeaponGroups(unit);
+    expect(groups.map(texts)).toEqual([['Model 1', 'Model 2 — removed'], ['Model 3']]);
+    expect(groups[0].weapons.map((w) => w.name)).toEqual(['Rifle', 'Blade']);
+    expect(groups[0].allRemoved).toBe(false);
+  });
+
+  it('a group with every member removed has no rows', () => {
+    const unit = unitOf([model('a', ['rifle'], true), model('b', ['rifle'], true), model('c', ['blade'])]);
+    const groups = modelWeaponGroups(unit);
+    expect(groups[0].allRemoved).toBe(true);
+    expect(groups[0].weapons).toEqual([]);
+    expect(groups[1].weapons.map((w) => w.name)).toEqual(['Blade']);
+  });
+
+  it('shows wounds taken out of Tough for Tough above 1 only, and none for Tough 1', () => {
+    const t3 = unitOf([tough(model('a'), 3, 3), tough(model('b'), 3, 1), tough(model('c'), 3, 3)]);
+    expect(modelWeaponGroups(t3).map(texts)).toEqual([['Model 1 · 0/3 W', 'Model 2 · 2/3 W', 'Model 3 · 0/3 W']]);
+    const t1 = unitOf([model('a'), model('b')]);
+    expect(modelWeaponGroups(t1).map(texts)).toEqual([['Model 1', 'Model 2']]);
+  });
+});
+
+describe('showsModelHeadings', () => {
+  it('is true when loadouts differ, or when a multi-model unit has Tough above 1', () => {
+    expect(showsModelHeadings(unitOf([model('a', ['rifle']), model('b', ['blade'])]))).toBe(true);
+    expect(showsModelHeadings(unitOf([tough(model('a'), 3), tough(model('b'), 3)]))).toBe(true);
+  });
+  it('is false for identical Tough 1 squads and for single models, even with Tough', () => {
+    expect(showsModelHeadings(unitOf([model('a'), model('b')]))).toBe(false);
+    expect(showsModelHeadings(unitOf([tough(model('a'), 9)]))).toBe(false);
   });
 });
 

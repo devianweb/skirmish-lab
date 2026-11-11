@@ -103,6 +103,7 @@ Owner feedback on PR 1E, 2026-11-11: "Not a huge fan of this approach. Can you m
 - **Docs:** UI inventory (data card shots), manual check with Setup "TEST: Loadouts Check", Standard Battlefield.
 
 ## PR 1G: Grouped model sub-headings, per-model wounds, no header hover line  (branch: `14C-3-armies-1g`)
+Status: implemented, PR open (screenshots l13-01 and l13-07 not re-taken; notes updated).
 Owner feedback on PR 1F, 2026-11-11 (all PR 1F manual checks passed): "Header line kept: Get rid please." "I like the sub headers, but if two models are the exact same maybe we need Model 1 / Model 2 etc? Also it would be nice to be able to see what wounds each model has."
 - **Layer:** client UI only (data card in `client/src/ui/GameHUD.ts`, helpers in `client/src/ui/modelLoadout.ts`). No engine or rules change.
 - **Remove the header hover line.** Delete the yellow "Model N · weapons" line (`.sl-hud-hovered-model`) from the data card header. The highlighted sub-heading block already says it.

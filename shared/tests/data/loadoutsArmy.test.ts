@@ -37,6 +37,12 @@ describe('TEST: Loadouts Check army (manual per-model loadout testing)', () => {
     expect(deadly.models.every((m) => m.maxWounds === 3)).toBe(true);
   });
 
+  it('the Tough squad has three Tough(3) models that all carry the same Rifle and Blade', () => {
+    const t = units.find((u) => u.name.startsWith('Test Tough Squad'))!;
+    expect(t.models.map((m) => m.weaponIds)).toEqual([['rifle', 'blade'], ['rifle', 'blade'], ['rifle', 'blade']]);
+    expect(t.models.every((m) => m.maxWounds === 3 && m.wounds === 3)).toBe(true);
+  });
+
   it('is a TEST army (stays out of the Force Org harness)', () => {
     expect(STARTER_ARMIES['test-loadouts-army'].id.startsWith('test')).toBe(true);
     expect(STARTER_ARMIES['test-loadouts-army'].name).toMatch(/TEST/);
