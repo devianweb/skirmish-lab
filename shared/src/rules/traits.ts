@@ -9,6 +9,7 @@
 export type CoreTraitId =
   | 'ambush'
   | 'ap'
+  | 'assault'
   | 'bane'
   | 'blast'
   | 'caster'
@@ -29,6 +30,7 @@ export type CoreTraitId =
   | 'reliable'
   | 'rending'
   | 'scout'
+  | 'shred'
   | 'slow'
   | 'stealth'
   | 'strider'
@@ -75,11 +77,15 @@ export interface TraitMetadata {
 export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   ambush: {
     displayName: 'Ambush',
-    description: 'Held back at the start and deployed in Round 2 or later, anywhere >9" from enemy units.',
+    description: 'Held back at the start of the game. From Round 2 it may be placed anywhere more than 9" from enemy units.',
   },
   ap: {
     displayName: 'AP',
     description: 'Lowers the target defense roll by X.',
+  },
+  assault: {
+    displayName: 'Assault',
+    description: 'A ranged weapon that can also be used in melee, with the same attacks and special rules.',
   },
   bane: {
     displayName: 'Bane',
@@ -87,7 +93,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   blast: {
     displayName: 'Blast',
-    description: 'Ignores cover. Each hit becomes X hits, shared out between the target and enemy units close to it; no unit takes more hits than it has models.',
+    description: 'Each hit becomes X hits, shared out between the target and enemy units close to it (no unit takes more hits than it has models). The weapon ignores cover.',
   },
   caster: {
     displayName: 'Caster',
@@ -95,7 +101,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   counter: {
     displayName: 'Counter',
-    description: 'Strikes first when charged, and the charger loses one Impact hit per Counter model.',
+    description: 'When charged, the unit strikes first with this weapon, after the charger\'s Impact hits and before the charger\'s own strikes, unless it is Fatigued. This strike replaces its strike back with that weapon.',
   },
   deadly: {
     displayName: 'Deadly',
@@ -103,11 +109,11 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   fast: {
     displayName: 'Fast',
-    description: 'Moves +2" on Advance (8") and +4" on Rush/Charge (16").',
+    description: 'Moves 2" further on an Advance and 4" further on a Rush or Charge.',
   },
   fear: {
     displayName: 'Fear',
-    description: 'When melee results are compared, the enemy counts as having taken X extra wounds (once per unit, using the highest Fear among its living models).',
+    description: 'When melee results are compared, the enemy counts as having taken X extra wounds.',
   },
   fearless: {
     displayName: 'Fearless',
@@ -131,11 +137,11 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   impact: {
     displayName: 'Impact',
-    description: 'On a charge, rolls X dice before melee strikes; each 2+ deals 1 immediate hit.',
+    description: 'When charging, rolls X dice (none if the charging unit is already Fatigued). Each 2+ is a hit on the target before any melee strikes.',
   },
   indirect: {
     displayName: 'Indirect',
-    description: 'If the unit held (did not move), this weapon can fire without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon.',
+    description: 'Can fire without line of sight when the unit did not move this activation. A unit that moved needs line of sight as usual.',
   },
   limited: {
     displayName: 'Limited',
@@ -161,9 +167,13 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     displayName: 'Scout',
     description: 'May deploy up to 12" ahead of the friendly deployment zone.',
   },
+  shred: {
+    displayName: 'Shred',
+    description: 'Each unmodified Defense roll of 1 against this weapon adds one extra wound.',
+  },
   slow: {
     displayName: 'Slow',
-    description: 'Moves -2" on Advance (4") and -4" on Rush/Charge (8").',
+    description: 'Moves 2" less on an Advance and 4" less on a Rush or Charge.',
   },
   stealth: {
     displayName: 'Stealth',
@@ -171,7 +181,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   strider: {
     displayName: 'Strider',
-    description: 'Ignores difficult terrain movement penalties and rolls only half the dice (rounded up) when jumping.',
+    description: 'Ignores the speed cap of difficult terrain and rolls only half the dice (rounded up) when jumping.',
   },
   surge: {
     displayName: 'Surge',
@@ -183,7 +193,7 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   },
   tough: {
     displayName: 'Tough',
-    description: 'A model is removed once it has taken X wounds.',
+    description: 'A model is removed once it has taken X wounds; hits are dealt to one model until it falls.',
   },
   unstoppable: {
     displayName: 'Unstoppable',

@@ -13,6 +13,7 @@ export * from './engine/push';
 export * from './engine/unitGeometry';
 export * from './engine/squadTargeting';
 export * from './engine/traversal';
+export * from './engine/specialRules';
 export * from './engine/crossing';
 export * from './engine/squadFollow';
 export { worldToLocal, localToWorldXZ } from './engine/terrainStructure';

@@ -125,6 +125,30 @@ export const WEAPONS: Record<string, Weapon> = {
     },
     isEquipped: true,
   },
+  /** TEST-only: a blade with Counter, for checking the charged unit's first strike. */
+  'counter-blade': {
+    id: 'counter-blade',
+    weaponType: 'counter-blade',
+    name: 'Counter Blade',
+    profile: { type: 'melee', range: 1, attacks: 3, specialRules: ['counter'] },
+    isEquipped: true,
+  },
+  /** TEST-only: a ranged weapon with Assault, usable in melee as well. */
+  'assault-rifle': {
+    id: 'assault-rifle',
+    weaponType: 'assault-rifle',
+    name: 'Assault Rifle',
+    profile: { type: 'ranged', range: 18, attacks: 2, specialRules: ['assault'] },
+    isEquipped: true,
+  },
+  /** TEST-only: a blade with Shred, for watching extra wounds on Defense 1s. */
+  'shred-blade': {
+    id: 'shred-blade',
+    weaponType: 'shred-blade',
+    name: 'Shred Blade',
+    profile: { type: 'melee', range: 1, attacks: 4, specialRules: ['shred'] },
+    isEquipped: true,
+  },
   flamer: {
     id: 'flamer',
     weaponType: 'flamer',

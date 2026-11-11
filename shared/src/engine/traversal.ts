@@ -1,6 +1,7 @@
 import { GameState, TerrainPiece, Unit, Model } from '../gameTypes';
 import { Vector3 } from '../types';
 import { hasTrait } from '../rules/traits';
+import { getEffectiveSpeed } from './specialRules';
 import { isClimbable, isDangerousPiece, isDifficultPiece } from '../data/mapSchema';
 import {
   DROP_STANDOFF,
@@ -459,15 +460,15 @@ export function getEffectiveMaxMovement(
   ) {
     // Difficult Terrain caps total activation movement at 6.0" maximum.
     // Negates speed bonuses for Rush and Charge.
-    return actionType === 'move' ? Math.min(unit.speed, 6.0) : 6.0;
+    return actionType === 'move' ? Math.min(getEffectiveSpeed(unit), 6.0) : 6.0;
   }
 
   switch (actionType) {
     case 'move':
-      return unit.speed;
+      return getEffectiveSpeed(unit);
     case 'rush':
     case 'charge':
-      return unit.speed * 2;
+      return getEffectiveSpeed(unit) * 2;
   }
 }
 

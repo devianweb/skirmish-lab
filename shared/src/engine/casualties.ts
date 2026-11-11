@@ -1,4 +1,5 @@
 import { GameState, PendingReaction, Unit } from '../gameTypes';
+import { DiceResult } from '../types';
 import { coherencyShortfall } from './spatial';
 
 /**
@@ -30,8 +31,13 @@ export interface CasualtyEntry {
 export type CasualtyContinuation =
   | { kind: 'shoot'; attackerId: string }
   | { kind: 'fight'; attackerId: string; targetId: string }
-  | { kind: 'charge-strike'; attackerId: string; targetId: string; weaponId?: string }
-  | { kind: 'strike-back'; attackerId: string; targetId: string };
+  | { kind: 'charge-strike'; attackerId: string; targetId: string; weaponId?: string; counterStruck?: boolean }
+  | { kind: 'strike-back'; attackerId: string; targetId: string }
+  /**
+   * The activation test in dangerous terrain. `attackerId` is the tested unit. A unit that activated by a
+   * one-action `hold` finishes its activation after the pick, using the dice that action rolled.
+   */
+  | { kind: 'activation-hazard'; attackerId: string; finish?: { dice: DiceResult[] } };
 
 export interface PickCasualtiesData {
   /** The action that interrupted the flow, and which prompt of its queue this is (0-based). */

@@ -227,18 +227,19 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`ambush`** | **Ambush** | Unit is held in reserve. At the start of round 2, 3, or 4, deploys anywhere $>9"$ from enemy units. Cannot seize/contest objectives on deployment round. |
 | **`ap(X)`** | **AP(X)** | Subtracts $X$ from defender's Defense saving throws against this weapon. |
 | **`bane`** | **Bane** | Ignores target's `regeneration`. Target must re-roll unmodified saving throw results of 6. |
+| **`assault`** | **Assault** | A ranged weapon that can also be used in melee (same attacks and special rules, melee reach). Data-driven by the trait: no duplicate weapon entries. A unit's default melee weapon is its first true melee weapon, else its first Assault weapon. |
 | **`blast(X)`** | **Blast(X)** | Ignores cover. After all other special rules each hit becomes $X$ hits, split between the target and every other enemy unit with a model within $3"$ of it. A unit takes at most one hit per living model; the rest are lost. The engine's Auto split deals hits as evenly as possible (odd hit to the target first, then nearest neighbours) and re-spreads hits a unit cannot take. Each unit defends its share with its own Defense batch. |
 | **`caster(X)`** | **Caster(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to power cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy casters within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
-| **`counter`** | **Counter** | Strikes first in melee when charged. Attacking charger suffers $-1$ Impact hit per model with Counter. *(Reworked in 14C-2 PR 7.)* |
+| **`counter`** | **Counter** | When the unit is charged, it strikes first with this weapon: after the charger's Impact hits and before the charger's own strikes, unless the charged unit is Fatigued. If the charger survives, it then strikes. This strike replaces the charged unit's strike back with that weapon (no strike-back prompt for it). The charger no longer loses Impact hits. *(14C-2 PR 7.)* |
 | **`deadly(X)`** | **Deadly(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
-| **`fast`** | **Fast** | Increases movement: $+2"$ to Advance (Speed 8"), $+4"$ to Rush/Charge (Speed 16"). |
+| **`fast`** | **Fast** | Advance distance $+2"$ (8" from Speed 6), Rush and Charge $+4"$ (16"). Applied to the Speed stat through `getEffectiveSpeed`; difficult terrain still caps a move at 6". |
 | **`fear(X)`** | **Fear(X)** | Counts as $+X$ extra wounds dealt to its enemy when melee results are compared (once per unit). *Counted once per unit (the highest value among its living models); see section 7.* |
 | **`fearless`** | **Fearless** | When failing a Morale Test (even the automatic failure while Shaken), roll 1d6. On a 4+, the test is treated as passed. |
 | **`flying`** | **Flying** | Ignores terrain effects and intervening models while moving. Automatically succeeds on jump checks. Must still end its move fully supported on a floor or the ground (no overhanging or mid-air endings). |
 | **`furious`** | **Furious** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
 | **`hero`** | **Hero** | Friendly units within 6" (base edge to base edge) may use the Hero's Quality for Morale Tests while the Hero is not Shaken. |
 | **`immobile`** | **Immobile** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
-| **`impact(X)`** | **Impact(X)** | On charging, rolls $X$ dice before normal attacks (unless fatigued). Each roll of 2+ inflicts 1 immediate hit. |
+| **`impact(X)`** | **Impact(X)** | On a charge the unit rolls $X$ dice (the unit's rule plus the striking weapon's), each 2+ is a hit that must get past a plain Defense roll; resolved before any melee strike. No dice at all if the charging unit is already Fatigued. *(Per charging unit, not per model: flagged in the 14C-2 PR 7 report.)* |
 | **`indirect`** | **Indirect** | If the unit held (did not move) this activation, fires without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon. No to-hit penalty. |
 | **`limited`** | **Limited** | Weapon profile or ability may only be used **once per match**. |
 | **`regeneration`** | **Regeneration** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
@@ -246,6 +247,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`reliable`** | **Reliable** | Attacks made with this weapon always hit on a Quality test of **2+**, regardless of unit's base Quality. |
 | **`rending`** | **Rending** | Ignores `regeneration`. Unmodified hit rolls of 6 gain **`ap(4)`**. |
 | **`scout`** | **Scout** | Infiltrates during deployment. Deployed after all standard units, placed anywhere fully within 12" of friendly deployment zone. |
+| **`shred`** | **Shred** | Each unmodified Defense roll of 1 against this weapon adds one extra wound (a plain wound, not multiplied by Deadly; Regeneration still applies). Not Rending. |
 | **`slow`** | **Slow** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
 | **`stealth`** | **Stealth** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
 | **`pathfinder`** | **Strider** | Ignores Difficult Terrain speed cap. Rolls half the jump dice (rounding up). |

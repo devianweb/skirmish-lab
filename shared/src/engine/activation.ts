@@ -11,6 +11,7 @@ import {
 import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
 import { getTraitValue, hasTrait } from '../rules/traits';
+import { getEffectiveSpeed } from './specialRules';
 import { resolveMoraleTest } from './combat';
 import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
 import { baseRadius, markerGap, unitDistance, keepAwayGapToUnit3D, ENEMY_KEEP_AWAY_GAP } from './unitGeometry';
@@ -179,7 +180,7 @@ export function endRound(state: GameState): void {
     unit.hasMoved = false;
     unit.hasAttacked = false;
     unit.isRushing = false;
-    unit.remainingMovement = unit.speed;
+    unit.remainingMovement = getEffectiveSpeed(unit);
     delete unit.modelMovementSpent;
     unit.status = unit.status.filter((s) => s !== 'fatigued');
   }
