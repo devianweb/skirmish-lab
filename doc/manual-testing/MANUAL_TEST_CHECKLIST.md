@@ -51,3 +51,4 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 (5) the Veterans' Grenade Launcher is the only Blast weapon (the launcher salvo is the only one multiplied); 
 (6) Hold the Line: shoot an HDF unit from over 9" until it takes a Morale Test and the Morale line shows +1 (no bonus at 9" or less); 
 (7) the Company Leader charges and strikes with Hand Weapon (A6) and Pistol (A2) together; (8) a Sniper Rifle shot (Deadly(2)) at a squad with a plain weapon in the same shoot: the Deadly wounds come off an unhurt model first.
+    - Owner 2026-11-11: steps 1-7 pass. Step 8 cannot be run (no HDF unit fires a Deadly weapon together with a plain one); it moves to a TEST army in PR 1E.
