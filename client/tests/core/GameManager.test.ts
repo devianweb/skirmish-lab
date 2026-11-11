@@ -7,6 +7,22 @@ import {
   GUEST_PLAYER_ID,
   createAction,
 } from '@skirmish-lab/shared';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
+
+/**
+ * Starts a host game for tests about play: a game without the deployment phase opens with the objectives phase,
+ * which these tests skip (units already stand in place, no markers).
+ */
+function startPlay(manager: GameManager, ...args: unknown[]): void {
+  const spy = vi.spyOn(manager as any, 'beginObjectivesIfNeeded').mockImplementation(() => {});
+  (manager as any).startGame(...args);
+  spy.mockRestore();
+  const state = (manager as any).gameState;
+  startRoundOne(state);
+  (manager as any).saveSnapshot(state);
+  (manager as any).broadcastState('game-start');
+  (manager as any).emitStateUpdate();
+}
 
 describe('GameManager', () => {
   let mockWebRTC: WebRTCClient;
@@ -165,7 +181,7 @@ describe('GameManager', () => {
   describe('Phase 5 action flow (host authoritative)', () => {
     function startedHost(diceProvider?: any): GameManager {
       const manager = new GameManager(mockWebRTC, true, { diceProvider });
-      manager.startGame();
+      startPlay(manager);
       (mockWebRTC.send as any).mockClear();
       return manager;
     }
@@ -268,12 +284,22 @@ describe('GameManager', () => {
       expect(diceProvider.requestRoll).toHaveBeenCalledTimes(1);
     });
 
-    it('does not roll objectives for a game without the deployment phase', async () => {
-      const diceProvider = { requestRoll: vi.fn() };
+    it('rolls the objective count and mission roll-off for a game without the deployment phase too, units staying in place', async () => {
+      const rolls = Array.from({ length: 10 }, () => [5, 1]).flat();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'objective-count' },
+          { rolls, total: 0, finalTotal: 0, purpose: 'mission-roll-off' },
+        ]),
+      };
       const manager = new GameManager(mockWebRTC, true, { diceProvider });
       manager.startGame('Host', 'Guest', {});
       await new Promise((r) => setTimeout(r, 0));
-      expect(diceProvider.requestRoll).not.toHaveBeenCalled();
+      expect(diceProvider.requestRoll).toHaveBeenCalledTimes(1);
+      const state = manager.getGameState()!;
+      expect(state.turnState.phase).toBe('objectives');
+      expect(state.setupRolls?.objectiveCount).toBe(5);
+      expect(state.units.every((u) => u.isDeployed !== false)).toBe(true);
     });
 
     it('requests server dice for the dangerous terrain test of a unit (a die per wound to destroy it) standing in a hazard pool', async () => {
@@ -468,7 +494,7 @@ describe('GameManager', () => {
         ),
       };
       const manager = new GameManager(mockWebRTC, true, { diceProvider });
-      manager.startGame();
+      startPlay(manager);
       const state = manager.getGameState()!;
       const attacker = state.units.find(
         (u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.profile.type === 'ranged')
@@ -601,7 +627,7 @@ describe('GameManager', () => {
       const guestStates: any[] = [];
       guest.onStateUpdate((state) => guestStates.push(state));
 
-      host.startGame();
+      startPlay(host);
 
       // Guest received the starting state.
       expect(guest.getGameState()?.units).toHaveLength(10);
@@ -642,7 +668,7 @@ describe('GameManager', () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame();
+      startPlay(host);
 
       // Host has not ended their activation — the guest tries to activate on
       // the host's turn; the host must reject and the guest must be told why.
@@ -676,7 +702,7 @@ describe('GameManager', () => {
       const host = new GameManager(hostWebRTC, true, { diceProvider });
       const guest = new GameManager(guestWebRTC, false);
 
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       // 1. Host charges a guest fighter and strikes it; charge automatically resolves
       //    the melee strike to destruction and finishes the activation.
@@ -778,7 +804,7 @@ describe('GameManager', () => {
       const host = new GameManager(hostWebRTC, true, { diceProvider });
       const guest = new GameManager(guestWebRTC, false);
 
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const hostCharger = host
         .getGameState()!
@@ -906,7 +932,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
       const guestTarget = host
@@ -990,7 +1016,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
       const guestTarget = host
@@ -1062,7 +1088,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const state = host.getGameState()!;
       const template = state.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
@@ -1152,7 +1178,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const state = host.getGameState()!;
       const template = state.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
@@ -1227,7 +1253,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
       const guestTarget = host
@@ -1294,7 +1320,7 @@ describe('GameManager', () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);
       const guest1 = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       // Host activates a unit before the guest disconnects.
       const hostUnitId = host.getGameState()!.units[0].id;
@@ -1334,7 +1360,7 @@ describe('GameManager', () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       const originalState = host.getGameState()!;
       originalState.turnState.roundNumber = 3;
@@ -1351,7 +1377,7 @@ describe('GameManager', () => {
       const channel1 = makeChannelPair();
       const host1 = new GameManager(channel1.hostWebRTC, true);
       const guest = new GameManager(channel1.guestWebRTC, false);
-      host1.startGame('Host', 'Guest');
+      startPlay(host1, 'Host', 'Guest');
 
       const guestState = guest.getGameState()!;
       expect(guestState).toBeDefined();
@@ -1389,7 +1415,7 @@ describe('GameManager', () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);
       const guest = new GameManager(guestWebRTC, false);
-      host.startGame('Host', 'Guest');
+      startPlay(host, 'Host', 'Guest');
 
       // Set round 4 and position units so Host controls 1 objective and Guest controls 0
       const patched = host.getGameState()!;
@@ -1545,7 +1571,7 @@ describe('GameManager', () => {
       const guest = new GameManager(guestWebRTC, false, {
         sessionStore: guestStore, roomCode: 'ABC-123', onSessionResume: guestResume,
       });
-      host.startGame('Host', 'Guest', { hostArmyId: 'a', guestArmyId: 'b' } as any);
+      startPlay(host, 'Host', 'Guest', { hostArmyId: 'a', guestArmyId: 'b' } as any);
       return { host, guest, hostStore, guestStore, hostResume, guestResume };
     }
     const act = (m: GameManager, who: string, type: any) => m.sendAction(createAction(who, type, { type } as any));

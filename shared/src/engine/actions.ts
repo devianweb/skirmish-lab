@@ -36,6 +36,7 @@ import {
   advanceAmbushStep,
   ambushFootprintProblem,
   advanceDeployment,
+  isDeploymentComplete,
   applyEndOfActivationMorale,
   endRound,
   getUnitsRequiringMorale,
@@ -727,6 +728,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Unit does not belong to acting player' };
       }
       if (unit.isDestroyed) return { valid: false, reason: 'Unit is destroyed' };
+      if (unit.isDeployed === false) return { valid: false, reason: 'Unit is not on the table yet' };
       if (unit.isActivated || state.turnState.unitsActivatedThisRound.includes(unitId)) {
         return { valid: false, reason: 'Unit already activated this round' };
       }
@@ -744,6 +746,7 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Unit does not belong to acting player' };
       }
       if (unit.isDestroyed) return { valid: false, reason: 'Unit is destroyed' };
+      if (unit.isDeployed === false) return { valid: false, reason: 'Unit is not on the table yet' };
       if (unit.status.includes('routed')) {
         return { valid: false, reason: 'Unit is routed and cannot activate' };
       }
@@ -2609,9 +2612,15 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         }
         const deploymentRollOff = resolveRollOff('deployment', offRolls, newState.hostId, newState.guestId);
         newState.setupRolls = { ...newState.setupRolls, deploymentRollOff };
-        newState.turnState.phase = 'deployment';
         newState.turnState.startingPlayerId = deploymentRollOff.winnerId;
         newState.turnState.currentPlayerId = deploymentRollOff.winnerId;
+        // A game without the deployment phase has every unit on the table already: straight to round 1
+        if (isDeploymentComplete(newState)) {
+          newState.turnState.phase = 'activation';
+          newState.turnState.roundNumber = 1;
+        } else {
+          newState.turnState.phase = 'deployment';
+        }
         resolution = setupResolution(action, dice!, { rollOff: deploymentRollOff });
       } else {
         newState.turnState.currentPlayerId = action.actorId === newState.hostId ? newState.guestId : newState.hostId;

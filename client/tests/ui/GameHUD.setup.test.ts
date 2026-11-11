@@ -369,3 +369,32 @@ describe('GameHUD setup: Ambush step', () => {
     );
   });
 });
+
+describe('GameHUD: units still in reserve are not activatable', () => {
+  /** Round 2, both players skipped the Ambush step: the Ambush units are still in reserve, the rest are on the table. */
+  function afterBothSkipped(): GameState {
+    const state = playObjectivesPhase(freshSetup(), { deploymentWinner: 'host' });
+    for (const u of state.units) {
+      if (hasTrait(u.specialRules, 'ambush')) continue;
+      placeUnit(u, u.name.startsWith('Test Line Troops') ? 6 : -6, u.ownerId === HOST ? -18 : 18);
+    }
+    state.turnState.phase = 'activation';
+    state.turnState.roundNumber = 2;
+    state.turnState.startingPlayerId = HOST;
+    state.turnState.currentPlayerId = HOST;
+    state.turnState.ambushStep = null;
+    return state;
+  }
+
+  it('does not count reserve units in "N available" and ignores clicks on them', () => {
+    const state = afterBothSkipped();
+    const onTable = unitsOf(state, HOST).filter((u) => u.isDeployed !== false);
+    const reserve = unitsOf(state, HOST).filter((u) => u.isDeployed === false);
+    expect(reserve.length).toBeGreaterThan(0);
+    const { hud, container, controller } = setup(HOST, state);
+    expect(container.querySelector('.sl-hud-hint')!.textContent).toContain(`${onTable.length} available`);
+    hud.handleBoardPick({ kind: 'unit', unitId: reserve[0].id } as any);
+    expect(container.querySelector('.sl-hud-confirm')).toBeNull();
+    expect(controller.submitAction).not.toHaveBeenCalled();
+  });
+});

@@ -9,13 +9,14 @@ import {
   HOST_PLAYER_ID,
 } from '@skirmish-lab/shared';
 import { GameHUD, MarkerSnapshot } from '../../src/ui/GameHUD';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
 
 function scenarioState(): GameState {
   const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
-  applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'keep-away-test', terrain: [] } });
+  applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'keep-away-test', terrain: [] } }); startRoundOne(state);
   return state;
 }
 

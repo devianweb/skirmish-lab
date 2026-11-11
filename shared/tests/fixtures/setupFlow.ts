@@ -23,6 +23,16 @@ export function d6(value: number, purpose: string): DiceResult {
   return { rolls: [value], total: value, finalTotal: value, purpose };
 }
 
+/**
+ * For tests that are about play, not setup: a game started without the deployment phase waits in the objectives
+ * phase; this skips ahead to round 1 (units already stand in place, no objective markers).
+ */
+export function startRoundOne(state: GameState): GameState {
+  state.turnState.phase = 'activation';
+  state.turnState.roundNumber = 1;
+  return state;
+}
+
 /** Candidate spots for objectives on any board (a legal subset is picked for the board at hand). */
 const CANDIDATES: Vector3[] = [
   { x: -16, y: 0, z: 0 },

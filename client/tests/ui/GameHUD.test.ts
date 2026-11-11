@@ -16,6 +16,7 @@ import {
   PUSH_CONFIRM_CHOICE,
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
@@ -28,7 +29,7 @@ function scenarioState(): GameState {
       id: 'test-terrain',
       terrain: legacyScenarioTerrain(),
     },
-  });
+  }); startRoundOne(state);
   return state;
 }
 
