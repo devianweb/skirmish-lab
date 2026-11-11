@@ -170,8 +170,30 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
 
   state.terrain = mapTerrain;
   state.markers = [];
-  // Without a deployment phase there is no objectives phase either: the match starts without markers
-  state.objectives = [];
   state.status = 'in-progress';
-  state.turnState.phase = 'activation';
+  // Without a deployment phase the units keep their automatic positions, but the objectives phase still runs.
+  const restored = options.restoreSetup;
+  const firstPlayer = restored?.setupRolls.deploymentRollOff?.winnerId;
+  if (restored && firstPlayer) {
+    // Rematch: same objectives and roll-offs, straight to round 1 with the same player first
+    state.objectives = restored.objectives.map((o) => ({
+      ...o,
+      position: { ...o.position },
+      controllingPlayerId: null,
+      isContested: false,
+    }));
+    state.setupRolls = JSON.parse(JSON.stringify(restored.setupRolls));
+    state.turnState.phase = 'activation';
+    state.turnState.roundNumber = 1;
+    state.turnState.startingPlayerId = firstPlayer;
+    state.turnState.currentPlayerId = firstPlayer;
+  } else {
+    state.objectives = [];
+    state.turnState.phase = 'objectives';
+    state.turnState.roundNumber = 0;
+    state.turnState.startingPlayerId = state.hostId;
+    state.turnState.currentPlayerId = state.hostId;
+  }
+  state.turnState.activeUnitId = null;
+  state.turnState.unitsActivatedThisRound = [];
 }

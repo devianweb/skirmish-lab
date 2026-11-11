@@ -68,6 +68,7 @@ function gameOverStateOf(start: GameState, ender: 'concede' | 'elimination' | 'r
     s.turnState.pendingReaction = null;
     s.turnState.activeUnitId = null;
     const next = s.units.find((u) => u.ownerId === HOST && !u.isActivated && !u.isDestroyed)!;
+    next.isDeployed = true;
     return apply(s, createAction(HOST, 'hold', { type: 'hold', unitId: next.id }));
   }
   s.status = 'game-over';
@@ -183,6 +184,26 @@ describe('createRematchState exactness', () => {
     expect(fresh.turnState.startingPlayerId).toBe(GUEST);
   });
 
+  it('keeps objectives and roll-offs of a game without the deployment phase and starts straight in round 1', () => {
+    const start = afterObjectivesPhase(startState({ ...STARTERS, useDeploymentPhase: false }), {
+      countRoll: 5,
+      missionWinner: 'guest',
+      deploymentWinner: 'guest',
+    });
+    expect(start.turnState.phase).toBe('activation');
+    const over = apply(start, concede(HOST));
+    for (const o of over.objectives!) o.controllingPlayerId = HOST;
+    const fresh = createRematchState(over);
+    expect(fresh.turnState.phase).toBe('activation');
+    expect(fresh.turnState.roundNumber).toBe(1);
+    expect(fresh.objectives!.map((o) => o.position)).toEqual(start.objectives!.map((o) => o.position));
+    expect(fresh.objectives!.every((o) => o.controllingPlayerId === null && !o.isContested)).toBe(true);
+    expect(fresh.setupRolls).toEqual(start.setupRolls);
+    expect(fresh.turnState.currentPlayerId).toBe(GUEST);
+    expect(fresh.turnState.startingPlayerId).toBe(GUEST);
+    expect(fresh.units.every((u) => u.isDeployed !== false)).toBe(true);
+  });
+
   it('starts over from the objectives phase when the original match never finished it', () => {
     const start = startState({ useDeploymentPhase: true });
     const over = apply(start, concede(GUEST)); // conceded before any roll
@@ -193,20 +214,21 @@ describe('createRematchState exactness', () => {
   });
 
   it('rebuilds a state without setup as a plain game with the default armies', () => {
-    const start = startState();
+    const start = afterObjectivesPhase(startState());
     const over = gameOverStateOf(start);
     delete over.setup;
     const fresh = createRematchState(over);
     expect(withoutVolatile(fresh)).toEqual(withoutVolatile(start));
     expect(fresh.turnState.phase).toBe('activation');
+    expect(fresh.turnState.roundNumber).toBe(1);
   });
 });
 
 describe('request-rematch', () => {
-  const overState = () => gameOverStateOf(startState({ ...STARTERS }));
+  const overState = () => gameOverStateOf(afterObjectivesPhase(startState({ ...STARTERS })));
 
   it('is invalid before the match is over', () => {
-    const s = startState({ ...STARTERS });
+    const s = afterObjectivesPhase(startState({ ...STARTERS }));
     expect(validateAction(s, rematch(HOST))).toEqual({ valid: false, reason: "The match isn't over" });
   });
 
@@ -226,7 +248,7 @@ describe('request-rematch', () => {
 
   it('returns the fresh starting state when the second player requests, in either order', () => {
     for (const [first, second] of [[HOST, GUEST], [GUEST, HOST]]) {
-      const start = startState({ ...STARTERS });
+      const start = afterObjectivesPhase(startState({ ...STARTERS }));
       const over = gameOverStateOf(start);
       const next = apply(apply(over, rematch(first)), rematch(second));
       expect(withoutVolatile(next)).toEqual(withoutVolatile(start));
@@ -250,7 +272,7 @@ describe('request-rematch', () => {
 
   it('works after elimination and round-4 endings', () => {
     for (const ender of ['elimination', 'round-4'] as const) {
-      const start = startState({ ...STARTERS });
+      const start = afterObjectivesPhase(startState({ ...STARTERS }));
       const over = gameOverStateOf(start, ender);
       const next = apply(apply(over, rematch(GUEST)), rematch(HOST));
       expect(next.status).toBe('in-progress');

@@ -1435,7 +1435,7 @@ export class GameHUD {
   private get activatableUnits(): Unit[] {
     if (!this.myTurn || this.activeUnit) return [];
     return this.myUnits.filter(
-      (u) => !u.isDestroyed && !u.isActivated && !u.status.includes('routed')
+      (u) => !u.isDestroyed && u.isDeployed !== false && !u.isActivated && !u.status.includes('routed')
     );
   }
 

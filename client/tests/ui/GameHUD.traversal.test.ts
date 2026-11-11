@@ -15,6 +15,7 @@ import {
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { GameHUD, MarkerSnapshot } from '../../src/ui/GameHUD';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
@@ -36,7 +37,7 @@ function setup(position: Vector3, action: 'Advance' | 'Rush' = 'Advance', rules:
   const state: GameState = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   applyDefaultScenario(state, {
     customMap: { ...createBlankMap(), id: 'fixture', terrain: legacyScenarioTerrain() },
-  });
+  }); startRoundOne(state);
   state.terrain = fixtureTerrain.map((t) => ({ ...t }));
   const unit = state.units.find((u) => u.ownerId === HOST)!;
   unit.models = [];

@@ -11,13 +11,14 @@ import {
   createBlankMap,
   createInitialGameState,
 } from '@skirmish-lab/shared';
+import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
 
 const HOST = HOST_PLAYER_ID;
 const GUEST = GUEST_PLAYER_ID;
 
 function activationState(): GameState {
   const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
-  applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'blank' } });
+  applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'blank' } }); startRoundOne(state);
   for (const u of state.units) u.isDeployed = true;
   state.turnState.phase = 'activation';
   state.turnState.currentPlayerId = HOST;

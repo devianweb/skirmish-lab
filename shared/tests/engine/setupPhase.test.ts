@@ -622,3 +622,97 @@ describe('match summary with waiting units', () => {
     expect(summarizeMatch(s).roundsPlayed).toBe(0);
   });
 });
+
+describe('units that are not on the table cannot activate', () => {
+  const inReserve = unit('h-amb', HOST, { isDeployed: false, specialRules: ['ambush'], position: { x: 0, y: 0, z: -20 } });
+  const onTable = unit('h1', HOST, { isDeployed: true, position: { x: 0, y: 0, z: -20 } });
+  const enemy = unit('g1', GUEST, { isDeployed: true, position: { x: 0, y: 0, z: 20 } });
+
+  function round2(): GameState {
+    const s = gameWith('activation', [onTable, inReserve, enemy].map((u) => ({ ...u })));
+    s.turnState.roundNumber = 2;
+    s.turnState.ambushStep = null; // both players skipped the Ambush step
+    return s;
+  }
+
+  it('rejects activate-unit and hold for an Ambush unit still in reserve', () => {
+    const s = round2();
+    expect(check(s, HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h-amb' })).toEqual({
+      valid: false,
+      reason: 'Unit is not on the table yet',
+    });
+    expect(check(s, HOST, 'hold', { type: 'hold', unitId: 'h-amb' }).valid).toBe(false);
+  });
+
+  it('rejects activating a held-back Scout that has not been placed yet', () => {
+    const s = round2();
+    s.units[1] = { ...s.units[1], specialRules: ['scout'], heldAsScout: true };
+    expect(check(s, HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h-amb' }).valid).toBe(false);
+    expect(check(s, HOST, 'hold', { type: 'hold', unitId: 'h-amb' }).valid).toBe(false);
+  });
+
+  it('still lets a unit that is on the table activate and hold', () => {
+    const s = round2();
+    expect(check(s, HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' }).valid).toBe(true);
+    expect(check(s, HOST, 'hold', { type: 'hold', unitId: 'h1' }).valid).toBe(true);
+  });
+});
+
+describe('objectives in a game without the deployment phase', () => {
+  const STARTERS = { hostArmyId: 'frontier-wardens-starter', guestArmyId: 'rust-raiders-starter' };
+  const fresh = () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { ...STARTERS, useDeploymentPhase: false });
+    return state;
+  };
+
+  it('starts in the objectives phase with every unit already on the table', () => {
+    const s = fresh();
+    expect(s.turnState.phase).toBe('objectives');
+    expect(s.turnState.roundNumber).toBe(0);
+    expect(s.objectives).toEqual([]);
+    expect(s.units.every((u) => u.isDeployed !== false)).toBe(true);
+    expect(check(s, HOST, 'hold', { type: 'hold', unitId: s.units[0].id }).valid).toBe(false);
+  });
+
+  it('runs the roll, alternating placement and the deployment roll-off, then starts round 1 with the winner first', () => {
+    const start = fresh();
+    const positions = start.units.map((u) => ({ id: u.id, p: JSON.stringify(u.position) }));
+    let s = act(start, HOST, 'roll-objectives', { type: 'roll-objectives' }, [
+      d6(3, 'objective-count'),
+      rollOffDice('guest', 'mission-roll-off'),
+    ]);
+    expect(s.turnState.currentPlayerId).toBe(GUEST);
+    const spots: Vector3[] = [
+      { x: -16, y: 0, z: 0 },
+      { x: 16, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: 10 },
+    ];
+    const expectedPlacers = [GUEST, HOST, GUEST, HOST];
+    spots.forEach((p, i) => {
+      expect(s.turnState.currentPlayerId).toBe(expectedPlacers[i]);
+      const last = i === spots.length - 1;
+      s = act(s, expectedPlacers[i], 'place-objective', place(p), last ? [rollOffDice('guest', 'deployment-roll-off')] : undefined);
+    });
+    expect(s.objectives).toHaveLength(4);
+    expect(s.setupRolls!.deploymentRollOff!.winnerId).toBe(GUEST);
+    expect(s.turnState.phase).toBe('activation');
+    expect(s.turnState.roundNumber).toBe(1);
+    expect(s.turnState.startingPlayerId).toBe(GUEST);
+    expect(s.turnState.currentPlayerId).toBe(GUEST);
+    // Units keep their automatic positions
+    expect(s.units.map((u) => ({ id: u.id, p: JSON.stringify(u.position) }))).toEqual(positions);
+    // and play can begin
+    expect(check(s, GUEST, 'hold', { type: 'hold', unitId: s.units.find((u) => u.ownerId === GUEST)!.id }).valid).toBe(true);
+  });
+
+  it('does the same for the default armies (no army ids)', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { useDeploymentPhase: false });
+    expect(state.turnState.phase).toBe('objectives');
+    const s = playObjectivesPhase(state, { deploymentWinner: 'host' });
+    expect(s.turnState.phase).toBe('activation');
+    expect(s.turnState.roundNumber).toBe(1);
+  });
+});
