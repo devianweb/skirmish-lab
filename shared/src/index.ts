@@ -9,6 +9,8 @@ export * from './engine/spatial';
 export * from './engine/closestApproach';
 export * from './engine/pileIn';
 export * from './engine/casualties';
+export * from './engine/blastSplit';
+export { getBlastParticipants, autoSplitForParticipants, BLAST_SPREAD_RANGE } from './engine/blast';
 export * from './engine/push';
 export * from './engine/unitGeometry';
 export * from './engine/squadTargeting';

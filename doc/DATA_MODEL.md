@@ -108,7 +108,7 @@ interface ChargeState {
 
 interface PendingReaction {
   id: string;
-  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties'
+  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | 'blast-split'
   promptingPlayerId: string;   // The player who must choose (defender)
   sourceUnitId: string;        // The attacker/charger
   targetUnitId: string;        // The defender making the decision
@@ -122,6 +122,7 @@ interface PendingReaction {
 }
 
 // 'pick-casualties' data (all plain JSON): { actionId, index, entry: CasualtyEntry, rest: CasualtyEntry[], after: CasualtyContinuation }
+// 'blast-split' data (plain JSON): { shoot: GameAction, dice: DiceResult[], blasts: BlastSplitPrompt[] } (per Blast weapon: allocIndex, weaponId, weaponName, totalHits, participants [{ unitId, unitName, cap }], auto: number[])
 // CasualtyEntry = { unitId, count, applications: { wounds, deadlyValue }[] }
 // CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
 
@@ -346,6 +347,7 @@ type ActionType =
   | 'respond-reaction' // Reaction choice submitted by player
   | 'consolidate-move' // Winner's 3" consolidation after wiping out a unit
   | 'pile-in-move'     // Defender places the models that were not touching a charger (reaction type 'pile-in')
+  | 'blast-split'      // Defender shares a Blast's hits between the eligible units (reaction type 'blast-split')
   | 'pick-casualties'  // Owner names the models to remove from a damaged squad (reaction type 'pick-casualties')
   | 'use-ability'
   | 'hold'
@@ -379,6 +381,7 @@ interface DeclaredTraversal {
 
 type ActionPayload =
   | { type: 'pick-casualties', unitId: string, modelIds: string[] } // exactly data.entry.count distinct living models of the damaged unit
+  | { type: 'blast-split', splits: number[][] } // one row per Blast weapon of the paused shot, one count per eligible unit; each within the unit's cap, summing to every hit that can land
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
   | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
