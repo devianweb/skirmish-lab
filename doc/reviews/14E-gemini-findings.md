@@ -22,6 +22,18 @@
 
 ---
 
+## Triage (Claude, 2026-11-12)
+Spot-checked against the code: G-01, G-02 and G-04 confirmed; G-03 **rejected** (`getAttackDiceSpecs` already sizes melee dice for the worst case with `chargedFrom: 'any'`, and resolution uses the recorded start distance, so a Ferocious charge after a leg or pile-in gets enough dice). Everything else is "probably real, confirm while fixing": each fix PR must first reproduce the finding with a failing test and drop it if it can't.
+
+Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI_HANDOVER.md`; Claude reviews):
+- **2A Signaling server hardening** (server only): G-01, G-02, G-05, G-25, plus the G-29 server tests.
+- **2B Client trust and robustness** (client only): G-04, G-06, G-10, G-11, G-22, G-23, G-24.
+- **2C Host validation in the engine** (shared, no rule changes): G-07, G-08, G-12, G-14, G-16, G-17, G-18, G-19, G-21, G-31. G-13 waits for Rules question 3.
+- **2D Resume as host** (client + signaling): G-09.
+- **2E Cleanup** (no behaviour change): G-20, G-26, G-27, G-28, G-30, G-32, G-33, G-34; the stale docs G-35 / G-36 go to 14H Docs sync.
+- **Deferred:** G-15 (corner-graze line of sight on exact ties; low impact, needs its own careful PR).
+- **Rules questions 1-5:** for the owner; nothing changes until they answer.
+
 ## Findings
 
 ### G-01
