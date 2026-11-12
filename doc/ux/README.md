@@ -1,6 +1,6 @@
 # UI inventory
 
-`inventory/index.html` is a catalogue of every SkirmishLab screen, panel and prompt as of 14C-2 PR 9 (master, 2026-11-11): 58 screenshots in 10 sections (lobby and Map Builder, the game screen, objectives and deployment, activation, movement, shooting, charge and melee, push, alerts and debug, match end). Each screenshot has a note on what it is and what it is for, and the page opens with the design observations collected while taking them. Open the file in a browser; it needs no server.
+`inventory/index.html` is a catalogue of every SkirmishLab screen, panel and prompt as of 14C-2 PR 9 (master, 2026-11-11): 75 screenshots in 10 sections (lobby and Map Builder, the game screen, objectives and deployment, activation, movement, shooting, charge and melee, push, alerts and debug, match end). Each screenshot has a note on what it is and what it is for, and the page opens with the design observations collected while taking them. Open the file in a browser; it needs no server.
 
 It is the starting point for the 15F UI design pass (formerly 14G2) in [`doc/ROADMAP.md`](../ROADMAP.md).
 

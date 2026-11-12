@@ -5,12 +5,12 @@ This guide covers deploying the SkirmishLab demo using **GitHub Pages** (for the
 ## Overview
 
 - **Client**: Static Vite app hosted on GitHub Pages
-- **Signaling Server**: Node.js WebSocket server hosted on [Azure App Service](https://portal.azure.com/) (Linux, Node 20 LTS, Free `F1` tier)
+- **Signaling Server**: Node.js WebSocket server hosted on [Azure App Service](https://portal.azure.com/) (Linux, Node 24 LTS, Free `F1` tier)
 - **CI/CD**: GitHub Actions — PRs to `master` build and test only; a **merged PR into the `release` branch** builds, tests, packages, and deploys both the client to GitHub Pages and the signaling server to Azure App Service. Open a PR (`master` → `release`) when ready to demo.
 
 ## 1) Deploy the Signaling Server (Azure App Service)
 
-You need a persistent WebSocket server reachable over `wss://`. Azure App Service provides a Free (`F1`) Linux tier that runs Node 20 LTS with automatic TLS termination (`wss://<app-name>.azurewebsites.net`).
+You need a persistent WebSocket server reachable over `wss://`. Azure App Service provides a Free (`F1`) Linux tier that runs Node 24 LTS with automatic TLS termination (`wss://<app-name>.azurewebsites.net`).
 
 ### Step 1: Create an Azure Account & Subscription
 1. Go to [azure.microsoft.com/free](https://azure.microsoft.com/free/) and click **Try Azure for free** (or **Pay as you go** — the App Service **Free `F1`** tier costs **$0/month** on either subscription type).
@@ -24,7 +24,7 @@ You need a persistent WebSocket server reachable over `wss://`. Azure App Servic
    - **Resource Group**: Click **Create new** → enter `rg-skirmish-lab`.
    - **Name**: Enter a unique name, e.g. `skirmish-lab-signaling` *(your WebSocket URL will be `wss://<name>.azurewebsites.net`)*.
    - **Publish**: `Code`
-   - **Runtime stack**: `Node 20 LTS`
+   - **Runtime stack**: `Node 24 LTS`
    - **Operating System**: `Linux`
    - **Region**: Pick the region closest to you (e.g. `UK South` or `West Europe`).
    - **Pricing plan**: Click **Change size** (or **Explore pricing plans**) → select **Free F1** ($0/month, 60 CPU mins/day, 1 GB RAM).
@@ -95,7 +95,7 @@ Every client build carries the short commit (`GITHUB_SHA` in CI, else `git rev-p
 | Assets fail to load on Pages | Verify `base` in `client/vite.config.ts` matches your repo name. |
 | Server cold start delays | Free hosts may sleep; first connection can take a few seconds. Retry if needed. |
 | Mixed content errors | GitHub Pages is HTTPS, so the server must be reachable over WSS. |
-| Deploys from direct pushes | By design: only merged PRs into `release` deploy. If a push to `release` deployed the server (Railway) but not the client (Pages), re-sync via a PR. |
+| Deploys from direct pushes | By design: only merged PRs into `release` deploy. If a push to `release` deployed the server (Azure App Service) but not the client (Pages), re-sync via a PR. |
 
 ## Notes
 
