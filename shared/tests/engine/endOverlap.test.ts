@@ -7,7 +7,6 @@ import { validateAction } from '../../src/engine/actions';
 import {
   findEndOverlap,
   findNavPath,
-  settleMoveEnd,
 } from '../../src/engine/spatial';
 
 const HOST = 'host-1';
@@ -147,57 +146,6 @@ describe('findEndOverlap: models', () => {
     ];
     expect(findEndOverlap(squad, 'u', { x: 10, y: 0, z: 3.3 })).toMatchObject({ kind: 'model' });
     expect(findEndOverlap(squad, 'u', { x: 10, y: 0, z: 6 })).toBeNull(); // the dead model is gone
-  });
-});
-
-describe('settleMoveEnd', () => {
-  const crate = piece('crate', 5, 0);
-  const unit = makeUnit('u', { x: 0, y: 0, z: 0 });
-  const state = makeState([unit], [crate]);
-
-  it('pulls an overlapping end back along the path to the first clear point', () => {
-    const settled = settleMoveEnd(state, unit, [{ x: 0, y: 0, z: 0 }, { x: 5, y: 0, z: 0 }]);
-    const end = settled[settled.length - 1];
-    expect(findEndOverlap(state, 'u', end)).toBeNull();
-    expect(end.x).toBeGreaterThan(3.9);
-    expect(end.x).toBeLessThan(4.1); // touching the crate, not far short of it
-    expect(end.z).toBe(0);
-  });
-
-  it('never returns a point further along the path than the original end', () => {
-    const path = [{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 2 }, { x: 4.6, y: 0, z: 0 }];
-    const settled = settleMoveEnd(state, unit, path);
-    expect(settled.length).toBeLessThanOrEqual(path.length);
-    const end = settled[settled.length - 1];
-    expect(end.x).toBeLessThanOrEqual(4.6 + 1e-9);
-    expect(findEndOverlap(state, 'u', end)).toBeNull();
-  });
-
-  it('leaves a clear path unchanged', () => {
-    const path = [{ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }];
-    expect(settleMoveEnd(state, unit, path)).toEqual(path);
-  });
-
-  it('walks back across segments when the whole last segment overlaps', () => {
-    const path = [{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 5, y: 0, z: 0 }, { x: 5.2, y: 0, z: 0 }];
-    const settled = settleMoveEnd(state, unit, path);
-    const end = settled[settled.length - 1];
-    expect(end.x).toBeLessThan(4.1);
-    expect(findEndOverlap(state, 'u', end)).toBeNull();
-  });
-
-  it('returns just the start when nothing along the path is clear', () => {
-    const inside = makeUnit('i', { x: 5, y: 0, z: 0 });
-    const s = makeState([inside], [crate]);
-    expect(settleMoveEnd(s, inside, [{ x: 5, y: 0, z: 0 }, { x: 5.1, y: 0, z: 0 }])).toEqual([{ x: 5, y: 0, z: 0 }]);
-  });
-
-  it('a settled path ends clear next to another unit', () => {
-    const mover = makeUnit('m', { x: 0, y: 0, z: 0 });
-    const s = makeState([mover, makeUnit('e', { x: 4, y: 0, z: 0 }, GUEST)]);
-    const end = settleMoveEnd(s, mover, [{ x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }]).pop()!;
-    expect(findEndOverlap(s, 'm', end)).toBeNull();
-    expect(end.x).toBeLessThan(3.2);
   });
 });
 

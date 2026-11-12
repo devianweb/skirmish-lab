@@ -8,6 +8,7 @@ fs.mkdirSync(path.join(SITE, 'img'), { recursive: true });
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const used = [];
 let n = 0;
+let missingCount = 0;
 
 const observations = [
   ['Dice panel', 'During setup the Dice panel shows an empty attack template ("Attacker → target", "To-Hit (need Q4+)", "0 hits · 0 blocked · 0 wounds") because the latest roll (objective count, roll-offs) is not an attack. See the objective screenshots.'],
@@ -34,7 +35,11 @@ for (const sec of catalog) {
   for (const e of sec.entries) {
     n++;
     const src = path.join(__dirname, 'out', e.img + '.png');
-    if (!fs.existsSync(src)) { console.log('MISSING', e.img); continue; }
+    if (!fs.existsSync(src)) {
+      console.log('MISSING', e.img);
+      missingCount++;
+      continue;
+    }
     fs.copyFileSync(src, path.join(SITE, 'img', e.img + '.png'));
     used.push(e.img);
     cards += `
@@ -151,4 +156,9 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
 </body>
 </html>`;
 fs.writeFileSync(path.join(SITE, 'index.html'), html);
+if (missingCount > 0) {
+  fs.writeFileSync(path.join(SITE, '.missing'), `${missingCount} missing screenshots\n`);
+  console.error(`build: ${missingCount} screenshot(s) missing from out/`);
+  process.exitCode = 1;
+}
 console.log('built', used.length, 'images');

@@ -292,7 +292,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/renderer/MarkerRenderer.ts:1259-1275`, `client/src/renderer/ModelLoader.ts:179-220`, `client/src/editor/MapEditor.ts:499-525, 906-941`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** `MarkerRenderer.showOutcome` hardcodes `y = 1.6` instead of `(position.y ?? 0) + 1.6`, `ModelLoader.addSwappingAsset` leaks cloned Three.js geometries and materials if a marker container is disposed before its GLB load resolves, and `MapEditor` leaks `gameView.onPick` on `dispose()` and omits `syncGameView()` on four inspector checkboxes.
 - **Failure scenario:** When a unit standing on a 3"-high platform takes wounds, `showOutcome` spawns the floating wound token at `y = 1.6` underneath the platform deck; and in `MapEditor`, toggling `Provides Cover`, `Blocks Line of Sight`, `Impassable Obstacle`, or `Walkable Surface` mutates the piece without updating the 3D debug wireframe or validation badge.
 - **Suggested fix:** Position outcome tokens at `(position.y ?? 0) + 1.6` in `MarkerRenderer.ts:1269`, mark disposed containers in `disposeObject3D` so `addSwappingAsset` disposes late-arriving GLB clones, and call `validateCurrentMap()` + `syncGameView()` on all `MapEditor` inspector checkboxes while unsubscribing `onPick` in `MapEditor.dispose()`.
@@ -302,7 +302,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `tools/ux-inventory/catalog.js:8`, `tools/ux-inventory/build.js:6, 35-38`, `tools/ux-inventory/tojpg.js:8`, `tools/ux-inventory/scenes/10-setup-flow.js:12, 49`, `tools/ux-inventory/scenes/06-misc-endgame.js:7-25, 41-57`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** The UX inventory tooling has an uncaptured `70b-lobby-waking-up` entry in `catalog.js`, wipes `doc/ux/inventory/img/` if `build.js && tojpg.js` is run when `out/` is only partially populated, omits `ux.force()` in `scenes/10-setup-flow.js`, and has duplicate conflicting screenshot filenames across `02`/`03` and `06`/`07`.
 - **Failure scenario:** Running `node build.js && node tojpg.js` after running a single scene script (as documented in `tools/ux-inventory/README.md:15-17`) deletes all ~65 other committed JPEGs in `doc/ux/inventory/img/`; even on a full run, `70b-lobby-waking-up` is missing (causing `build.js:35` to skip `#02` and misnumber cards `01, 03..76`), `10-setup-flow.js` skips `s9-07-scout-stage-host` ~50% of the time when Guest wins the unforced deployment roll-off, and `06-misc-endgame.js` overwrites `43-jump-result` and `46-hazard-confirm` from `07-jump-hazard.js` with unrelated scenes.
 - **Suggested fix:** Add the `70b-lobby-waking-up` capture to `08-lobby.js`, seed setup dice with `ux.force()` in `10-setup-flow.js`, remove the duplicate `09`–`13` and `40`–`47` captures from `02-move-shoot.js` and `06-misc-endgame.js`, and make `build.js` / `tojpg.js` abort with a non-zero exit code (instead of wiping `doc/ux/inventory/img/`) when any catalog image is missing.
@@ -312,7 +312,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** test-gap
 - **Location:** `client/tests/network/Protocol.test.ts:1-15`, `client/tests/core/GameManager.test.ts:156-165`, `client/tests/network/WebRTCClient.test.ts:41-46`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** Three client unit tests are tautological or call the wrong method, passing even if the underlying production code is broken or deleted.
 - **Failure scenario:** `Protocol.test.ts` never imports `Protocol.ts` and asserts `typeof state === 'string'` on a local literal array; `GameManager.test.ts:156-165` (`should limit snapshots to maxSnapshots`) creates 60 actions in a loop without ever calling `sendAction` or `saveSnapshot` (`snapshots.length` stays `1`); and `WebRTCClient.test.ts:41-46` calls `handleMessage({ type: 'heartbeat-pong' })` instead of `dataChannel.onmessage`, leaving `lastPongTime` unchanged (`after === before`) and passing `toBeGreaterThanOrEqual(before)` tautologically.
 - **Suggested fix:** Remove `Protocol.test.ts` (along with dead `Protocol.ts`), call `(gameManager as any).saveSnapshot(...)` inside the loop in `GameManager.test.ts:156`, and dispatch a `MessageEvent` on `dataChannel.onmessage` after advancing fake timers in `WebRTCClient.test.ts:41`.
@@ -332,7 +332,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** stale-doc
 - **Location:** `shared/src/data/terrainStructures.ts:137-139`, `shared/src/engine/spatial.ts:45-58, 85`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** **[Known Item 2]** `terrainStructures.ts:138` contains a stale comment claiming `(crates keep the legacy inset footprint via the fallback body)`, while `spatial.ts:47-57` has a redundant branch in `terrainHalfExtents` and stale `0.7×0.7×0.7` crate metadata at `spatial.ts:85`.
 - **Failure scenario:** A developer reading `terrainStructures.ts:138` or `TERRAIN_MODEL_META.crate` (`spatial.ts:85`) is misled into believing crates still use a `0.7 × 0.7` inset collision footprint, whereas `resolveTerrainStructure` (`terrainStructure.ts:80-84`) and `terrainHalfExtents` (`spatial.ts:45-58`) both use the full `[-0.5, 0.5]` unit-box footprint (`1" × 0.75" × 1"`).
 - **Suggested fix:** Remove `(crates keep the legacy inset footprint via the fallback body)` from `terrainStructures.ts:138`, collapse `terrainHalfExtents` (`spatial.ts:45-58`) to `return { hx: 0.5 * sx, hz: 0.5 * sz }`, and update `TERRAIN_MODEL_META.crate` (`spatial.ts:85`).
@@ -352,7 +352,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** correctness
 - **Location:** `client/src/storage/MapStore.ts:179-183`, `client/src/ui/GameHUD.ts:444-451, 555-610, 1354-1363`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** `MapStore.importMapJson` defaults omitted board dimensions to `44×30` instead of `DEFAULT_BOARD_SIZE` (`48×48`), `GameHUD.getReactionRemainingSec` resets the displayed countdown to full `durationMs` after a page reload/state-sync, `GameHUD.notifyRejected` does not reset `rematchPending`, and `resetForNewMatch` does not clear `hoveredTerrainId` or `hoverNavMemo`.
 - **Failure scenario:** Importing a custom map JSON without a `board` field creates an invalid rectangular `44" × 30"` board instead of `48" × 48"`; reloading the page 25s into a 30s reaction prompt resets the HUD countdown display to `30s` while the host times out 5s later; and if `request-rematch` is rejected, the "Play Again" button stays permanently disabled (`Waiting for opponent…`).
 - **Suggested fix:** Use `DEFAULT_BOARD_SIZE` (`48`) as the fallback width and height in `MapStore.ts:180-181`, update `pending.durationMs` to the remaining time when syncing/saving snapshots, reset `this.rematchPending = false` in `notifyRejected()`, and clear `hoveredTerrainId` and memo caches in `resetForNewMatch()`.
@@ -362,7 +362,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** dead-code
 - **Location:** `shared/src/gameState.ts:129-176`, `shared/src/engine/traversal.ts:771-825`, `client/src/ui/GameHUD.ts:2902-2923, 3149, 3283, 4934-4961, 6208-6219`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** `validateActionBasic` in `gameState.ts` and `allocateSquadCasualties` in `traversal.ts` are unused legacy functions that contradict current engine rules, and `GameHUD.ts` still contains dead `.sl-hud-casualty-selector` and `casualtyModelIds` code paths.
 - **Failure scenario:** `validateActionBasic` (`gameState.ts:161`) rejects `hold` on an already-activated unit (`Unit already activated this round`), contradicting `validateAction` in `actions.ts:1005-1025`, while `allocateSquadCasualties` (`traversal.ts:793`) destroys a model on a single wound regardless of `Tough(X)`.
 - **Suggested fix:** Remove `validateActionBasic`, `allocateSquadCasualties`, and the unused `selectedCasualtyModelId` / `casualtyModelIds` UI and payload fields in `GameHUD.ts`.
@@ -372,7 +372,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** dead-code
 - **Location:** `client/src/network/Protocol.ts:1-18`, `client/src/ui/connectionStatus.ts:27-72`, `shared/src/signaling.ts:21-36`, `server/src/Room.ts:9, 20, 135-141, 158-160`
-- **Status:** verified
+- **Status:** fixed in #392 (partially confirmed: Protocol.ts, RoomManager dead fields/endGame, spatial dead exports, and DiceSpec duplication removed; ConnectionStatusBar already absent from connectionStatus.ts; 7 empty source directories not found; getRoomCount kept as used by #387 room limit)
 - **Defect:** `client/src/network/Protocol.ts`, `ConnectionStatusBar` in `connectionStatus.ts`, `RoomManager.endGame`/`getRoomCount`, several legacy exports in `shared/src/engine/spatial.ts` (`addPlatformAscentPoints`, `findWalkablePlatformAt`, `settleMoveEnd`, `validateFormationMove`), and 7 empty source directories are unused dead code, while `DiceSpec` and `DiceResult` are duplicated in `shared/src/types.ts` and `shared/src/signaling.ts`.
 - **Failure scenario:** Maintaining duplicate `DiceSpec`/`DiceResult` interfaces in `types.ts` and `signaling.ts` (both re-exported via `export *` in `shared/src/index.ts`) and dead modules/exports increases maintenance surface and confuses contributors.
 - **Suggested fix:** Delete `Protocol.ts`, `ConnectionStatusBar`, unused `RoomManager` methods, dead `spatial.ts`/`traversal.ts` helpers, and the 7 empty directories, and import `DiceSpec`/`DiceResult` in `signaling.ts` from `./types`.

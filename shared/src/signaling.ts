@@ -1,3 +1,6 @@
+import type { DiceSpec, DiceResult } from './types';
+export type { DiceSpec, DiceResult };
+
 // Signaling message types
 export type SignalingMessage =
   | { type: 'create-room' }
@@ -18,19 +21,3 @@ export type SignalingMessage =
   | { type: 'ping' }
   | { type: 'pong' };
 
-export interface DiceSpec {
-  count: number;
-  sides: number;
-  purpose?: string;
-  modifier?: number;
-}
-
-export interface DiceResult {
-  rolls: number[];
-  total: number;
-  modifier?: number;
-  finalTotal: number;
-  purpose?: string;
-  success?: boolean;
-  threshold?: number;
-}

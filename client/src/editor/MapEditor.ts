@@ -80,6 +80,7 @@ export class MapEditor {
 
   private keydownHandler?: (e: KeyboardEvent) => void;
   private pickHandler?: (target: PickTarget) => void;
+  private pickUnsubscribe: (() => void) | null = null;
 
   constructor(container: HTMLElement, options: MapEditorOptions = {}) {
     this.container = container;
@@ -521,7 +522,7 @@ export class MapEditor {
       }
     };
 
-    this.gameView.onPick(this.pickHandler);
+    this.pickUnsubscribe = this.gameView.onPick(this.pickHandler);
   }
 
   private validateCurrentMap(): void {
@@ -908,6 +909,9 @@ export class MapEditor {
       if (this.selectedPieceId) {
         const piece = this.currentMap.terrain.find((t) => t.id === this.selectedPieceId);
         if (piece) piece.providesCover = coverCheck.checked;
+        this.validateCurrentMap();
+        this.syncGameView();
+        this.render();
       }
     });
 
@@ -916,6 +920,9 @@ export class MapEditor {
       if (this.selectedPieceId) {
         const piece = this.currentMap.terrain.find((t) => t.id === this.selectedPieceId);
         if (piece) piece.blocksLineOfSight = losCheck.checked;
+        this.validateCurrentMap();
+        this.syncGameView();
+        this.render();
       }
     });
 
@@ -924,6 +931,9 @@ export class MapEditor {
       if (this.selectedPieceId) {
         const piece = this.currentMap.terrain.find((t) => t.id === this.selectedPieceId);
         if (piece) piece.isObstacle = obstacleCheck.checked;
+        this.validateCurrentMap();
+        this.syncGameView();
+        this.render();
       }
     });
 
@@ -937,6 +947,9 @@ export class MapEditor {
             piece.elevation = piece.scale.y;
           }
         }
+        this.validateCurrentMap();
+        this.syncGameView();
+        this.render();
       }
     });
 
@@ -947,7 +960,9 @@ export class MapEditor {
         : undefined;
       if (piece) {
         piece.climbable = climbableCheck.checked;
+        this.validateCurrentMap();
         this.syncGameView();
+        this.render();
       }
     });
 
@@ -958,7 +973,9 @@ export class MapEditor {
         : undefined;
       if (piece) {
         piece.isDifficult = difficultCheck.checked;
+        this.validateCurrentMap();
         this.syncGameView();
+        this.render();
       }
     });
 
@@ -969,7 +986,9 @@ export class MapEditor {
         : undefined;
       if (piece) {
         piece.isDangerous = dangerousCheck.checked;
+        this.validateCurrentMap();
         this.syncGameView();
+        this.render();
       }
     });
 
@@ -987,6 +1006,10 @@ export class MapEditor {
   }
 
   dispose(): void {
+    if (this.pickUnsubscribe) {
+      this.pickUnsubscribe();
+      this.pickUnsubscribe = null;
+    }
     if (typeof window !== 'undefined' && this.keydownHandler) {
       window.removeEventListener('keydown', this.keydownHandler);
     }

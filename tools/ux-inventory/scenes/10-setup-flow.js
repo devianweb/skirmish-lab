@@ -9,7 +9,12 @@ const { pageHelpers } = require('../common');
   const confirm = async () => { const c = await p.$('[data-action="confirm"]'); if (c) { await c.click(); await p.waitForTimeout(700); return true; } return false; };
   const pickAt = (x, z) => p.evaluate(([x, z]) => ux.hud.handleBoardPick({ kind: 'position', position: { x, y: 0, z } }), [x, z]);
   const hoverAt = (x, z) => p.evaluate(([x, z]) => ux.hud.handleBoardHover({ kind: 'position', position: { x, y: 0, z } }), [x, z]);
-  await p.evaluate(() => { ux.mountHud(ux.HOST); ux.start({ hostArmyId: 'test-scout-ambush-army', guestArmyId: 'test-scout-ambush-army', useDeploymentPhase: true, customMap: ux.BUILTIN_MAPS['standard-battlefield']() }); ux.setCamera('host'); });
+  await p.evaluate(() => {
+    ux.force({ 'objective-count': 3, 'mission-roll-off': [6, 1], 'deployment-roll-off': [6, 1] });
+    ux.mountHud(ux.HOST);
+    ux.start({ hostArmyId: 'test-scout-ambush-army', guestArmyId: 'test-scout-ambush-army', useDeploymentPhase: true, customMap: ux.BUILTIN_MAPS['standard-battlefield']() });
+    ux.setCamera('host');
+  });
   await p.waitForTimeout(2000);
   console.log('start', JSON.stringify(await st()));
   await p.screenshot({ path: __dirname + '/../out/s9-00-objectives-start.png' });

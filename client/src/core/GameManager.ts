@@ -179,7 +179,14 @@ export class GameManager {
     this.webrtcClient.on('request-state-sync', (msg: GameMessage) => {
       if (msg.type === 'request-state-sync') {
         if (this.gameState) {
-          this.webrtcClient.send({ type: 'state-sync', state: this.gameState } as GameMessage);
+          const syncState = JSON.parse(JSON.stringify(this.gameState));
+          if (syncState.turnState?.pendingReaction?.expiresAt) {
+            syncState.turnState.pendingReaction.durationMs = Math.max(
+              0,
+              syncState.turnState.pendingReaction.expiresAt - Date.now()
+            );
+          }
+          this.webrtcClient.send({ type: 'state-sync', state: syncState } as GameMessage);
         }
       }
     });
@@ -434,6 +441,12 @@ export class GameManager {
 
   private saveSnapshot(state: GameState): void {
     const copy = JSON.parse(JSON.stringify(state));
+    if (copy.turnState?.pendingReaction?.expiresAt) {
+      copy.turnState.pendingReaction.durationMs = Math.max(
+        0,
+        copy.turnState.pendingReaction.expiresAt - Date.now()
+      );
+    }
     const previous = this.snapshots[this.snapshots.length - 1];
     // A different match following a finished one is a rematch: history belongs to the new gameId only.
     const rematchStarted =

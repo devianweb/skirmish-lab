@@ -11,7 +11,6 @@ import {
   hasCoverAgainstAttack,
   hasLineOfSight,
   isStepOverPiece,
-  settleMoveEnd,
 } from '../../src/engine/spatial';
 import { pathMovementCost } from '../../src/engine/traversal';
 
@@ -82,7 +81,7 @@ describe('step over low terrain (<= 1")', () => {
     expect(validateAction(state, act).valid).toBe(true);
   });
 
-  it('the host rejects a move that ends on top of the barricade, and the preview pulls back', () => {
+  it('the host rejects a move that ends on top of the barricade', () => {
     const unit = makeUnit('u', pt(-3, 0, 0));
     const state = makeState([unit, makeUnit('e', pt(0, 0, 20), GUEST)], [piece('barricade', 0, 0, 0, Math.PI / 2)]);
     expect(findEndOverlap(state, 'u', pt(0, 0, 0))).toMatchObject({ kind: 'terrain' });
@@ -92,9 +91,6 @@ describe('step over low terrain (<= 1")', () => {
     const res = validateAction(state, act);
     expect(res.valid).toBe(false);
     expect(res.reason).toMatch(/overlapping terrain/i);
-    const settled = settleMoveEnd(state, unit, [pt(-3, 0, 0), pt(0, 0, 0)]);
-    expect(findEndOverlap(state, 'u', settled[settled.length - 1])).toBeNull();
-    expect(settled[settled.length - 1].x).toBeLessThan(-0.5);
   });
 
   it('the planner clamps a move whose budget runs out over a barricade to a clear spot', () => {

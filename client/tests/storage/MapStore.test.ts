@@ -178,6 +178,17 @@ describe('MapStore', () => {
     expect(mapStore.getMap(imported.id)).toBeDefined();
   });
 
+  it('defaults omitted board dimensions to DEFAULT_BOARD_SIZE (48x48) on import', () => {
+    const rawJson = JSON.stringify({
+      name: 'No Board Map',
+      terrain: [],
+    });
+
+    const imported = mapStore.importMapJson(rawJson);
+    expect(imported.board.width).toBe(48);
+    expect(imported.board.height).toBe(48);
+  });
+
   it('throws descriptive errors on invalid JSON or missing required fields', () => {
     expect(() => mapStore.importMapJson('bad json')).toThrow('Invalid JSON format');
     expect(() => mapStore.importMapJson(JSON.stringify(null))).toThrow(

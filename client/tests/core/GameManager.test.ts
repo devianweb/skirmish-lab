@@ -155,13 +155,12 @@ describe('GameManager', () => {
 
   it('should limit snapshots to maxSnapshots', () => {
     gameManagerHost.initializeGame('host1', 'guest1');
+    const state = gameManagerHost.getGameState()!;
     for (let i = 0; i < 60; i++) {
-      const action = createAction('host1', 'end-round', { type: 'end-round' });
-      // Change turn to allow same player? No - better to just test via getSnapshots
-      // We'll manually trigger by reinitializing logic isn't needed; snapshots accumulate
+      (gameManagerHost as any).saveSnapshot(state);
     }
     const snapshots = gameManagerHost.getSnapshots();
-    expect(snapshots.length).toBeLessThanOrEqual(50);
+    expect(snapshots.length).toBe(50);
   });
 
   it('should return deep copies from snapshots', () => {
@@ -171,6 +170,26 @@ describe('GameManager', () => {
     expect(snapshot1).not.toBe(snapshot2);
     snapshot1.units.push({ id: 'y' } as any);
     expect(gameManagerHost.getLatestSnapshot()!.units.length).toBe(0);
+  });
+
+  it('updates pendingReaction.durationMs to remaining time in snapshots and state-sync (G-32)', () => {
+    gameManagerHost.initializeGame('host1', 'guest1');
+    const state = gameManagerHost.getGameState()!;
+    state.turnState.pendingReaction = {
+      id: 'rx-sync',
+      type: 'pick-strike-target',
+      promptingPlayerId: 'host1',
+      title: 'Strike',
+      description: 'Desc',
+      options: [],
+      durationMs: 30000,
+      expiresAt: Date.now() + 8000,
+    } as any;
+
+    (gameManagerHost as any).saveSnapshot(state);
+    const latest = gameManagerHost.getLatestSnapshot()!;
+    expect(latest.turnState.pendingReaction?.durationMs).toBeLessThanOrEqual(8000);
+    expect(latest.turnState.pendingReaction?.durationMs).toBeGreaterThan(0);
   });
 
   it('should not apply actions as host if no game state initialized', () => {

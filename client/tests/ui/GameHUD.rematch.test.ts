@@ -118,6 +118,18 @@ describe('GameHUD Play Again (14B)', () => {
     expect(controller.submitAction).not.toHaveBeenCalled();
   });
 
+  it('re-enables Play Again button if request-rematch is rejected (G-32)', () => {
+    const over = step(activationState(), GUEST, 'concede');
+    const { hud, container } = setup(HOST, over);
+    btn(container)!.click();
+    expect(btn(container)!.textContent).toBe('Waiting for Bob…');
+    expect(btn(container)!.disabled).toBe(true);
+
+    hud.notifyRejected('Rematch not allowed');
+    expect(btn(container)!.textContent).toBe('Play Again');
+    expect(btn(container)!.disabled).toBe(false);
+  });
+
   it('a new gameId closes the modal, toasts, and clears per-match local state', () => {
     const { hud, container } = setup(HOST, step(activationState(), GUEST, 'concede'));
     btn(container)!.click();
@@ -128,6 +140,9 @@ describe('GameHUD Play Again (14B)', () => {
     internals.concedeConfirmOpen = true;
     internals.flow = { mode: 'targeting', action: 'move' };
     internals.lastSeenLogIndex = 9;
+    internals.hoveredTerrainId = 't-crate';
+    internals.hoverNavMemo.set('key', [{ x: 0, y: 0, z: 0 }]);
+    internals.hoverNavMemoState = {} as any;
 
     const fresh = activationState();
     fresh.gameId = 'rematch-game';
@@ -142,6 +157,9 @@ describe('GameHUD Play Again (14B)', () => {
     expect(internals.concedePending).toBe(false);
     expect(internals.concedeConfirmOpen).toBe(false);
     expect(internals.flow).toEqual({ mode: 'idle' });
+    expect(internals.hoveredTerrainId).toBeNull();
+    expect(internals.hoverNavMemo.size).toBe(0);
+    expect(internals.hoverNavMemoState).toBeNull();
     expect(internals.lastSeenLogIndex).toBe(0);
     expect(internals.rematchPending).toBe(false);
   });

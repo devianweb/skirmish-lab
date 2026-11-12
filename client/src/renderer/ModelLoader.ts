@@ -184,6 +184,10 @@ export class ModelLoader {
     container.add(fallbackFactory());
     this.load(asset.url).then(
       (model) => {
+        if (container.userData.isDisposed) {
+          disposeObject3D(model);
+          return;
+        }
         if (asset.scaleVector) {
           model.scale.set(asset.scaleVector.x, asset.scaleVector.y, asset.scaleVector.z);
         } else if (asset.scale) {

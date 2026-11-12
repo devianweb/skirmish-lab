@@ -344,8 +344,6 @@ export class GameHUD {
   private moveSegments: PreviewSegment[] | null = null;
   /** Enemy unit currently highlighted in melee engagement contact. */
   private hoveredEngagedTargetId: string | null = null;
-  /** Designated model in a multi-model squad to allocate hazard casualties to. */
-  private selectedCasualtyModelId: string | null = null;
   /** For Shoot mode: map of weaponId -> targetUnitId | null */
   private shootAllocations: Map<string, string | null> = new Map();
   /** For Shoot mode: currently selected weapon chip for assignment */
@@ -582,6 +580,9 @@ export class GameHUD {
     this.lastHoveredObjectiveId = null;
     this.hoveredGroundPosition = null;
     this.hoveredAction = null;
+    this.hoveredTerrainId = null;
+    this.hoverNavMemo.clear();
+    this.hoverNavMemoState = null;
     this.movePreview = null;
     this.movePathPreview = null;
     this.movePreviewDifficult = false;
@@ -591,7 +592,6 @@ export class GameHUD {
     this.moveStop = null;
     this.moveSegments = null;
     this.hoveredEngagedTargetId = null;
-    this.selectedCasualtyModelId = null;
     this.shootAllocations.clear();
     this.selectedShootWeaponId = null;
     this.stagedSquadModelPositions.clear();
@@ -629,14 +629,19 @@ export class GameHUD {
 
   private getReactionRemainingSec(pending: any): number {
     const now = this.disconnectedAt ?? Date.now();
+    let sec: number | null = null;
     if (pending.durationMs) {
       if (!this.reactionReceivedAt || this.reactionReceivedAt.id !== pending.id) {
         this.reactionReceivedAt = { id: pending.id, timestamp: now };
       }
       const elapsed = now - this.reactionReceivedAt.timestamp;
-      return Math.max(0, Math.ceil((pending.durationMs - elapsed) / 1000));
+      sec = Math.max(0, Math.ceil((pending.durationMs - elapsed) / 1000));
     }
-    return Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
+    if (typeof pending.expiresAt === 'number') {
+      const expiresSec = Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
+      sec = sec !== null ? Math.min(sec, expiresSec) : expiresSec;
+    }
+    return sec ?? 0;
   }
 
   private updateReactionTimerDisplay(): void {
@@ -1373,6 +1378,10 @@ export class GameHUD {
     if (this.concedePending) {
       this.concedePending = false;
       this.clearConcedeTimer();
+    }
+    if (this.rematchPending) {
+      this.rematchPending = false;
+      this.render();
     }
     if (this.flow.mode === 'waiting') {
       this.flow = { mode: 'idle' };
@@ -2908,7 +2917,6 @@ export class GameHUD {
       if (warning) summary += ` · ${warning}`;
     });
 
-    this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
     this.movePreview = finalCentroid;
     this.movePathPreview = null;
     this.moveJump = null;
@@ -2925,7 +2933,6 @@ export class GameHUD {
         ...(orderedTraversals.some((t) => t) ? { modelTraversals: orderedTraversals } : {}),
         ...(crossers.length > 0 ? { crossers } : {}),
         ...this.jumpLeaderPayload(alive),
-        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
       }),
       summary
     );
@@ -3082,7 +3089,6 @@ export class GameHUD {
       summary += ` · ${dangerousTerrainText(active)}`;
     }
 
-    this.selectedCasualtyModelId = alive.length > 0 ? alive[0].id : null;
     this.movePreview = centroid;
     this.movePathPreview = null;
     this.moveJump = null;
@@ -3149,11 +3155,6 @@ export class GameHUD {
     }
     summary += this.traversalSummary(active, path, jump);
 
-    this.selectedCasualtyModelId =
-      active.models && active.models.length > 1
-        ? active.models.find((m) => !m.isDestroyed)?.id ?? null
-        : null;
-
     this.movePreview = destination;
     this.movePathPreview = path;
     this.moveJump = jump;
@@ -3164,7 +3165,6 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
-        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
         ...(jump ? { traversal: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing } } : {}),
       }),
       summary
@@ -3282,11 +3282,6 @@ export class GameHUD {
     }
     summary += this.traversalSummary(active, path, jump);
 
-    this.selectedCasualtyModelId =
-      active.models && active.models.length > 1
-        ? active.models.find((m) => !m.isDestroyed)?.id ?? null
-        : null;
-
     this.movePreview = destination;
     this.movePathPreview = path;
     this.moveJump = jump;
@@ -3298,7 +3293,6 @@ export class GameHUD {
         unitId: active.id,
         path,
         finalPosition: destination,
-        ...(this.selectedCasualtyModelId ? { casualtyModelIds: [this.selectedCasualtyModelId] } : {}),
         ...(jump ? { traversal: { kind: jump.kind, takeoff: jump.takeoff, landing: jump.landing } } : {}),
       }),
       summary
@@ -4951,35 +4945,6 @@ export class GameHUD {
     const dataCardSlot = `<div class="sl-hud-datacard-slot">${this.renderDataCard()}</div>`;
 
     if (this.flow.mode === 'confirming') {
-      let casualtySelectorHtml = '';
-      if (
-        this.state &&
-        active &&
-        active.models &&
-        active.models.filter((m) => !m.isDestroyed).length > 1
-      ) {
-        const path = (this.flow.action.payload as any)?.path;
-        if (path && isPathDangerous(this.state, path, active)) {
-          const livingModels = active.models.filter((m) => !m.isDestroyed);
-          casualtySelectorHtml = `
-            <div class="sl-hud-casualty-selector" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #ffd54f;">
-              <span>Dangerous terrain wounds go first to:</span>
-              <div style="display: flex; gap: 6px;">
-                ${livingModels
-                  .map(
-                    (m) => `
-                  <button class="sl-hud-btn sl-hud-chip ${
-                    (this.selectedCasualtyModelId ?? livingModels[0].id) === m.id ? 'primary' : ''
-                  }" data-casualty-model-id="${m.id}" style="padding: 2px 8px; font-size: 11px;">
-                    ${m.name ?? modelLabel(active, m.id)} (${m.wounds}W)
-                  </button>`
-                  )
-                  .join('')}
-              </div>
-            </div>`;
-        }
-      }
-
       let shootChipsHtml = '';
       if (this.flow.action.type === 'shoot' && active) {
         const rangedWeapons = rangedWeaponsOf(active);
@@ -5043,7 +5008,6 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-confirm" style="display: flex; flex-direction: column; align-items: center;">
-            ${casualtySelectorHtml}
             ${shootChipsHtml}
             ${difficultWarningHtml}
             <div style="display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center;">
@@ -6245,19 +6209,6 @@ export class GameHUD {
               choiceId,
             })
           );
-        }
-      });
-    }
-
-    const casualtyBtns = this.root.querySelectorAll<HTMLButtonElement>('[data-casualty-model-id]');
-    for (const btn of casualtyBtns) {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const modelId = btn.dataset.casualtyModelId;
-        if (modelId && this.flow.mode === 'confirming') {
-          this.selectedCasualtyModelId = modelId;
-          (this.flow.action.payload as any).casualtyModelIds = [modelId];
-          this.render();
         }
       });
     }
