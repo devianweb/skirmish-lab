@@ -53,9 +53,30 @@ export interface ParsedTrait {
   value?: number;
 }
 
+/** Which kind of attack or effect a distance gate belongs to. */
+export type DistanceGateContext = 'shooting' | 'charge' | 'morale-aura' | 'blast-spread';
+
+/**
+ * A distance at which a rule switches on. The engine reads its thresholds from here, and the HUD draws the same
+ * gates (badges, rings, auras), so the indicators and the rules cannot disagree.
+ */
+export interface DistanceGate {
+  context: DistanceGateContext;
+  /** Whose rule it is: the attacking unit (or its weapon), the attacked unit, or a friendly unit near the one testing. */
+  holder: 'attacker' | 'target' | 'friendly';
+  /** `beyond` is strictly more than `distance`; `within` is up to and including it. */
+  comparison: 'beyond' | 'within';
+  /** Inches, base edge to base edge (as `unitDistance` measures). */
+  distance: number;
+  /** Short own-words effect for badges and ring labels, e.g. '6s add a hit', '-1 to hit', '+1 morale'. */
+  effect: string;
+}
+
 export interface TraitMetadata {
   displayName: string;
   description: string;
+  /** Distances at which this rule switches on (only rules the engine implements). */
+  distanceGates?: DistanceGate[];
 }
 
 export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
@@ -78,6 +99,9 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   blast: {
     displayName: 'Blast',
     description: 'Each hit becomes X hits, shared out between the target and enemy units close to it (no unit takes more hits than it has models). The weapon ignores cover.',
+    distanceGates: [
+      { context: 'blast-spread', holder: 'target', comparison: 'within', distance: 3, effect: 'hits spread' },
+    ],
   },
   caster: {
     displayName: 'Caster',
@@ -114,6 +138,9 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   hero: {
     displayName: 'Hero',
     description: 'Friendly units within 6" may use this unit\'s Quality for Morale Tests while it is not Shaken.',
+    distanceGates: [
+      { context: 'morale-aura', holder: 'friendly', comparison: 'within', distance: 6, effect: 'lends Quality for Morale' },
+    ],
   },
   immobile: {
     displayName: 'Immobile',
@@ -138,6 +165,9 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   relentless: {
     displayName: 'Relentless',
     description: 'When shooting at targets >9" away, unmodified hit rolls of 6 add 1 bonus hit.',
+    distanceGates: [
+      { context: 'shooting', holder: 'attacker', comparison: 'beyond', distance: 9, effect: '6s add a hit' },
+    ],
   },
   reliable: {
     displayName: 'Reliable',
@@ -162,6 +192,9 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
   stealth: {
     displayName: 'Stealth',
     description: 'Enemy ranged attacks from >9" away suffer -1 to hit.',
+    distanceGates: [
+      { context: 'shooting', holder: 'target', comparison: 'beyond', distance: 9, effect: '-1 to hit' },
+    ],
   },
   strider: {
     displayName: 'Strider',
@@ -195,6 +228,10 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     displayName: 'Hold the Line',
     description:
       'Gets +1 to Morale Test rolls when it was shot from more than 9" away or charged from more than 6" away. Only counts when most of its models have the rule.',
+    distanceGates: [
+      { context: 'shooting', holder: 'target', comparison: 'beyond', distance: 9, effect: '+1 morale' },
+      { context: 'charge', holder: 'target', comparison: 'beyond', distance: 6, effect: '+1 morale' },
+    ],
   },
   'bad-shot': {
     displayName: 'Bad Shot',
@@ -204,6 +241,10 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     displayName: 'Ferocious',
     description:
       'When shooting at enemies more than 9" away, or charging enemies that were more than 6" away when the charge began, each unmodified 6 to hit scores 1 extra hit. The extra hit does not count as a 6 for other rules.',
+    distanceGates: [
+      { context: 'shooting', holder: 'attacker', comparison: 'beyond', distance: 9, effect: '6s add a hit' },
+      { context: 'charge', holder: 'attacker', comparison: 'beyond', distance: 6, effect: '6s add a hit' },
+    ],
   },
 };
 
@@ -213,6 +254,18 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
  * the rule" is true exactly when the unit carries it. Alien Hives' Hive Bond joins this list.
  */
 export const DISTANT_ATTACK_MORALE_TRAITS: readonly string[] = ['hold-the-line'];
+
+/** The registry's gates for `traitId` (empty when the rule has none). */
+export function distanceGatesOf(traitId: string): readonly DistanceGate[] {
+  return (TRAIT_REGISTRY as Record<string, TraitMetadata>)[traitId.toLowerCase()]?.distanceGates ?? [];
+}
+
+/** The distance of `traitId`'s gate for `context`. Throws when the rule declares none (a programming error). */
+export function gateDistance(traitId: string, context: DistanceGateContext): number {
+  const gate = distanceGatesOf(traitId).find((g) => g.context === context);
+  if (!gate) throw new Error(`Trait '${traitId}' declares no ${context} distance gate`);
+  return gate.distance;
+}
 
 const TRAIT_PATTERN = /^([a-z0-9-]+)(?:\((-?\d+)\))?$/i;
 

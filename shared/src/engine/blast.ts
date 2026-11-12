@@ -1,9 +1,11 @@
 import type { GameState, Unit } from '../gameTypes';
 import { autoSplitBlastHits, type BlastCandidate } from './combat';
+import { gateDistance } from '../rules/traits';
+import { traitGateApplies } from './distanceGates';
 import { livingModelPositions, unitDistance } from './unitGeometry';
 
 /** Enemy units with a model this close (base edge to base edge) to the target share in a Blast. */
-export const BLAST_SPREAD_RANGE = 3;
+export const BLAST_SPREAD_RANGE = gateDistance('blast', 'blast-spread');
 
 export interface BlastParticipant {
   unit: Unit;
@@ -30,7 +32,7 @@ export function getBlastParticipants(state: GameState, attacker: Unit, target: U
         u.isDeployed !== false
     )
     .map((u) => ({ unit: u, gap: unitDistance(target, u) }))
-    .filter((e) => e.gap <= BLAST_SPREAD_RANGE + 0.01)
+    .filter((e) => traitGateApplies('blast', 'blast-spread', e.gap))
     .sort((a, b) => a.gap - b.gap);
   return [target, ...others.map((e) => e.unit)].map((unit) => ({ unit, cap: capOf(unit) }));
 }
