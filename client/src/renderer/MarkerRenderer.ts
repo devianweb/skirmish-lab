@@ -1334,7 +1334,8 @@ export class MarkerRenderer {
 
     const group = new THREE.Group();
     group.name = 'marker-threshold-rings';
-    const y = (spec.position.y ?? 0) + 0.045;
+    // Same plane as the range fan (drawn at a fixed 0.035 above the board), so an elevated attacker's rings don't float.
+    const y = 0.045;
     for (const ring of spec.rings) {
       const segs = 96;
       const pts: THREE.Vector3[] = [];
