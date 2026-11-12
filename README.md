@@ -11,6 +11,25 @@ SkirmishLab simulates the skirmish games from [One Page Rules](https://onepageru
 
 > **Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.** SkirmishLab is a fan-made community project and is not sponsored by One Page Rules either. It uses One Page Rules' rule names and follows their published Firefight rules, but bundles no rulebook text, army book text, logos or artwork.
 
+## Playing SkirmishLab
+
+SkirmishLab is an unofficial, browser-based, desktop-only 3D tabletop skirmish simulator for two players connected peer-to-peer, implementing One Page Rules' *Grimdark Future: Firefight* (v3.6).
+
+### How to Start a Match
+1. Open the game in a desktop browser: [https://devianweb.github.io/skirmish-lab/](https://devianweb.github.io/skirmish-lab/).
+2. The host clicks **Create Room (Host)** to create a room and generate a 6-character invite code (`XXX-XXX`).
+3. Share the code with your opponent; they enter it into the lobby input and click **Join Room (Guest)**.
+4. **Server wake-up:** The free signaling server spins down when idle. If the lobby shows a status line (*"Waking up the server, this can take up to a minute…"*) with a spinner, please allow up to 60 seconds for the connection to establish.
+
+### Armies & Battlefield
+- **Armies:** Two balanced 400-point ready-made forces are available: **Human Defense Force** and **Orc Marauders** (assigned by default to host and guest, selectable in the lobby).
+- **Battlefield:** Matches start on the default 48"×48" **Empty Battlefield** (or select built-in maps like the **Standard Battlefield**).
+
+### Controls, Reconnecting & Rules
+- **Controls:** Click the **"?"** (How to play) button in the lobby or in-game header at any time for camera navigation, unit movement, targeting, and Map Builder controls.
+- **Reconnecting:** Active rooms are preserved for 5 minutes during a disconnect. If you refresh or drop connection mid-game, simply reload the page and click **Resume Match**.
+- **Rules:** SkirmishLab does not include rulebook text. Download the free official core rules and army lists from [onepagerules.com](https://onepagerules.com).
+
 ## Tech Stack
 
 - **Frontend:** TypeScript, Three.js, Vite

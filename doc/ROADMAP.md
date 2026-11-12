@@ -785,6 +785,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
   - [x] **Controls & How-to-play card** (owner, 2026-11-12; 14G item): a "?" button in the lobby card (near Map Builder) and in-game header (next to Concede) opens a modal with camera, F9, click, Confirm/Cancel, and Map Builder controls, a 6-line turn flow summary, the fan disclaimer, and a link to onepagerules.com. Closes via Esc, Close button, or clicking outside.
   - [x] 14C-2 PR 9B: setup fixes from the owner playtest (plan Decisions 48-49). `activate-unit` and `hold` are rejected for a unit that is not on the table (Ambush reserve, held Scout), and the HUD no longer offers such a unit or counts it in "N available". A game started without the deployment phase now runs the objectives phase too (units stay where they are placed automatically; the last marker records the deployment roll-off and starts round 1 with the winner first); a rematch keeps the objectives and roll-offs.
 - [ ] **14H Docs sync.** Audit every doc in `doc/` against the code (known stale: the default-scenario table in `ASSETS.md`, the old doorway opening in `SYSTEMS.md`), record the 13.6E follow-ups, close `doc/plans/bugfix-playtest-batch-1.md`, and add a short player-facing README section.
+  - [x] Player-facing README section ("Playing SkirmishLab") added.
 - [ ] **14I MVP release.** Release checklist, version tag, deploy on the owner's command (`master` → `release`), and tick the acceptance criteria below.
 
 ### Acceptance Criteria
