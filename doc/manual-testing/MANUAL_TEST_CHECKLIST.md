@@ -33,9 +33,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - All items verified.
 
 ## 9. Multiplayer & custom maps
-- All earlier items verified. Verified items removed (owner pass, 2026-11-12): build stamp, new-version banner, no banner in a game, and the four wake-up indicator checks.
-- [ ] **Resume a match after a reload (host and guest) (bugfix 2A):** Start a match between Host and Guest, reload the Host tab and click **Resume Match** in the lobby banner, then reload the Guest tab and click **Resume Match** — both players rejoin their seats and the match continues cleanly.
-- [ ] **Second tab with the same invite code cannot take an occupied seat (bugfix 2A):** While a match (or room with connected peers) is active, open another tab without the session token and try to join or reconnect using the same invite code — the occupied seat cannot be taken and the connected peers are unaffected.
+- All earlier items verified. Verified items removed (owner pass, 2026-11-12): build stamp, new-version banner, no banner in a game, and the four wake-up indicator checks; later the same day the bugfix 2A checks (resume after a reload, occupied seat refused).
 - [ ] **How to play modal (14G).** Setup: open the lobby, then start a match. Click the "?" button in the lobby card (near Map Builder) and verify the "How to play" modal opens, displays controls, turn flow, disclaimer and rules link, and closes with Esc, the Close button, or clicking outside. In an active game, click the "?" button in the header (next to Concede) on either player's turn, verify the same modal opens without affecting game state, and closes via Esc, Close, or clicking outside.
 
 ## 10. Armies and faction rules (14C-3)
@@ -44,10 +42,9 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - Verified items removed (owner pass, 2026-11-11, later the same day): grouped model headings and per-model wounds in the data card (PR 1G), ordered wound assignment with the locked wounded model, Deadly, timeout, Tough 1 unchanged and the melee pause (PR 1H, Decision 3g).
 
 
+- Verified items removed (owner pass, 2026-11-12, evening): the 14G polish checks (dashed side-coloured Hero aura, Blast outline and sharing ring, Hero ring vs objectives). Follow-ups from that pass: aura labels float and face the camera instead of lying flat, overlapping labels stack instead of covering each other (also the per-weapon aim-line labels), and the Blast outline shows when the weapon that would fire is a Blast weapon even if it isn't the first weapon (Grenade Launcher on the Veterans).
+
 - Verified items removed (owner pass, 2026-11-12, later): every 14G distance-indicator check (badges, 9" and 6" rings, HDF cases, Hero aura, Blast outline, nothing floating elsewhere). Follow-ups from that pass (aura style and label, Blast sharing mark) are plan `doc/plans/14G-indicator-polish.md`.
 
 - Verified items removed (owner pass, 2026-11-12): the Orc Marauders list and data cards, Bad Shot, Ferocious when shooting and charging, Heavy Flamer-Mod Limited, Orc Biker Fast (PR 2), and the two-army pickers with the HDF vs Orc Marauders default (PR 2B).
 
-- [ ] **Hero aura style and label (14G polish).** Setup: Orc Marauders (host) vs Human Defense Force (guest), Standard Battlefield. Select an HDF unit near the Company Leader: a dashed red ring around the Leader (guest side colour), bright when the unit is within 6" and faint when not, with `Hero 6"` written flat on the board along the ring on your side. As host, selecting an Orc unit near the Orc Leader gives a dashed blue ring.
-- [ ] **Blast outline and sharing ring (14G polish).** Same setup. Aim the Heavy Flamer-Mod at an HDF unit with another HDF unit close by: dashed orange outlines with one `Blast 3"` label; the nearby unit wears an orange ring; other enemies in range keep the dark-red ring.
-- [ ] **Hero ring vs objectives (14G polish).** Same setup. The Hero ring no longer looks like an objective marker.
