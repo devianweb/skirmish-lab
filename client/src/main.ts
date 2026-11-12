@@ -16,6 +16,9 @@ import { MarkerUnit } from './renderer/MarkerRenderer';
 import { defaultSessionStore } from './storage/SessionStore';
 import { GameHUD, MarkerSnapshot } from './ui/GameHUD';
 import { Lobby } from './ui/Lobby';
+import { formatBuildStamp, getBuildInfo } from './buildInfo';
+
+console.info(`[SkirmishLab] ${formatBuildStamp(getBuildInfo())}`);
 
 // 3D battlefield canvas, mounted behind the UI overlay.
 const gameContainer = document.createElement('div');

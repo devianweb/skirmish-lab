@@ -4,6 +4,7 @@ import { WebRTCClient } from '../network/WebRTCClient';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
+import { BuildInfo, checkForNewVersion, formatBuildStamp, getBuildInfo } from '../buildInfo';
 
 const DEFAULT_HOST_ARMY = 'hdf';
 const DEFAULT_GUEST_ARMY = 'orc-marauders';
@@ -30,6 +31,12 @@ export interface LobbyOptions {
   onOpenMapEditor?: () => void;
   sessionStore?: SessionStore;
   mapStore?: MapStore;
+  /** This tab's build (defaults to the injected build constants). */
+  buildInfo?: BuildInfo;
+  /** Resolves true when a newer build is deployed (defaults to fetching version.json). */
+  checkForNewVersion?: () => Promise<boolean>;
+  /** Reloads the page from the network (defaults to location.reload). */
+  reloadPage?: () => void;
 }
 
 /**
@@ -54,10 +61,13 @@ export class Lobby {
   private initialRoomCode: string | null = null;
   private isCreatedRoom: boolean = false;
   private keydownHandler: (event: KeyboardEvent) => void;
+  private buildInfo: BuildInfo;
+  private newVersionAvailable = false;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
     this.options = options;
+    this.buildInfo = options.buildInfo ?? getBuildInfo();
     this.sessionStore = options.sessionStore ?? defaultSessionStore;
     this.mapStore = options.mapStore ?? defaultMapStore;
     this.signalingClient = new SignalingClient();
@@ -112,6 +122,7 @@ export class Lobby {
       }
     }
     this.render();
+    void this.runVersionCheck();
   }
 
   hide(): void {
@@ -120,6 +131,38 @@ export class Lobby {
 
   show(): void {
     this.container.style.display = '';
+    void this.runVersionCheck();
+  }
+
+  /** Lobby only (never during a game): ask whether a newer build is deployed and show the banner if so. */
+  private async runVersionCheck(): Promise<void> {
+    try {
+      const check = this.options.checkForNewVersion ?? (() => checkForNewVersion({ current: this.buildInfo }));
+      if (await check()) {
+        this.newVersionAvailable = true;
+        this.applyNewVersionBanner();
+      }
+    } catch {
+      // A failed check shows nothing.
+    }
+  }
+
+  private applyNewVersionBanner(): void {
+    if (!this.newVersionAvailable || this.container.querySelector('#newVersionBanner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'newVersionBanner';
+    banner.style.cssText =
+      'position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(480px, 90vw); box-sizing: border-box; z-index: 10; font-family: Arial, sans-serif; padding: 10px 16px; background: #263238; color: #ffd54f; border: 1px solid #ffd54f; border-radius: 8px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px;';
+    const text = document.createElement('span');
+    text.textContent = 'A newer version of SkirmishLab is available.';
+    const button = document.createElement('button');
+    button.id = 'reloadBtn';
+    button.textContent = 'Reload';
+    button.style.cssText =
+      'padding: 6px 14px; font-size: 13px; font-weight: 600; background: #ffd54f; color: #12161c; border: none; border-radius: 6px; cursor: pointer;';
+    button.addEventListener('click', () => (this.options.reloadPage ?? (() => window.location.reload()))());
+    banner.append(text, button);
+    this.container.prepend(banner);
   }
 
   /** Reset back to the initial lobby screen (e.g. after a game ends). */
@@ -317,6 +360,11 @@ export class Lobby {
   }
 
   private render(): void {
+    this.renderScreen();
+    this.applyNewVersionBanner();
+  }
+
+  private renderScreen(): void {
     if (this.roomCode && this.role) {
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 60px auto; padding: 30px; background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
@@ -438,6 +486,7 @@ export class Lobby {
 
           <div id="lobbyFooter" style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #2a3442; font-size: 11px; line-height: 1.5; color: #78909c;">
             <div>${LOBBY_DISCLAIMER}</div>
+            <div id="buildStamp" style="margin-top: 4px; color: #607d8b;">${formatBuildStamp(this.buildInfo)}</div>
             <div style="margin-top: 4px;">Full rules: <a href="https://onepagerules.com" target="_blank" rel="noopener noreferrer" style="color: #90caf9;">onepagerules.com</a> (free)</div>
           </div>
         </div>
