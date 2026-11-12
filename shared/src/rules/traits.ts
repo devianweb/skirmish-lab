@@ -2,7 +2,7 @@
  * Data-driven trait & special rules registry for SkirmishLab.
  *
  * Trait strings in fighter and weapon definitions use the format:
- *   - `'steadfast'`, `'rending'`, `'reliable'` (boolean traits)
+ *   - `'fearless'`, `'rending'`, `'reliable'` (boolean traits)
  *   - `'ap(2)'`, `'blast(3)'`, `'tough(3)'` (parameterized traits)
  */
 
@@ -40,30 +40,11 @@ export type CoreTraitId =
   | 'unstoppable';
 
 export type FactionTraitId =
-  | 'steadfast'
-  | 'steadfast-boost'
-  | 'dauntless'
   | 'rupture'
-  | 'marksman'
-  | 'iron-will'
-  | 'double-time'
   | 'repel-ambushers'
   | 'hold-the-line'
   | 'bad-shot'
-  | 'ferocious'
-  | 'riot-shield'
-  | 'signal-relay'
-  | 'entrenched'
-  | 'morale-debuff'
-  | 'order-hex-blade'
-  | 'order-coordinate'
-  | 'order-entrench'
-  | 'order-suppress-morale'
-  | 'order-iron-will'
-  | 'order-precision'
-  | 'order-double-time'
-  | 'aura-steadfast-boost'
-  | 'aura-ward';
+  | 'ferocious';
 
 export type TraitId = CoreTraitId | FactionTraitId;
 
@@ -202,33 +183,9 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     displayName: 'Unstoppable',
     description: 'Bypasses Regeneration and ignores all negative hit modifiers.',
   },
-  steadfast: {
-    displayName: 'Steadfast',
-    description: '+1 to morale test rolls.',
-  },
-  'steadfast-boost': {
-    displayName: 'Steadfast Boost',
-    description: '+2 to morale test rolls from Steadfast.',
-  },
-  dauntless: {
-    displayName: 'Dauntless',
-    description: '+1 to morale test rolls.',
-  },
   rupture: {
     displayName: 'Rupture',
     description: 'Unmodified hit rolls of 6 gain AP(+2).',
-  },
-  marksman: {
-    displayName: 'Marksman',
-    description: '+1 to hit rolls when shooting.',
-  },
-  'iron-will': {
-    displayName: 'Iron Will',
-    description: 'Failed morale counts as passed; rolls dice for self-damage on 1-3.',
-  },
-  'double-time': {
-    displayName: 'Double Time',
-    description: 'Moves +4" when using Advance actions.',
   },
   'repel-ambushers': {
     displayName: 'Repel Ambushers',
@@ -248,58 +205,6 @@ export const TRAIT_REGISTRY: Record<TraitId, TraitMetadata> = {
     description:
       'When shooting at enemies more than 9" away, or charging enemies that were more than 6" away when the charge began, each unmodified 6 to hit scores 1 extra hit. The extra hit does not count as a 6 for other rules.',
   },
-  'riot-shield': {
-    displayName: 'Riot Shield',
-    description: '+1 to Defense rolls against non-power hits.',
-  },
-  'signal-relay': {
-    displayName: 'Signal Relay',
-    description: 'Extends friendly Hero order range up to 24" between relays.',
-  },
-  entrenched: {
-    displayName: 'Entrenched',
-    description: 'Enemy ranged attacks from >9" suffer -1 to hit if this unit has not moved.',
-  },
-  'morale-debuff': {
-    displayName: 'Shaken Resolve',
-    description: '-1 to next morale test roll.',
-  },
-  'order-hex-blade': {
-    displayName: 'Order: Bane Strikes',
-    description: 'Grants friendly units within 12" Bane in melee once.',
-  },
-  'order-coordinate': {
-    displayName: 'Order: Coordinate',
-    description: 'Immediately chain-activates another friendly unit within 12" at end of turn.',
-  },
-  'order-entrench': {
-    displayName: 'Order: Take Cover',
-    description: 'Grants friendly units within 12" Entrenched once.',
-  },
-  'order-suppress-morale': {
-    displayName: 'Order: Intimidate',
-    description: 'Applies -1 morale penalty to enemy units within 18" in LOS.',
-  },
-  'order-iron-will': {
-    displayName: 'Order: Iron Will',
-    description: 'Grants friendly units within 12" Iron Will once.',
-  },
-  'order-precision': {
-    displayName: 'Order: Aimed Fire',
-    description: 'Grants friendly units within 12" +1 to hit when shooting once.',
-  },
-  'order-double-time': {
-    displayName: 'Order: Double Time',
-    description: 'Grants friendly units within 12" +4" Advance movement once.',
-  },
-  'aura-steadfast-boost': {
-    displayName: 'Banner of Resolve',
-    description: 'Friendly units gain Steadfast Boost (+2 Morale) while bearer lives.',
-  },
-  'aura-ward': {
-    displayName: 'Field Medic Rig',
-    description: 'Friendly units gain Regeneration (5+ wound ignore) while bearer lives.',
-  },
 };
 
 /**
@@ -311,7 +216,7 @@ export const DISTANT_ATTACK_MORALE_TRAITS: readonly string[] = ['hold-the-line']
 
 const TRAIT_PATTERN = /^([a-z0-9-]+)(?:\((-?\d+)\))?$/i;
 
-/** Parse a trait string like `'ap(2)'` or `'steadfast'` into `{ id, value }`. */
+/** Parse a trait string like `'ap(2)'` or `'fearless'` into `{ id, value }`. */
 export function parseTrait(raw: string): ParsedTrait {
   const trimmed = raw.trim().toLowerCase();
   const match = TRAIT_PATTERN.exec(trimmed);

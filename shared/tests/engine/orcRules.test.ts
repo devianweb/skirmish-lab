@@ -65,9 +65,9 @@ describe('Bad Shot and Ferocious in the combat maths', () => {
       expect(shoot(9, [6]).hitModifiers).not.toContain(FEROCIOUS_NOTE);
     });
     it('a roll that only becomes a hit through a modifier is not an unmodified 6', () => {
-      // Q4+ with +1 from Marksman: a 5 is a hit, but it is not a 6
+      // Q4+ with +1 from Thrust on a charge: a 5 is a hit, but it is not a 6
       const out = resolveAttack(
-        { quality: 4, specialRules: [...fero, 'marksman'], distance: 20 },
+        { quality: 4, specialRules: [...fero, 'thrust'], isMelee: true, isCharging: true, chargedFrom: 8 },
         { defense: 5 },
         2,
         { toHit: [5, 5], defense: [1, 1, 1, 1] }

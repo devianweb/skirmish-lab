@@ -659,7 +659,7 @@ describe('units that are not on the table cannot activate', () => {
 });
 
 describe('objectives in a game without the deployment phase', () => {
-  const STARTERS = { hostArmyId: 'frontier-wardens-starter', guestArmyId: 'rust-raiders-starter' };
+  const STARTERS = { hostArmyId: 'hdf', guestArmyId: 'orc-marauders' };
   const fresh = () => {
     const state = createInitialGameState(HOST, GUEST);
     applyDefaultScenario(state, { ...STARTERS, useDeploymentPhase: false });

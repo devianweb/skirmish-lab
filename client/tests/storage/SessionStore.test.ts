@@ -36,7 +36,7 @@ describe('SessionStore', () => {
       role: 'host',
       playerId: 'host-player',
       playerName: 'Commander',
-      armyId: 'frontier-wardens-starter',
+      armyId: 'hdf',
       timestamp: Date.now(),
     };
 

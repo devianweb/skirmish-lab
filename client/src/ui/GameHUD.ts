@@ -3568,7 +3568,6 @@ export class GameHUD {
           defense: target.defense,
           inCover: false,
           specialRules: target.specialRules,
-          hasMoved: target.hasMoved,
         }
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
@@ -3625,7 +3624,6 @@ export class GameHUD {
           defense: target.defense,
           inCover: false,
           specialRules: target.specialRules,
-          hasMoved: target.hasMoved,
         }
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';
@@ -3704,7 +3702,6 @@ export class GameHUD {
           defense: target.defense,
           inCover: !!inCover,
           specialRules: target.specialRules,
-          hasMoved: target.hasMoved,
         }
       );
       const hitModText = mods.hitModifiers.length ? ` · Q${mods.baseQuality} ${mods.hitModifiers.join(' ')}` : '';

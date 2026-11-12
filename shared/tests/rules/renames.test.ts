@@ -65,8 +65,8 @@ describe('core rule renames', () => {
     expect(formatTraitLabel('caster(2)')).toBe('Caster(2)');
   });
 
-  it('keeps faction traits untouched', () => {
-    for (const id of ['steadfast', 'marksman', 'riot-shield', 'iron-will', 'order-iron-will', 'aura-ward']) {
+  it('keeps the remaining faction traits', () => {
+    for (const id of ['hold-the-line', 'repel-ambushers', 'bad-shot', 'ferocious']) {
       expect(registry[id]).toBeDefined();
     }
   });
