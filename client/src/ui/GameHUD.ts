@@ -120,6 +120,7 @@ import {
   setupAnnouncements,
 } from './setupPlacement';
 import { explainStop, StopNote } from './stopNote';
+import { renderHowToPlayModalHtml } from './howToPlay';
 import { carriedWeapons, carrierCount, carrierPrefix, meleeWeaponNames, meleeAttackBreakdown, rangedWeaponsOf } from './loadout';
 import {
   loadoutsDiffer,
@@ -390,6 +391,8 @@ export class GameHUD {
   private toast: string | null = null;
   /** Concede confirmation dialog is open. */
   private concedeConfirmOpen = false;
+  /** How to play modal dialog is open. */
+  private howToPlayOpen = false;
   /** A concede was sent and we are waiting for the host's confirmed state. */
   private concedePending = false;
   /** Play Again was pressed and the host has not confirmed it yet. */
@@ -416,6 +419,12 @@ export class GameHUD {
     this.container.appendChild(this.root);
 
     this.keydownHandler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && this.howToPlayOpen) {
+        event.preventDefault();
+        this.howToPlayOpen = false;
+        this.render();
+        return;
+      }
       if (event.key === 'F9') {
         event.preventDefault();
         this.toggleTerrainDebug();
@@ -607,6 +616,7 @@ export class GameHUD {
     this.prevPendingReactionId = null;
     this.reactionReceivedAt = null;
     this.concedeConfirmOpen = false;
+    this.howToPlayOpen = false;
     this.concedePending = false;
     this.clearConcedeTimer();
     this.rematchPending = false;
@@ -3982,7 +3992,8 @@ export class GameHUD {
           Objectives: <span class="score-team-host" style="color: #29b6f6; font-weight: 700;">Host ${hostScore}</span> — <span class="score-team-guest" style="color: #ef5350; font-weight: 700;">Guest ${guestScore}</span>
         </span>
         <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${turnLabel}</span>
-        ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : ''}
+        ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : '<span style="margin-left: auto;"></span>'}
+        <button class="sl-hud-btn sl-hud-how-to-play" data-action="how-to-play-open" title="How to play" aria-label="How to play">?</button>
         ${
           state.status === 'game-over'
             ? ''
@@ -4096,7 +4107,8 @@ export class GameHUD {
       ? '<div class="sl-hud-keepaway-legend" data-keep-away-legend title="The 1&quot; is measured in 3D, base to base. A model 1&quot; or more above or below your starting height (for example under a deck) is drawn faint and does not block from there; one at a similar height blocks a smaller ring."><span class="sl-keepaway-swatch"></span>Red rings: 1" zone around other units — your models\' bases can\'t enter (charges may close on their target, shown green)</div>'
       : '';
     const announcements = this.setupAnnouncementsHtml();
-    return `${alertsHtml}${keepAwayLegend}${header}${announcements}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${
+    const howToPlayModal = this.howToPlayOpen ? renderHowToPlayModalHtml() : '';
+    return `${alertsHtml}${keepAwayLegend}${header}${announcements}${units}${right}${this.renderBottomBar()}${gameOverModal}${concedeDialog}${howToPlayModal}${
       alerts.length ? '' : toastHtml
     }`;
   }
@@ -6126,6 +6138,14 @@ export class GameHUD {
           case 'cancel':
             this.cancel();
             break;
+          case 'how-to-play-open':
+            this.howToPlayOpen = true;
+            this.render();
+            break;
+          case 'how-to-play-close':
+            this.howToPlayOpen = false;
+            this.render();
+            break;
           case 'concede-open':
             this.concedeConfirmOpen = true;
             this.render();
@@ -6191,6 +6211,22 @@ export class GameHUD {
             break;
           }
         }
+      });
+    }
+
+    const howToPlayOverlay = this.root.querySelector('.sl-how-to-play-overlay');
+    if (howToPlayOverlay) {
+      howToPlayOverlay.addEventListener('click', (e) => {
+        if (e.target === howToPlayOverlay) {
+          this.howToPlayOpen = false;
+          this.render();
+        }
+      });
+      this.root.querySelectorAll('[data-action="how-to-play-close"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.howToPlayOpen = false;
+          this.render();
+        });
       });
     }
 
@@ -6974,10 +7010,13 @@ export class GameHUD {
 .sl-hud-gameover { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   pointer-events: auto; background: rgba(10, 12, 16, 0.94); border: 2px solid #ffd54f;
   border-radius: 12px; padding: 24px 36px; text-align: center; box-shadow: 0 12px 32px rgba(0,0,0,0.6); }
-.sl-hud-concede { margin-left: 12px; pointer-events: auto; font-size: 12px; padding: 3px 10px;
+.sl-hud-concede { margin-left: 8px; pointer-events: auto; font-size: 12px; padding: 3px 10px;
   background: transparent; color: #ef9a9a; border: 1px solid #7a3b3b; border-radius: 5px; cursor: pointer; }
 .sl-hud-concede:hover:not(:disabled) { background: #3a1d1d; }
 .sl-hud-concede:disabled { opacity: 0.6; cursor: default; }
+.sl-hud-how-to-play { margin-left: 8px; pointer-events: auto; font-size: 13px; font-weight: 700; width: 26px; height: 26px; line-height: 24px; padding: 0; text-align: center;
+  background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.sl-hud-how-to-play:hover { background: #37474f; border-color: #ffd54f; }
 .sl-hud-concede-dialog { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   pointer-events: auto; background: rgba(10, 12, 16, 0.96); border: 2px solid #7a3b3b;
   border-radius: 12px; padding: 20px 28px; text-align: center; z-index: 120; }

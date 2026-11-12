@@ -34,6 +34,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 
 ## 9. Multiplayer & custom maps
 - All earlier items verified. Verified items removed (owner pass, 2026-11-12): build stamp, new-version banner, no banner in a game, and the four wake-up indicator checks; later the same day the bugfix 2A checks (resume after a reload, occupied seat refused).
+- [ ] **How to play modal (14G).** Setup: open the lobby, then start a match. Click the "?" button in the lobby card (near Map Builder) and verify the "How to play" modal opens, displays controls, turn flow, disclaimer and rules link, and closes with Esc, the Close button, or clicking outside. In an active game, click the "?" button in the header (next to Concede) on either player's turn, verify the same modal opens without affecting game state, and closes via Esc, Close, or clicking outside.
 
 ## 10. Armies and faction rules (14C-3)
 - Verified items removed (owner pass, 2026-11-11): Repel Ambushers, Hold the Line, loadout counts, Blast on the launcher only, two-weapon melee and strike-back, HDF list, squad-mates don't block sight, which model has which weapon, Deadly first, per-model weapon sub-headings in the data card (PR 1F). Follow-up from the PR 1F pass: identical models share one sub-heading, each model shows its wounds, and the hover line in the card header goes (plan PR 1G).
