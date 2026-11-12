@@ -166,15 +166,20 @@ export class GameManager {
 
     client.on('state-sync', (msg: GameMessage) => {
       if (this.webrtcClient !== client) return;
-      if (msg.type === 'state-sync' && msg.state) {
-        if (!this.isHost) {
+      if (msg.type === 'state-sync') {
+        if (!this.isHost && msg.state) {
           this.applyStateUpdate(msg.state);
-        } else if (!this.gameState && msg.state.board && Array.isArray(msg.state.units)) {
+        } else if (this.isHost && !this.gameState) {
+          if (!this.isValidGameState(msg.state)) {
+            console.warn('[GameManager] Ignored structurally invalid state-sync message');
+            return;
+          }
           // Host peer-fallback recovery: Host loaded with empty state, adopts Guest's verified snapshot
           this.gameState = msg.state;
           this.saveSnapshot(this.gameState!);
           this.syncReactionTimer();
           this.emitStateUpdate();
+          this.beginObjectivesIfNeeded();
         }
       }
     });
@@ -371,10 +376,39 @@ export class GameManager {
       this.emitStateUpdate();
     } finally {
       this.pendingActionId = null;
+      if (this.gameState?.turnState.pendingReaction && this.reactionTimeoutTimer === null) {
+        this.syncReactionTimer();
+      }
     }
     this.drainQueuedConcedes();
     // A rematch can start over in the objectives phase (when the first match never got past it)
     if (action.type === 'request-rematch') this.beginObjectivesIfNeeded();
+  }
+
+  private isValidGameState(state: unknown): state is GameState {
+    if (!state || typeof state !== 'object') return false;
+    const s = state as Partial<GameState>;
+    return (
+      typeof s.gameId === 'string' &&
+      typeof s.hostId === 'string' &&
+      typeof s.guestId === 'string' &&
+      typeof s.status === 'string' &&
+      Array.isArray(s.players) &&
+      !!s.turnState &&
+      typeof s.turnState === 'object' &&
+      typeof s.turnState.currentPlayerId === 'string' &&
+      typeof s.turnState.roundNumber === 'number' &&
+      typeof s.turnState.phase === 'string' &&
+      Array.isArray(s.turnState.unitsActivatedThisRound) &&
+      !!s.board &&
+      typeof s.board === 'object' &&
+      typeof s.board.width === 'number' &&
+      typeof s.board.height === 'number' &&
+      Array.isArray(s.units) &&
+      Array.isArray(s.terrain) &&
+      Array.isArray(s.markers) &&
+      Array.isArray(s.actionLog)
+    );
   }
 
   private drainQueuedConcedes(): void {
@@ -419,6 +453,13 @@ export class GameManager {
     if (!this.isHost || !this.gameState) return;
     const pending = this.gameState.turnState.pendingReaction;
     if (!pending) return;
+
+    if (this.pendingActionId !== null) {
+      this.reactionTimeoutTimer = setTimeout(() => {
+        this.handleReactionTimeout();
+      }, 250);
+      return;
+    }
 
     const defaultOption = pending.options.find((o) => o.isDefault) ?? pending.options[0];
     const choiceId = defaultOption ? defaultOption.id : 'strike-back';

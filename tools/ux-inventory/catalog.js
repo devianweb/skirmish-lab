@@ -83,6 +83,8 @@ module.exports = [
         purpose: 'Tells the player which model needs placing by hand.' },
       { img: '43-jump-result', title: 'Rejected action toast', what: 'A yellow banner under the header: "Action rejected: Squad model 2: Models cannot end movement partly overhanging an edge — the whole base must rest on the floor".',
         purpose: 'The host refused the action; the HUD returns to the action bar with the reason.' },
+      { img: '47-hazard-highlight', title: 'Dangerous terrain highlight and hover', what: 'A pulsing outline in hazard lime around dangerous terrain (e.g. hazard pool) crossed by the previewed path, alongside the "Dangerous terrain: N dice" note; hovering any dangerous piece highlights it and shows a floating label with its name and effect ("Hazard pool · dangerous: roll per wound, each 1 is a wound").',
+        purpose: 'Warn the player before moving across dangerous terrain and explain its rule on hover without needing F9.' },
     ],
   },
   {

@@ -136,6 +136,7 @@ function applyMarkers(markers: MarkerSnapshot): void {
   gameView.setAurasMarker(markers.auras ?? null);
   gameView.setPlacementMarker(markers.placement ?? null);
   gameView.setCasualtyPicksMarker(markers.casualtyPicks ?? null);
+  gameView.setHazardHighlightsMarker(markers.hazardHighlights ?? null, latestState?.terrain ?? []);
   if (markers.outcome) {
     gameView.showOutcomeToken(markers.outcome.position as Vector3, markers.outcome.wounds);
   }

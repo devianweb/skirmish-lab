@@ -25,6 +25,7 @@ import {
   MarkerUnit,
   MovePathMarker,
   PlacementMarker,
+  HazardHighlightMarker,
 } from './MarkerRenderer';
 import { ModelLoader } from './ModelLoader';
 import { SceneManager } from './SceneManager';
@@ -91,6 +92,7 @@ export class GameView {
   private objectiveRenderer: ObjectiveRenderer;
   private boardSignature: string | null = null;
   private lastGameId: string | null = null;
+  private lastLoopTime: number | null = null;
 
   private camera: THREE.Camera | null;
   private inputElement: HTMLElement | null;
@@ -98,6 +100,7 @@ export class GameView {
   private hoverHandlers: Array<(target: PickTarget | null) => void> = [];
   private cameraRole: 'host' | 'guest' = 'host';
   private framedBoard: { width: number; height: number } | null = null;
+  private latestTerrain: TerrainPiece[] = [];
   private pointerDownAt: { x: number; y: number } | null = null;
   /** Max pointer travel (px) between down and up to count as a pick click. */
   private static readonly PICK_DRAG_TOLERANCE = 5;
@@ -159,6 +162,7 @@ export class GameView {
       this.markerRenderer.clearAll();
     }
     this.lastGameId = state.gameId;
+    this.latestTerrain = state.terrain;
     this.reframeCameraIfBoardChanged(state);
     const signature = this.computeBoardSignature(state);
     if (signature !== this.boardSignature) {
@@ -170,11 +174,30 @@ export class GameView {
     this.objectiveRenderer.syncFromState(state);
   }
 
-  /** Start the render loop (camera controls and outcome orientation are updated each frame). */
+  /** Set reduced motion preference override (defaults to querying window matchMedia). */
+  setReducedMotion(enabled: boolean): void {
+    this.unitRenderer.setReducedMotion(enabled);
+  }
+
+  /** Advance animations by deltaSeconds (exposed for test harnesses and render loops). */
+  update(deltaSeconds: number): void {
+    this.unitRenderer.update(deltaSeconds);
+  }
+
+  /** Start the render loop (camera controls, outcome orientation, and animations are updated each frame). */
   start(): void {
+    this.lastLoopTime = null;
     this.sceneManager.startAnimationLoop(() => {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (this.lastLoopTime !== null) {
+        const deltaSeconds = Math.min((now - this.lastLoopTime) / 1000, 0.1);
+        this.unitRenderer.update(deltaSeconds);
+      }
+      this.lastLoopTime = now;
+
       this.cameraController?.update();
       this.markerRenderer.orientOutcomeToCamera(this.camera);
+      this.markerRenderer.updateAnimation();
     });
   }
 
@@ -310,6 +333,11 @@ export class GameView {
 
   setCasualtyPicksMarker(positions: Vector3[] | null): void {
     this.markerRenderer.setCasualtyPicks(positions);
+  }
+
+  setHazardHighlightsMarker(marker: HazardHighlightMarker | null, terrain?: TerrainPiece[]): void {
+    const list = terrain ?? this.latestTerrain ?? [];
+    this.markerRenderer.setHazardHighlights(marker, list);
   }
 
   showOutcomeToken(position: Vector3, wounds: number): void {

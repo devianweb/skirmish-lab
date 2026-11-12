@@ -42,6 +42,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 ### Rendering & Camera
 - **Role-dependent perspective:** The camera starts positioned from each player's deployment corner looking across the battlefield (Host at South corner `(d, d, -d)` looking +z; Guest at North corner `(-d, d, d)` looking -z), where `d` = half the board's longer edge (24 on the default 48"×48" board), so the whole board is framed at any size.
 - **Decoupled from state:** Scene meshes are purely visual and reactive; game state is never stored in Three.js objects.
+- **Terrain meshes vs collision:** Cosmetic detail (bevels, rounded pipes, trim) may differ slightly from the collision boxes, like a game hitbox, but only **inside** them and by at most about 0.2" (owner, 2026-11-12); the visible shape is never bigger than the collision, and openings (windows, doors, gaps) always match exactly.
 
 ### Development Do's
 - Keep game state pure and serializable

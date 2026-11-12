@@ -47,7 +47,7 @@ import {
   getUnitTough,
   hasTrait,
   getTraitValue,
-  isPathDangerous,
+  isDangerousPiece,
   woundsToDestroy,
   getEffectiveSpeed,
   findMeleeWeapon,
@@ -134,12 +134,14 @@ import {
 } from './modelLoadout';
 import { soundFx } from '../audio/SoundFx';
 import { escapeHtml } from './escapeHtml';
+import { moveHazardPieceIds, placementHazardPieceIds } from './hazardIndicators';
 import {
   DeploymentZoneBounds,
   DeploymentZoneMarker,
   MovePathMarker,
   AimLinesMarker,
   PlacementMarker,
+  HazardHighlightMarker,
 } from '../renderer/MarkerRenderer';
 
 const escapeHtmlAttr = escapeHtml;
@@ -209,6 +211,11 @@ export interface MarkerSnapshot {
   }>;
   /** Units that would share the hits of the Blast shot being aimed (not the target itself). */
   blastSharingUnitIds?: string[];
+  /**
+   * Dangerous terrain pieces to highlight (pulsing hazard outline): those crossed or ended in by a planned move,
+   * or a hovered dangerous piece (which also displays a floating label).
+   */
+  hazardHighlights?: HazardHighlightMarker | null;
 }
 
 export type PickTarget =
@@ -2892,9 +2899,7 @@ export class GameHUD {
         : ' · [Difficult Terrain: 6.0" speed cap]';
     }
 
-    const hasDangerous = orderedPaths.some((p) =>
-      isPathDangerous(this.state!, p, active)
-    );
+    const hasDangerous = moveHazardPieceIds(this.state!, orderedPaths, active).length > 0;
     if (hasDangerous) {
       summary += ` · ${dangerousTerrainText(active)}`;
     }
@@ -3100,7 +3105,7 @@ export class GameHUD {
       const j = this.stagedSquadModelTraversals.get(m.id);
       if (j) summary += ` · ${modelLabel(active, m.id)}: ${jumpChip(j).text}`;
     });
-    if (orderedPaths.some((p) => isPathDangerous(state, p, active))) {
+    if (moveHazardPieceIds(state, orderedPaths, active).length > 0) {
       summary += ` · ${dangerousTerrainText(active)}`;
     }
 
@@ -3165,7 +3170,7 @@ export class GameHUD {
     }
     const dropNote = this.dropWarning(active, path, jump);
     if (dropNote) summary += ` · ${dropNote}`;
-    if (isPathDangerous(this.state, path, active)) {
+    if (moveHazardPieceIds(this.state, [path], active).length > 0) {
       summary += ` · ${dangerousTerrainText(active)}`;
     }
     summary += this.traversalSummary(active, path, jump);
@@ -3292,7 +3297,7 @@ export class GameHUD {
     }
     const dropNote = this.dropWarning(active, path, jump);
     if (dropNote) summary += ` · ${dropNote}`;
-    if (isPathDangerous(this.state, path, active)) {
+    if (moveHazardPieceIds(this.state, [path], active).length > 0) {
       summary += ` · ${dangerousTerrainText(active)}`;
     }
     summary += this.traversalSummary(active, path, jump);
@@ -3362,7 +3367,7 @@ export class GameHUD {
     if (isDifficult) summary += ' · [Difficult Terrain 6.0" cap]';
     const dropNote = this.dropWarning(active, path, jump);
     if (dropNote) summary += ` · ${dropNote}`;
-    if (isPathDangerous(this.state, path, active)) {
+    if (moveHazardPieceIds(this.state, [path], active).length > 0) {
       summary += ` · ${dangerousTerrainText(active)}`;
     }
     summary += this.traversalSummary(active, path, jump);
@@ -3594,7 +3599,7 @@ export class GameHUD {
       }
       const dropNote = this.dropWarning(active, path, null);
       if (dropNote) traversalNotes += ` · ${dropNote}`;
-      if (isPathDangerous(this.state!, path, active)) {
+      if (moveHazardPieceIds(this.state!, [path], active).length > 0) {
         traversalNotes += ` · ${dangerousTerrainText(active)}`;
       }
       const chargeLegs = segmentSummary(describePathSegments(this.state!, active, path));
@@ -6609,10 +6614,152 @@ export class GameHUD {
     markers.thresholdRings = this.computeThresholdRings(attackAction, markers.attackRange ?? null);
     markers.auras = [...this.computeHeroAuras(hoveredUnit), ...this.computeBlastAuras(hoveredUnit)];
     markers.blastSharingUnitIds = this.computeBlastSharing(hoveredUnit);
+    markers.hazardHighlights = this.computeHazardHighlights();
 
     for (const handler of this.markerHandlers) {
       handler(markers);
     }
+  }
+
+  /**
+   * Computes dangerous terrain pieces to highlight (pulsing hazard outline):
+   * those crossed or ended in by a planned move, plus any hovered dangerous piece.
+   */
+  private computeHazardHighlights(): HazardHighlightMarker | null {
+    if (!this.state || this.state.status === 'game-over') return null;
+
+    const highlighted = new Set<string>();
+    let hoveredHazardPieceId: string | null = null;
+
+    // 1. Hovered dangerous terrain piece (at rest, outside or inside F9)
+    if (this.hoveredTerrainId) {
+      const hovered = this.state.terrain.find((t) => t.id === this.hoveredTerrainId);
+      if (hovered && isDangerousPiece(hovered)) {
+        highlighted.add(hovered.id);
+        hoveredHazardPieceId = hovered.id;
+      }
+    }
+
+    // 2. Deployment / Scout / Ambush placement
+    const placementKind = currentPlacementKind(this.state);
+    if (placementKind && placementKind !== 'objective' && this.myTurn) {
+      const unit = this.currentPlacementUnit();
+      if (unit) {
+        let pos: Vector3 | null = null;
+        if (this.flow.mode === 'confirming') {
+          const payload = this.flow.action.payload as { position?: Vector3 };
+          if (this.flow.action.type === 'deploy-unit' && payload.position) {
+            pos = payload.position;
+          }
+        } else if (this.placementCursor?.position) {
+          pos = this.placementCursor.position;
+        }
+        if (pos) {
+          const pieces = placementHazardPieceIds(this.state, unit, pos);
+          for (const id of pieces) highlighted.add(id);
+        }
+      }
+    }
+
+    // 3. Push
+    const pushCtx = this.pushContext();
+    if (pushCtx && this.pushPicking) {
+      const paths: Vector3[][] = [];
+      if (this.movePathPreview && this.movePathPreview.length >= 2) {
+        paths.push(this.movePathPreview);
+      }
+      if (paths.length > 0) {
+        const pieces = moveHazardPieceIds(this.state, paths, pushCtx.shaken);
+        for (const id of pieces) highlighted.add(id);
+      }
+    }
+
+    // 4. Pile-in
+    const pileCtx = this.pileInContext();
+    if (pileCtx) {
+      const paths: Vector3[][] = [];
+      for (const p of this.pileInPaths.values()) {
+        if (p.length >= 2) paths.push(p);
+      }
+      if (this.movePathPreview && this.movePathPreview.length >= 2) {
+        paths.push(this.movePathPreview);
+      }
+      if (paths.length > 0) {
+        const pieces = moveHazardPieceIds(this.state, paths, pileCtx.defender);
+        for (const id of pieces) highlighted.add(id);
+      }
+    }
+
+    // 5. Consolidation
+    const pendingConsolidation = this.state.turnState.pendingReaction;
+    const isConsolidation =
+      pendingConsolidation &&
+      pendingConsolidation.type === 'melee-consolidation' &&
+      pendingConsolidation.promptingPlayerId === this.localPlayerId;
+    if (isConsolidation) {
+      const victorId = pendingConsolidation.data?.unitId;
+      const victor = this.state.units.find((u) => u.id === victorId);
+      if (victor) {
+        const paths: Vector3[][] = [];
+        if (this.flow.mode === 'confirming' && this.flow.action.type === 'consolidate-move') {
+          const payload = this.flow.action.payload as { path?: Vector3[] };
+          if (payload.path && payload.path.length >= 2) paths.push(payload.path);
+        }
+        if (this.movePathPreview && this.movePathPreview.length >= 2) {
+          paths.push(this.movePathPreview);
+        }
+        if (paths.length > 0) {
+          const pieces = moveHazardPieceIds(this.state, paths, victor);
+          for (const id of pieces) highlighted.add(id);
+        }
+      }
+    }
+
+    // 6. Advance, Rush, Charge (incl. legs)
+    const active = this.activeUnit;
+    if (active && active.ownerId === this.localPlayerId && this.myTurn) {
+      const paths: Vector3[][] = [];
+      for (const p of this.stagedSquadModelPaths.values()) {
+        if (p.length >= 2) paths.push(p);
+      }
+      if (this.flow.mode === 'confirming') {
+        const action = this.flow.action;
+        if (
+          action.type === 'advance' ||
+          action.type === 'rush' ||
+          action.type === 'charge' ||
+          action.type === 'charge-leg'
+        ) {
+          const payload = action.payload as {
+            path?: Vector3[];
+            modelPaths?: Vector3[][];
+          };
+          if (payload.modelPaths) {
+            for (const mp of payload.modelPaths) {
+              if (mp && mp.length >= 2) paths.push(mp);
+            }
+          }
+          if (payload.path && payload.path.length >= 2) {
+            paths.push(payload.path);
+          }
+        }
+      }
+      if (this.movePathPreview && this.movePathPreview.length >= 2) {
+        paths.push(this.movePathPreview);
+      } else if (this.movePreview && (this.flow.mode === 'targeting' || this.flow.mode === 'confirming')) {
+        paths.push([active.position, this.movePreview]);
+      }
+      if (paths.length > 0) {
+        const pieces = moveHazardPieceIds(this.state, paths, active);
+        for (const id of pieces) highlighted.add(id);
+      }
+    }
+
+    if (highlighted.size === 0) return null;
+    return {
+      pieceIds: Array.from(highlighted),
+      hoveredPieceId: hoveredHazardPieceId,
+    };
   }
 
   /** Floor centre of a unit's living models, lifted so a label floats clear above the models. */
