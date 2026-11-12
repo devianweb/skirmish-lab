@@ -1,10 +1,10 @@
 // Signaling message types
 export type SignalingMessage =
   | { type: 'create-room' }
-  | { type: 'room-created', code: string }
-  | { type: 'join-room', code: string }
-  | { type: 'room-joined', code: string, role: 'host' | 'guest' }
-  | { type: 'reconnect-room', code: string, role: 'host' | 'guest' }
+  | { type: 'room-created', code: string, rejoinToken?: string }
+  | { type: 'join-room', code: string, rejoinToken?: string }
+  | { type: 'room-joined', code: string, role: 'host' | 'guest', rejoinToken?: string }
+  | { type: 'reconnect-room', code: string, role: 'host' | 'guest', rejoinToken?: string }
   | { type: 'room-reconnected', code: string, role: 'host' | 'guest' }
   | { type: 'peer-joined' }
   | { type: 'peer-reconnected', role: 'host' | 'guest' }

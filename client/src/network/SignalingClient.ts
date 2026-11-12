@@ -8,6 +8,7 @@ export class SignalingClient {
   private url: string;
   private currentRoomCode: string | null = null;
   private currentRole: 'host' | 'guest' | null = null;
+  private currentRejoinToken: string | null = null;
   private reconnectTimeout: any = null;
   private intentionalClose = false;
   /** True once any socket has opened: after that, a failed attempt keeps the background reconnect loop going. */
@@ -153,9 +154,15 @@ export class SignalingClient {
     if (type === 'room-created') {
       this.currentRoomCode = (message as any).code;
       this.currentRole = 'host';
+      if (typeof (message as any).rejoinToken === 'string') {
+        this.currentRejoinToken = (message as any).rejoinToken;
+      }
     } else if (type === 'room-joined') {
       this.currentRoomCode = (message as any).code;
-      this.currentRole = 'guest';
+      this.currentRole = (message as any).role ?? 'guest';
+      if (typeof (message as any).rejoinToken === 'string') {
+        this.currentRejoinToken = (message as any).rejoinToken;
+      }
     } else if (type === 'room-reconnected') {
       this.currentRoomCode = (message as any).code;
       this.currentRole = (message as any).role;
@@ -172,24 +179,45 @@ export class SignalingClient {
     }
   }
 
+  getRejoinToken(): string | null {
+    return this.currentRejoinToken;
+  }
+
   createRoom(): void {
     this.send({ type: 'create-room' });
   }
 
-  joinRoom(code: string): void {
-    this.send({ type: 'join-room', code });
+  joinRoom(code: string, rejoinToken?: string): void {
+    if (rejoinToken) {
+      this.currentRejoinToken = rejoinToken;
+    }
+    this.send({
+      type: 'join-room',
+      code,
+      ...(rejoinToken ? { rejoinToken } : {}),
+    });
   }
 
-  reconnectRoom(code: string, role: 'host' | 'guest'): void {
+  reconnectRoom(code: string, role: 'host' | 'guest', rejoinToken?: string): void {
     this.currentRoomCode = code;
     this.currentRole = role;
-    this.send({ type: 'reconnect-room', code, role });
+    const token = rejoinToken ?? this.currentRejoinToken ?? undefined;
+    if (token) {
+      this.currentRejoinToken = token;
+    }
+    this.send({
+      type: 'reconnect-room',
+      code,
+      role,
+      ...(token ? { rejoinToken: token } : {}),
+    });
   }
 
   leaveRoom(): void {
     this.send({ type: 'leave-room' });
     this.currentRoomCode = null;
     this.currentRole = null;
+    this.currentRejoinToken = null;
   }
 
   sendOffer(sdp: RTCSessionDescriptionInit): void {
@@ -234,6 +262,7 @@ export class SignalingClient {
     }
     this.currentRoomCode = null;
     this.currentRole = null;
+    this.currentRejoinToken = null;
     if (this.ws) {
       this.ws.close();
       this.ws = null;

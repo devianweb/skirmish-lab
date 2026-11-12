@@ -109,6 +109,43 @@ describe('SignalingClient', () => {
     });
   });
 
+  it('captures rejoinToken from room-created and room-joined and sends it with reconnect-room and join-room', () => {
+    const sendSpy = vi.spyOn(client, 'send').mockImplementation(() => {});
+
+    (client as any).handleMessage({
+      type: 'room-created',
+      code: 'ABC-123',
+      rejoinToken: 'host-token-1',
+    });
+    expect(client.getRejoinToken()).toBe('host-token-1');
+
+    client.reconnectRoom('ABC-123', 'host');
+    expect(sendSpy).toHaveBeenLastCalledWith({
+      type: 'reconnect-room',
+      code: 'ABC-123',
+      role: 'host',
+      rejoinToken: 'host-token-1',
+    });
+
+    (client as any).handleMessage({
+      type: 'room-joined',
+      code: 'ABC-123',
+      role: 'guest',
+      rejoinToken: 'guest-token-2',
+    });
+    expect(client.getRejoinToken()).toBe('guest-token-2');
+
+    client.joinRoom('ABC-123', 'resume-token-3');
+    expect(sendSpy).toHaveBeenLastCalledWith({
+      type: 'join-room',
+      code: 'ABC-123',
+      rejoinToken: 'resume-token-3',
+    });
+
+    client.leaveRoom();
+    expect(client.getRejoinToken()).toBeNull();
+  });
+
   it('connect rejects when socket closes before opening without scheduling internal reconnect', async () => {
     let createdSocket: any = null;
     vi.stubGlobal(

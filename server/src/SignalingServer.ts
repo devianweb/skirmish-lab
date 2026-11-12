@@ -2,7 +2,9 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomManager } from './Room';
 import { DiceRoller } from './DiceRoller';
-import { SignalingMessage } from '@skirmish-lab/shared';
+import { DiceResult, DiceSpec, SignalingMessage } from '@skirmish-lab/shared';
+
+export const MAX_PAYLOAD_BYTES = 64 * 1024;
 
 export class SignalingServer {
   private httpServer: http.Server;
@@ -22,7 +24,7 @@ export class SignalingServer {
       res.end('Not Found');
     });
 
-    this.wss = new WebSocketServer({ server: this.httpServer });
+    this.wss = new WebSocketServer({ server: this.httpServer, maxPayload: MAX_PAYLOAD_BYTES });
     this.roomManager = new RoomManager();
     this.diceRoller = new DiceRoller();
     this.setupServer();
@@ -39,6 +41,10 @@ export class SignalingServer {
       ws.on('message', (data: Buffer) => {
         try {
           const message: SignalingMessage = JSON.parse(data.toString());
+          if (!message || typeof message !== 'object' || typeof message.type !== 'string') {
+            this.send(ws, { type: 'error', message: 'Invalid message format' });
+            return;
+          }
           this.handleMessage(ws, message);
         } catch (error) {
           console.error('Error parsing message:', error);
@@ -76,10 +82,10 @@ export class SignalingServer {
         this.handleCreateRoom(ws);
         break;
       case 'join-room':
-        this.handleJoinRoom(ws, message.code);
+        this.handleJoinRoom(ws, message.code, message.rejoinToken);
         break;
       case 'reconnect-room':
-        this.handleReconnectRoom(ws, message.code, message.role);
+        this.handleReconnectRoom(ws, message.code, message.role, message.rejoinToken);
         break;
       case 'offer':
       case 'answer':
@@ -105,26 +111,87 @@ export class SignalingServer {
         break;
       default:
         console.log('Unhandled message type:', (message as any).type);
+        this.send(ws, { type: 'error', message: 'Unknown message type' });
     }
   }
 
-  private handleCreateRoom(ws: WebSocket): void {
-    const code = this.roomManager.createRoom(ws);
-    this.clientRooms.set(ws, code);
-    this.send(ws, { type: 'room-created', code });
+  private cleanupPreviousRoomForSocket(ws: WebSocket, targetCode?: string): void {
+    const prevCode = this.clientRooms.get(ws);
+    if (!prevCode || (targetCode && prevCode === targetCode.toUpperCase())) {
+      return;
+    }
+    const prevRoom = this.roomManager.getRoom(prevCode);
+    if (prevRoom) {
+      if (prevRoom.host === ws && prevRoom.guest) {
+        this.send(prevRoom.guest, { type: 'error', message: 'Host left room' });
+      } else if (prevRoom.guest === ws && prevRoom.host) {
+        this.send(prevRoom.host, { type: 'error', message: 'Guest left room' });
+      }
+    }
+    this.clientRooms.delete(ws);
   }
 
-  private handleJoinRoom(ws: WebSocket, code: string): void {
-    const result = this.roomManager.joinRoom(code, ws);
+  private handleCreateRoom(ws: WebSocket): void {
+    if (!this.roomManager.canCreateRoom(ws)) {
+      this.send(ws, { type: 'error', message: 'Server room limit reached' });
+      return;
+    }
+
+    this.cleanupPreviousRoomForSocket(ws);
+    const code = this.roomManager.createRoom(ws);
+    if (!code) {
+      this.send(ws, { type: 'error', message: 'Server room limit reached' });
+      return;
+    }
+
+    const room = this.roomManager.getRoom(code)!;
+    this.clientRooms.set(ws, code);
+    this.send(ws, { type: 'room-created', code, rejoinToken: room.hostToken });
+  }
+
+  private handleJoinRoom(ws: WebSocket, code: string, rejoinToken?: string): void {
+    if (typeof code !== 'string' || !code.trim()) {
+      this.send(ws, { type: 'error', message: 'Room not found or full' });
+      return;
+    }
+
+    const prevCode = this.clientRooms.get(ws);
+    const prevRoom = prevCode ? this.roomManager.getRoom(prevCode) : undefined;
+    const prevRole = prevRoom
+      ? prevRoom.host === ws
+        ? 'host'
+        : prevRoom.guest === ws
+          ? 'guest'
+          : null
+      : null;
+    const prevPeer = prevRoom
+      ? prevRole === 'host'
+        ? prevRoom.guest
+        : prevRole === 'guest'
+          ? prevRoom.host
+          : null
+      : null;
+
+    const result = this.roomManager.joinRoom(code, ws, rejoinToken);
     if (!result) {
       this.send(ws, { type: 'error', message: 'Room not found or full' });
       return;
     }
 
-    const { room, role } = result;
+    const { room, role, rejoinToken: newToken, replacedSocket } = result;
+    if (prevCode && prevCode !== room.code && prevPeer) {
+      this.send(prevPeer, {
+        type: 'error',
+        message: prevRole === 'host' ? 'Host left room' : 'Guest left room',
+      });
+    }
+    if (replacedSocket && replacedSocket !== ws) {
+      this.clientRooms.delete(replacedSocket);
+    }
+
     this.clientRooms.set(ws, room.code);
-    this.send(ws, { type: 'room-joined', code: room.code, role });
-    
+    this.send(ws, { type: 'room-joined', code: room.code, role, rejoinToken: newToken });
+
     // Notify peer(s)
     if (role === 'host' && room.guest) {
       this.send(ws, { type: 'peer-joined' });
@@ -134,11 +201,55 @@ export class SignalingServer {
     }
   }
 
-  private handleReconnectRoom(ws: WebSocket, code: string, role: 'host' | 'guest'): void {
-    const room = this.roomManager.reconnectRoom(code, role, ws);
+  private handleReconnectRoom(
+    ws: WebSocket,
+    code: string,
+    role: 'host' | 'guest',
+    rejoinToken?: string
+  ): void {
+    if (typeof code !== 'string' || !code.trim() || (role !== 'host' && role !== 'guest')) {
+      this.send(ws, { type: 'error', message: 'Room not found or expired' });
+      return;
+    }
+
+    const prevCode = this.clientRooms.get(ws);
+    const prevRoom = prevCode ? this.roomManager.getRoom(prevCode) : undefined;
+    const prevRole = prevRoom
+      ? prevRoom.host === ws
+        ? 'host'
+        : prevRoom.guest === ws
+          ? 'guest'
+          : null
+      : null;
+    const prevPeer = prevRoom
+      ? prevRole === 'host'
+        ? prevRoom.guest
+        : prevRole === 'guest'
+          ? prevRoom.host
+          : null
+      : null;
+
+    const targetRoomBefore = this.roomManager.getRoom(code);
+    const replacedSocket = targetRoomBefore
+      ? role === 'host'
+        ? targetRoomBefore.host
+        : targetRoomBefore.guest
+      : null;
+
+    const room = this.roomManager.reconnectRoom(code, role, ws, rejoinToken);
     if (!room) {
       this.send(ws, { type: 'error', message: 'Room not found or expired' });
       return;
+    }
+
+    if (prevCode && prevCode !== room.code && prevPeer) {
+      this.send(prevPeer, {
+        type: 'error',
+        message: prevRole === 'host' ? 'Host left room' : 'Guest left room',
+      });
+    }
+    if (replacedSocket && replacedSocket !== ws) {
+      this.clientRooms.delete(replacedSocket);
     }
 
     this.clientRooms.set(ws, room.code);
@@ -162,6 +273,7 @@ export class SignalingServer {
 
     const room = this.roomManager.getRoom(roomCode);
     if (!room) {
+      this.clientRooms.delete(ws);
       this.send(ws, { type: 'error', message: 'Room not found' });
       return;
     }
@@ -185,6 +297,23 @@ export class SignalingServer {
 
     const room = this.roomManager.getRoom(roomCode);
     if (!room) {
+      this.clientRooms.delete(ws);
+      this.send(ws, { type: 'error', message: 'Room not found' });
+      return;
+    }
+
+    if (room.host !== ws) {
+      this.send(ws, { type: 'error', message: 'Only the host can request dice rolls' });
+      return;
+    }
+
+    if (typeof message.rollId !== 'string' || message.rollId.trim().length === 0) {
+      this.send(ws, { type: 'error', message: 'Invalid rollId' });
+      return;
+    }
+
+    if (!this.diceRoller.isValidSpecs(message.dice)) {
+      this.send(ws, { type: 'error', message: 'Invalid dice request' });
       return;
     }
 
@@ -194,16 +323,31 @@ export class SignalingServer {
       room.rollCache = new Map();
     }
 
-    let results = room.rollCache.get(message.rollId);
-    if (!results) {
+    const cached = room.rollCache.get(message.rollId);
+    let results: DiceResult[];
+    if (cached) {
+      if (!this.diceRoller.areSpecsEqual(cached.specs, message.dice)) {
+        this.send(ws, { type: 'error', message: 'Roll ID already used with different dice specs' });
+        return;
+      }
+      results = cached.results;
+    } else {
       results = this.diceRoller.rollDice(message.dice);
-      room.rollCache.set(message.rollId, results);
+      room.rollCache.set(message.rollId, {
+        specs: message.dice.map((s: DiceSpec) => ({
+          count: s.count,
+          sides: s.sides,
+          ...(s.purpose !== undefined ? { purpose: s.purpose } : {}),
+          ...(s.modifier !== undefined ? { modifier: s.modifier } : {}),
+        })),
+        results,
+      });
       if (room.rollCache.size > 100) {
         const firstKey = room.rollCache.keys().next().value;
-        if (firstKey) room.rollCache.delete(firstKey);
+        if (firstKey !== undefined) room.rollCache.delete(firstKey);
       }
     }
-    
+
     // Broadcast to both peers simultaneously
     const resultMessage = {
       type: 'roll-dice-result',

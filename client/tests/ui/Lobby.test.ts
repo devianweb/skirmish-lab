@@ -179,6 +179,37 @@ describe('Lobby UI', () => {
     expect((lobby as any).isCreatedRoom).toBe(false);
   });
 
+  it('clicking resume button passes the saved rejoinToken to joinRoom and updates it on room-joined', async () => {
+    const sessionStore = new SessionStore(createMockStorage());
+    sessionStore.saveActiveSession({
+      roomCode: 'RES-789',
+      role: 'host',
+      playerId: 'host1',
+      playerName: 'Host Player',
+      rejoinToken: 'saved-rejoin-token',
+      timestamp: Date.now(),
+    });
+
+    const lobby = new Lobby(container, { sessionStore });
+    (lobby as any).render();
+
+    const joinRoomSpy = vi.spyOn((lobby as any).signalingClient, 'joinRoom').mockImplementation(() => {});
+
+    const resumeBtn = container.querySelector('#resumeBtn') as HTMLButtonElement;
+    resumeBtn.click();
+
+    expect(joinRoomSpy).toHaveBeenCalledWith('RES-789', 'saved-rejoin-token');
+
+    // When room-joined arrives with a rotated rejoinToken, activeSession is updated
+    ((lobby as any).signalingClient as any).handleMessage({
+      type: 'room-joined',
+      code: 'RES-789',
+      role: 'host',
+      rejoinToken: 'rotated-rejoin-token',
+    });
+    expect(sessionStore.getActiveSession()?.rejoinToken).toBe('rotated-rejoin-token');
+  });
+
   it('clicking abandon button clears session, removes snapshot, and re-renders without banner', () => {
     const sessionStore = new SessionStore(createMockStorage());
     sessionStore.saveActiveSession({
