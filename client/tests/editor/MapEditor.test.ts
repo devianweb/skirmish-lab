@@ -746,5 +746,59 @@ describe('MapEditor selection and board size', () => {
       expect(piece!.blocksLineOfSight).toBe(true);
       expect(mockGameView.syncFromState).toHaveBeenCalled();
     });
+
+    it('renders a map name and piece ID containing <img src=x onerror=…> as text, not as an element (G-06)', () => {
+      const memoryStorage = new Map<string, string>();
+      const mockStorage: Storage = {
+        getItem: (k: string) => memoryStorage.get(k) ?? null,
+        setItem: (k: string, v: string) => memoryStorage.set(k, v),
+        removeItem: (k: string) => memoryStorage.delete(k),
+        clear: () => memoryStorage.clear(),
+        key: (i: number) => Array.from(memoryStorage.keys())[i] ?? null,
+        get length() {
+          return memoryStorage.size;
+        },
+      };
+      const mapStore = new MapStore(mockStorage);
+      mapStore.saveMap({
+        id: 'xss-saved-map',
+        name: '<img src=x onerror=alert("map-name")>',
+        board: { width: 48, height: 48 },
+        terrain: [],
+      });
+
+      const editor = new MapEditor(container, { mapStore });
+      editor.setMap({
+        id: 'current-xss-map',
+        name: '<img src=x onerror=alert("current-map")>',
+        board: { width: 48, height: 48 },
+        terrain: [
+          {
+            id: '<img src=x onerror=alert("piece-id")>',
+            terrainType: 'crate',
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 0.75, z: 1 },
+            providesCover: true,
+            blocksLineOfSight: false,
+            isObstacle: true,
+          },
+        ],
+      });
+      editor.show();
+
+      // Select the piece to show the inspector
+      editor.selectPiece('<img src=x onerror=alert("piece-id")>');
+
+      // No <img> elements should have been created by innerHTML interpolation
+      expect(container.querySelectorAll('img').length).toBe(0);
+
+      // Verify the map name and piece ID render as text, not HTML elements
+      const nameInput = container.querySelector('#mapNameInput') as HTMLInputElement;
+      expect(nameInput.value).toBe('<img src=x onerror=alert("current-map")>');
+      expect(container.textContent).toContain('<img src=x onerror=alert("map-name")>');
+      expect(container.textContent).toContain('<img src=x onerror=alert("piece-id")>');
+      expect(container.innerHTML).toContain('&lt;img src=x');
+    });
   });
 });

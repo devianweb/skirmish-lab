@@ -466,4 +466,70 @@ describe('Lobby UI', () => {
       expect(localStorage.getItem('skirmish_lab_dev_mode')).toBe('1');
     });
   });
+
+  describe('HTML escaping and URL sanitization (G-06)', () => {
+    it('limits ?room= URL parameter to /^[A-Z0-9-]{0,7}$/ and ignores malicious or invalid input', async () => {
+      const origLocation = window.location;
+      try {
+        // Test malicious script/HTML injection
+        delete (window as any).location;
+        (window as any).location = { search: '?room=%22%3E%3Cimg%20src=x%20onerror=%22alert(1)%22%3E' };
+        const lobby1 = new Lobby(container);
+        await lobby1.init();
+        expect((lobby1 as any).initialRoomCode).toBeNull();
+
+        // Test overlong string
+        (window as any).location = { search: '?room=ROOM-12345' };
+        const lobby2 = new Lobby(container);
+        await lobby2.init();
+        expect((lobby2 as any).initialRoomCode).toBeNull();
+
+        // Test invalid characters
+        (window as any).location = { search: '?room=ABC$123' };
+        const lobby3 = new Lobby(container);
+        await lobby3.init();
+        expect((lobby3 as any).initialRoomCode).toBeNull();
+
+        // Test valid format (short code up to 7 chars)
+        (window as any).location = { search: '?room=abc-123' };
+        const lobby4 = new Lobby(container);
+        await lobby4.init();
+        expect((lobby4 as any).initialRoomCode).toBe('ABC-123');
+      } finally {
+        (window as any).location = origLocation;
+      }
+    });
+
+    it('renders a map name and a room code containing <img src=x onerror=…> as text, not as an element', () => {
+      const mapStore = new MapStore(createMockStorage());
+      mapStore.saveMap({
+        id: 'xss-map',
+        name: '<img src=x onerror=alert(1)>',
+        board: { width: 48, height: 48 },
+        terrain: [],
+      });
+
+      const lobby = new Lobby(container, { mapStore });
+      (lobby as any).initialRoomCode = '<img src=x onerror=alert(2)>';
+      (lobby as any).render();
+
+      // No <img> element should exist in the container
+      expect(container.querySelectorAll('img').length).toBe(0);
+
+      // Map name rendered in select option as text
+      const mapSelect = container.querySelector('#mapSelect') as HTMLSelectElement;
+      expect(mapSelect.innerHTML).toContain('&lt;img src=x onerror=alert(1)&gt;');
+      expect(container.textContent).toContain('<img src=x onerror=alert(1)>');
+
+      // Now test room waiting screen with malicious room code and map name
+      (lobby as any).roomCode = '<img src=x onerror=alert(3)>';
+      (lobby as any).role = 'host';
+      (lobby as any).selectedMapSelection = 'custom:xss-map';
+      (lobby as any).render();
+
+      expect(container.querySelectorAll('img').length).toBe(0);
+      expect(container.innerHTML).toContain('&lt;img src=x onerror=alert(3)&gt;');
+      expect(container.innerHTML).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    });
+  });
 });

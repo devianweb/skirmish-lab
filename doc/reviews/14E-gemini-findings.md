@@ -72,7 +72,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** architecture
 - **Location:** `client/src/core/GameManager.ts:194-199`
-- **Status:** verified
+- **Status:** fixed in bugfix-2b-client-trust
 - **Defect:** The host's `action-request` P2P handler passes `msg.action` directly to `processAction` without verifying that `msg.action.actorId === this.gameState.guestId`.
 - **Failure scenario:** A guest sends `{ type: "action-request", action: { id: "a1", type: "concede", actorId: "player-host", timestamp: 1, payload: { type: "concede" } } }` (or a host turn/reaction action with `actorId: "player-host"`) over the WebRTC data channel; the host validates `actorId` against `state.players`, accepts it, and forces the host to concede or executes host actions on the host's behalf.
 - **Suggested fix:** In the host's `action-request` handler in `GameManager.ts:195`, verify `this.gameState && msg.action && msg.action.actorId === this.gameState.guestId` before calling `processAction`, and send `action-rejected` (`"Unauthorized actor"`) if it does not match.
@@ -92,7 +92,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** security
 - **Location:** `client/src/ui/Lobby.ts:145-148, 575-577, 589, 609, 684`, `client/src/editor/MapEditor.ts:673, 675, 716, 736`, `client/src/ui/GameHUD.ts:3938, 3976-3977, 4001-4032`
-- **Status:** verified
+- **Status:** fixed in bugfix-2b-client-trust
 - **Defect:** Untrusted strings from the `?room=` URL query parameter, imported custom map JSON files (`map.name`, `piece.id`), and peer-supplied state/rejection messages are interpolated unescaped into `innerHTML` across `Lobby`, `MapEditor`, and `GameHUD`.
 - **Failure scenario:** Opening an invite link such as `?room="><img src=x onerror="&#97;&#108;&#101;&#114;&#116;(1)">` (where numeric HTML character references survive `.toUpperCase()` in `Lobby.ts:147, 589`) or importing a shared map JSON whose `name` contains `<img src=x onerror=alert(1)>` (`Lobby.ts:684`, `MapEditor.ts:673`) executes arbitrary JavaScript in the user's browser.
 - **Suggested fix:** Sanitize `?room=` to `/^[A-Z0-9-]{0,7}$/`, and wrap all dynamic text and attribute interpolations in `Lobby.ts`, `MapEditor.ts`, and `GameHUD.ts` with `escapeHtmlText` and `escapeHtmlAttr`.
@@ -252,7 +252,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/main.ts:206, 210-219, 244-265`, `client/src/core/GameManager.ts:118-125, 201-231`
-- **Status:** verified
+- **Status:** fixed in bugfix-2b-client-trust
 - **Defect:** `main.ts` never calls `gameManager.destroy()` when returning to the lobby, and `rebindWebRTCClient` neither detaches listeners from the old `WebRTCClient` nor attaches `hud.setNetworkStatus` to the new `WebRTCClient`.
 - **Failure scenario:** If the host clicks "Return to Lobby" while a reaction timer is active, `onReturnToLobby` (`main.ts:244`) clears `defaultSessionStore` and nulls `gameManager` without calling `gameManager.destroy()`; when `reactionTimeoutTimer` fires, the orphaned `GameManager` processes the fallback action and saves the old match snapshot back into `localStorage`. Furthermore, when a guest rejoins via the fast-rebind path (`main.ts:210-219`), the old `WebRTCClient`'s delayed `disconnected` event still fires on `GameManager` (pausing reaction timers) while the new `WebRTCClient` never updates `hud.setNetworkStatus`.
 - **Suggested fix:** Call `gameManager?.destroy()` in `onReturnToLobby`, guard `GameManager`'s WebRTC callbacks with `if (this.webrtcClient !== client) return;`, and wire `webrtcClient.onConnectionState` to `hud?.setNetworkStatus` inside the fast-rebind branch in `main.ts:212`.
@@ -262,7 +262,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/ui/GameHUD.ts:419-433, 509-516, 1383-1388`
-- **Status:** verified
+- **Status:** fixed in bugfix-2b-client-trust
 - **Defect:** `GameHUD.syncFromState` executes an early `return;` on round transitions (`roundNumber > prevRound`), and `GameHUD.dispose()` fails to clear `this.reactionTimerInterval`.
 - **Failure scenario:** When Round 2, 3, or 4 starts (`GameHUD.ts:509-516`), `syncFromState` shows the round toast and returns at line 515 before running lines 519–550, skipping `SoundFx.getInstance().playTurnChime()`, leaving `prevCurrentPlayerId` stale, and skipping `reactionTimerInterval` cleanup; additionally, when `hud.dispose()` (`GameHUD.ts:1383`) is called on lobby return during a reaction, the 250ms `reactionTimerInterval` is leaked and re-renders the detached HUD indefinitely.
 - **Suggested fix:** Remove the early `return;` at `GameHUD.ts:515` so round transitions still update audio/timer state before rendering, and consolidate `destroy()` and `dispose()` so both clear `toastTimer`, `concedeTimer`, and `reactionTimerInterval`.

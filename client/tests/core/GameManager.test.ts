@@ -302,6 +302,94 @@ describe('GameManager', () => {
       );
     });
 
+    it('rejects action-request with "Unauthorized actor" when actorId is not the guestId (G-04)', () => {
+      const manager = new GameManager(mockWebRTC, true);
+      manager.startGame('Host', 'Guest', { useDeploymentPhase: false });
+      const guestId = manager.getGameState()!.guestId;
+      const hostId = manager.getGameState()!.hostId;
+
+      mockWebRTC.send.mockClear();
+
+      // Guest attempts to send an action claiming to be the host (e.g. host concede)
+      const forgedAction = createAction(hostId, 'concede', { type: 'concede' });
+      handlers.get('action-request')!({ type: 'action-request', action: forgedAction });
+
+      // Host must not apply the forged action
+      expect(manager.getGameState()!.status).not.toBe('game-over');
+      expect(mockWebRTC.send).toHaveBeenCalledWith({
+        type: 'action-rejected',
+        actionId: forgedAction.id,
+        reason: 'Unauthorized actor',
+      });
+
+      mockWebRTC.send.mockClear();
+
+      // Guest attempts to send an action with an unknown stranger actorId
+      const strangerAction = createAction('stranger-player', 'concede', { type: 'concede' });
+      handlers.get('action-request')!({ type: 'action-request', action: strangerAction });
+
+      expect(manager.getGameState()!.status).not.toBe('game-over');
+      expect(mockWebRTC.send).toHaveBeenCalledWith({
+        type: 'action-rejected',
+        actionId: strangerAction.id,
+        reason: 'Unauthorized actor',
+      });
+    });
+
+    it('ignores WebRTC messages and disconnect events from an old WebRTCClient after rebindWebRTCClient (G-22)', () => {
+      const oldHandlers = new Map<string, (msg: any) => void>();
+      let oldConnStateCallback: ((state: 'connected' | 'disconnected') => void) | null = null;
+      const oldMockWebRTC: any = {
+        send: vi.fn(),
+        on: vi.fn((event: string, handler: (msg: any) => void) => {
+          oldHandlers.set(event, handler);
+        }),
+        onConnectionState: vi.fn((cb: any) => {
+          oldConnStateCallback = cb;
+        }),
+      };
+
+      const manager = new GameManager(oldMockWebRTC, true);
+      manager.startGame('Host', 'Guest', { useDeploymentPhase: false });
+
+      // Create new WebRTCClient and rebind
+      const newHandlers = new Map<string, (msg: any) => void>();
+      let newConnStateCallback: ((state: 'connected' | 'disconnected') => void) | null = null;
+      const newMockWebRTC: any = {
+        send: vi.fn(),
+        on: vi.fn((event: string, handler: (msg: any) => void) => {
+          newHandlers.set(event, handler);
+        }),
+        onConnectionState: vi.fn((cb: any) => {
+          newConnStateCallback = cb;
+        }),
+      };
+
+      manager.rebindWebRTCClient(newMockWebRTC);
+
+      // Simulate connected on new client
+      newConnStateCallback!('connected');
+      expect((manager as any).isPeerConnected).toBe(true);
+
+      // Now old client fires disconnected late
+      oldConnStateCallback!('disconnected');
+      expect((manager as any).isPeerConnected).toBe(true);
+
+      // Action request arriving on old client is ignored
+      const guestId = manager.getGameState()!.guestId;
+      const guestUnit = manager.getGameState()!.units.find((u) => u.ownerId === guestId)!;
+      const action = createAction(guestId, 'activate-unit', {
+        type: 'activate-unit',
+        unitId: guestUnit.id,
+      });
+      oldHandlers.get('action-request')!({ type: 'action-request', action });
+      expect(newMockWebRTC.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'state-update', actionId: action.id })
+      );
+
+      manager.destroy();
+    });
+
     it('rolls the objective count and mission roll-off through the server dice as soon as a deployment game starts', async () => {
       const rolls = (first: number) => Array.from({ length: 10 }, () => [first, 1]).flat();
       const diceProvider = {

@@ -133,6 +133,7 @@ import {
   showsModelHeadings,
 } from './modelLoadout';
 import { soundFx } from '../audio/SoundFx';
+import { escapeHtml } from './escapeHtml';
 import {
   DeploymentZoneBounds,
   DeploymentZoneMarker,
@@ -141,18 +142,8 @@ import {
   PlacementMarker,
 } from '../renderer/MarkerRenderer';
 
-function escapeHtmlAttr(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function escapeHtmlText(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const escapeHtmlAttr = escapeHtml;
+const escapeHtmlText = escapeHtml;
 
 /** What the HUD needs from the game controller to submit confirmed actions. */
 export interface HUDController {
@@ -434,19 +425,7 @@ export class GameHUD {
   }
 
   destroy(): void {
-    if (this.reactionTimerInterval) {
-      clearInterval(this.reactionTimerInterval);
-      this.reactionTimerInterval = null;
-    }
-    if (this.toastTimer) {
-      clearTimeout(this.toastTimer);
-      this.toastTimer = null;
-    }
-    this.clearConcedeTimer();
-    window.removeEventListener('keydown', this.keydownHandler);
-    if (this.root.parentElement) {
-      this.root.parentElement.removeChild(this.root);
-    }
+    this.dispose();
   }
 
   private peerState: 'connected' | 'disconnected' = 'connected';
@@ -555,7 +534,6 @@ export class GameHUD {
           ? 'You activate first'
           : 'Opponent activates first';
       this.showToast(`Round ${state.turnState.roundNumber} started — ${starter}!`);
-      return;
     }
 
     // Audio cues for turn transitions and reaction prompts
@@ -1438,9 +1416,16 @@ export class GameHUD {
   }
 
   dispose(): void {
-    window.removeEventListener('keydown', this.keydownHandler);
-    if (this.toastTimer) clearTimeout(this.toastTimer);
+    if (this.reactionTimerInterval) {
+      clearInterval(this.reactionTimerInterval);
+      this.reactionTimerInterval = null;
+    }
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
     this.clearConcedeTimer();
+    window.removeEventListener('keydown', this.keydownHandler);
     this.root.remove();
   }
 
@@ -1754,7 +1739,7 @@ export class GameHUD {
         const splits = this.casualtySplits(ctx, removal);
         return `<button class="sl-hud-btn sl-hud-chip ${picked ? 'active' : ''}" data-action="toggle-casualty-model" data-model-id="${m.id}" style="${
           picked ? 'background: #ff9800; color: #000; font-weight: bold;' : ''
-        }">${picked ? '✕ ' : ''}${m.name ?? modelLabel(ctx.unit, m.id)} (${m.wounds}W)${carried}${
+        }">${picked ? '✕ ' : ''}${escapeHtml(m.name ?? modelLabel(ctx.unit, m.id))} (${m.wounds}W)${carried}${
           splits ? ' <span style="font-size: 10px; opacity: 0.8;">· splits the squad</span>' : ''
         }</button>`;
       })
@@ -1765,7 +1750,7 @@ export class GameHUD {
         ${dataCardSlot}
         <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
           <div class="sl-hud-reaction-header">
-            <span class="sl-hud-reaction-title">Remove ${ctx.count} model${ctx.count === 1 ? '' : 's'} from ${ctx.unit.name}</span>
+            <span class="sl-hud-reaction-title">Remove ${ctx.count} model${ctx.count === 1 ? '' : 's'} from ${escapeHtml(ctx.unit.name)}</span>
             <span class="sl-hud-reaction-timer">${remainingSec}s</span>
           </div>
           <div class="sl-hud-reaction-desc">Choose the casualties (${this.casualtyPicked.length}/${ctx.count}): click a model on the board or a button below. Any model may be picked, even one the enemy cannot see.</div>
@@ -1801,7 +1786,7 @@ export class GameHUD {
         const p = previewOf(m.id);
         const taken = m.maxWounds - Math.max(0, m.wounds);
         const outcome = p ? ` · ${this.casualtyOutcomeText(m, p)}` : '';
-        return `<button class="sl-hud-btn sl-hud-chip" data-locked-model="true" data-model-id="${m.id}" disabled style="opacity: 0.85; border-style: dashed;">${modelLabel(ctx.unit, m.id)} · ${taken}/${m.maxWounds} W · takes wounds first${outcome}${carried(m)}</button>`;
+        return `<button class="sl-hud-btn sl-hud-chip" data-locked-model="true" data-model-id="${m.id}" disabled style="opacity: 0.85; border-style: dashed;">${escapeHtml(modelLabel(ctx.unit, m.id))} · ${taken}/${m.maxWounds} W · takes wounds first${outcome}${carried(m)}</button>`;
       })
       .join('');
     const pickChips = ctx.alive
@@ -1813,8 +1798,8 @@ export class GameHUD {
         const hypothetical = !picked && this.casualtyPicked.length < ctx.count ? [...this.casualtyPicked, m.id] : this.casualtyPicked;
         const splits = this.casualtySplits(ctx, destroyedAfter(hypothetical));
         const label = picked
-          ? `${place + 1} · ${modelLabel(ctx.unit, m.id)}${p ? ` · ${this.casualtyOutcomeText(m, p)}` : ''}`
-          : `${modelLabel(ctx.unit, m.id)} (${m.wounds}W)`;
+          ? `${place + 1} · ${escapeHtml(modelLabel(ctx.unit, m.id))}${p ? ` · ${this.casualtyOutcomeText(m, p)}` : ''}`
+          : `${escapeHtml(modelLabel(ctx.unit, m.id))} (${m.wounds}W)`;
         return `<button class="sl-hud-btn sl-hud-chip ${picked ? 'active' : ''}" data-action="toggle-casualty-model" data-model-id="${m.id}" style="${
           picked ? 'background: #ff9800; color: #000; font-weight: bold;' : ''
         }">${label}${carried(m)}${splits ? ' <span style="font-size: 10px; opacity: 0.8;">· splits the squad</span>' : ''}</button>`;
@@ -1828,7 +1813,7 @@ export class GameHUD {
         ${dataCardSlot}
         <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
           <div class="sl-hud-reaction-header">
-            <span class="sl-hud-reaction-title">Assign wounds: ${ctx.unit.name}</span>
+            <span class="sl-hud-reaction-title">Assign wounds: ${escapeHtml(ctx.unit.name)}</span>
             <span class="sl-hud-reaction-timer">${remainingSec}s</span>
           </div>
           <div class="sl-hud-reaction-desc">${lockedSentence}${lockedSentence ? 'Then pick' : 'Pick'} ${ctx.count} model${ctx.count === 1 ? '' : 's'} in order (${this.casualtyPicked.length}/${ctx.count}): each takes wounds until it is removed; the last one may survive wounded.${removedNote} Click a model on the board or a button below.</div>
@@ -1908,14 +1893,14 @@ export class GameHUD {
           .map((p, col) => {
             const n = counts[col] ?? 0;
             return `<div class="sl-hud-blast-row" style="display: flex; align-items: center; gap: 6px; justify-content: center;">
-              <span style="min-width: 150px; text-align: right;">${p.unitName} <span style="opacity: 0.7; font-size: 11px;">(max ${p.cap})</span></span>
+              <span style="min-width: 150px; text-align: right;">${escapeHtml(p.unitName)} <span style="opacity: 0.7; font-size: 11px;">(max ${p.cap})</span></span>
               <button class="sl-hud-btn" data-action="blast-step" data-row="${row}" data-col="${col}" data-delta="-1" ${n <= 0 ? 'disabled' : ''}>−</button>
               <strong style="min-width: 20px; text-align: center;">${n}</strong>
               <button class="sl-hud-btn" data-action="blast-step" data-row="${row}" data-col="${col}" data-delta="1" ${n >= p.cap ? 'disabled' : ''}>+</button>
             </div>`;
           })
           .join('');
-        const heading = ctx.data.blasts.length > 1 ? `<div class="sl-hud-dice-label" style="color: #fbbf24;">${b.weaponName}</div>` : '';
+        const heading = ctx.data.blasts.length > 1 ? `<div class="sl-hud-dice-label" style="color: #fbbf24;">${escapeHtml(b.weaponName)}</div>` : '';
         return `<div class="sl-hud-blast-weapon">
           ${heading}
           ${lines}
@@ -1931,10 +1916,10 @@ export class GameHUD {
         ${dataCardSlot}
         <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
           <div class="sl-hud-reaction-header">
-            <span class="sl-hud-reaction-title">${ctx.pending.title}</span>
+            <span class="sl-hud-reaction-title">${escapeHtml(ctx.pending.title)}</span>
             <span class="sl-hud-reaction-timer">${remainingSec}s</span>
           </div>
-          <div class="sl-hud-reaction-desc">${shooter}'s Blast reaches more than one of your units. Share the hits out between them: any split works as long as no unit takes more hits than it has models and every hit that can land is assigned.</div>
+          <div class="sl-hud-reaction-desc">${escapeHtml(shooter)}'s Blast reaches more than one of your units. Share the hits out between them: any split works as long as no unit takes more hits than it has models and every hit that can land is assigned.</div>
           ${blocks}
           <div class="sl-hud-reaction-actions">
             <button class="sl-hud-btn" data-action="blast-auto">Auto split</button>
@@ -2075,13 +2060,13 @@ export class GameHUD {
     let body: string;
     if (!this.pushPicking) {
       body = `
-          <div class="sl-hud-reaction-desc">${ctx.pending.description}</div>
+          <div class="sl-hud-reaction-desc">${escapeHtml(ctx.pending.description)}</div>
           <div class="sl-hud-reaction-actions">
             ${ctx.pending.options
               .map((o) =>
                 o.id === PUSH_CONFIRM_CHOICE
-                  ? `<button class="sl-hud-btn" data-action="push-confirm">${o.label}</button>`
-                  : choiceBtn(o.id, o.label, o.style === 'primary' ? 'primary' : o.style === 'danger' ? 'danger' : '')
+                  ? `<button class="sl-hud-btn" data-action="push-confirm">${escapeHtml(o.label)}</button>`
+                  : choiceBtn(o.id, escapeHtml(o.label), o.style === 'primary' ? 'primary' : o.style === 'danger' ? 'danger' : '')
               )
               .join('')}
           </div>`;
@@ -2092,7 +2077,7 @@ export class GameHUD {
           (m) =>
             `<button class="sl-hud-btn sl-hud-chip ${m.id === model?.id ? 'active' : ''}" data-action="select-push-model" data-model-id="${m.id}" style="${
               m.id === model?.id ? 'background: #00bcd4; color: #000; font-weight: bold;' : ''
-            }">${modelLabel(ctx.shaken, m.id)}</button>`
+            }">${escapeHtml(modelLabel(ctx.shaken, m.id))}</button>`
         )
         .join('');
       const hint = !model
@@ -2101,7 +2086,7 @@ export class GameHUD {
         ? 'Spot chosen. Push to apply it, or Back to pick another spot.'
         : `Click a spot within ${PUSH_RANGE}" of the highlighted model (the ring).`;
       const note = this.pushNote
-        ? `<div class="sl-hud-reaction-desc" style="color: ${this.pushNote.ok ? '#a5d6a7' : '#ef9a9a'};">${this.pushNote.text}</div>`
+        ? `<div class="sl-hud-reaction-desc" style="color: ${this.pushNote.ok ? '#a5d6a7' : '#ef9a9a'};">${escapeHtml(this.pushNote.text)}</div>`
         : '';
       body = `
           <div class="sl-hud-reaction-desc">${hint}</div>
@@ -2118,7 +2103,7 @@ export class GameHUD {
         ${dataCardSlot}
         <div class="sl-hud-bottom sl-hud-reaction" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
           <div class="sl-hud-reaction-header">
-            <span class="sl-hud-reaction-title">${ctx.pending.title}</span>
+            <span class="sl-hud-reaction-title">${escapeHtml(ctx.pending.title)}</span>
             <span class="sl-hud-reaction-timer">${remainingSec}s</span>
           </div>
           ${body}
@@ -2336,7 +2321,7 @@ export class GameHUD {
             : placed
             ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
             : ''
-        }">${placed ? '✓ ' : ''}${modelLabel(ctx.defender, m.id)}</button>`;
+        }">${placed ? '✓ ' : ''}${escapeHtml(modelLabel(ctx.defender, m.id))}</button>`;
       })
       .join('');
     return `
@@ -2347,7 +2332,7 @@ export class GameHUD {
             <span class="sl-hud-reaction-title">Pile in</span>
             <span class="sl-hud-reaction-timer">${remainingSec}s</span>
           </div>
-          <div class="sl-hud-reaction-desc">${ctx.charger.name} charged ${ctx.defender.name}. Move each model that is not touching up to ${ctx.maxDistance}" toward the attackers: pick a model, then click a spot. The attacks are rolled after you confirm.</div>
+          <div class="sl-hud-reaction-desc">${escapeHtml(ctx.charger.name)} charged ${escapeHtml(ctx.defender.name)}. Move each model that is not touching up to ${ctx.maxDistance}" toward the attackers: pick a model, then click a spot. The attacks are rolled after you confirm.</div>
           <div class="sl-hud-squad-chips" style="display: flex; gap: 6px; align-items: center;">
             <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Select Model:</span>
             ${chips}
@@ -3977,7 +3962,7 @@ export class GameHUD {
       alerts.push('<div class="sl-hud-alert sl-hud-alert-warn">⚠️ Signaling offline</div>');
     }
     // A toast shown while a banner is up stacks underneath it instead of being hidden behind it.
-    const toastHtml = this.toast ? `<div class="sl-hud-toast">${this.toast}</div>` : '';
+    const toastHtml = this.toast ? `<div class="sl-hud-toast">${escapeHtml(this.toast)}</div>` : '';
     const alertsHtml = alerts.length ? `<div class="sl-hud-alerts">${alerts.join('')}${toastHtml}</div>` : '';
 
     const isObjectivesPhase = state.turnState.phase === 'objectives';
@@ -4015,8 +4000,8 @@ export class GameHUD {
         <span class="sl-hud-objectives-score">
           Objectives: <span class="score-team-host" style="color: #29b6f6; font-weight: 700;">Host ${hostScore}</span> — <span class="score-team-guest" style="color: #ef5350; font-weight: 700;">Guest ${guestScore}</span>
         </span>
-        <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${turnLabel}</span>
-        ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : '<span style="margin-left: auto;"></span>'}
+        <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${escapeHtml(turnLabel)}</span>
+        ${this.roomCode ? `<span class="sl-hud-room">Room: ${escapeHtml(this.roomCode)}</span>` : '<span style="margin-left: auto;"></span>'}
         <button class="sl-hud-btn sl-hud-mute" data-action="audio-mute-toggle" title="${soundFx.isMuted() ? 'Unmute audio' : 'Mute audio'}" aria-label="${soundFx.isMuted() ? 'Unmute audio' : 'Mute audio'}">${soundFx.isMuted() ? '🔇' : '🔊'}</button>
         <button class="sl-hud-btn sl-hud-how-to-play" data-action="how-to-play-open" title="How to play" aria-label="How to play">?</button>
         ${
@@ -4042,9 +4027,9 @@ export class GameHUD {
 
     const units = `
       <div class="sl-hud-panel sl-hud-units">
-        <h3 style="color: ${myTeamHex};">${myName} — Fighters (${myUnactivated} ready)</h3>
+        <h3 style="color: ${myTeamHex};">${escapeHtml(myName)} — Fighters (${myUnactivated} ready)</h3>
         ${this.myUnits.map((unit) => this.renderUnitRow(unit, myTeamClass)).join('')}
-        <h3 style="margin-top: 10px; color: ${enemyTeamHex};">${opponentName} — Enemy (${enemyUnactivated} ready)</h3>
+        <h3 style="margin-top: 10px; color: ${enemyTeamHex};">${escapeHtml(opponentName)} — Enemy (${enemyUnactivated} ready)</h3>
         ${this.enemyUnits.map((unit) => this.renderEnemyRow(unit, enemyTeamClass)).join('')}
       </div>`;
 
@@ -4060,7 +4045,7 @@ export class GameHUD {
     const sideLine = (playerId: string, colour: string): string => {
       const l = summary!.losses[playerId];
       const name = state.players.find((p) => p.id === playerId)?.name ?? 'Player';
-      return `<div class="sl-hud-gameover-loss" style="color: ${colour};">${name} lost ${l.unitsLost} of ${l.unitsTotal} units (${l.modelsLost} of ${l.modelsTotal} models)</div>`;
+      return `<div class="sl-hud-gameover-loss" style="color: ${colour};">${escapeHtml(name)} lost ${l.unitsLost} of ${l.unitsTotal} units (${l.modelsLost} of ${l.modelsTotal} models)</div>`;
     };
     const opponentAsked = !!state.rematchRequestedBy?.includes(opponent?.id ?? '');
     const iAsked = this.rematchPending || !!state.rematchRequestedBy?.includes(this.localPlayerId);
@@ -4071,9 +4056,9 @@ export class GameHUD {
       if (opponentLeft) {
         rematchButton = '<button class="sl-hud-btn" data-action="play-again" disabled>Opponent has left</button>';
       } else if (iAsked) {
-        rematchButton = `<button class="sl-hud-btn" data-action="play-again" disabled>Waiting for ${opponentName}…</button>`;
+        rematchButton = `<button class="sl-hud-btn" data-action="play-again" disabled>Waiting for ${escapeHtml(opponentName)}…</button>`;
       } else if (opponentAsked) {
-        rematchNote = `<div class="sl-hud-gameover-rematch" style="margin-bottom: 12px; font-size: 13px; color: #ffd54f;">${opponentName} wants a rematch</div>`;
+        rematchNote = `<div class="sl-hud-gameover-rematch" style="margin-bottom: 12px; font-size: 13px; color: #ffd54f;">${escapeHtml(opponentName)} wants a rematch</div>`;
         rematchButton = '<button class="sl-hud-btn primary" data-action="play-again">Accept rematch</button>';
       } else {
         rematchButton = '<button class="sl-hud-btn primary" data-action="play-again">Play Again</button>';
@@ -4104,7 +4089,7 @@ export class GameHUD {
                         : o.controllingPlayerId === state.guestId
                         ? '<span style="color: #ef5350; font-weight: 600;">Guest</span>'
                         : '<span style="color: #ffd54f;">Neutral</span>';
-                      return `<div>${o.name}: ${ctrlText}</div>`;
+                      return `<div>${escapeHtml(o.name)}: ${ctrlText}</div>`;
                     })
                     .join('')}
                 </div>`
@@ -4117,7 +4102,7 @@ export class GameHUD {
         </div>
         ${
           this.peerState === 'disconnected'
-            ? `<div class="sl-hud-gameover-left" style="margin-bottom: 12px; font-size: 12px; color: #78909c;">${opponentName} has left.</div>`
+            ? `<div class="sl-hud-gameover-left" style="margin-bottom: 12px; font-size: 12px; color: #78909c;">${escapeHtml(opponentName)} has left.</div>`
             : ''
         }
         ${rematchNote}
@@ -4269,8 +4254,8 @@ export class GameHUD {
         const suffix = traits ? `, ${traits}` : '';
         const qty = carrierPrefix(unit, w);
         return w.profile.type === 'ranged'
-          ? `${qty}${w.name} (${w.profile.range}", A${w.profile.attacks}${suffix})`
-          : `${qty}${w.name} (A${w.profile.attacks}${suffix})`;
+          ? `${qty}${escapeHtml(w.name)} (${w.profile.range}", A${w.profile.attacks}${suffix})`
+          : `${qty}${escapeHtml(w.name)} (A${w.profile.attacks}${suffix})`;
       })
       .join(', ');
 
@@ -4295,7 +4280,7 @@ export class GameHUD {
 
     return `
       <div class="${classes}" data-unit-id="${unit.id}">
-        <span class="sl-hud-unit-name">${unit.name}${isActive ? ' ●' : ''}</span>
+        <span class="sl-hud-unit-name">${escapeHtml(unit.name)}${isActive ? ' ●' : ''}</span>
         <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${tough})${modelText}</span>
         ${weaponSummary ? `<span class="sl-hud-unit-weapons">${weaponSummary}</span>` : ''}
         ${statusTags.length ? `<span class="sl-hud-unit-tags">${statusTags.join(' ')}</span>` : ''}
@@ -4338,7 +4323,7 @@ export class GameHUD {
 
     return `
       <div class="${classes}" data-unit-id="${unit.id}">
-        <span class="sl-hud-unit-name">${unit.name}</span>
+        <span class="sl-hud-unit-name">${escapeHtml(unit.name)}</span>
         <span class="sl-hud-unit-stats">Q${unit.quality}+ D${unit.defense}+ · Tough(${enemyTough})${enemyModelText}</span>
         ${statusTags.length ? `<span class="sl-hud-unit-tags">${statusTags.join(' ')}</span>` : ''}
       </div>`;
@@ -4380,7 +4365,7 @@ export class GameHUD {
 
   private meleeResultsHtml(results: MeleeResultRecord[]): string {
     return results
-      .map((r) => `<div class="sl-hud-dice-label">Melee: ${this.meleeResultText(r)}</div>`)
+      .map((r) => `<div class="sl-hud-dice-label">Melee: ${escapeHtml(this.meleeResultText(r))}</div>`)
       .join('');
   }
 
@@ -4401,7 +4386,7 @@ export class GameHUD {
             : '';
         const note = t.roll === undefined ? ' (already Shaken: fails without a roll)' : '';
         return `
-          <div class="sl-hud-dice-label">${t.unitName} Morale (need Q${t.effectiveQuality}+${t.modifier ? `, roll ${t.modifier > 0 ? '+' : ''}${t.modifier}` : ''})${note}:</div>
+          <div class="sl-hud-dice-label">${escapeHtml(t.unitName)} Morale (need Q${t.effectiveQuality}+${t.modifier ? `, roll ${t.modifier > 0 ? '+' : ''}${t.modifier}` : ''})${note}:</div>
           <div class="sl-hud-dice-row">${dieHtml}${fearlessHtml}<span class="sl-hud-dice-summary" style="margin-left:8px;">${result}</span></div>`;
       })
       .join('');
@@ -4418,11 +4403,11 @@ export class GameHUD {
       .map((s) => {
         const base = s.multiplier > 0 ? Math.round(s.totalHits / s.multiplier) : s.totalHits;
         const shares = s.shares
-          .map((p) => `${p.targetName} <strong>${p.hits}</strong>${p.hits >= p.cap && s.shares.length > 1 ? ` (max ${p.cap})` : ''}`)
+          .map((p) => `${escapeHtml(p.targetName)} <strong>${p.hits}</strong>${p.hits >= p.cap && s.shares.length > 1 ? ` (max ${p.cap})` : ''}`)
           .join(' · ');
         const where = s.shares.length > 1 ? ` → ${shares}` : ` (max ${s.shares[0]?.cap ?? 0}: one per model)`;
         const lost = s.lostHits > 0 ? ` · ${plural(s.lostHits)} lost (every unit at its max)` : '';
-        return `<div class="sl-hud-dice-summary sl-hud-blast-split" style="font-size: 11px; color: #fbbf24;">${s.weaponName} Blast(${s.multiplier}): ${plural(base)} × ${s.multiplier} = ${plural(s.totalHits)}${where}${lost}</div>`;
+        return `<div class="sl-hud-dice-summary sl-hud-blast-split" style="font-size: 11px; color: #fbbf24;">${escapeHtml(s.weaponName)} Blast(${s.multiplier}): ${plural(base)} × ${s.multiplier} = ${plural(s.totalHits)}${where}${lost}</div>`;
       })
       .join('');
   }
@@ -4439,7 +4424,7 @@ export class GameHUD {
             return `<span class="sl-die ${blocked ? 'def-pass' : 'def-fail'}">${r}</span>`;
           })
           .join('');
-        return `<div class="sl-hud-dice-label">Blast spill on ${b.targetName ?? b.targetId}: Defense (need D${b.effectiveDefense ?? '?'}+):</div>
+        return `<div class="sl-hud-dice-label">Blast spill on ${escapeHtml(b.targetName ?? b.targetId)}: Defense (need D${b.effectiveDefense ?? '?'}+):</div>
           ${dice ? `<div class="sl-hud-dice-row">${dice}</div>` : ''}
           <div class="sl-hud-dice-summary" style="font-size: 11px;">${b.hitCount} hit${
           b.hitCount === 1 ? '' : 's'
@@ -4468,14 +4453,14 @@ export class GameHUD {
                 return `<span class="sl-die ${ok ? 'hit-pass' : 'hit-miss'}">${r}</span>`;
               })
               .join('');
-            return `<div class="sl-hud-dice-label">${e.text}</div>${
+            return `<div class="sl-hud-dice-label">${escapeHtml(e.text)}</div>${
               dieHtml ? `<div class="sl-hud-dice-row">${dieHtml}</div>` : ''
             }`;
           })
           .join('');
         return `
           <div class="sl-hud-dice">
-            <div class="sl-hud-dice-title">Movement hazards: ${mover}</div>
+            <div class="sl-hud-dice-title">Movement hazards: ${escapeHtml(mover)}</div>
             ${eventsHtml}
             ${entry.dice.outcome.moraleTests?.length ? this.moraleTestsHtml(entry.dice.outcome.moraleTests) : ''}
           </div>`;
@@ -4522,7 +4507,7 @@ export class GameHUD {
           : '';
         return `
           <div class="sl-hud-dice">
-            <div class="sl-hud-dice-title">${this.isToughSquad(target) ? 'Wounds assigned' : 'Casualties removed'}: ${target?.name ?? 'unit'}</div>
+            <div class="sl-hud-dice-title">${this.isToughSquad(target) ? 'Wounds assigned' : 'Casualties removed'}: ${escapeHtml(target?.name ?? 'unit')}</div>
             ${stepBack}
           </div>`;
       }
@@ -4532,7 +4517,7 @@ export class GameHUD {
         if (payload.choiceId === 'decline') {
           return `
             <div class="sl-hud-dice">
-              <div class="sl-hud-dice-title">Retaliation Declined: ${attacker?.name ?? 'Defender'} held ground</div>
+              <div class="sl-hud-dice-title">Retaliation Declined: ${escapeHtml(attacker?.name ?? 'Defender')} held ground</div>
               <div class="sl-hud-dice-summary">0 attacks · No fatigue applied</div>
               <div class="sl-hud-pushback-notice" style="margin-top: 6px; font-size: 11px; color: #4ade80; font-style: italic;">Charger pushed back 1" — Defender declined retaliation (no Fatigue)</div>
             </div>`;
@@ -4568,7 +4553,7 @@ export class GameHUD {
             return `
               <div class="sl-hud-alloc-block" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">
                 <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold; font-size: 11px;">
-                  ${alloc.weaponName ?? alloc.weaponId} → ${alloc.targetName ?? alloc.targetId}
+                  ${escapeHtml(alloc.weaponName ?? alloc.weaponId)} → ${escapeHtml(alloc.targetName ?? alloc.targetId)}
                 </div>
                 <div class="sl-hud-dice-row">
                   <span class="sl-hud-dice-sublabel" style="font-size:10px; margin-right:4px;">Hit (Q${alloc.effectiveQuality ?? 4}+):</span> ${aHitDice}
@@ -4585,7 +4570,7 @@ export class GameHUD {
 
         return `
           <div class="sl-hud-dice">
-            <div class="sl-hud-dice-title">${attacker?.name ?? 'Attacker'} Salvo (${outcome.allocations.length} weapons)</div>
+            <div class="sl-hud-dice-title">${escapeHtml(attacker?.name ?? 'Attacker')} Salvo (${outcome.allocations.length} weapons)</div>
             ${allocsHtml}
             <div class="sl-hud-dice-summary" style="margin-top: 6px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.25); padding-top: 4px;">
               Total: ${outcome.hitCount} hits · ${outcome.blockedCount} blocked · ${outcome.wounds} unsaved wounds
@@ -4696,7 +4681,7 @@ export class GameHUD {
 
         retaliationHtml = `
           <div class="sl-hud-dice-retaliation" style="margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.2); padding-top: 6px;">
-            <div class="sl-hud-dice-title" style="font-size: 11px; opacity: 0.9;">Defender Retaliation: ${target?.name ?? 'Defender'} → ${attacker?.name ?? 'Charger'}</div>
+            <div class="sl-hud-dice-title" style="font-size: 11px; opacity: 0.9;">Defender Retaliation: ${escapeHtml(target?.name ?? 'Defender')} → ${escapeHtml(attacker?.name ?? 'Charger')}</div>
             <div class="sl-hud-dice-label">To-Hit (need Q${retEffectiveQ}+${retToHitMods}):</div>
             <div class="sl-hud-dice-row">${retHitDiceHtml}</div>
             <div class="sl-hud-dice-label">Defense (need D${retChargerD}+${retDefMods}):</div>
@@ -4717,8 +4702,8 @@ export class GameHUD {
       const titleText =
         entry.action.type === 'respond-reaction' &&
         (entry.action.payload as { choiceId?: string }).choiceId !== 'auto-pile-in'
-          ? `Defender Retaliation: ${attacker?.name ?? 'Defender'} → ${target?.name ?? 'Charger'}`
-          : `${attacker?.name ?? 'Attacker'} → ${target?.name ?? 'target'}`;
+          ? `Defender Retaliation: ${escapeHtml(attacker?.name ?? 'Defender')} → ${escapeHtml(target?.name ?? 'Charger')}`
+          : `${escapeHtml(attacker?.name ?? 'Attacker')} → ${escapeHtml(target?.name ?? 'target')}`;
 
       // Several melee weapons struck: each has its own dice batch (`w<slot>-` purposes), target numbers and AP
       const meleeBlocks = outcome.meleeStrikes && outcome.meleeStrikes.length > 1 && attacker
@@ -4729,7 +4714,7 @@ export class GameHUD {
         : `<div class="sl-hud-dice-label">To-Hit (need Q${effectiveQ}+${toHitMods}):</div>
           <div class="sl-hud-dice-row">${hitDiceHtml}</div>
           ${this.blastSplitHtml(outcome.blastSplits)}
-          <div class="sl-hud-dice-label">${outcome.blastSplash?.length ? `${target?.name ?? 'Target'} ` : ''}Defense (need D${targetD}+${defMods}):</div>
+          <div class="sl-hud-dice-label">${outcome.blastSplash?.length ? `${escapeHtml(target?.name ?? 'Target')} ` : ''}Defense (need D${targetD}+${defMods}):</div>
           <div class="sl-hud-dice-row">${defDiceHtml}</div>`;
 
       return `
@@ -4785,7 +4770,7 @@ export class GameHUD {
         const defMods = m.defenseModifiers?.length ? ` · Base D${m.baseDefense ?? 5} ${m.defenseModifiers.join(' ')}` : '';
         return `
           <div class="sl-hud-melee-weapon-block" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15);">
-            <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold;">${m.weaponName ?? m.weaponId} — To-Hit (need Q${q}+${hitMods}):</div>
+            <div class="sl-hud-dice-label" style="color: #93c5fd; font-weight: bold;">${escapeHtml(m.weaponName ?? m.weaponId)} — To-Hit (need Q${q}+${hitMods}):</div>
             <div class="sl-hud-dice-row">${hitDice}</div>
             <div class="sl-hud-dice-label">Defense (need D${d}+${defMods}):</div>
             <div class="sl-hud-dice-row">${defDice}</div>
@@ -4806,7 +4791,7 @@ export class GameHUD {
   ): string {
     const lines = this.specialStrikeLines(outcome, skipMeleeLines);
     if (lines.length === 0) return '';
-    return `<div class="sl-hud-dice-summary">${lines.map((l) => `<div>${l}</div>`).join('')}</div>`;
+    return `<div class="sl-hud-dice-summary">${lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}</div>`;
   }
 
   private specialStrikeLines(
@@ -4840,22 +4825,22 @@ export class GameHUD {
       .map((entry) => {
         const actor = state.players.find((p) => p.id === entry.action.actorId);
         const hazards = entry.dice?.outcome.traversal;
-        const hazardText = hazards && hazards.length > 0 ? ` — ${hazards.map((e) => e.text).join('; ')}` : '';
+        const hazardText = hazards && hazards.length > 0 ? ` — ${escapeHtml(hazards.map((e) => e.text).join('; '))}` : '';
         const morale = entry.dice?.outcome.moraleTests;
         const moraleLine =
           morale && morale.length > 0
             ? `<div class="sl-hud-log-sub">Morale: ${morale
-                .map((t) => `${this.ownedUnitLabel(t.unitId, t.unitName)} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
+                .map((t) => `${escapeHtml(this.ownedUnitLabel(t.unitId, t.unitName))} ${t.outcome === 'passed' ? 'passed' : t.outcome === 'routed' ? 'Routed' : 'Shaken'}`)
                 .join(', ')}</div>`
             : '';
         const melee = entry.dice?.outcome.meleeResults;
         const meleeLines =
           melee && melee.length > 0
-            ? melee.map((r) => `<div class="sl-hud-log-sub">Melee: ${this.meleeResultText(r)}</div>`).join('')
+            ? melee.map((r) => `<div class="sl-hud-log-sub">Melee: ${escapeHtml(this.meleeResultText(r))}</div>`).join('')
             : '';
-        const specialText = entry.dice ? this.specialStrikeLines(entry.dice.outcome).map((l) => ` — ${l}`).join('') : '';
+        const specialText = entry.dice ? this.specialStrikeLines(entry.dice.outcome).map((l) => ` — ${escapeHtml(l)}`).join('') : '';
         const setupText = entry.dice ? this.setupRollText(entry.dice.outcome) : '';
-        return `<div class="sl-hud-log-entry">${actor?.name ?? '?'} ${this.logVerb(entry.action)}${hazardText}${specialText}${setupText}${meleeLines}${moraleLine}</div>`;
+        return `<div class="sl-hud-log-entry">${escapeHtml(actor?.name ?? '?')} ${escapeHtml(this.logVerb(entry.action))}${hazardText}${specialText}${setupText}${meleeLines}${moraleLine}</div>`;
       })
       .join('');
   }
@@ -4876,7 +4861,7 @@ export class GameHUD {
           : `pair ${off.decidingPair + 1}: ${off.hostRolls[off.decidingPair]} against ${off.guestRolls[off.decidingPair]}`;
       parts.push(`${label}: ${winner} wins (${how})`);
     }
-    return parts.map((p) => ` — ${p}`).join('');
+    return parts.map((p) => ` — ${escapeHtml(p)}`).join('');
   }
 
   private logVerb(action: GameAction): string {
@@ -5026,8 +5011,8 @@ export class GameHUD {
               const isSelected = w.id === this.selectedShootWeaponId;
               return `
                 <button class="sl-hud-weapon-chip ${isSelected ? 'selected' : ''} ${assignedUnit ? 'assigned' : ''}" data-weapon-id="${w.id}">
-                  <span class="sl-chip-weapon-name">${carrierPrefix(active, w)}${w.name} (${w.profile.range}")</span>
-                  <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${this.shootChipTargetText(active, w, assignedUnit)}</span>
+                  <span class="sl-chip-weapon-name">${carrierPrefix(active, w)}${escapeHtml(w.name)} (${w.profile.range}")</span>
+                  <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${escapeHtml(this.shootChipTargetText(active, w, assignedUnit))}</span>
                 </button>`;
             })
             .join('');
@@ -5055,7 +5040,7 @@ export class GameHUD {
         difficultWarningHtml = `
           <div class="sl-hud-warning-badge" style="background: rgba(41, 182, 246, 0.18); border: 1px solid #29b6f6; color: #81d4fa; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
             <span>ℹ️</span>
-            <span><strong>Rush stops short:</strong> ${stopText}</span>
+            <span><strong>Rush stops short:</strong> ${escapeHtml(stopText)}</span>
           </div>`;
       } else if (isActionDifficult && active) {
         if (this.flow.action.type === 'rush' || this.flow.action.type === 'charge') {
@@ -5081,7 +5066,7 @@ export class GameHUD {
             ${shootChipsHtml}
             ${difficultWarningHtml}
             <div style="display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center;">
-              <span class="sl-hud-confirm-summary">${this.flow.summary}</span>
+              <span class="sl-hud-confirm-summary">${escapeHtml(this.flow.summary)}</span>
               <button class="sl-hud-btn primary" data-action="confirm">Confirm</button>
               <button class="sl-hud-btn" data-action="cancel">Cancel</button>
             </div>
@@ -5113,7 +5098,7 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-reaction-waiting">
-            <span class="sl-hud-hint">Waiting for ${ownerName} to ${waitingFor} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+            <span class="sl-hud-hint">Waiting for ${escapeHtml(ownerName)} to ${waitingFor} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
           </div>
         </div>`;
       }
@@ -5125,7 +5110,7 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-reaction-waiting">
-            <span class="sl-hud-hint">Waiting for ${defenderName} to split the Blast hits (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+            <span class="sl-hud-hint">Waiting for ${escapeHtml(defenderName)} to split the Blast hits (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
           </div>
         </div>`;
       }
@@ -5139,18 +5124,18 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-reaction-waiting">
-            <span class="sl-hud-hint">Waiting for ${defenderName} to pile in (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+            <span class="sl-hud-hint">Waiting for ${escapeHtml(defenderName)} to pile in (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
           </div>
         </div>`;
       }
       if (pendingReaction.promptingPlayerId === this.localPlayerId) {
         const warningHtml = pendingReaction.warning
-          ? `<div class="sl-hud-reaction-warning">${pendingReaction.warning}</div>`
+          ? `<div class="sl-hud-reaction-warning">${escapeHtml(pendingReaction.warning)}</div>`
           : '';
         const optionsHtml = (pendingReaction.options ?? [])
           .map((opt) => {
             const btnClass = opt.style === 'primary' ? 'primary' : opt.style === 'danger' ? 'danger' : '';
-            return `<button class="sl-hud-btn ${btnClass}" data-reaction-choice="${opt.id}" data-reaction-id="${pendingReaction.id}">${opt.label}</button>`;
+            return `<button class="sl-hud-btn ${btnClass}" data-reaction-choice="${opt.id}" data-reaction-id="${pendingReaction.id}">${escapeHtml(opt.label)}</button>`;
           })
           .join('');
 
@@ -5159,10 +5144,10 @@ export class GameHUD {
             ${dataCardSlot}
             <div class="sl-hud-bottom sl-hud-reaction">
               <div class="sl-hud-reaction-header">
-                <span class="sl-hud-reaction-title">${pendingReaction.title}</span>
+                <span class="sl-hud-reaction-title">${escapeHtml(pendingReaction.title)}</span>
                 <span class="sl-hud-reaction-timer">${remainingSec}s</span>
               </div>
-              <div class="sl-hud-reaction-desc">${pendingReaction.description}</div>
+              <div class="sl-hud-reaction-desc">${escapeHtml(pendingReaction.description)}</div>
               ${warningHtml}
               <div class="sl-hud-reaction-actions">
                 ${optionsHtml}
@@ -5175,7 +5160,7 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-reaction-waiting">
-            <span class="sl-hud-hint">Waiting for opponent: ${pendingReaction.title} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
+            <span class="sl-hud-hint">Waiting for opponent: ${escapeHtml(pendingReaction.title)} (<span class="sl-hud-reaction-waiting-timer">${remainingSec}s</span>)…</span>
           </div>
         </div>`;
     }
@@ -5194,8 +5179,8 @@ export class GameHUD {
             const isSelected = w.id === this.selectedShootWeaponId;
             return `
               <button class="sl-hud-weapon-chip ${isSelected ? 'selected' : ''} ${assignedUnit ? 'assigned' : ''}" data-weapon-id="${w.id}">
-                <span class="sl-chip-weapon-name">${carrierPrefix(active, w)}${w.name} (${w.profile.range}")</span>
-                <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${this.shootChipTargetText(active, w, assignedUnit)}</span>
+                <span class="sl-chip-weapon-name">${carrierPrefix(active, w)}${escapeHtml(w.name)} (${w.profile.range}")</span>
+                <span class="sl-chip-target ${assignedUnit ? '' : 'unassigned'}">${escapeHtml(this.shootChipTargetText(active, w, assignedUnit))}</span>
               </button>`;
           })
           .join('');
@@ -5218,7 +5203,7 @@ export class GameHUD {
                 ${chipsHtml}
               </div>
               <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="sl-hud-hint" style="font-size: 11px;">${hint}</span>
+                <span class="sl-hud-hint" style="font-size: 11px;">${escapeHtml(hint)}</span>
                 ${
                   assignedCount > 0
                     ? '<button class="sl-hud-btn primary" data-action="confirm-shoot-targets">Confirm Attack</button>'
@@ -5294,7 +5279,7 @@ export class GameHUD {
                   <button class="sl-hud-btn sl-hud-chip ${isSelected ? 'active' : ''}"
                     data-action="select-squad-model"
                     data-model-id="${m.id}"
-                    ${blockedWhy ? `title="${blockedWhy.replace(/"/g, '&quot;')}"` : this.squadCrossers.has(m.id) ? 'title="Carried across with the leader: select it and click a spot to place it yourself"' : ''}
+                    ${blockedWhy ? `title="${escapeHtmlAttr(blockedWhy)}"` : this.squadCrossers.has(m.id) ? 'title="Carried across with the leader: select it and click a spot to place it yourself"' : ''}
                     style="${
                       blockedWhy
                         ? 'background: rgba(244, 67, 54, 0.25); border-color: #f44336; color: #ef9a9a;'
@@ -5304,7 +5289,7 @@ export class GameHUD {
                         ? 'background: rgba(76, 175, 80, 0.25); border-color: #4caf50; color: #a5d6a7;'
                         : ''
                     }">
-                    ${isPlaced ? (this.squadCrossers.has(m.id) ? '↷ ' : '✓ ') : blockedWhy ? '✗ ' : ''}${modelLabel(active, m.id)}
+                    ${isPlaced ? (this.squadCrossers.has(m.id) ? '↷ ' : '✓ ') : blockedWhy ? '✗ ' : ''}${escapeHtml(modelLabel(active, m.id))}
                   </button>
                 `;
               })
@@ -5321,7 +5306,7 @@ export class GameHUD {
             <div class="sl-hud-move-warning" style="display: none; background: rgba(255, 152, 0, 0.2); border: 1px solid #ff9800; color: #ffb74d; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;"></div>
             ${squadChipsHtml}
             <div style="display: flex; align-items: center; gap: 10px;">
-              <span class="sl-hud-hint">${instruction}</span>
+              <span class="sl-hud-hint">${escapeHtml(instruction)}</span>
               ${
                 isSquadMovement && this.stagedSquadModelPositions.size > 0
                   ? `${
@@ -5385,7 +5370,7 @@ export class GameHUD {
         <div class="sl-hud-bottom-dock">
           ${dataCardSlot}
           <div class="sl-hud-bottom sl-hud-actions">
-            <span class="sl-hud-active-name">${active.name}</span>
+            <span class="sl-hud-active-name">${escapeHtml(active.name)}</span>
             ${
               outOfCoherency
                 ? `<span class="sl-hud-hint" style="color:#ffb74d">Squad is out of coherency: this activation's move must bring it back together</span>`
@@ -5413,7 +5398,7 @@ export class GameHUD {
         </div>`;
     }
 
-    const opponentActive = active ? `${active.name} is activating` : 'waiting to activate';
+    const opponentActive = active ? `${escapeHtml(active.name)} is activating` : 'waiting to activate';
     return `
       <div class="sl-hud-bottom-dock">
         ${dataCardSlot}
@@ -5482,7 +5467,7 @@ export class GameHUD {
     return `
       <div class="sl-hud-datacard ${teamClass}">
         <div class="sl-hud-datacard-header">
-          <span class="sl-hud-datacard-name">🎯 ${obj.name}</span>
+          <span class="sl-hud-datacard-name">🎯 ${escapeHtml(obj.name)}</span>
           <span class="sl-hud-datacard-meta">Objective (${OBJECTIVE_CONTROL_RADIUS.toFixed(1)}" control radius, ±${OBJECTIVE_CONTROL_MAX_VERTICAL.toFixed(1)}" vertical)</span>
           <span class="sl-hud-datacard-tags" style="color: ${statusColor}; font-weight: 700;">${statusText}</span>
         </div>
@@ -5535,7 +5520,7 @@ export class GameHUD {
         : undefined;
     const weaponRow = (w: Weapon, name: string, rowClass = '') => `
           <tr${rowClass ? ` class="${rowClass}"` : ''}>
-            <td>${name}</td>
+            <td>${escapeHtml(name)}</td>
             <td>${w.profile.type === 'ranged' ? (isMeleeWeapon(w) ? 'Ranged + Melee' : 'Ranged') : 'Melee'}</td>
             <td>${w.profile.type === 'ranged' ? `${w.profile.range}"` : '1"'}</td>
             <td>${w.profile.attacks}d6</td>
@@ -5555,7 +5540,7 @@ export class GameHUD {
                 (mem) =>
                   `<span class="sl-hud-model-name${mem.removed ? ' sl-hud-model-name-removed' : ''}${
                     mem.modelId === hoveredModelId ? ' sl-hud-model-name-hovered' : ''
-                  }" data-model-number="${mem.number}">${modelMemberText(mem)}</span>`
+                  }" data-model-number="${mem.number}">${escapeHtml(modelMemberText(mem))}</span>`
               )
               .join(' / ');
             return `
@@ -5578,8 +5563,8 @@ export class GameHUD {
     return `${terrainHtml}
       <div class="sl-hud-datacard ${isMine ? 'mine' : 'enemy'} ${cardTeamClass}">
         <div class="sl-hud-datacard-header">
-          <span class="sl-hud-datacard-name">${unit.name}</span>
-          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${unit.unitType}${modelMeta}${unitTraits ? ` · ${unitTraits}` : ''}</span>
+          <span class="sl-hud-datacard-name">${escapeHtml(unit.name)}</span>
+          <span class="sl-hud-datacard-meta">${isMine ? 'Friendly' : 'Enemy'} (${isHostUnit ? 'Host / Blue' : 'Guest / Red'}) · ${escapeHtml(unit.unitType)}${modelMeta}${unitTraits ? ` · ${unitTraits}` : ''}</span>
           <span class="sl-hud-datacard-tags">${statusTags.join(' · ')}</span>
         </div>
         <div class="sl-hud-datacard-tables">
@@ -5695,7 +5680,7 @@ export class GameHUD {
     const text = this.aimChipText();
     return `<div class="sl-hud-aim-chip" style="display: ${
       text ? 'block' : 'none'
-    }; background: rgba(255, 112, 67, 0.18); border: 1px solid #ff7043; color: #ffab91; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;">${text}</div>`;
+    }; background: rgba(255, 112, 67, 0.18); border: 1px solid #ff7043; color: #ffab91; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; text-align: center;">${escapeHtml(text)}</div>`;
   }
 
   private updateAimChip(): void {
@@ -5757,15 +5742,15 @@ export class GameHUD {
         ? '<span style="color:#00e5ff;">LoS: CLEAR</span>'
         : `<span style="color:#ef5350;">LoS: BLOCKED (${
             ray.blockedByPieceId
-              ? `Piece: ${ray.blockedByPieceId}`
+              ? `Piece: ${escapeHtml(ray.blockedByPieceId)}`
               : ray.blockedByUnitId
-              ? `Unit: ${ray.blockedByUnitId}`
+              ? `Unit: ${escapeHtml(ray.blockedByUnitId)}`
               : 'Obstacle'
           })</span>`;
 
       const coverTag = ray.providesCover
         ? `<span style="color:#ffd600;">Cover: IN COVER (+1 Def${
-            ray.coverPieceId ? ` via ${ray.coverPieceId}` : ''
+            ray.coverPieceId ? ` via ${escapeHtml(ray.coverPieceId)}` : ''
           })</span>`
         : '<span style="color:#90a4ae;">Cover: OPEN (No Cover)</span>';
 
@@ -5796,8 +5781,8 @@ export class GameHUD {
                   ? '<span style="color:#78909c;">Shooter Touch (Ignored)</span>'
                   : '<span style="color:#90caf9;">Passable</span>';
                 return `<tr>
-                  <td><code>${i.pieceId}</code></td>
-                  <td>${i.terrainType}</td>
+                  <td><code>${escapeHtml(i.pieceId)}</code></td>
+                  <td>${escapeHtml(i.terrainType)}</td>
                   <td>(${i.entryPoint.x.toFixed(1)}, ${i.entryPoint.z.toFixed(1)})</td>
                   <td>(${i.exitPoint.x.toFixed(1)}, ${i.exitPoint.z.toFixed(1)})</td>
                   <td>${tag}</td>
@@ -5809,7 +5794,7 @@ export class GameHUD {
         <div class="sl-hud-datacard sl-hud-terrain-debug">
           <div class="sl-hud-datacard-header">
             <span class="sl-hud-datacard-name">Shooting Ray Debug (F9)</span>
-            <span class="sl-hud-datacard-meta">${shooterName} ➔ ${targetName} (${ray.distance.toFixed(1)}")</span>
+            <span class="sl-hud-datacard-meta">${escapeHtml(shooterName)} ➔ ${escapeHtml(targetName)} (${ray.distance.toFixed(1)}")</span>
             <span class="sl-hud-datacard-tags">${losTag} · ${coverTag}${
               ray.modelRays
                 ? ` · <span style="color:#ffab91;">${ray.firingCount ?? 0} of ${ray.shooterCount ?? 0} models fire · ${
@@ -5830,7 +5815,7 @@ export class GameHUD {
             ${
               flankText
                 ? `<div style="font-size:11px; margin-top:4px; color:#b0bec5;">Flank rays: ${flankText}${
-                    ray.coverReason ? ` · <em>${ray.coverReason}</em>` : ''
+                    ray.coverReason ? ` · <em>${escapeHtml(ray.coverReason)}</em>` : ''
                   }</div>`
                 : ''
             }
@@ -5851,8 +5836,8 @@ export class GameHUD {
         cards.push(`
           <div class="sl-hud-datacard sl-hud-terrain-debug">
             <div class="sl-hud-datacard-header">
-              <span class="sl-hud-datacard-name">${info.id}</span>
-              <span class="sl-hud-datacard-meta">Terrain · ${info.terrainType} · <code>${info.modelFile}</code></span>
+              <span class="sl-hud-datacard-name">${escapeHtml(info.id)}</span>
+              <span class="sl-hud-datacard-meta">Terrain · ${escapeHtml(info.terrainType)} · <code>${escapeHtml(info.modelFile)}</code></span>
               <span class="sl-hud-datacard-tags">${flags}</span>
             </div>
             <div class="sl-hud-datacard-tables">
@@ -5867,7 +5852,7 @@ export class GameHUD {
                     <td>${info.rotationDeg}°</td>
                     <td>${info.worldFootprint.width.toFixed(2)}" × ${info.worldFootprint.depth.toFixed(2)}"</td>
                     <td>hx=${info.halfExtents.hx.toFixed(2)}", hz=${info.halfExtents.hz.toFixed(2)}"</td>
-                    <td>${info.rawGlbSize}</td>
+                    <td>${escapeHtml(info.rawGlbSize)}</td>
                   </tr>
                 </tbody>
               </table>
