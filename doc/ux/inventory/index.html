@@ -70,14 +70,14 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
 <div class="layout">
   <nav aria-label="Contents">
     <span class="brand">SkirmishLab UI</span>
-    <ol><li><a href="#lobby">Lobby and Map Builder</a> <span class="count">6</span></li><li><a href="#anatomy">The game screen</a> <span class="count">2</span></li><li><a href="#setup">Objectives and deployment</a> <span class="count">10</span></li><li><a href="#activation">Activating a unit</a> <span class="count">3</span></li><li><a href="#move">Movement</a> <span class="count">8</span></li><li><a href="#shoot">Shooting</a> <span class="count">12</span></li><li><a href="#melee">Charge and melee</a> <span class="count">18</span></li><li><a href="#push">Push</a> <span class="count">3</span></li><li><a href="#status">Alerts, toasts and debug</a> <span class="count">4</span></li><li><a href="#end">Concede and match end</a> <span class="count">5</span></li><li><a href="#observations">Design observations</a> <span class="count">14</span></li></ol>
+    <ol><li><a href="#lobby">Lobby and Map Builder</a> <span class="count">6</span></li><li><a href="#anatomy">The game screen</a> <span class="count">2</span></li><li><a href="#setup">Objectives and deployment</a> <span class="count">10</span></li><li><a href="#activation">Activating a unit</a> <span class="count">3</span></li><li><a href="#move">Movement</a> <span class="count">8</span></li><li><a href="#shoot">Shooting</a> <span class="count">16</span></li><li><a href="#melee">Charge and melee</a> <span class="count">18</span></li><li><a href="#push">Push</a> <span class="count">3</span></li><li><a href="#status">Alerts, toasts and debug</a> <span class="count">4</span></li><li><a href="#end">Concede and match end</a> <span class="count">5</span></li><li><a href="#observations">Design observations</a> <span class="count">14</span></li></ol>
   </nav>
   <main>
     <header class="intro">
       <h1>SkirmishLab UI inventory</h1>
       <p>Every screen, panel and prompt in the game as of the 14C-2 PR 9 build (master, 11 Nov 2026), with what each one is and what it is for. Use it as the starting point for the 14G design pass.</p>
       <p>Screenshots come from a headless browser at 1600 × 900. In-match shots run the real HUD and engine on one page with scripted dice, so a prompt can be shown from both seats. Lobby shots use two real browsers over the signaling server. Click a screenshot to enlarge it. Open this file directly in a browser; it needs no server.</p>
-      <p class="meta">70 screenshots · 10 sections · not shown: the dangerous-terrain casualty selector on a squad move and the "jump N dice" chip (described in the movement section)</p>
+      <p class="meta">75 screenshots · 10 sections · not shown: the dangerous-terrain casualty selector on a squad move and the "jump N dice" chip (described in the movement section)</p>
     </header>
     <div class="obs" id="observations">
       <h2>Design observations</h2>
@@ -90,7 +90,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="70-lobby">
         <a class="shot" href="#70-lobby-full" aria-label="Enlarge: Lobby"><img src="img/70-lobby.jpg" alt="Lobby" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">1</p>
+          <p class="num">01</p>
           <h3>Lobby</h3>
           <dl>
             <dt>What it is</dt><dd>Centred card with the SkirmishLab title, a &quot;Battlefield &amp; Forces&quot; box (map, Host force, Guest force, deployment checkbox), Create Room, the invite-code field with Join Room, Map Builder, and the fan-project disclaimer with the link to the free rules and a small muted build stamp (&quot;Build a1b2c3d · 2026-11-11 23:00 UTC&quot;, or &quot;Build dev&quot; locally). When a newer build has been deployed, a yellow banner (&quot;A newer version of SkirmishLab is available.&quot; with a Reload button) floats at the top of the lobby; it never appears during a game.</dd>
@@ -102,7 +102,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="71-lobby-dev-mode">
         <a class="shot" href="#71-lobby-dev-mode-full" aria-label="Enlarge: Lobby, developer mode"><img src="img/71-lobby-dev-mode.jpg" alt="Lobby, developer mode" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">2</p>
+          <p class="num">02</p>
           <h3>Lobby, developer mode</h3>
           <dl>
             <dt>What it is</dt><dd>Same card with a yellow DEV badge top right and a &quot;Developer mode on&quot; pill at the bottom. F9 toggles it.</dd>
@@ -114,7 +114,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="72-lobby-waiting-room">
         <a class="shot" href="#72-lobby-waiting-room-full" aria-label="Enlarge: Waiting room (host)"><img src="img/72-lobby-waiting-room.jpg" alt="Waiting room (host)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">3</p>
+          <p class="num">03</p>
           <h3>Waiting room (host)</h3>
           <dl>
             <dt>What it is</dt><dd>Card with the room code, the role (HOST), the chosen map and &quot;Waiting for peer…&quot;.</dd>
@@ -126,7 +126,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="73-lobby-join-filled">
         <a class="shot" href="#73-lobby-join-filled-full" aria-label="Enlarge: Join (guest)"><img src="img/73-lobby-join-filled.jpg" alt="Join (guest)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">4</p>
+          <p class="num">04</p>
           <h3>Join (guest)</h3>
           <dl>
             <dt>What it is</dt><dd>The lobby with an invite code typed into the code field.</dd>
@@ -138,7 +138,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="77-map-editor">
         <a class="shot" href="#77-map-editor-full" aria-label="Enlarge: Map Builder"><img src="img/77-map-editor.jpg" alt="Map Builder" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">5</p>
+          <p class="num">05</p>
           <h3>Map Builder</h3>
           <dl>
             <dt>What it is</dt><dd>Full-screen board with a top toolbar (map name, Snap 1.0&quot; / 0.5&quot; / Free, board size, Load Map, status pill, Import JSON, Export JSON, Auto Obj, Clear, Save Map, Exit) and a bottom palette with category tabs (Structures, Walls &amp; Doors, Platforms &amp; Decks, Stairs &amp; Ladders, Cover &amp; Pipes, Area Terrain, Objectives), piece cards and a keyboard-shortcut strip.</dd>
@@ -150,7 +150,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="79-map-editor-placing">
         <a class="shot" href="#79-map-editor-placing-full" aria-label="Enlarge: Map Builder, piece selected in the palette"><img src="img/79-map-editor-placing.jpg" alt="Map Builder, piece selected in the palette" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">6</p>
+          <p class="num">06</p>
           <h3>Map Builder, piece selected in the palette</h3>
           <dl>
             <dt>What it is</dt><dd>A palette card highlighted in blue; the next click on the board places that piece.</dd>
@@ -166,7 +166,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="01-idle-your-turn">
         <a class="shot" href="#01-idle-your-turn-full" aria-label="Enlarge: Game screen at rest"><img src="img/01-idle-your-turn.jpg" alt="Game screen at rest" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">7</p>
+          <p class="num">07</p>
           <h3>Game screen at rest</h3>
           <dl>
             <dt>What it is</dt><dd>Header bar (SkirmishLab, round badge &quot;Round 1 / 4&quot;, objective score Host 0 — Guest 0, turn label &quot;Your turn&quot;, room code, Concede). Left: the roster panel, your units first (&quot;HOST — FIGHTERS (8 READY)&quot;) then the enemy's. Right: the Dice panel (latest roll) above the Log (newest first). Bottom centre: the status bar (&quot;Your turn — activate a unit (8 available)&quot;). Behind everything: the 3D board.</dd>
@@ -178,7 +178,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="50-enemy-hover-card">
         <a class="shot" href="#50-enemy-hover-card-full" aria-label="Enlarge: Unit data card (hover)"><img src="img/50-enemy-hover-card.jpg" alt="Unit data card (hover)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">8</p>
+          <p class="num">08</p>
           <h3>Unit data card (hover)</h3>
           <dl>
             <dt>What it is</dt><dd>A wide card above the bottom bar: name, Friendly/Enemy and side colour, type, model count, special rules, a status pill (READY / ACTIVATED / SHAKEN / FATIGUED / ENGAGED) and a stat row (Quality, Defense, Tough, Models, Move, Charge) with a weapons table (Weapon, Type, Range, Dice, Traits).</dd>
@@ -194,7 +194,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s9-01-objective-place-preview">
         <a class="shot" href="#s9-01-objective-place-preview-full" aria-label="Enlarge: Place an objective"><img src="img/s9-01-objective-place-preview.jpg" alt="Place an objective" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">9</p>
+          <p class="num">09</p>
           <h3>Place an objective</h3>
           <dl>
             <dt>What it is</dt><dd>Setup panel at the top centre with the objective roll (&quot;Objective roll: 6 — 5 objectives&quot;), the mission roll-off result and its dice pairs. Both deployment zones are shaded; a ring follows the cursor (green = legal). Bottom bar: &quot;Place objective 1 of 5 — click the board outside both deployment zones, more than 9&quot; from other objectives&quot;.</dd>
@@ -599,6 +599,54 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
         </div>
       </article>
       <a class="lightbox" id="l13-10-assign-wounds-full" href="#l13-10-assign-wounds"><img src="img/l13-10-assign-wounds.jpg" alt="Assign wounds prompt (Tough above 1) (full size)"></a>
+      <article class="entry" id="g14-01-target-badge">
+        <a class="shot" href="#g14-01-target-badge-full" aria-label="Enlarge: Target badge while aiming"><img src="img/g14-01-target-badge.jpg" alt="Target badge while aiming" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">42</p>
+          <h3>Target badge while aiming</h3>
+          <dl>
+            <dt>What it is</dt><dd>A small dark label floating above the hovered (or weapon-assigned) enemy unit: the exact distance, then one entry per distance rule this attack involves, e.g. &quot;12.0&quot; · Ferocious ✓ (beyond 9&quot;) · Hold the Line +1 morale (beyond 9&quot;)&quot;. A rule that is switched off is dim and says what it needs (&quot;✗ (needs beyond 9&quot;)&quot;); one negated by Unstoppable is struck through. Also shown on a charge target.</dd>
+            <dt>Purpose</dt><dd>See how far the target is and which distance rules apply without doing the maths.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="g14-01-target-badge-full" href="#g14-01-target-badge"><img src="img/g14-01-target-badge.jpg" alt="Target badge while aiming (full size)"></a>
+      <article class="entry" id="g14-02-threshold-ring">
+        <a class="shot" href="#g14-02-threshold-ring-full" aria-label="Enlarge: Threshold ring on the range fan"><img src="img/g14-02-threshold-ring.jpg" alt="Threshold ring on the range fan" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">43</p>
+          <h3>Threshold ring on the range fan</h3>
+          <dl>
+            <dt>What it is</dt><dd>A dashed red ring on the shooting (or charge) fan at each switch distance of the attacker's own rules, with a small label such as &quot;9&quot;: Ferocious&quot;.</dd>
+            <dt>Purpose</dt><dd>Know where an enemy has to stand for the attacker's distance rules to switch on.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="g14-02-threshold-ring-full" href="#g14-02-threshold-ring"><img src="img/g14-02-threshold-ring.jpg" alt="Threshold ring on the range fan (full size)"></a>
+      <article class="entry" id="g14-03-hero-aura">
+        <a class="shot" href="#g14-03-hero-aura-full" aria-label="Enlarge: Hero aura"><img src="img/g14-03-hero-aura.jpg" alt="Hero aura" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">44</p>
+          <h3>Hero aura</h3>
+          <dl>
+            <dt>What it is</dt><dd>A gold ring 6&quot; (plus base) around each model of a friendly Hero while a unit is selected or hovered: bright when that Hero lends its Quality to the unit, faint otherwise.</dd>
+            <dt>Purpose</dt><dd>See whether a unit is close enough to a Hero to use its Quality for morale.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="g14-03-hero-aura-full" href="#g14-03-hero-aura"><img src="img/g14-03-hero-aura.jpg" alt="Hero aura (full size)"></a>
+      <article class="entry" id="g14-04-blast-outline">
+        <a class="shot" href="#g14-04-blast-outline-full" aria-label="Enlarge: Blast spread outline"><img src="img/g14-04-blast-outline.jpg" alt="Blast spread outline" loading="lazy" width="1600" height="900"></a>
+        <div class="text">
+          <p class="num">45</p>
+          <h3>Blast spread outline</h3>
+          <dl>
+            <dt>What it is</dt><dd>While aiming a Blast weapon at a hovered enemy: an orange ring 3&quot; (plus base) around each model of the target, and the other units that would share the hits wearing the dark red target ring.</dd>
+            <dt>Purpose</dt><dd>See which units a Blast would also hit before committing.</dd>
+          </dl>
+        </div>
+      </article>
+      <a class="lightbox" id="g14-04-blast-outline-full" href="#g14-04-blast-outline"><img src="img/g14-04-blast-outline.jpg" alt="Blast spread outline (full size)"></a>
     </section>
     <section id="melee">
       <header class="sec-head"><h2>Charge and melee</h2><p>Charge declaration, legs, reactions and results.</p></header>
@@ -606,7 +654,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="16-charge-targeting">
         <a class="shot" href="#16-charge-targeting-full" aria-label="Enlarge: Charge targeting"><img src="img/16-charge-targeting.jpg" alt="Charge targeting" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">42</p>
+          <p class="num">46</p>
           <h3>Charge targeting</h3>
           <dl>
             <dt>What it is</dt><dd>Red 12&quot; charge range and the hint &quot;Click an enemy unit within charge range to Charge into melee and strike&quot;.</dd>
@@ -618,7 +666,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="17-charge-after-pick">
         <a class="shot" href="#17-charge-after-pick-full" aria-label="Enlarge: Declare charge"><img src="img/17-charge-after-pick.jpg" alt="Declare charge" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">43</p>
+          <p class="num">47</p>
           <h3>Declare charge</h3>
           <dl>
             <dt>What it is</dt><dd>A long explanation (place each model into base contact, can't be undone, Abandon ends the activation) with Confirm / Cancel.</dd>
@@ -630,7 +678,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-20-charge-leg-placed">
         <a class="shot" href="#s5-20-charge-leg-placed-full" aria-label="Enlarge: Charge legs"><img src="img/s5-20-charge-leg-placed.jpg" alt="Charge legs" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">44</p>
+          <p class="num">48</p>
           <h3>Charge legs</h3>
           <dl>
             <dt>What it is</dt><dd>Model chips, the 12&quot; allowance ring, keep-away rings (the target's in green), and the instruction &quot;Charge on Test Squad A 2: place Model 1 of 3 (12.0&quot; left)…&quot;. Abandon charge replaces Cancel.</dd>
@@ -642,7 +690,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="21-charge-leg-confirm">
         <a class="shot" href="#21-charge-leg-confirm-full" aria-label="Enlarge: Charge confirm"><img src="img/21-charge-leg-confirm.jpg" alt="Charge confirm" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">45</p>
+          <p class="num">49</p>
           <h3>Charge confirm</h3>
           <dl>
             <dt>What it is</dt><dd>Summary of the walk, &quot;strikes with all its melee weapons: Blade 6 attacks&quot; (one entry per melee weapon, Assault weapons included, there is no weapon choice), who strikes (&quot;3 of 3 models within 3&quot; strike&quot;), what the defenders will do (pile in up to 3&quot;, retaliate) and the step-back.</dd>
@@ -654,7 +702,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-22-charge-resolved-host">
         <a class="shot" href="#s5-22-charge-resolved-host-full" aria-label="Enlarge: Waiting for the defender"><img src="img/s5-22-charge-resolved-host.jpg" alt="Waiting for the defender" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">46</p>
+          <p class="num">50</p>
           <h3>Waiting for the defender</h3>
           <dl>
             <dt>What it is</dt><dd>The attacker's bottom bar: &quot;Waiting for Guest to pile in (58s)…&quot;.</dd>
@@ -666,7 +714,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-23-guest-reaction-1">
         <a class="shot" href="#s5-23-guest-reaction-1-full" aria-label="Enlarge: Pile-in dock (defender)"><img src="img/s5-23-guest-reaction-1.jpg" alt="Pile-in dock (defender)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">47</p>
+          <p class="num">51</p>
           <h3>Pile-in dock (defender)</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;PILE IN&quot; with the countdown, the explanation, model chips for models not yet in contact, and Auto place / Confirm / Reset.</dd>
@@ -678,7 +726,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-25-reaction-0-pick-casualties-guest">
         <a class="shot" href="#s5-25-reaction-0-pick-casualties-guest-full" aria-label="Enlarge: Remove casualties"><img src="img/s5-25-reaction-0-pick-casualties-guest.jpg" alt="Remove casualties" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">48</p>
+          <p class="num">52</p>
           <h3>Remove casualties</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;REMOVE 2 MODELS FROM TEST SQUAD A 2&quot; with countdown, the rule text, one button per model (with wounds, and &quot;splits the squad&quot; where relevant), and Auto pick / Confirm.</dd>
@@ -690,7 +738,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-25-reaction-0-picked">
         <a class="shot" href="#s5-25-reaction-0-picked-full" aria-label="Enlarge: Casualties being picked"><img src="img/s5-25-reaction-0-picked.jpg" alt="Casualties being picked" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">49</p>
+          <p class="num">53</p>
           <h3>Casualties being picked</h3>
           <dl>
             <dt>What it is</dt><dd>Picked models turn orange (✕ Model 4) on the chips and get an orange ring on the board; the counter reads (1/2).</dd>
@@ -702,7 +750,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s12-01-waiting-host">
         <a class="shot" href="#s12-01-waiting-host-full" aria-label="Enlarge: Waiting for the Blast split (shooter)"><img src="img/s12-01-waiting-host.jpg" alt="Waiting for the Blast split (shooter)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">50</p>
+          <p class="num">54</p>
           <h3>Waiting for the Blast split (shooter)</h3>
           <dl>
             <dt>What it is</dt><dd>The shooter's bottom bar while the defender splits the hits: &quot;Waiting for Guest to split the Blast hits (29s)…&quot;. Nothing is resolved yet.</dd>
@@ -714,7 +762,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s12-02-split-dock-guest">
         <a class="shot" href="#s12-02-split-dock-guest-full" aria-label="Enlarge: Split Blast Hits dock (defender)"><img src="img/s12-02-split-dock-guest.jpg" alt="Split Blast Hits dock (defender)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">51</p>
+          <p class="num">55</p>
           <h3>Split Blast Hits dock (defender)</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;SPLIT BLAST HITS&quot; with the countdown, a one-line explanation, one row per eligible unit (name, &quot;(max N)&quot;, a - / + stepper and its count), the running &quot;3 of 3 hits assigned&quot; line, and Auto split / Confirm. A salvo with several Blast weapons shows one block per weapon, headed by the weapon name.</dd>
@@ -726,7 +774,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s12-03-split-edited-guest">
         <a class="shot" href="#s12-03-split-edited-guest-full" aria-label="Enlarge: Blast split edited"><img src="img/s12-03-split-edited-guest.jpg" alt="Blast split edited" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">52</p>
+          <p class="num">56</p>
           <h3>Blast split edited</h3>
           <dl>
             <dt>What it is</dt><dd>After moving a hit from the second unit to the first: the counts read 3 and 0 and the count line still reads &quot;3 of 3 hits assigned&quot;.</dd>
@@ -738,7 +786,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-25-reaction-1-melee-retaliation-guest">
         <a class="shot" href="#s5-25-reaction-1-melee-retaliation-guest-full" aria-label="Enlarge: Strike back prompt"><img src="img/s5-25-reaction-1-melee-retaliation-guest.jpg" alt="Strike back prompt" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">53</p>
+          <p class="num">57</p>
           <h3>Strike back prompt</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;MELEE RETALIATION&quot; with countdown, &quot;Test Impact Brutes 3 charged Test Squad A 2! Strike back with Blade?&quot;, a red Fatigue warning, and Strike Back (Blade) / Decline (Avoid Fatigue).</dd>
@@ -750,7 +798,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="l13-03-leader-charge-confirm">
         <a class="shot" href="#l13-03-leader-charge-confirm-full" aria-label="Enlarge: Charge confirm, two melee weapons"><img src="img/l13-03-leader-charge-confirm.jpg" alt="Charge confirm, two melee weapons" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">54</p>
+          <p class="num">58</p>
           <h3>Charge confirm, two melee weapons</h3>
           <dl>
             <dt>What it is</dt><dd>&quot;Test Two-Weapon Leader 2 charges … &amp; strikes with Power Sword + Assault Rifle · 4d6 across Power Sword 2 + Assault Rifle 2 (Hit Q4+, Def D5+)&quot;. No weapon picker.</dd>
@@ -762,7 +810,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="l13-04-leader-charge-dice">
         <a class="shot" href="#l13-04-leader-charge-dice-full" aria-label="Enlarge: Melee dice, one line per weapon"><img src="img/l13-04-leader-charge-dice.jpg" alt="Melee dice, one line per weapon" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">55</p>
+          <p class="num">59</p>
           <h3>Melee dice, one line per weapon</h3>
           <dl>
             <dt>What it is</dt><dd>Dice panel with one block per melee weapon: &quot;Power Sword — To-Hit (need Q4+)&quot; with its dice, &quot;Defense (need D6+ · Base D5 -1 AP(1))&quot; with its dice and a hit/blocked/wounds line, then the same for &quot;Assault Rifle&quot; (its own target numbers, no AP), and the totals line. The log entry has one text line per weapon.</dd>
@@ -774,7 +822,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="l13-05-strike-back-two-weapons">
         <a class="shot" href="#l13-05-strike-back-two-weapons-full" aria-label="Enlarge: Strike back prompt, two weapons"><img src="img/l13-05-strike-back-two-weapons.jpg" alt="Strike back prompt, two weapons" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">56</p>
+          <p class="num">60</p>
           <h3>Strike back prompt, two weapons</h3>
           <dl>
             <dt>What it is</dt><dd>MELEE RETALIATION prompt naming every weapon: &quot;Strike back with Power Sword + Assault Rifle?&quot; and the button &quot;Strike Back (Power Sword + Assault Rifle)&quot;.</dd>
@@ -786,7 +834,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="l13-06-strike-back-dice">
         <a class="shot" href="#l13-06-strike-back-dice-full" aria-label="Enlarge: Strike-back dice, one line per weapon"><img src="img/l13-06-strike-back-dice.jpg" alt="Strike-back dice, one line per weapon" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">57</p>
+          <p class="num">61</p>
           <h3>Strike-back dice, one line per weapon</h3>
           <dl>
             <dt>What it is</dt><dd>The strike-back result in the dice panel with a To-Hit / Defense block per weapon, each with its own target numbers.</dd>
@@ -798,7 +846,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="25-reaction-0-melee-consolidation-host">
         <a class="shot" href="#25-reaction-0-melee-consolidation-host-full" aria-label="Enlarge: Victory consolidation"><img src="img/25-reaction-0-melee-consolidation-host.jpg" alt="Victory consolidation" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">58</p>
+          <p class="num">62</p>
           <h3>Victory consolidation</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;VICTORY CONSOLIDATION&quot;: the target was wiped out, move up to 3&quot; or Stay Put.</dd>
@@ -810,7 +858,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-28-melee-result-morale">
         <a class="shot" href="#s5-28-melee-result-morale-full" aria-label="Enlarge: Melee result and Morale"><img src="img/s5-28-melee-result-morale.jpg" alt="Melee result and Morale" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">59</p>
+          <p class="num">63</p>
           <h3>Melee result and Morale</h3>
           <dl>
             <dt>What it is</dt><dd>Dice panel titled &quot;Melee result &amp; Morale&quot;: the melee line (each side's wounds) and the Morale die with its outcome (Shaken). The log entry for &quot;Host ended an activation&quot; carries the same lines indented.</dd>
@@ -826,7 +874,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-29-push">
         <a class="shot" href="#s5-29-push-full" aria-label="Enlarge: Push prompt (attacker)"><img src="img/s5-29-push.jpg" alt="Push prompt (attacker)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">60</p>
+          <p class="num">64</p>
           <h3>Push prompt (attacker)</h3>
           <dl>
             <dt>What it is</dt><dd>Title &quot;PUSH&quot; with countdown, &quot;Test Squad A 2 is Shaken: move one of its models up to 2&quot;. Auto pushes the model nearest …&quot;, and Auto / Confirm / Don't push.</dd>
@@ -838,7 +886,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-31-push-model">
         <a class="shot" href="#s5-31-push-model-full" aria-label="Enlarge: Push placement"><img src="img/s5-31-push-model.jpg" alt="Push placement" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">61</p>
+          <p class="num">65</p>
           <h3>Push placement</h3>
           <dl>
             <dt>What it is</dt><dd>Model chips for the Shaken unit, the 2&quot; ring on the highlighted model, keep-away rings, and Push / Back / Don't push.</dd>
@@ -850,7 +898,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="s5-32-push-waiting">
         <a class="shot" href="#s5-32-push-waiting-full" aria-label="Enlarge: Push, defender view"><img src="img/s5-32-push-waiting.jpg" alt="Push, defender view" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">62</p>
+          <p class="num">66</p>
           <h3>Push, defender view</h3>
           <dl>
             <dt>What it is</dt><dd>The Shaken unit's owner sees the waiting bar.</dd>
@@ -866,7 +914,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="52-alert-opponent-disconnected">
         <a class="shot" href="#52-alert-opponent-disconnected-full" aria-label="Enlarge: Opponent disconnected"><img src="img/52-alert-opponent-disconnected.jpg" alt="Opponent disconnected" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">63</p>
+          <p class="num">67</p>
           <h3>Opponent disconnected</h3>
           <dl>
             <dt>What it is</dt><dd>Full-width red banner under the header: &quot;Opponent disconnected — waiting for peer to reconnect… (Grace period: 5m)&quot;.</dd>
@@ -878,7 +926,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="53-alert-signaling-reconnecting">
         <a class="shot" href="#53-alert-signaling-reconnecting-full" aria-label="Enlarge: Signaling reconnecting"><img src="img/53-alert-signaling-reconnecting.jpg" alt="Signaling reconnecting" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">64</p>
+          <p class="num">68</p>
           <h3>Signaling reconnecting</h3>
           <dl>
             <dt>What it is</dt><dd>Amber banner &quot;Signaling disconnected — reconnecting to room…&quot;.</dd>
@@ -890,7 +938,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="54-toast-rejected">
         <a class="shot" href="#54-toast-rejected-full" aria-label="Enlarge: Toast"><img src="img/54-toast-rejected.jpg" alt="Toast" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">65</p>
+          <p class="num">69</p>
           <h3>Toast</h3>
           <dl>
             <dt>What it is</dt><dd>Small banner under the header (&quot;Action rejected: Move exceeds unit speed&quot;).</dd>
@@ -902,7 +950,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="55-terrain-debugger">
         <a class="shot" href="#55-terrain-debugger-full" aria-label="Enlarge: Terrain debugger (F9 in game)"><img src="img/55-terrain-debugger.jpg" alt="Terrain debugger (F9 in game)" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">66</p>
+          <p class="num">70</p>
           <h3>Terrain debugger (F9 in game)</h3>
           <dl>
             <dt>What it is</dt><dd>A pill &quot;Terrain debugger: ON (hover terrain to inspect, F9 to hide)&quot;, wireframe collision volumes for units and terrain, and an inspector card for the hovered piece (id, type, LoS/cover flags, position, scale, rotation, footprint, half-extents).</dd>
@@ -918,7 +966,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="56-concede-dialog">
         <a class="shot" href="#56-concede-dialog-full" aria-label="Enlarge: Concede dialog"><img src="img/56-concede-dialog.jpg" alt="Concede dialog" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">67</p>
+          <p class="num">71</p>
           <h3>Concede dialog</h3>
           <dl>
             <dt>What it is</dt><dd>Small modal &quot;Concede the match? You lose and your opponent wins.&quot; with Concede (red) / Cancel.</dd>
@@ -930,7 +978,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="57-gameover-defeat">
         <a class="shot" href="#57-gameover-defeat-full" aria-label="Enlarge: Results: Defeat"><img src="img/57-gameover-defeat.jpg" alt="Results: Defeat" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">68</p>
+          <p class="num">72</p>
           <h3>Results: Defeat</h3>
           <dl>
             <dt>What it is</dt><dd>Modal with the title (Defeat), the reason (&quot;Host conceded&quot;), rounds played, final objective score, units/models lost per side, and Play Again / Return to Lobby.</dd>
@@ -942,7 +990,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="58-gameover-victory">
         <a class="shot" href="#58-gameover-victory-full" aria-label="Enlarge: Results: Victory"><img src="img/58-gameover-victory.jpg" alt="Results: Victory" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">69</p>
+          <p class="num">73</p>
           <h3>Results: Victory</h3>
           <dl>
             <dt>What it is</dt><dd>Same modal for the winner.</dd>
@@ -954,7 +1002,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="59-gameover-rematch-waiting">
         <a class="shot" href="#59-gameover-rematch-waiting-full" aria-label="Enlarge: Rematch requested"><img src="img/59-gameover-rematch-waiting.jpg" alt="Rematch requested" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">70</p>
+          <p class="num">74</p>
           <h3>Rematch requested</h3>
           <dl>
             <dt>What it is</dt><dd>Play Again becomes a disabled &quot;Waiting for Host…&quot;.</dd>
@@ -966,7 +1014,7 @@ dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
       <article class="entry" id="60-gameover-rematch-offered">
         <a class="shot" href="#60-gameover-rematch-offered-full" aria-label="Enlarge: Rematch offered"><img src="img/60-gameover-rematch-offered.jpg" alt="Rematch offered" loading="lazy" width="1600" height="900"></a>
         <div class="text">
-          <p class="num">71</p>
+          <p class="num">75</p>
           <h3>Rematch offered</h3>
           <dl>
             <dt>What it is</dt><dd>The other player sees &quot;Guest wants a rematch&quot; and an Accept rematch button.</dd>
