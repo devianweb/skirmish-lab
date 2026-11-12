@@ -1547,6 +1547,226 @@ describe('GameManager', () => {
       expect(guest.getGameState()!.turnState.activeUnitId).toBe(hostUnit.id);
     });
 
+    it('runs beginObjectivesIfNeeded when host adopts guest state via state-sync in objectives phase (G-10)', async () => {
+      const rolls = Array.from({ length: 10 }, () => [5, 1]).flat();
+      const diceProvider = {
+        requestRoll: vi.fn().mockResolvedValue([
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'objective-count' },
+          { rolls, total: 0, finalTotal: 0, purpose: 'mission-roll-off' },
+        ]),
+      };
+
+      // Initial host starts game without diceProvider so objectives roll stays pending
+      const channel1 = makeChannelPair();
+      const host1 = new GameManager(channel1.hostWebRTC, true);
+      const guest = new GameManager(channel1.guestWebRTC, false);
+      host1.startGame('Host', 'Guest', { useDeploymentPhase: true });
+
+      expect(guest.getGameState()!.turnState.phase).toBe('objectives');
+      expect(guest.getGameState()!.setupRolls?.objectiveCount).toBeUndefined();
+
+      // Host reloads with empty storage, rejoining with diceProvider
+      const channel2 = makeChannelPair();
+      const rejoiningHost = new GameManager(channel2.hostWebRTC, true, { diceProvider });
+      guest.rebindWebRTCClient(channel2.guestWebRTC);
+
+      rejoiningHost.requestStateSyncFromPeer();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(diceProvider.requestRoll).toHaveBeenCalledTimes(1);
+      expect(rejoiningHost.getGameState()!.setupRolls?.objectiveCount).toBe(5);
+      expect(guest.getGameState()!.setupRolls?.objectiveCount).toBe(5);
+    });
+
+    it('ignores structurally invalid state-sync messages on host and logs a warning (G-10)', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { hostWebRTC, guestWebRTC } = makeChannelPair();
+      const host = new GameManager(hostWebRTC, true);
+      const updateHandler = vi.fn();
+      host.onStateUpdate(updateHandler);
+
+      // Missing turnState / terrain / players / actionLog / etc.
+      guestWebRTC.send({
+        type: 'state-sync',
+        state: { board: { width: 48, height: 48 }, units: [] } as any,
+      });
+
+      expect(host.getGameState()).toBeNull();
+      expect(host.getSnapshots()).toHaveLength(0);
+      expect(updateHandler).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
+    it('reschedules reaction timeout while dice are in flight and restarts timer if dice fail, never applying fallback twice (G-11)', async () => {
+      vi.useFakeTimers();
+      try {
+        const { hostWebRTC, guestWebRTC } = makeChannelPair();
+        let rejectInFlightDice: (err: Error) => void = () => {};
+        let resolveFallbackDice: (results: any[]) => void = () => {};
+        let callCount = 0;
+        const diceProvider = {
+          requestRoll: vi.fn().mockImplementation(() => {
+            callCount++;
+            if (callCount === 1) {
+              // Initial charge strike dice
+              return Promise.resolve([
+                { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+                { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+              ]);
+            }
+            if (callCount === 2) {
+              // Guest's strike-back reaction dice: stays in flight while reaction timeout fires, then fails
+              return new Promise((_resolve, reject) => {
+                rejectInFlightDice = reject;
+              });
+            }
+            // Fallback strike-back dice after timeout re-fires: hold briefly so we can verify no duplicate fallback
+            return new Promise((resolve) => {
+              resolveFallbackDice = resolve;
+            });
+          }),
+        };
+
+        const host = new GameManager(hostWebRTC, true, { diceProvider });
+        const guest = new GameManager(guestWebRTC, false);
+        startPlay(host, 'Host', 'Guest', TEST_ARMIES);
+
+        const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
+        const guestTarget = host
+          .getGameState()!
+          .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
+
+        const patched = host.getGameState()!;
+        const targetInState = patched.units.find((u) => u.id === guestTarget.id)!;
+        targetInState.position = {
+          x: hostCharger.position.x,
+          y: 0,
+          z: hostCharger.position.z + 5,
+        };
+        for (const m of targetInState.models) m.position = { ...targetInState.position };
+        if (!targetInState.weapons.some((w) => w.profile.type === 'melee')) {
+          targetInState.weapons.push({
+            id: 'blade',
+            name: 'Blade',
+            isEquipped: true,
+            profile: { type: 'melee', range: 1, attacks: 2, ap: 0, specialRules: [] },
+          } as any);
+        }
+        (host as any).gameState = patched;
+
+        host.sendAction(
+          createAction(HOST_PLAYER_ID, 'activate-unit', {
+            type: 'activate-unit',
+            unitId: hostCharger.id,
+          })
+        );
+        host.sendAction(
+          createAction(HOST_PLAYER_ID, 'charge', {
+            type: 'charge',
+            attackerId: hostCharger.id,
+            targetId: guestTarget.id,
+            path: [{ x: hostCharger.position.x, y: 0, z: hostCharger.position.z + 4 }],
+            weaponId: 'blade',
+          })
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const pending = host.getGameState()!.turnState.pendingReaction!;
+        expect(pending).toBeDefined();
+        expect((host as any).reactionTimeoutTimer).not.toBeNull();
+
+        // Guest submits strike-back right before timeout; dice request 2 is now in flight
+        guest.sendAction(
+          createAction(GUEST_PLAYER_ID, 'respond-reaction', {
+            type: 'respond-reaction',
+            reactionId: pending.id,
+            choiceId: 'strike-back',
+          })
+        );
+        expect((host as any).pendingActionId).not.toBeNull();
+
+        // Reaction timeout fires while dice request 2 is still in flight
+        vi.advanceTimersByTime(30000);
+        // Timer must be rescheduled (not dropped) while pendingActionId is set
+        expect((host as any).reactionTimeoutTimer).not.toBeNull();
+
+        // Now the in-flight dice request fails
+        rejectInFlightDice(new Error('dice timeout'));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // Pending reaction still exists and timer is active
+        expect(host.getGameState()!.turnState.pendingReaction?.id).toBe(pending.id);
+        expect((host as any).reactionTimeoutTimer).not.toBeNull();
+
+        // Advance timers so the rescheduled timeout fires and triggers the fallback action
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+
+        // Resolve the fallback dice roll
+        resolveFallbackDice([
+          { rolls: [5, 4], total: 9, finalTotal: 9, purpose: 'to-hit' },
+          { rolls: [5, 5], total: 10, finalTotal: 10, purpose: 'defense' },
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // Advance timers further to ensure no second fallback timer is left running
+        vi.advanceTimersByTime(30000);
+        await Promise.resolve();
+
+        expect(host.getGameState()!.turnState.pendingReaction).toBeNull();
+        expect(diceProvider.requestRoll).toHaveBeenCalledTimes(3);
+        const reactionEntries = host
+          .getGameState()!
+          .actionLog.filter((e) => e.action.type === 'respond-reaction');
+        expect(reactionEntries).toHaveLength(1);
+
+        host.destroy();
+        guest.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('restarts reaction timer if processAction rejects synchronously while no timer is running (G-11)', () => {
+      vi.useFakeTimers();
+      try {
+        const { hostWebRTC } = makeChannelPair();
+        const host = new GameManager(hostWebRTC, true);
+        startPlay(host, 'Host', 'Guest', TEST_ARMIES);
+
+        const patched = host.getGameState()!;
+        patched.turnState.pendingReaction = {
+          id: 'rx-test',
+          type: 'melee-retaliation',
+          promptingPlayerId: GUEST_PLAYER_ID,
+          sourceUnitId: 'u1',
+          targetUnitId: 'u2',
+          title: 'Retaliate',
+          description: 'Desc',
+          options: [{ id: 'decline', label: 'Decline', isDefault: true }],
+          expiresAt: Date.now() + 15000,
+          durationMs: 15000,
+        };
+        (host as any).gameState = patched;
+        expect((host as any).reactionTimeoutTimer).toBeNull();
+
+        // An invalid action is submitted while pendingReaction is active and no timer is running
+        host.sendAction(createAction(HOST_PLAYER_ID, 'hold', { type: 'hold', unitId: 'nonexistent' }));
+
+        // processAction finishes (failure) and starts the reaction timer because pendingReaction remains and no timer was running
+        expect((host as any).reactionTimeoutTimer).not.toBeNull();
+
+        host.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('terminates game after round 4 with objective control winner across the wire', async () => {
       const { hostWebRTC, guestWebRTC } = makeChannelPair();
       const host = new GameManager(hostWebRTC, true);
