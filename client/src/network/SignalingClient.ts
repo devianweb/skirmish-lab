@@ -22,7 +22,12 @@ export class SignalingClient {
       this.intentionalClose = false;
       this.ws = new WebSocket(this.url);
 
+      let opened = false;
+      let settled = false;
+
       this.ws.onopen = () => {
+        opened = true;
+        settled = true;
         console.log('Connected to signaling server');
         this.setConnectionState('connected');
         resolve();
@@ -40,11 +45,22 @@ export class SignalingClient {
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         this.setConnectionState('disconnected');
-        reject(error);
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
       };
 
       this.ws.onclose = () => {
         console.log('Disconnected from signaling server');
+        if (!opened) {
+          this.setConnectionState('disconnected');
+          if (!settled) {
+            settled = true;
+            reject(new Error('WebSocket closed before opening'));
+          }
+          return;
+        }
         this.setConnectionState(this.intentionalClose ? 'disconnected' : 'reconnecting');
         if (!this.intentionalClose && (this.currentRoomCode || this.handlers.size > 0)) {
           this.scheduleReconnect();

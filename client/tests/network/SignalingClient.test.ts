@@ -108,4 +108,30 @@ describe('SignalingClient', () => {
       role: 'host',
     });
   });
+
+  it('connect rejects when socket closes before opening without scheduling internal reconnect', async () => {
+    let createdSocket: any = null;
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        onopen: (() => void) | null = null;
+        onmessage: ((e: any) => void) | null = null;
+        onerror: ((e: any) => void) | null = null;
+        onclose: (() => void) | null = null;
+        constructor() {
+          createdSocket = this;
+        }
+      }
+    );
+    try {
+      client.on('room-created', () => {});
+      const reconnectSpy = vi.spyOn(client, 'scheduleReconnect');
+      const connectPromise = client.connect();
+      createdSocket.onclose?.();
+      await expect(connectPromise).rejects.toThrow('WebSocket closed before opening');
+      expect(reconnectSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
