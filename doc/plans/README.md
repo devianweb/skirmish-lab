@@ -10,6 +10,8 @@ Each roadmap sub-phase that needs more than a one-line fix gets a plan file here
 5. **Merge to `master`** (squash). Then start the next PR section. **Releases** (`master` → `release`) happen only when the owner explicitly asks in that turn.
 6. When a batch (sub-plan) is fully merged, Fable posts that batch's manual checks to the owner (the items its PRs added to `MANUAL_TEST_CHECKLIST.md`). When every section is merged, mark the plan `Status: done` and keep the file as a record.
 
+**Gemini:** one approved PR section can go to Gemini instead of a Claude implementer. See [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md) for what suits it, the prompt to paste and how its PR is reviewed.
+
 ## Rule references (local only; `assets-src/` is gitignored)
 Absolute paths, because worktrees don't contain `assets-src/`. All are Grimdark Future: Firefight v3.6.0:
 - `/home/webst/dev-stuff/trench-heresy/assets-src/GFF - Core Rules v3.6.0.pdf`: the core rules (movement, shooting, melee, terrain, jumps/falls, special rules).
