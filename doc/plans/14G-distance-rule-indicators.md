@@ -43,12 +43,12 @@ While aiming or charging, a player can see how far the target is and which dista
 7. **Hero aura:** when a unit is selected or hovered (any phase with units on the board), draw a ring of radius 6" + base radius around each living model of every living, non-Shaken, non-Routed friendly Hero unit **of that unit's side** (the unit itself included when it is a Hero). The ring is bright when that Hero lends its Quality to the selected/hovered unit (`heroQualityFor` rule: `unitDistance` ≤ 6 with the existing tolerance), faint otherwise. Hovering wins over the selection, as the selection marker does today.
 8. **Blast spread outline:** while shoot targeting with a Blast weapon in the attack (the previewed weapon, or any Blast weapon assigned to the hovered target) and an enemy is hovered, draw a ring of radius 3" + base radius around each living model of that target, and mark the other units that would share the hits (`getBlastParticipants`) with the existing "reachable target" ring style. Nothing for non-Blast weapons.
 9. **Pure logic in shared.** The gate maths are pure functions in `shared/src/engine/distanceGates.ts`, exported from the barrel. The HUD only picks the attacker, target, weapons and context, and turns the result into marker data; the renderer only draws it.
-10. **Colours:** reuse the palette already in `MarkerRenderer` (fan red `0xff7961` for threshold rings, dashed; Hero aura gold `0xffd54f`; Blast outline orange `0xff9800`). No new colour system; 14G2 restyles later.
+10. **Colours:** reuse the palette already in `MarkerRenderer` (fan red `0xff7961` for threshold rings, dashed; Hero aura gold `0xffd54f`; Blast outline orange `0xff9800`). No new colour system; the 15F UI design pass restyles later.
 
 ## Out of scope
 - New rules, Fear / setup-distance indicators, Hive Bond (Alien Hives is deferred).
 - Indicators for the opponent's view of my attack (the badge is for the local attacker only).
-- Restyling the range fan or other markers (14G2).
+- Restyling the range fan or other markers (15F UI design pass, formerly 14G2).
 
 ## Background
 - Registry: `shared/src/rules/traits.ts` (`TRAIT_REGISTRY`, `TraitMetadata`, `DISTANT_ATTACK_MORALE_TRAITS`, `hasTrait`).
