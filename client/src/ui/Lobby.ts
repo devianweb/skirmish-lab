@@ -5,6 +5,7 @@ import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
 import { BuildInfo, checkForNewVersion, formatBuildStamp, getBuildInfo } from '../buildInfo';
+import { HOW_TO_PLAY_DISCLAIMER, renderHowToPlayModalHtml } from './howToPlay';
 import {
   createInitialConnectionState,
   FIRST_CONNECT_GIVE_UP_MS,
@@ -18,8 +19,7 @@ import {
 
 const DEFAULT_HOST_ARMY = 'hdf';
 const DEFAULT_GUEST_ARMY = 'orc-marauders';
-export const LOBBY_DISCLAIMER =
-  'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.';
+export const LOBBY_DISCLAIMER = HOW_TO_PLAY_DISCLAIMER;
 
 let spinnerStyleInjected = false;
 function ensureSpinnerStyles(): void {
@@ -90,6 +90,7 @@ export class Lobby {
   private connectGiveUpTimer: ReturnType<typeof setTimeout> | null = null;
   private roomSlowTimer: ReturnType<typeof setTimeout> | null = null;
   private roomTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private howToPlayOpen: boolean = false;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
@@ -101,7 +102,14 @@ export class Lobby {
     this.setupSignalingHandlers();
     // Developer mode toggle: F9 only while the lobby is showing (in game F9 is the LoS debugger).
     this.keydownHandler = (event: KeyboardEvent) => {
-      if (event.key !== 'F9' || this.container.style.display === 'none') return;
+      if (this.container.style.display === 'none') return;
+      if (event.key === 'Escape' && this.howToPlayOpen) {
+        event.preventDefault();
+        this.howToPlayOpen = false;
+        this.render();
+        return;
+      }
+      if (event.key !== 'F9') return;
       event.preventDefault();
       const on = toggleDevMode();
       this.sanitizeArmySelection();
@@ -696,7 +704,10 @@ export class Lobby {
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
             <div id="connectionStatus" role="status" aria-live="polite" style="display: none; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #b0bec5; flex-wrap: wrap;"></div>
-            <button id="openMapEditorBtn" style="padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
+            <div style="display: flex; gap: 8px;">
+              <button id="openMapEditorBtn" style="flex: 1; padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
+              <button id="howToPlayBtn" class="sl-how-to-play-btn" title="How to play" aria-label="How to play" style="padding: 10px 16px; font-size: 14px; font-weight: 700; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">?</button>
+            </div>
           </div>
 
           <div id="lobbyFooter" style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #2a3442; font-size: 11px; line-height: 1.5; color: #78909c;">
@@ -705,6 +716,7 @@ export class Lobby {
             <div style="margin-top: 4px;">Full rules: <a href="https://onepagerules.com" target="_blank" rel="noopener noreferrer" style="color: #90caf9;">onepagerules.com</a> (free)</div>
           </div>
         </div>
+        ${this.howToPlayOpen ? renderHowToPlayModalHtml() : ''}
       `;
 
       if (hasActiveSession && activeSession) {
@@ -768,6 +780,28 @@ export class Lobby {
       this.container.querySelector('#openMapEditorBtn')?.addEventListener('click', () => {
         this.options.onOpenMapEditor?.();
       });
+
+      this.container.querySelector('#howToPlayBtn')?.addEventListener('click', () => {
+        this.howToPlayOpen = true;
+        this.render();
+      });
+
+      this.container.querySelectorAll('[data-action="how-to-play-close"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.howToPlayOpen = false;
+          this.render();
+        });
+      });
+
+      const overlay = this.container.querySelector('.sl-how-to-play-overlay');
+      if (overlay) {
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) {
+            this.howToPlayOpen = false;
+            this.render();
+          }
+        });
+      }
     }
   }
 }
