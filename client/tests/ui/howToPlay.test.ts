@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Lobby, LOBBY_DISCLAIMER } from '../../src/ui/Lobby';
+import { DISCLAIMER_TEXT } from '../../src/ui/disclaimer';
 import { GameHUD } from '../../src/ui/GameHUD';
 import {
   GameState,
@@ -87,13 +88,14 @@ describe('How to Play modal & controls (14G)', () => {
       expect(joined).toContain('objectives');
     });
 
-    it('contains the free rules link to onepagerules.com and the fan disclaimer', () => {
+    it('contains the free rules link to onepagerules.com and the fan disclaimer from disclaimer.ts', () => {
       expect(HOW_TO_PLAY_RULES_URL).toBe('https://onepagerules.com');
-      expect(HOW_TO_PLAY_DISCLAIMER).toBe(LOBBY_DISCLAIMER);
+      expect(HOW_TO_PLAY_DISCLAIMER).toBe(DISCLAIMER_TEXT);
+      expect(LOBBY_DISCLAIMER).toBe(DISCLAIMER_TEXT);
 
       const html = renderHowToPlayModalHtml();
       expect(html).toContain('https://onepagerules.com');
-      expect(html).toContain(LOBBY_DISCLAIMER);
+      expect(html).toContain(DISCLAIMER_TEXT);
     });
 
     it('verifies each listed key or control exists in the code it names', () => {

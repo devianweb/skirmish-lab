@@ -5,10 +5,11 @@
  * and the fan-project disclaimer, rendered in both the lobby and the in-game HUD.
  */
 
+import { DISCLAIMER_TEXT } from './disclaimer';
+
 export const HOW_TO_PLAY_RULES_URL = 'https://onepagerules.com';
 
-export const HOW_TO_PLAY_DISCLAIMER =
-  'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.';
+export const HOW_TO_PLAY_DISCLAIMER = DISCLAIMER_TEXT;
 
 export interface ControlItem {
   name: string;

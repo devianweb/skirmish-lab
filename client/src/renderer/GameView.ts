@@ -40,6 +40,8 @@ export interface SceneManagerLike {
   startAnimationLoop(callback?: () => void): void;
   getCamera?(): THREE.Camera;
   getRendererElement?(): HTMLElement;
+  setOnAfterRender?(callback: (() => void) | undefined): void;
+  getLabelRendererSize?(): { width: number; height: number };
 }
 
 export type PickTarget =
@@ -130,6 +132,21 @@ export class GameView {
     if (this.inputElement) {
       this.setupPicking(this.inputElement);
     }
+
+    if (this.sceneManager.setOnAfterRender) {
+      this.sceneManager.setOnAfterRender(() => {
+        this.updateLabelLayout();
+      });
+    }
+  }
+
+  /** Update marker label layout (stacking overlapping labels). */
+  updateLabelLayout(): void {
+    if (!this.camera) return;
+    const size = this.sceneManager.getLabelRendererSize?.();
+    const width = size && size.width > 0 ? size.width : (typeof window !== 'undefined' ? window.innerWidth : 1024);
+    const height = size && size.height > 0 ? size.height : (typeof window !== 'undefined' ? window.innerHeight : 768);
+    this.markerRenderer.layoutLabels(this.camera, width, height);
   }
 
   /**
@@ -276,7 +293,7 @@ export class GameView {
   }
 
   setThresholdRingsMarker(spec: ThresholdRingsMarker | null): void {
-    this.markerRenderer.setThresholdRings(spec);
+    this.markerRenderer.setThresholdRings(spec, this.cameraRole);
   }
 
   setAurasMarker(auras: AuraMarker[] | null): void {

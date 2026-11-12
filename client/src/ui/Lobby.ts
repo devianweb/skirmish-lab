@@ -5,7 +5,8 @@ import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
 import { BuildInfo, checkForNewVersion, formatBuildStamp, getBuildInfo } from '../buildInfo';
-import { HOW_TO_PLAY_DISCLAIMER, renderHowToPlayModalHtml } from './howToPlay';
+import { renderHowToPlayModalHtml } from './howToPlay';
+import { DISCLAIMER_TEXT } from './disclaimer';
 import {
   createInitialConnectionState,
   FIRST_CONNECT_GIVE_UP_MS,
@@ -19,7 +20,7 @@ import {
 
 const DEFAULT_HOST_ARMY = 'hdf';
 const DEFAULT_GUEST_ARMY = 'orc-marauders';
-export const LOBBY_DISCLAIMER = HOW_TO_PLAY_DISCLAIMER;
+export const LOBBY_DISCLAIMER = DISCLAIMER_TEXT;
 
 let spinnerStyleInjected = false;
 function ensureSpinnerStyles(): void {

@@ -530,4 +530,41 @@ describe('GameHUD: Blast spread outline', () => {
     expect(last().auras!.filter((a) => a.kind === 'blast')).toEqual([]);
     expect(last().blastSharingUnitIds).toEqual([]);
   });
+
+  it('HDF Veterans: hovering an enemy shows Blast outline and sharing rings with no chip selected; with Battle Rifle chip selected they do not', () => {
+    const state = openField();
+    const veterans = unitOf(state, 'hdf-veterans');
+    const target = unitOf(state, 'orc-leader');
+    const neighbour = unitOf(state, 'orc-veteran');
+    place(veterans, [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 2, z: 0 }]);
+    place(target, [{ x: 0, z: 12 }]);
+    place(neighbour, [{ x: 1.5, z: 12 }]);
+    activate(state, veterans);
+
+    const { hud, container, last } = setup(state, HOST);
+    clickButton(container, 'Shoot');
+    hud.handleBoardHover({ kind: 'unit', unitId: target.id });
+
+    // With no weapon chip selected, every weapon that can fire is counted (including Grenade Launcher)
+    const blastAurasNoChip = last().auras!.filter((a) => a.kind === 'blast');
+    expect(blastAurasNoChip.length).toBeGreaterThan(0);
+    expect(blastAurasNoChip[0].label).toBe('Blast 3"');
+    expect(last().blastSharingUnitIds).toEqual([neighbour.id]);
+
+    // When the Battle Rifle chip is selected, only Battle Rifle is counted (no Blast)
+    chooseWeapon(container, 'battle-rifle');
+    hud.handleBoardHover({ kind: 'unit', unitId: target.id });
+
+    const blastAurasRifle = last().auras!.filter((a) => a.kind === 'blast');
+    expect(blastAurasRifle).toEqual([]);
+    expect(last().blastSharingUnitIds).toEqual([]);
+
+    // When Grenade Launcher chip is selected, it shows Blast outline and sharing rings again
+    chooseWeapon(container, 'grenade-launcher');
+    hud.handleBoardHover({ kind: 'unit', unitId: target.id });
+
+    const blastAurasLauncher = last().auras!.filter((a) => a.kind === 'blast');
+    expect(blastAurasLauncher.length).toBeGreaterThan(0);
+    expect(last().blastSharingUnitIds).toEqual([neighbour.id]);
+  });
 });
