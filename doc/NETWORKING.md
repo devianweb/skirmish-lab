@@ -83,11 +83,14 @@ type GameMessage =
   | { type: 'action-request', action: GameAction }      // Guest → Host
   | { type: 'action-rejected', actionId: string, reason: string } // Host → Guest
   | { type: 'state-update', state: GameState, actionId: string } // Host → Guest
+  | { type: 'state-sync', state: GameState }            // Guest → Host (state recovery)
+  | { type: 'request-state-sync' }                     // Host → Guest
   | { type: 'heartbeat-ping', timestamp: number }
   | { type: 'heartbeat-pong', timestamp: number }
+  | { type: 'select-army', armyId: string, playerId: string }
   | { type: 'request-snapshot' }                         // Guest → Host (if needed)
   | { type: 'snapshot', state: GameState }              // Host → Guest
-  | { type: 'game-end', reason: string }
+  | { type: 'game-end', reason: string };
 ```
 
 ### Message Routing Rules
@@ -246,10 +249,10 @@ Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resol
 1. Connection drops (heartbeat timeout detected)
 2. UI shows disconnected state
 3. If host drops: Guest keeps last snapshot cached; server preserves room in 5-min grace window
-4. Host reconnects to signaling server with { type: 'reconnect-room', code, role: 'host' }
-5. Signaling server re-links host WebSocket to existing room
+4. Host reconnects to signaling server with { type: 'reconnect-room', code, role: 'host', rejoinToken }
+5. Signaling server validates rejoinToken and re-links host WebSocket to existing room
 6. Peers re-establish WebRTC connection through signaling
-7. Host sends current authoritative state to guest (or guest has snapshot)
+7. Host sends current authoritative state to guest (or recovers via state-sync from guest snapshot)
 8. Game resumes from last confirmed state
 ```
 
@@ -257,16 +260,16 @@ Support standard dice: d6, d3, etc. as needed by the rules engine (d6 core resol
 - **Host Authority:** Host remains authoritative source of truth
 - **Guest Recovery:** Aim to rejoin host's state if host reconnects
 - **No Auto-Migration:** Don't implement full guest-takeover for v1
-- **State Sync:** On reconnection, host sends full state snapshot to guest
+- **State Sync:** On reconnection, host sends full state snapshot to guest (or adopts guest snapshot if recovering)
 - **Room Persistence:** 5-minute grace window preserves room on server during reconnection attempts
 
 ## Connection Monitoring
 
 ### Heartbeats
-- **Frequency:** Send heartbeat-ping every 2-5 seconds over data channel
-- **Timeout:** Consider disconnected after 3-5 missed pongs
+- **Frequency:** Send heartbeat-ping every 3 seconds over data channel (`heartbeatIntervalMs = 3000`)
+- **Timeout:** Consider disconnected after 6 seconds without a pong (`heartbeatTimeout = 6000`)
 - **Implementation:** Track last pong timestamp, check periodically
-- **Purpose:** Detect ICE disconnects/failures (can be finnicky)
+- **Purpose:** Detect ICE disconnects/failures
 
 ### Heartbeat Protocol
 ```typescript
@@ -287,11 +290,12 @@ if (now - lastPongTime > timeout) {
 
 ## Security Considerations
 
-- **Server RNG:** Dice rolls use server-side RNG, can't be manipulated by clients
+- **Server RNG & Validation:** Dice rolls use server-side RNG with strict bounds (1–64 specs, integer count 1–500, sides 2–20, total count ≤ 2000), host-only authorization, and cached spec matching
+- **Seat Rejoin Tokens:** Cryptographically random UUID tokens prevent unauthenticated seat hijacking while a session is active
 - **Host Validation:** All actions validated server-side (on host), guest can't cheat by sending invalid actions
 - **Signaling Only:** Game state never goes through signaling server
-- **No Authentication:** Acceptable for friends playing direct invites
-- **Room Codes:** Random enough for casual use, not cryptographically secure (not needed)
+- **Frame Caps:** 64 KB WebSocket frame payload limit protects against memory exhaustion
+- **Room Codes:** Random enough for casual use (XXX-XXX)
 - **P2P:** Direct connection after signaling, no relay of game traffic
 
 ## Configuration
@@ -314,7 +318,10 @@ if (now - lastPongTime > timeout) {
 ```typescript
 {
   heartbeatInterval: 3000,   // 3 seconds
-  heartbeatTimeout: 10000,   // 10 seconds
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  heartbeatTimeout: 6000,    // 6 seconds
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
 }
 ```

@@ -392,7 +392,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** stale-doc
 - **Location:** `doc/ARCHITECTURE.md:4, 29-62, 100`, `doc/NETWORKING.md:59-90, 302`, `doc/ASSETS.md:65-86, 120`, `doc/DEPLOYMENT.md:8, 13, 27, 98`, `doc/ux/README.md:3`
-- **Status:** verified
+- **Status:** fixed in #389
 - **Defect:** `doc/ARCHITECTURE.md`, `doc/NETWORKING.md`, `doc/ASSETS.md`, `doc/DEPLOYMENT.md`, and `doc/ux/README.md` contain outdated message schemas, colors, file paths, Node versions, and screenshot counts.
 - **Failure scenario:** `NETWORKING.md` lists `heartbeatTimeout: 10000` (`6000` in `WebRTCClient.ts:24`), omits reconnect/ping signaling messages, and claims `"Any peer can request dice roll via signaling server"`; `ASSETS.md:65-86, 120` still documents the removed 14-piece `scenario.ts` terrain table and orange (`0xff7043`) aim lines (now green `0x66bb6a` in `MarkerRenderer.ts:67`); `DEPLOYMENT.md` specifies Node 20 LTS (`AGENTS.md` specifies Node 24 LTS); and `doc/ux/README.md:3` states `58 screenshots` (`75` in `index.html`).
 - **Suggested fix:** Update `doc/ARCHITECTURE.md`, `doc/NETWORKING.md`, `doc/ASSETS.md`, `doc/DEPLOYMENT.md`, and `doc/ux/README.md` to reflect the current codebase.
