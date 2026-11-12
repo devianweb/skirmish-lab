@@ -798,7 +798,7 @@ Phased development plan for SkirmishLab, an unofficial OPR-compatible tabletop s
 **Goal:** Make the game look and sound finished once the MVP is out. Each item is its own sub-phase with its own plan in `doc/plans/`.
 
 ### Sub-phases (to be planned)
-- [ ] 15A Audio & SFX: dice rattle/roll sounds, gunfire cues, melee impacts and victory stingers (procedural Web Audio, per AGENTS.md).
+- [x] 15A Audio & SFX: dice rattle/roll sounds, gunfire cues, melee impacts and victory stingers (procedural Web Audio, per AGENTS.md).
 - [ ] 15B Texturing: materials and textures for terrain, board and models (low-poly art style).
 - [ ] 15C Lighting: scene lighting, shadows and atmosphere.
 - [ ] 15D Animations: model movement, attacks, casualties and UI transitions.
