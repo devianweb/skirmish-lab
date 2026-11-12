@@ -2798,3 +2798,75 @@ describe('dangerousTerrainText (Decision 41)', () => {
     );
   });
 });
+
+describe('HTML escaping in GameHUD (G-06)', () => {
+  it('renders a rejection message containing <img src=x onerror=…> as text, not as an element', () => {
+    const { hud, container } = setup(HOST);
+    hud.notifyRejected('<img src=x onerror=alert("rejected")>');
+
+    expect(container.querySelectorAll('img').length).toBe(0);
+    expect(container.textContent).toContain('Action rejected: <img src=x onerror=alert("rejected")>');
+    expect(container.innerHTML).toContain('&lt;img');
+  });
+
+  it('renders a unit name and room code containing <img src=x onerror=…> as text, not as an element', () => {
+    const state = scenarioState();
+    const myUnit = state.units.find((u) => u.ownerId === HOST)!;
+    myUnit.name = '<img src=x onerror=alert("my-unit")>';
+
+    state.actionLog.push({
+      action: createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: myUnit.id }),
+      result: 'accepted',
+    } as any);
+
+    const { hud, container } = setup(HOST, state, { roomCode: '<img src=x onerror=alert("room")>' });
+
+    // Inspect the unit so datacard renders
+    (hud as any).selectedUnitId = myUnit.id;
+    (hud as any).render();
+
+    expect(container.querySelectorAll('img').length).toBe(0);
+    expect(container.textContent).toContain('<img src=x onerror=alert("my-unit")>');
+    expect(container.textContent).toContain('Room: <img src=x onerror=alert("room")>');
+    expect(container.innerHTML).toContain('&lt;img');
+  });
+});
+
+describe('GameHUD cleanup and round transitions (G-23)', () => {
+  it('dispose() clears the reactionTimerInterval', () => {
+    const state = scenarioState();
+    state.turnState.pendingReaction = {
+      id: 'reaction-1',
+      type: 'strike-back',
+      targetUnitId: state.units[0].id,
+      promptingPlayerId: HOST,
+      durationMs: 30000,
+      expiresAt: Date.now() + 30000,
+    } as any;
+
+    const { hud } = setup(HOST, state);
+    expect((hud as any).reactionTimerInterval).not.toBeNull();
+
+    hud.dispose();
+    expect((hud as any).reactionTimerInterval).toBeNull();
+  });
+
+  it('syncFromState does not exit early on round transition and updates audio / turn state', () => {
+    const state = scenarioState();
+    const { hud } = setup(HOST, state);
+
+    // Initial state: round 1, Host's turn
+    expect(state.turnState.roundNumber).toBe(1);
+    (hud as any).prevCurrentPlayerId = GUEST; // simulate was guest turn
+
+    // Next state: round 2, Host's turn
+    const stateRound2 = JSON.parse(JSON.stringify(state));
+    stateRound2.turnState.roundNumber = 2;
+    stateRound2.turnState.currentPlayerId = HOST;
+
+    hud.syncFromState(stateRound2);
+
+    // prevCurrentPlayerId must be updated (not left stale by early return)
+    expect((hud as any).prevCurrentPlayerId).toBe(HOST);
+  });
+});

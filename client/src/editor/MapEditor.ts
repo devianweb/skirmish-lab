@@ -24,6 +24,7 @@ import {
 import { GameView, PickTarget } from '../renderer/GameView';
 import { ModelLoader } from '../renderer/ModelLoader';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
+import { escapeHtml } from '../ui/escapeHtml';
 
 /**
  * Maps no longer define objectives (the players place them in the game), so the editor never keeps or saves them.
@@ -671,9 +672,9 @@ export class MapEditor {
       inspectorHtml = `
         <div style="background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 8px; padding: 14px; width: 280px; pointer-events: auto; color: #eee; font-family: Arial, sans-serif;">
           <div style="font-size: 13px; font-weight: bold; color: #90caf9; margin-bottom: 4px; text-transform: uppercase;">
-            ${displayName}
+            ${escapeHtml(displayName)}
           </div>
-          <div style="font-size: 11px; color: #78909c; margin-bottom: 8px;">ID: ${selectedPiece.id} (${selectedPiece.terrainType})</div>
+          <div style="font-size: 11px; color: #78909c; margin-bottom: 8px;">ID: ${escapeHtml(selectedPiece.id)} (${escapeHtml(selectedPiece.terrainType)})</div>
           <div style="font-size: 12px; margin-bottom: 4px;">Pos: (${selectedPiece.position.x.toFixed(1)}, ${selectedPiece.position.y.toFixed(1)}, ${selectedPiece.position.z.toFixed(1)})</div>
           
           <div style="display: flex; gap: 4px; margin-bottom: 8px; align-items: center;">
@@ -714,7 +715,7 @@ export class MapEditor {
       customMaps.length > 0
         ? `
           <optgroup label="Saved Custom Maps">
-            ${customMaps.map((m) => `<option value="custom:${m.id}">${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
+            ${customMaps.map((m) => `<option value="custom:${escapeHtml(m.id)}">${escapeHtml(m.name)} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
           </optgroup>
         `
         : '';
@@ -734,7 +735,7 @@ export class MapEditor {
         <div style="pointer-events: auto; background: rgba(18, 22, 28, 0.95); border-bottom: 1px solid #37474f; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
           <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-weight: bold; font-size: 16px; color: #ffd54f;">Map Builder</span>
-            <input id="mapNameInput" value="${this.currentMap.name}" placeholder="Map Name" style="padding: 6px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px; width: 170px;" />
+            <input id="mapNameInput" value="${escapeHtml(this.currentMap.name)}" placeholder="Map Name" style="padding: 6px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px; width: 170px;" />
             <div style="display: flex; align-items: center; background: #263238; border-radius: 4px; padding: 2px;">
               <span style="font-size: 11px; color: #90caf9; padding: 0 6px;">Snap:</span>
               <button id="snap1Btn" style="padding: 4px 6px; font-size: 11px; font-weight: 600; border: none; border-radius: 3px; cursor: pointer; background: ${this.gridSnap === 1.0 ? '#29b6f6' : 'transparent'}; color: ${this.gridSnap === 1.0 ? '#12161c' : '#cfd8dc'};">1.0"</button>

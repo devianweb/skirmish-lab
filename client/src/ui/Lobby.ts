@@ -7,6 +7,7 @@ import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
 import { BuildInfo, checkForNewVersion, formatBuildStamp, getBuildInfo } from '../buildInfo';
 import { renderHowToPlayModalHtml } from './howToPlay';
 import { DISCLAIMER_TEXT } from './disclaimer';
+import { escapeHtml } from './escapeHtml';
 import {
   createInitialConnectionState,
   FIRST_CONNECT_GIVE_UP_MS,
@@ -153,7 +154,10 @@ export class Lobby {
         const params = new URLSearchParams(window.location.search);
         const roomParam = params.get('room');
         if (roomParam) {
-          this.initialRoomCode = roomParam.toUpperCase();
+          const upper = roomParam.toUpperCase();
+          if (/^[A-Z0-9-]{0,7}$/.test(upper)) {
+            this.initialRoomCode = upper;
+          }
         }
       } catch (e) {
         console.warn('[Lobby] Failed to read URL room parameter:', e);
@@ -592,9 +596,9 @@ export class Lobby {
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 60px auto; padding: 30px; background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
-          <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${this.roomCode}</h2>
-          <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${this.role.toUpperCase()}</strong></p>
-          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${this.getMapDisplayName(this.selectedMapSelection)}</strong></p>
+          <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${escapeHtml(this.roomCode)}</h2>
+          <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${escapeHtml(this.role.toUpperCase())}</strong></p>
+          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${escapeHtml(this.getMapDisplayName(this.selectedMapSelection))}</strong></p>
           <p id="status" style="font-size: 14px; color: #ffd54f;">Waiting for peer...</p>
         </div>
       `;
@@ -606,10 +610,10 @@ export class Lobby {
       const resumeBannerHtml = hasActiveSession && activeSession ? `
         <div id="resumeBanner" style="margin-bottom: 20px; background: rgba(41, 182, 246, 0.15); border: 1px solid #29b6f6; border-radius: 8px; padding: 14px; text-align: left;">
           <div style="font-size: 14px; font-weight: bold; color: #ffd54f; margin-bottom: 6px;">
-            ⚠️ Active Game Detected (Room ${activeSession.roomCode})
+            ⚠️ Active Game Detected (Room ${escapeHtml(activeSession.roomCode)})
           </div>
           <div style="font-size: 13px; color: #b0bec5; margin-bottom: 12px;">
-            You have an ongoing match as <strong style="color: #29b6f6; text-transform: uppercase;">${activeSession.role.toUpperCase()}</strong>. Reconnect within the 5-minute grace window to resume.
+            You have an ongoing match as <strong style="color: #29b6f6; text-transform: uppercase;">${escapeHtml(activeSession.role.toUpperCase())}</strong>. Reconnect within the 5-minute grace window to resume.
           </div>
           <div style="display: flex; gap: 8px;">
             <button id="resumeBtn" style="padding: 8px 16px; font-size: 13px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
@@ -626,7 +630,7 @@ export class Lobby {
       const customOptionsHtml = customMaps.length > 0
         ? `
           <optgroup label="Custom Maps">
-            ${customMaps.map((m) => `<option value="custom:${m.id}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
+            ${customMaps.map((m) => `<option value="custom:${escapeHtml(m.id)}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${escapeHtml(m.name)} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
           </optgroup>
         `
         : '';
@@ -701,7 +705,7 @@ export class Lobby {
           <div style="display: flex; flex-direction: column; gap: 16px;">
             <button id="createBtn" style="padding: 12px 24px; font-size: 15px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 6px; cursor: pointer;">Create Room (Host)</button>
             <div style="display: flex; gap: 8px;">
-              <input id="codeInput" placeholder="XXX-XXX" value="${prefillCode}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
+              <input id="codeInput" placeholder="XXX-XXX" value="${escapeHtml(prefillCode)}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
             <div id="connectionStatus" role="status" aria-live="polite" style="display: none; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #b0bec5; flex-wrap: wrap;"></div>

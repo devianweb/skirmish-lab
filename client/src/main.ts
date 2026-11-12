@@ -252,6 +252,7 @@ const lobby = new Lobby(lobbyContainer, {
           stopKeepAlive = null;
           hud?.dispose();
           hud = null;
+          gameManager?.destroy();
           gameManager = null;
           latestState = null;
           gameView.clear();

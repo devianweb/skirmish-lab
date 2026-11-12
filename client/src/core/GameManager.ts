@@ -156,13 +156,16 @@ export class GameManager {
   }
 
   private setupHandlers(): void {
-    this.webrtcClient.on('state-update', (msg: GameMessage) => {
+    const client = this.webrtcClient;
+    client.on('state-update', (msg: GameMessage) => {
+      if (this.webrtcClient !== client) return;
       if (!this.isHost && msg.type === 'state-update') {
         this.applyStateUpdate(msg.state);
       }
     });
 
-    this.webrtcClient.on('state-sync', (msg: GameMessage) => {
+    client.on('state-sync', (msg: GameMessage) => {
+      if (this.webrtcClient !== client) return;
       if (msg.type === 'state-sync' && msg.state) {
         if (!this.isHost) {
           this.applyStateUpdate(msg.state);
@@ -176,7 +179,8 @@ export class GameManager {
       }
     });
 
-    this.webrtcClient.on('request-state-sync', (msg: GameMessage) => {
+    client.on('request-state-sync', (msg: GameMessage) => {
+      if (this.webrtcClient !== client) return;
       if (msg.type === 'request-state-sync') {
         if (this.gameState) {
           const syncState = JSON.parse(JSON.stringify(this.gameState));
@@ -186,27 +190,38 @@ export class GameManager {
               syncState.turnState.pendingReaction.expiresAt - Date.now()
             );
           }
-          this.webrtcClient.send({ type: 'state-sync', state: syncState } as GameMessage);
+          client.send({ type: 'state-sync', state: syncState } as GameMessage);
         }
       }
     });
 
-    this.webrtcClient.on('action-rejected', (msg: GameMessage) => {
+    client.on('action-rejected', (msg: GameMessage) => {
+      if (this.webrtcClient !== client) return;
       if (msg.type !== 'action-rejected') return;
       if (!this.isHost) {
         this.emitRejection(msg.actionId, msg.reason);
       }
     });
 
-    this.webrtcClient.on('action-request', (msg: GameMessage) => {
+    client.on('action-request', (msg: GameMessage) => {
+      if (this.webrtcClient !== client) return;
       if (this.isHost && msg.type === 'action-request') {
+        if (!this.gameState || !msg.action || msg.action.actorId !== this.gameState.guestId) {
+          this.webrtcClient.send({
+            type: 'action-rejected',
+            actionId: msg.action?.id ?? '',
+            reason: 'Unauthorized actor',
+          } as GameMessage);
+          return;
+        }
         // Host is authoritative: guest actions are validated and applied here.
         void this.processAction(msg.action);
       }
     });
 
-    if (typeof this.webrtcClient.onConnectionState === 'function') {
-      this.webrtcClient.onConnectionState((state: 'connected' | 'disconnected') => {
+    if (typeof client.onConnectionState === 'function') {
+      client.onConnectionState((state: 'connected' | 'disconnected') => {
+        if (this.webrtcClient !== client) return;
         const isConnected = state === 'connected';
         if (this.isPeerConnected === isConnected) return;
         this.isPeerConnected = isConnected;
