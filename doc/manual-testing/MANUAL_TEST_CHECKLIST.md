@@ -44,3 +44,9 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - Verified items removed (owner pass, 2026-11-12, later): every 14G distance-indicator check (badges, 9" and 6" rings, HDF cases, Hero aura, Blast outline, nothing floating elsewhere). Follow-ups from that pass (aura style and label, Blast sharing mark) are plan `doc/plans/14G-indicator-polish.md`.
 
 - Verified items removed (owner pass, 2026-11-12): the Orc Marauders list and data cards, Bad Shot, Ferocious when shooting and charging, Heavy Flamer-Mod Limited, Orc Biker Fast (PR 2), and the two-army pickers with the HDF vs Orc Marauders default (PR 2B).
+
+### 14G Distance-indicator polish (PR 1)
+Setup: Orc Marauders (host) vs Human Defense Force (guest), Standard Battlefield:
+- [ ] Select an HDF unit near the Company Leader: a dashed red ring around the Leader (guest side colour), bright when the unit is within 6" and faint when not, with `Hero 6"` written flat on the board along the ring on your side. As host, selecting an Orc unit near the Orc Leader gives a dashed blue ring.
+- [ ] Aim the Heavy Flamer-Mod at an HDF unit with another HDF unit close by: dashed orange outlines with one `Blast 3"` label; the nearby unit wears an orange ring; other enemies in range keep the dark-red ring.
+- [ ] The Hero ring no longer looks like an objective marker.

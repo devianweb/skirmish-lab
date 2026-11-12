@@ -71,16 +71,17 @@ function applyMarkers(markers: MarkerSnapshot): void {
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
   gameView.setTargetMarker(targetUnits.length > 0 ? targetUnits : null);
+  const blastSharingIds = new Set(markers.blastSharingUnitIds ?? []);
   const reachable = (markers.reachableTargetIds ?? [])
+    .filter((id) => !blastSharingIds.has(id))
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
-  // Units that would share a Blast's hits wear the same ring as reachable targets
-  const reachableIds = new Set(reachable.map((u) => u.id));
-  for (const id of markers.blastSharingUnitIds ?? []) {
-    const unit = reachableIds.has(id) ? null : unitForMarkers(id);
-    if (unit) reachable.push(unit);
-  }
   gameView.setReachableTargetsMarker(reachable);
+
+  const blastSharing = (markers.blastSharingUnitIds ?? [])
+    .map((id) => unitForMarkers(id))
+    .filter((u): u is MarkerUnit => u !== null);
+  gameView.setBlastSharingMarker(blastSharing.length > 0 ? blastSharing : null);
   gameView.setAimLinesMarker(markers.aimLines ?? null);
   gameView.setMovementRangeMarker(
     markers.movementRangePosition

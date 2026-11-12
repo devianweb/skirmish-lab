@@ -365,8 +365,27 @@ describe('GameHUD: Hero aura', () => {
     const { hud, last } = setup(state, HOST);
     hud.handleBoardHover({ kind: 'unit', unitId: squad.id });
     expect(heroAuras(last())).toEqual([
-      { kind: 'hero', position: { x: 0, y: 0, z: 0 }, radius: 6 + baseRadius(hero), active: true },
+      { kind: 'hero', side: 'host', position: { x: 0, y: 0, z: 0 }, radius: 6 + baseRadius(hero), active: true, label: 'Hero 6"' },
     ]);
+  });
+
+  it('multi-model Hero carries exactly one label on the first living model', () => {
+    const state = openField();
+    const hero = unitOf(state, 'hdf-company-leader');
+    hero.models = [
+      { id: `${hero.id}-0`, isDestroyed: false, position: { x: 0, y: 0, z: 0 } } as any,
+      { id: `${hero.id}-1`, isDestroyed: false, position: { x: 1, y: 0, z: 0 } } as any,
+    ];
+    const squad = unitOf(state, 'hdf-infantry-squad');
+    place(squad, [{ x: 0, z: 4 }]);
+    const { hud, last } = setup(state, HOST);
+    hud.handleBoardHover({ kind: 'unit', unitId: squad.id });
+    const auras = heroAuras(last());
+    expect(auras).toHaveLength(2);
+    expect(auras[0].side).toBe('host');
+    expect(auras[0].label).toBe('Hero 6"');
+    expect(auras[1].side).toBe('host');
+    expect(auras[1].label).toBeUndefined();
   });
 
   it('7" away the aura is drawn faint', () => {
@@ -411,7 +430,7 @@ describe('GameHUD: Hero aura', () => {
     const { hud, last } = setup(state, HOST);
     hud.handleBoardHover({ kind: 'unit', unitId: hero.id });
     expect(heroAuras(last())).toEqual([
-      { kind: 'hero', position: { x: 3, y: 0, z: 4 }, radius: 6 + baseRadius(hero), active: true },
+      { kind: 'hero', side: 'host', position: { x: 3, y: 0, z: 4 }, radius: 6 + baseRadius(hero), active: true, label: 'Hero 6"' },
     ]);
   });
 
@@ -429,6 +448,8 @@ describe('GameHUD: Hero aura', () => {
     expect(auras).toHaveLength(1);
     expect(auras[0].position).toEqual({ x: 10, y: 0, z: 10 });
     expect(auras[0].active).toBe(true); // gap 3
+    expect(auras[0].side).toBe('guest');
+    expect(auras[0].label).toBe('Hero 6"');
   });
 
   it('shows nothing with no unit hovered or selected', () => {
@@ -471,6 +492,12 @@ describe('GameHUD: Blast spread outline', () => {
       expect(a.radius).toBeCloseTo(3 + baseRadius(target), 5);
       expect(a.active).toBe(true);
     }
+    const withLabel = blast.filter((a) => a.label !== undefined);
+    expect(withLabel).toHaveLength(1);
+    expect(withLabel[0].label).toBe('Blast 3"');
+    expect(blast[0].label).toBe('Blast 3"');
+    expect(blast[1].label).toBeUndefined();
+    expect(blast[2].label).toBeUndefined();
     expect(last().blastSharingUnitIds).toEqual([neighbour.id]);
   });
 
