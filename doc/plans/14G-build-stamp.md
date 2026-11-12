@@ -1,11 +1,11 @@
 # 14G: Build stamp and "new version" notice
-Status: draft, parked as a ROADMAP entry under 14G (owner, 2026-11-11: keep it on the roadmap for now). Needs the owner's approval before an implementer starts.
+Status: approved (owner, 2026-11-12: "Go ahead with the build stamp"; Decisions 1–5 confirmed as written)
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G (Playtest & UX polish)
 
 ## Goal
 After a release, a player can see at a glance which build their browser tab is running, and a tab that is running an older build than the one deployed says so and offers a reload. This removes the "did it deploy?" guesswork: on 2026-11-11 a tab kept showing the previous build for several minutes after a release because the browser reused its cached copy of the page.
 
-## Decisions (proposed, for the owner to confirm)
+## Decisions (agreed)
 1. **Build stamp.** The client build carries the short commit hash and the build time (UTC). The lobby footer, next to the disclaimer, shows one small muted line: `Build a1b2c3d · 2026-11-11 23:00 UTC`. A local dev server shows `Build dev`. The same line is written once to the browser console at start-up.
 2. **Where it comes from.** `client/vite.config.ts` injects two constants with Vite's `define`: the commit from `GITHUB_SHA` when set (CI and deploy), else `git rev-parse --short HEAD`, else `dev`; the time is the moment of the build. No new dependency, no network call to build.
 3. **New-version notice.** The build also writes `version.json` (`{ "commit": "...", "builtAt": "..." }`) next to `index.html`. When the lobby opens (and each time the player returns to it), the client fetches `version.json` with the browser cache bypassed. If its commit differs from the tab's own, the lobby shows a banner: "A newer version of SkirmishLab is available." with a **Reload** button that reloads the page from the network. If the fetch fails, or the tab is a dev build, nothing is shown.
@@ -42,4 +42,4 @@ After a release, a player can see at a glance which build their browser tab is r
 - **Done when:** all workspaces green; `version.json` is in the build output; the lobby shows the stamp; the banner appears only for a differing deployed commit.
 
 ## Open questions
-- The owner confirms Decisions 1–5 (in particular: the banner in the lobby only, and no host/guest build comparison for now).
+None.
