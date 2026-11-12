@@ -28,11 +28,12 @@ Spot-checked against the code: G-01, G-02 and G-04 confirmed; G-03 **rejected** 
 Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI_HANDOVER.md`; Claude reviews):
 - **2A Signaling server hardening** (server only): G-01, G-02, G-05, G-25, plus the G-29 server tests.
 - **2B Client trust and robustness** (client only): G-04, G-06, G-10, G-11, G-22, G-23, G-24.
-- **2C Host validation in the engine** (shared, no rule changes): G-07, G-08, G-12, G-14, G-16, G-17, G-18, G-19, G-21, G-31. G-13 waits for Rules question 3.
+- **2C Host validation in the engine** (shared, no rule changes): G-07, G-08, G-12, G-14, G-16, G-17, G-19, G-21, G-31.
+- **2F Rules fixes** (shared, after 2C): the owner's answers to Rules questions 1-4 below, with G-13 and G-18.
 - **2D Resume as host** (client + signaling): G-09.
 - **2E Cleanup** (no behaviour change): G-20, G-26, G-27, G-28, G-30, G-32, G-33, G-34; the stale docs G-35 / G-36 go to 14H Docs sync.
 - **Deferred:** G-15 (corner-graze line of sight on exact ties; low impact, needs its own careful PR).
-- **Rules questions 1-5:** for the owner; nothing changes until they answer.
+- **Rules questions 1-5:** answered by the owner on 2026-11-12 (see the end of this file).
 
 ## Findings
 
@@ -405,6 +406,14 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 3. **Simultaneous weapon resolution within a single shooting activation (`shared/src/engine/actions.ts:3604-3704`):** When a multi-model unit fires multiple weapons in a single `shoot` action, `resolveShoot` applies each weapon's wounds to the target immediately before resolving the next weapon in the same shooting action (so weapon 1 killing models reduces the target's `livingModels` count and `Blast(X)` hit cap for weapon 2 in the same salvo). Should all weapons declared in the same shooting action determine their Blast caps and target model counts simultaneously before casualties are removed?
 4. **Prompting `pick-casualties` after Impact hits before checking whether a Counter weapon carrier survives (`shared/src/engine/actions.ts:3862-3892`):** In `resolveChargeStrike` (`actions.ts:3866`), `hasCounter` is evaluated *after* `resolveImpactStep`, and `resolveImpactStep` only pauses for `pick-casualties` when `findCounterWeapons(target).length > 0` (`actions.ts:3842`); however, `findCounterWeapons` (`specialRules.ts:65`) does not check `isCarried(target, w)`, so Impact hits pause for `pick-casualties` even when the only Counter carrier is already dead, and conversely if a multi-model squad has no Counter weapons, Impact casualties are auto-allocated without a `pick-casualties` prompt before the defender's `strike-back` (where model survival could determine which mixed-loadout weapons remain for `strike-back`). Should Impact wounds on a multi-loadout squad always allow the defender to choose casualties before `strike-back`?
 5. **3" `melee-consolidation` reaction vs 1" separation move (`shared/src/engine/actions.ts:3233-3252, 4050-4058`):** When a charging unit destroys the defender (either via Impact hits at `actions.ts:4050` or melee strikes at `actions.ts:3244`), the engine triggers a `melee-consolidation` reaction allowing a 3" move (`CONSOLIDATION_MAX_DISTANCE = 3`), whereas if both units survive, the charger backs up 1". Is the 3" consolidation after wiping out an enemy in melee an intentional house/legacy rule kept alongside the v3.6 post-melee separation rules?
+
+### Owner answers (2026-11-12)
+These are agreed rules decisions; they go into **2F Rules fixes** (shared engine, after 2C; update `doc/RULES_SPECIFICATION.md` and `doc/SYSTEMS.md` with them):
+1. **Counter and Fatigue:** a unit becomes Fatigued once the melee is resolved, not straight after its Counter strike. Its strike back with non-Counter weapons in the same melee hits normally (unless it was already Fatigued or is Shaken, as before).
+2. **Pushing:** only an enemy that attacked the unit can push it. A unit made Shaken by its own activation (e.g. dangerous-terrain wounds) is not pushed. A charger that loses its melee can still be pushed by the unit it fought.
+3. **One shooting action is one salvo:** every weapon's Blast caps and the units sharing its hits are worked out from the target as it stood when the shooting began; wounds are then applied in order (Deadly first, as now). This also fixes G-13.
+4. **Impact casualties:** the defender picks which models are removed by Impact hits with the same prompt rules as any other attack (mixed loadouts or Tough above 1), whether or not it has a Counter weapon. `findCounterWeapons` ignores weapons whose carriers are dead (G-18).
+5. **Consolidation:** no change. The 3" move when either unit is destroyed, and the 1" separation otherwise, are the v3.6 core rule, and the engine already lets whichever side survives make the 3" move.
 
 ---
 
