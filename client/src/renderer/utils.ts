@@ -5,7 +5,9 @@ import * as THREE from 'three';
  * re-rendering a board or unit list doesn't leak GPU resources.
  */
 export function disposeObject3D(root: THREE.Object3D): void {
+  root.userData.isDisposed = true;
   root.traverse((child) => {
+    child.userData.isDisposed = true;
     const mesh = child as THREE.Mesh;
     if (mesh.geometry) {
       mesh.geometry.dispose();

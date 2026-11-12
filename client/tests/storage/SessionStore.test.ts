@@ -46,6 +46,19 @@ describe('SessionStore', () => {
       expect(retrieved).toEqual(dummySession);
     });
 
+    it('stores rejoinToken and preserves it across subsequent saves for the same room and role', () => {
+      store.saveActiveSession({ ...dummySession, rejoinToken: 'token-uuid-1' });
+      expect(store.getActiveSession()?.rejoinToken).toBe('token-uuid-1');
+
+      // Saving again for the same room/role without specifying rejoinToken keeps the existing token
+      store.saveActiveSession({ ...dummySession, timestamp: Date.now() + 1000 });
+      expect(store.getActiveSession()?.rejoinToken).toBe('token-uuid-1');
+
+      // Explicit new rejoinToken updates it
+      store.saveActiveSession({ ...dummySession, rejoinToken: 'token-uuid-2' });
+      expect(store.getActiveSession()?.rejoinToken).toBe('token-uuid-2');
+    });
+
     it('clears active session', () => {
       store.saveActiveSession(dummySession);
       store.clearActiveSession();

@@ -196,12 +196,14 @@ const lobby = new Lobby(lobbyContainer, {
     const localPlayerId = isHost ? HOST_PLAYER_ID : GUEST_PLAYER_ID;
 
     // Save active session for instant reconnection upon reload or network drop
+    const rejoinToken = signalingClient.getRejoinToken() ?? undefined;
     defaultSessionStore.saveActiveSession({
       roomCode,
       role,
       playerId: localPlayerId,
       playerName: isHost ? 'Host' : 'Guest',
       armyId: isHost ? hostArmyId : guestArmyId,
+      ...(rejoinToken ? { rejoinToken } : {}),
       timestamp: Date.now(),
     });
 
@@ -225,15 +227,18 @@ const lobby = new Lobby(lobbyContainer, {
       sessionStore: defaultSessionStore,
       roomCode,
       // Game over clears the active session; a rematch must be resumable after a reload.
-      onSessionResume: () =>
+      onSessionResume: () => {
+        const resumeToken = signalingClient.getRejoinToken() ?? undefined;
         defaultSessionStore.saveActiveSession({
           roomCode,
           role,
           playerId: localPlayerId,
           playerName: isHost ? 'Host' : 'Guest',
           armyId: isHost ? hostArmyId : guestArmyId,
+          ...(resumeToken ? { rejoinToken: resumeToken } : {}),
           timestamp: Date.now(),
-        }),
+        });
+      },
     });
 
     hud?.dispose();
@@ -247,6 +252,7 @@ const lobby = new Lobby(lobbyContainer, {
           stopKeepAlive = null;
           hud?.dispose();
           hud = null;
+          gameManager?.destroy();
           gameManager = null;
           latestState = null;
           gameView.clear();

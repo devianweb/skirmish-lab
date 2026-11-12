@@ -18,6 +18,19 @@ Keep these with Claude:
 3. `master` is up to date on GitHub (`git fetch`; the plan itself is merged).
 4. Note the handover in the plan's Status line: `in progress (Gemini, <date>)`.
 
+## Standard rules for every Gemini job
+Short job prompts say "follow the standard rules in doc/plans/GEMINI_HANDOVER.md". They are:
+1. Read AGENTS.md and `.claude/agents/implementer.md` first and follow them, except: you are not a Claude agent, ignore anything about Sonnet, Fable or subagents, and your report goes to the project owner.
+2. Work in your own worktree, never in the main checkout: `git fetch && git worktree add .claude/worktrees/<branch> origin/master -b <branch> && cd .claude/worktrees/<branch> && npm ci`.
+3. Do only the job you were given. List anything else you notice in the report and leave it alone. No gameplay or rules changes unless the job says so; on a rules doubt, stop and report.
+4. Confirm a finding before fixing it (a failing test for behaviour, a grep for dead code); skip and report any you can't confirm.
+5. Tests first (Vitest). Before the PR, all must pass: `npm run build --workspace=shared`, `npm run test --workspace=shared`, `npm run test --workspace=server`, `npm run test --workspace=client`, `npm run build`. Never skip, `.only` or delete a failing test to get green.
+6. Never merge a PR, never push to master or release, never open anything against release. Never run `git reset --hard`, `git clean` or `git checkout -- <file>` on files you didn't create, never use `git commit -a`, never pop or drop a stash you didn't make.
+7. Never paste text from the rule PDFs in assets-src/.
+8. Docs: update what the job lists; mark 14E findings "fixed in <PR>" / "not confirmed" in doc/reviews/14E-gemini-findings.md when the job fixes findings; manual checks go into doc/manual-testing/MANUAL_TEST_CHECKLIST.md in the existing `- [ ] **Title.** Setup: …` format; UI inventory: update `tools/ux-inventory/catalog.js` text (escape apostrophes as `\'`) and list screenshots needed, don't take them.
+9. Commits end with `Co-Authored-By: Gemini <noreply@google.com>`. Open the PR with `gh pr create --base master`; the body has the summary, tests, what a player will notice, manual checks, and "Implemented by Gemini; for Claude review." Wait for CI (`gh pr checks <n> --watch`) and fix failures.
+10. Report: PR URL, CI status, test counts per workspace, what changed, findings not confirmed, deviations, manual checks added, screenshots needed.
+
 ## The prompt
 Paste this into Gemini, filling in the two placeholders. It points Gemini at the same rules a Claude implementer follows (`.claude/agents/implementer.md`), so the two never drift apart.
 

@@ -549,9 +549,10 @@ describe('GameView', () => {
         { kind: 'hero', side: 'guest', position: { x: 0, y: 0, z: 0 }, radius: 6.5, active: true, label: 'Hero 6"' },
       ]);
       expect(scene.getObjectByName('marker-auras')).toBeDefined();
-      const label = scene.getObjectByName('aura-label-hero') as THREE.Mesh;
+      const label = scene.getObjectByName('aura-label-hero') as THREE.Object3D;
       expect(label).toBeDefined();
-      expect(label.position.z).toBeGreaterThan(6.5);
+      // Far side for guest is -z
+      expect(label.position.z).toBeCloseTo(-6.5, 5);
 
       gameView.setBlastSharingMarker([
         { id: 'u1', position: { x: 2, y: 0, z: 3 } },

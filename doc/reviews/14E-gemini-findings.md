@@ -42,7 +42,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** critical
 - **Category:** security
 - **Location:** `server/src/SignalingServer.ts:179-205`, `server/src/DiceRoller.ts:5-29`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** `handleDiceRoll` and `DiceRoller.rollDice` do not validate that `message.dice` is a bounded array of positive integer `count` and `sides` values, allowing any client to crash or freeze the signaling server.
 - **Failure scenario:** A client in a room sends `{ type: "roll-dice-request", rollId: "r1", dice: [{ count: 1, sides: 0 }] }` (or `sides: -6`, `sides: 1.5`, or `dice: null`), which throws an uncaught `RangeError [ERR_OUT_OF_RANGE]` in `crypto.randomInt(1, spec.sides + 1)` (`DiceRoller.ts:12`); or sends `{ count: 1e9, sides: 6 }`, which blocks the single-threaded Node.js event loop in a synchronous loop and exhausts process memory on the Azure Free F1 instance.
 - **Suggested fix:** In `handleDiceRoll`, validate that `Array.isArray(message.dice)` (`1 <= message.dice.length <= 64`) and that every spec has integer `1 <= count <= 200` and `1 <= sides <= 100` before calling `rollDice`, returning an `error` message otherwise.
@@ -52,7 +52,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** critical
 - **Category:** security
 - **Location:** `server/src/Room.ts:97-115`, `server/src/SignalingServer.ts:137-154`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** `RoomManager.reconnectRoom` unconditionally overwrites `room.host` or `room.guest` even when that role slot already has an open WebSocket connection, allowing unauthenticated role hijacking and leaving the displaced socket orphaned in `clientRooms`.
 - **Failure scenario:** While a match is active in room `ABC-DEF` with a connected host, another client sends `{ type: "reconnect-room", code: "ABC-DEF", role: "host" }`; `reconnectRoom` overwrites `room.host` with the new socket (redirecting all signaling and dice broadcasts to it), while the original host socket remains mapped in `this.clientRooms` and has all subsequent `relayMessage` calls silently dropped because `room.host !== ws`.
 - **Suggested fix:** Reject `reconnectRoom` when the target slot (`room.host` or `room.guest`) already holds a different socket with `readyState === WebSocket.OPEN`, and clean up any prior `this.clientRooms` entry before binding a socket to a room.
@@ -72,7 +72,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** architecture
 - **Location:** `client/src/core/GameManager.ts:194-199`
-- **Status:** verified
+- **Status:** fixed in #396
 - **Defect:** The host's `action-request` P2P handler passes `msg.action` directly to `processAction` without verifying that `msg.action.actorId === this.gameState.guestId`.
 - **Failure scenario:** A guest sends `{ type: "action-request", action: { id: "a1", type: "concede", actorId: "player-host", timestamp: 1, payload: { type: "concede" } } }` (or a host turn/reaction action with `actorId: "player-host"`) over the WebRTC data channel; the host validates `actorId` against `state.players`, accepts it, and forces the host to concede or executes host actions on the host's behalf.
 - **Suggested fix:** In the host's `action-request` handler in `GameManager.ts:195`, verify `this.gameState && msg.action && msg.action.actorId === this.gameState.guestId` before calling `processAction`, and send `action-rejected` (`"Unauthorized actor"`) if it does not match.
@@ -82,7 +82,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** security
 - **Location:** `server/src/SignalingServer.ts:179-205`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** `handleDiceRoll` neither restricts `roll-dice-request` to the room's host nor checks that a cached `room.rollCache.get(message.rollId)` entry matches the requested `DiceSpec[]` (and fails to evict falsy `rollId` keys when `size > 100`).
 - **Failure scenario:** Because the guest generates `action.id` before sending `action-request` to the host and the host requests dice with `rollId = action.id` (`GameManager.ts:323`), a guest can send `{ type: "roll-dice-request", rollId: action.id, dice: [{ count: 10, sides: 1, purpose: "to-hit" }] }` to the signaling server first; when the host requests the real combat dice for `action.id`, the server returns the guest's pre-populated all-1s roll from `rollCache`.
 - **Suggested fix:** Require `room.host === ws` and a non-empty string `rollId` in `handleDiceRoll`, store the serialized `DiceSpec[]` alongside cached results so mismatched specs are rejected, and check `if (firstKey !== undefined)` when evicting from `rollCache`.
@@ -92,7 +92,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** security
 - **Location:** `client/src/ui/Lobby.ts:145-148, 575-577, 589, 609, 684`, `client/src/editor/MapEditor.ts:673, 675, 716, 736`, `client/src/ui/GameHUD.ts:3938, 3976-3977, 4001-4032`
-- **Status:** verified
+- **Status:** fixed in #396
 - **Defect:** Untrusted strings from the `?room=` URL query parameter, imported custom map JSON files (`map.name`, `piece.id`), and peer-supplied state/rejection messages are interpolated unescaped into `innerHTML` across `Lobby`, `MapEditor`, and `GameHUD`.
 - **Failure scenario:** Opening an invite link such as `?room="><img src=x onerror="&#97;&#108;&#101;&#114;&#116;(1)">` (where numeric HTML character references survive `.toUpperCase()` in `Lobby.ts:147, 589`) or importing a shared map JSON whose `name` contains `<img src=x onerror=alert(1)>` (`Lobby.ts:684`, `MapEditor.ts:673`) executes arbitrary JavaScript in the user's browser.
 - **Suggested fix:** Sanitize `?room=` to `/^[A-Z0-9-]{0,7}$/`, and wrap all dynamic text and attribute interpolations in `Lobby.ts`, `MapEditor.ts`, and `GameHUD.ts` with `escapeHtmlText` and `escapeHtmlAttr`.
@@ -252,7 +252,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/main.ts:206, 210-219, 244-265`, `client/src/core/GameManager.ts:118-125, 201-231`
-- **Status:** verified
+- **Status:** fixed in #396
 - **Defect:** `main.ts` never calls `gameManager.destroy()` when returning to the lobby, and `rebindWebRTCClient` neither detaches listeners from the old `WebRTCClient` nor attaches `hud.setNetworkStatus` to the new `WebRTCClient`.
 - **Failure scenario:** If the host clicks "Return to Lobby" while a reaction timer is active, `onReturnToLobby` (`main.ts:244`) clears `defaultSessionStore` and nulls `gameManager` without calling `gameManager.destroy()`; when `reactionTimeoutTimer` fires, the orphaned `GameManager` processes the fallback action and saves the old match snapshot back into `localStorage`. Furthermore, when a guest rejoins via the fast-rebind path (`main.ts:210-219`), the old `WebRTCClient`'s delayed `disconnected` event still fires on `GameManager` (pausing reaction timers) while the new `WebRTCClient` never updates `hud.setNetworkStatus`.
 - **Suggested fix:** Call `gameManager?.destroy()` in `onReturnToLobby`, guard `GameManager`'s WebRTC callbacks with `if (this.webrtcClient !== client) return;`, and wire `webrtcClient.onConnectionState` to `hud?.setNetworkStatus` inside the fast-rebind branch in `main.ts:212`.
@@ -262,7 +262,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/ui/GameHUD.ts:419-433, 509-516, 1383-1388`
-- **Status:** verified
+- **Status:** fixed in #396
 - **Defect:** `GameHUD.syncFromState` executes an early `return;` on round transitions (`roundNumber > prevRound`), and `GameHUD.dispose()` fails to clear `this.reactionTimerInterval`.
 - **Failure scenario:** When Round 2, 3, or 4 starts (`GameHUD.ts:509-516`), `syncFromState` shows the round toast and returns at line 515 before running lines 519–550, skipping `SoundFx.getInstance().playTurnChime()`, leaving `prevCurrentPlayerId` stale, and skipping `reactionTimerInterval` cleanup; additionally, when `hud.dispose()` (`GameHUD.ts:1383`) is called on lobby return during a reaction, the 250ms `reactionTimerInterval` is leaked and re-renders the detached HUD indefinitely.
 - **Suggested fix:** Remove the early `return;` at `GameHUD.ts:515` so round transitions still update audio/timer state before rendering, and consolidate `destroy()` and `dispose()` so both clear `toastTimer`, `concedeTimer`, and `reactionTimerInterval`.
@@ -282,7 +282,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** security
 - **Location:** `server/src/SignalingServer.ts:25, 39-47, 73-135`, `server/src/Room.ts:32-61, 143-156`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** The signaling server sets no `maxPayload` on `WebSocketServer` (allowing 100 MB messages), enforces no cap on room creation or per-socket room membership, and never expires headless rooms while a remaining guest sends keep-alive pings.
 - **Failure scenario:** When a host closes their tab and never returns, the guest's 25s `{ type: 'ping' }` calls `roomManager.updateActivity(roomCode)` (`SignalingServer.ts:97`), keeping `now - room.lastActivity < 25s` so `hostGoneLongEnough` (`!room.host && now - room.lastActivity > graceTimeout` at `Room.ts:147`) is never true and the room stays in memory for 3 hours; meanwhile, a single client can send repeated `create-room` messages or 99 MB WebSocket frames to exhaust server memory.
 - **Suggested fix:** Configure `maxPayload: 64 * 1024` on `WebSocketServer`, track `hostDisconnectedAt` / `guestDisconnectedAt` timestamps separately from `lastActivity`, cap `this.rooms.size`, and clean up any previous room when a socket calls `create-room` or `join-room`.
@@ -292,7 +292,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/renderer/MarkerRenderer.ts:1259-1275`, `client/src/renderer/ModelLoader.ts:179-220`, `client/src/editor/MapEditor.ts:499-525, 906-941`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** `MarkerRenderer.showOutcome` hardcodes `y = 1.6` instead of `(position.y ?? 0) + 1.6`, `ModelLoader.addSwappingAsset` leaks cloned Three.js geometries and materials if a marker container is disposed before its GLB load resolves, and `MapEditor` leaks `gameView.onPick` on `dispose()` and omits `syncGameView()` on four inspector checkboxes.
 - **Failure scenario:** When a unit standing on a 3"-high platform takes wounds, `showOutcome` spawns the floating wound token at `y = 1.6` underneath the platform deck; and in `MapEditor`, toggling `Provides Cover`, `Blocks Line of Sight`, `Impassable Obstacle`, or `Walkable Surface` mutates the piece without updating the 3D debug wireframe or validation badge.
 - **Suggested fix:** Position outcome tokens at `(position.y ?? 0) + 1.6` in `MarkerRenderer.ts:1269`, mark disposed containers in `disposeObject3D` so `addSwappingAsset` disposes late-arriving GLB clones, and call `validateCurrentMap()` + `syncGameView()` on all `MapEditor` inspector checkboxes while unsubscribing `onPick` in `MapEditor.dispose()`.
@@ -302,7 +302,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `tools/ux-inventory/catalog.js:8`, `tools/ux-inventory/build.js:6, 35-38`, `tools/ux-inventory/tojpg.js:8`, `tools/ux-inventory/scenes/10-setup-flow.js:12, 49`, `tools/ux-inventory/scenes/06-misc-endgame.js:7-25, 41-57`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** The UX inventory tooling has an uncaptured `70b-lobby-waking-up` entry in `catalog.js`, wipes `doc/ux/inventory/img/` if `build.js && tojpg.js` is run when `out/` is only partially populated, omits `ux.force()` in `scenes/10-setup-flow.js`, and has duplicate conflicting screenshot filenames across `02`/`03` and `06`/`07`.
 - **Failure scenario:** Running `node build.js && node tojpg.js` after running a single scene script (as documented in `tools/ux-inventory/README.md:15-17`) deletes all ~65 other committed JPEGs in `doc/ux/inventory/img/`; even on a full run, `70b-lobby-waking-up` is missing (causing `build.js:35` to skip `#02` and misnumber cards `01, 03..76`), `10-setup-flow.js` skips `s9-07-scout-stage-host` ~50% of the time when Guest wins the unforced deployment roll-off, and `06-misc-endgame.js` overwrites `43-jump-result` and `46-hazard-confirm` from `07-jump-hazard.js` with unrelated scenes.
 - **Suggested fix:** Add the `70b-lobby-waking-up` capture to `08-lobby.js`, seed setup dice with `ux.force()` in `10-setup-flow.js`, remove the duplicate `09`–`13` and `40`–`47` captures from `02-move-shoot.js` and `06-misc-endgame.js`, and make `build.js` / `tojpg.js` abort with a non-zero exit code (instead of wiping `doc/ux/inventory/img/`) when any catalog image is missing.
@@ -312,7 +312,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** test-gap
 - **Location:** `client/tests/network/Protocol.test.ts:1-15`, `client/tests/core/GameManager.test.ts:156-165`, `client/tests/network/WebRTCClient.test.ts:41-46`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** Three client unit tests are tautological or call the wrong method, passing even if the underlying production code is broken or deleted.
 - **Failure scenario:** `Protocol.test.ts` never imports `Protocol.ts` and asserts `typeof state === 'string'` on a local literal array; `GameManager.test.ts:156-165` (`should limit snapshots to maxSnapshots`) creates 60 actions in a loop without ever calling `sendAction` or `saveSnapshot` (`snapshots.length` stays `1`); and `WebRTCClient.test.ts:41-46` calls `handleMessage({ type: 'heartbeat-pong' })` instead of `dataChannel.onmessage`, leaving `lastPongTime` unchanged (`after === before`) and passing `toBeGreaterThanOrEqual(before)` tautologically.
 - **Suggested fix:** Remove `Protocol.test.ts` (along with dead `Protocol.ts`), call `(gameManager as any).saveSnapshot(...)` inside the loop in `GameManager.test.ts:156`, and dispatch a `MessageEvent` on `dataChannel.onmessage` after advancing fake timers in `WebRTCClient.test.ts:41`.
@@ -322,7 +322,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** test-gap
 - **Location:** `server/tests/RoomManager.test.ts:1-165`, `server/tests/DiceRoller.test.ts:1-60`, `server/tests/SignalingServer.integration.test.ts:1-168`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** Server test suites lack tests for room expiration/grace cleanup (`RoomManager.cleanup`), invalid/malformed signaling and dice requests, `rollId` cache collisions, and disconnect/reconnect notifications, while `RoomManager.test.ts` leaks `setInterval` timers on every test.
 - **Failure scenario:** Because `RoomManager.test.ts` never calls `roomManager.destroy()` in `afterEach` and has zero tests for `cleanup()`, the broken `hostGoneLongEnough` grace-window logic (`Room.ts:147`) and the missing input validation in `SignalingServer.ts` and `DiceRoller.ts` went undetected.
 - **Suggested fix:** Add `afterEach(() => roomManager.destroy())` and fake-timer tests for `cleanup()` in `RoomManager.test.ts`, and add negative/boundary and reconnect/disconnect tests in `DiceRoller.test.ts` and `SignalingServer.integration.test.ts`.
@@ -332,7 +332,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** stale-doc
 - **Location:** `shared/src/data/terrainStructures.ts:137-139`, `shared/src/engine/spatial.ts:45-58, 85`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** **[Known Item 2]** `terrainStructures.ts:138` contains a stale comment claiming `(crates keep the legacy inset footprint via the fallback body)`, while `spatial.ts:47-57` has a redundant branch in `terrainHalfExtents` and stale `0.7×0.7×0.7` crate metadata at `spatial.ts:85`.
 - **Failure scenario:** A developer reading `terrainStructures.ts:138` or `TERRAIN_MODEL_META.crate` (`spatial.ts:85`) is misled into believing crates still use a `0.7 × 0.7` inset collision footprint, whereas `resolveTerrainStructure` (`terrainStructure.ts:80-84`) and `terrainHalfExtents` (`spatial.ts:45-58`) both use the full `[-0.5, 0.5]` unit-box footprint (`1" × 0.75" × 1"`).
 - **Suggested fix:** Remove `(crates keep the legacy inset footprint via the fallback body)` from `terrainStructures.ts:138`, collapse `terrainHalfExtents` (`spatial.ts:45-58`) to `return { hx: 0.5 * sx, hz: 0.5 * sz }`, and update `TERRAIN_MODEL_META.crate` (`spatial.ts:85`).
@@ -352,7 +352,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** correctness
 - **Location:** `client/src/storage/MapStore.ts:179-183`, `client/src/ui/GameHUD.ts:444-451, 555-610, 1354-1363`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** `MapStore.importMapJson` defaults omitted board dimensions to `44×30` instead of `DEFAULT_BOARD_SIZE` (`48×48`), `GameHUD.getReactionRemainingSec` resets the displayed countdown to full `durationMs` after a page reload/state-sync, `GameHUD.notifyRejected` does not reset `rematchPending`, and `resetForNewMatch` does not clear `hoveredTerrainId` or `hoverNavMemo`.
 - **Failure scenario:** Importing a custom map JSON without a `board` field creates an invalid rectangular `44" × 30"` board instead of `48" × 48"`; reloading the page 25s into a 30s reaction prompt resets the HUD countdown display to `30s` while the host times out 5s later; and if `request-rematch` is rejected, the "Play Again" button stays permanently disabled (`Waiting for opponent…`).
 - **Suggested fix:** Use `DEFAULT_BOARD_SIZE` (`48`) as the fallback width and height in `MapStore.ts:180-181`, update `pending.durationMs` to the remaining time when syncing/saving snapshots, reset `this.rematchPending = false` in `notifyRejected()`, and clear `hoveredTerrainId` and memo caches in `resetForNewMatch()`.
@@ -362,7 +362,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** dead-code
 - **Location:** `shared/src/gameState.ts:129-176`, `shared/src/engine/traversal.ts:771-825`, `client/src/ui/GameHUD.ts:2902-2923, 3149, 3283, 4934-4961, 6208-6219`
-- **Status:** verified
+- **Status:** fixed in #392
 - **Defect:** `validateActionBasic` in `gameState.ts` and `allocateSquadCasualties` in `traversal.ts` are unused legacy functions that contradict current engine rules, and `GameHUD.ts` still contains dead `.sl-hud-casualty-selector` and `casualtyModelIds` code paths.
 - **Failure scenario:** `validateActionBasic` (`gameState.ts:161`) rejects `hold` on an already-activated unit (`Unit already activated this round`), contradicting `validateAction` in `actions.ts:1005-1025`, while `allocateSquadCasualties` (`traversal.ts:793`) destroys a model on a single wound regardless of `Tough(X)`.
 - **Suggested fix:** Remove `validateActionBasic`, `allocateSquadCasualties`, and the unused `selectedCasualtyModelId` / `casualtyModelIds` UI and payload fields in `GameHUD.ts`.
@@ -372,7 +372,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** dead-code
 - **Location:** `client/src/network/Protocol.ts:1-18`, `client/src/ui/connectionStatus.ts:27-72`, `shared/src/signaling.ts:21-36`, `server/src/Room.ts:9, 20, 135-141, 158-160`
-- **Status:** verified
+- **Status:** fixed in #392 (partially confirmed: Protocol.ts, RoomManager dead fields/endGame, spatial dead exports, and DiceSpec duplication removed; ConnectionStatusBar already absent from connectionStatus.ts; 7 empty source directories not found; getRoomCount kept as used by #387 room limit)
 - **Defect:** `client/src/network/Protocol.ts`, `ConnectionStatusBar` in `connectionStatus.ts`, `RoomManager.endGame`/`getRoomCount`, several legacy exports in `shared/src/engine/spatial.ts` (`addPlatformAscentPoints`, `findWalkablePlatformAt`, `settleMoveEnd`, `validateFormationMove`), and 7 empty source directories are unused dead code, while `DiceSpec` and `DiceResult` are duplicated in `shared/src/types.ts` and `shared/src/signaling.ts`.
 - **Failure scenario:** Maintaining duplicate `DiceSpec`/`DiceResult` interfaces in `types.ts` and `signaling.ts` (both re-exported via `export *` in `shared/src/index.ts`) and dead modules/exports increases maintenance surface and confuses contributors.
 - **Suggested fix:** Delete `Protocol.ts`, `ConnectionStatusBar`, unused `RoomManager` methods, dead `spatial.ts`/`traversal.ts` helpers, and the 7 empty directories, and import `DiceSpec`/`DiceResult` in `signaling.ts` from `./types`.
@@ -392,7 +392,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** stale-doc
 - **Location:** `doc/ARCHITECTURE.md:4, 29-62, 100`, `doc/NETWORKING.md:59-90, 302`, `doc/ASSETS.md:65-86, 120`, `doc/DEPLOYMENT.md:8, 13, 27, 98`, `doc/ux/README.md:3`
-- **Status:** verified
+- **Status:** fixed in #389
 - **Defect:** `doc/ARCHITECTURE.md`, `doc/NETWORKING.md`, `doc/ASSETS.md`, `doc/DEPLOYMENT.md`, and `doc/ux/README.md` contain outdated message schemas, colors, file paths, Node versions, and screenshot counts.
 - **Failure scenario:** `NETWORKING.md` lists `heartbeatTimeout: 10000` (`6000` in `WebRTCClient.ts:24`), omits reconnect/ping signaling messages, and claims `"Any peer can request dice roll via signaling server"`; `ASSETS.md:65-86, 120` still documents the removed 14-piece `scenario.ts` terrain table and orange (`0xff7043`) aim lines (now green `0x66bb6a` in `MarkerRenderer.ts:67`); `DEPLOYMENT.md` specifies Node 20 LTS (`AGENTS.md` specifies Node 24 LTS); and `doc/ux/README.md:3` states `58 screenshots` (`75` in `index.html`).
 - **Suggested fix:** Update `doc/ARCHITECTURE.md`, `doc/NETWORKING.md`, `doc/ASSETS.md`, `doc/DEPLOYMENT.md`, and `doc/ux/README.md` to reflect the current codebase.

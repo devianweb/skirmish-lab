@@ -21,6 +21,7 @@ import { ModelLoader } from './ModelLoader';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { disposeObject3D } from './utils';
 import { outcomeMarkerKey } from './assetManifest';
+import { labelLayout, LabelBox } from './labelLayout';
 
 /** Minimal unit shape the markers need (decoupled from game state schema). */
 export interface MarkerUnit {
@@ -1297,7 +1298,7 @@ export class MarkerRenderer {
     );
     this.applyTint(marker, wounds === 0 ? 0xb0bec5 : OUTCOME_COLOR);
     marker.name = `marker-${key}`;
-    marker.position.set(position.x, 1.6, position.z);
+    marker.position.set(position.x, (position.y ?? 0) + 1.6, position.z);
     marker.rotation.y = (-3 * Math.PI) / 4;
     this.markerGroup.add(marker);
     this.outcome = marker;
@@ -1352,13 +1353,13 @@ export class MarkerRenderer {
   }
 
   /** Dashed rings (one small label each) for the attacker's own switch distances, at range-fan height. */
-  setThresholdRings(spec: ThresholdRingsMarker | null): void {
+  setThresholdRings(spec: ThresholdRingsMarker | null, localSide: 'host' | 'guest' = 'host'): void {
     if (!spec || spec.rings.length === 0) {
       this.thresholdRingsSignature = null;
       this.removeMarker('thresholdRings');
       return;
     }
-    const signature = JSON.stringify(spec);
+    const signature = JSON.stringify({ spec, localSide });
     if (signature === this.thresholdRingsSignature && this.thresholdRings) return;
     this.removeMarker('thresholdRings');
     this.thresholdRingsSignature = signature;
@@ -1398,76 +1399,15 @@ export class MarkerRenderer {
         'font:600 11px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid #ff7961;';
       const label = new CSS2DObject(el);
       label.name = `threshold-label-${ring.radius}`;
-      label.position.set(spec.position.x + ring.radius, y, spec.position.z);
+      const labelZ = localSide === 'guest' ? spec.position.z - ring.radius : spec.position.z + ring.radius;
+      label.position.set(spec.position.x, y, labelZ);
       group.add(label);
     }
     this.markerGroup.add(group);
     this.thresholdRings = group;
   }
 
-  /** Flat text plane lying on the board just outside an aura ring. */
-  private createAuraLabel(
-    text: string,
-    color: number,
-    localSide: 'host' | 'guest'
-  ): THREE.Mesh {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(20, 24, 32, 0.85)';
-      const r = 16;
-      const x = 12;
-      const y = 8;
-      const w = 232;
-      const h = 48;
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx.lineTo(x + r, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-      ctx.fill();
-
-      const hex = '#' + color.toString(16).padStart(6, '0');
-      ctx.strokeStyle = hex;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      ctx.font = 'bold 28px sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, 128, 32);
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    const geometry = new THREE.PlaneGeometry(1.2, 0.3);
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.raycast = () => {};
-
-    if (localSide === 'guest') {
-      mesh.rotation.set(Math.PI / 2, 0, Math.PI);
-    } else {
-      mesh.rotation.set(Math.PI / 2, 0, 0);
-    }
-    return mesh;
-  }
-
-  /** Hero morale-aura rings (dashed, side colour) and Blast outlines (dashed orange), each with a flat board label. */
+  /** Hero morale-aura rings (dashed, side colour) and Blast outlines (dashed orange), each with a floating CSS2D label. */
   setAuras(auras: AuraMarker[] | null, localSide: 'host' | 'guest' = 'host'): void {
     if (!auras || auras.length === 0) {
       this.aurasSignature = null;
@@ -1511,14 +1451,18 @@ export class MarkerRenderer {
       group.add(line);
 
       if (aura.label) {
-        const labelMesh = this.createAuraLabel(aura.label, color, localSide);
-        labelMesh.name = `aura-label-${aura.kind}`;
-        const labelZ =
-          localSide === 'guest'
-            ? aura.position.z + aura.radius + 0.2
-            : aura.position.z - (aura.radius + 0.2);
-        labelMesh.position.set(aura.position.x, (aura.position.y ?? 0) + y + 0.005, labelZ);
-        group.add(labelMesh);
+        const el = document.createElement('div');
+        el.className = `sl-aura-label sl-aura-label-${aura.kind}`;
+        el.textContent = aura.label;
+        const hex = '#' + color.toString(16).padStart(6, '0');
+        el.style.cssText =
+          'pointer-events:none;user-select:none;white-space:nowrap;padding:1px 6px;border-radius:8px;' +
+          `font:600 11px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid ${hex};`;
+        const label = new CSS2DObject(el);
+        label.name = `aura-label-${aura.kind}`;
+        const labelZ = localSide === 'guest' ? aura.position.z - aura.radius : aura.position.z + aura.radius;
+        label.position.set(aura.position.x, (aura.position.y ?? 0) + y, labelZ);
+        group.add(label);
       }
     }
     this.markerGroup.add(group);
@@ -1533,6 +1477,107 @@ export class MarkerRenderer {
     // Kenney number GLBs have their readable front face pointing along -X,
     // so rotating -X toward (dx, dz) requires yaw = atan2(dz, -dx).
     this.outcome.rotation.y = Math.atan2(dz, -dx);
+  }
+
+  /**
+   * Per-frame layout step for all marker CSS2D labels.
+   * Projects each label to screen coordinates; going through them in a fixed order:
+   * (1) target badges, (2) aura labels, (3) threshold ring labels,
+   * (4) aim-line weapon labels, (5) move-path segment labels;
+   * shifts any label whose box overlaps an already placed one upward by just enough to clear it.
+   * Labels never take pointer events.
+   */
+  layoutLabels(camera: THREE.Camera, width: number, height: number): void {
+    if (!camera || width <= 0 || height <= 0) return;
+
+    const labelObjects: CSS2DObject[] = [];
+
+    const collectLabels = (group: THREE.Object3D | null) => {
+      if (!group || !group.visible) return;
+      group.traverse((child) => {
+        if (child instanceof CSS2DObject && child.visible) {
+          labelObjects.push(child);
+        }
+      });
+    };
+
+    collectLabels(this.targetBadges);
+    collectLabels(this.auras);
+    collectLabels(this.thresholdRings);
+    collectLabels(this.aimLines);
+    collectLabels(this.movePath);
+
+    if (labelObjects.length === 0) return;
+
+    camera.updateMatrixWorld();
+
+    const projVector = new THREE.Vector3();
+    const activeLabels: Array<{
+      object: CSS2DObject;
+      screenX: number;
+      screenY: number;
+      width: number;
+      height: number;
+    }> = [];
+
+    const boxes: LabelBox[] = [];
+
+    for (const obj of labelObjects) {
+      obj.element.style.pointerEvents = 'none';
+
+      if (obj.element.style.display === 'none') continue;
+
+      projVector.setFromMatrixPosition(obj.matrixWorld);
+      projVector.project(camera);
+
+      if (projVector.z < -1 || projVector.z > 1) continue;
+
+      const screenX = (projVector.x * 0.5 + 0.5) * width;
+      const screenY = (-projVector.y * 0.5 + 0.5) * height;
+
+      const el = obj.element;
+      const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      const w =
+        rect && rect.width > 0
+          ? rect.width
+          : el.offsetWidth > 0
+          ? el.offsetWidth
+          : Math.max(40, (el.textContent?.length ?? 5) * 7.5 + 16);
+      const h = rect && rect.height > 0 ? rect.height : el.offsetHeight > 0 ? el.offsetHeight : 20;
+
+      const centerX = obj.center ? obj.center.x : 0.5;
+      const centerY = obj.center ? obj.center.y : 0.5;
+
+      const box: LabelBox = {
+        x: screenX - w * centerX,
+        y: screenY - h * centerY,
+        width: w,
+        height: h,
+      };
+
+      boxes.push(box);
+      activeLabels.push({
+        object: obj,
+        screenX,
+        screenY,
+        width: w,
+        height: h,
+      });
+    }
+
+    if (activeLabels.length === 0) return;
+
+    const offsets = labelLayout(boxes);
+
+    for (let i = 0; i < activeLabels.length; i++) {
+      const item = activeLabels[i];
+      const offset = offsets[i];
+      const centerX = item.object.center ? item.object.center.x : 0.5;
+      const centerY = item.object.center ? item.object.center.y : 0.5;
+      const finalY = item.screenY - offset;
+
+      item.object.element.style.transform = `translate(${-100 * centerX}%, ${-100 * centerY}%) translate(${item.screenX}px, ${finalY}px)`;
+    }
   }
 
   clearAll(): void {
@@ -1609,17 +1654,15 @@ export class MarkerRenderer {
   ): void {
     const current = this[kind];
     if (current) {
-      if (kind === 'movePath' || kind === 'aimLines' || kind === 'targetBadges' || kind === 'thresholdRings') {
+      if (
+        kind === 'movePath' ||
+        kind === 'aimLines' ||
+        kind === 'targetBadges' ||
+        kind === 'thresholdRings' ||
+        kind === 'auras'
+      ) {
         current.traverse((child) => {
           if (child instanceof CSS2DObject) child.element.remove();
-        });
-      }
-      if (kind === 'auras') {
-        current.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.material) {
-            const mat = child.material as THREE.MeshBasicMaterial;
-            if (mat.map) mat.map.dispose();
-          }
         });
       }
       this.markerGroup.remove(current);

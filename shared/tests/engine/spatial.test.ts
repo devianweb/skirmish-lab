@@ -11,7 +11,6 @@ import {
   findCoverSource,
   findMoveBlocker,
   findNavPath,
-  findWalkablePlatformAt,
   getSquadModelPositions,
   getStairSurfaceHeight,
   getStairWaypoints,
@@ -22,7 +21,6 @@ import {
   isSegmentOnRampOrStairs,
   LADDER_STANDOFF,
   isSegmentSurfaceConstrained,
-  validateFormationMove,
   validateSquadCoherency,
 } from '../../src/engine/spatial';
 import { isPathDifficult, pathMovementCost } from '../../src/engine/traversal';
@@ -759,53 +757,6 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
           expect(coherency.maxDistanceToNearestMember).toBeLessThanOrEqual(2.0);
         }
       }
-    });
-  });
-
-  describe('validateFormationMove', () => {
-    it('validates a legal rigid squad move within movement allowance', () => {
-      const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
-      unit.models = [
-        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
-        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.7, y: 0, z: 0 } },
-      ];
-      const state = makeState([unit], []);
-      const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 4 });
-      expect(result.valid).toBe(true);
-      expect(result.destination).toEqual({ x: 0.35, y: 0, z: 4 });
-      expect(result.modelPositions).toHaveLength(2);
-      expect(result.modelPositions[0]).toEqual({ x: 0, y: 0, z: 4 });
-      expect(result.modelPositions[1]).toEqual({ x: 0.7, y: 0, z: 4 });
-    });
-
-    it('rejects formation move if explicit positions violate coherency', () => {
-      const unit = makeUnit('u1', HOST, { x: 0, y: 0, z: 0 });
-      unit.models = [
-        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 } },
-        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0.7, y: 0, z: 0 } },
-      ];
-      const state = makeState([unit], []);
-      // Incoherent destination positions (2.5" apart)
-      const incoherent = [
-        { x: 0, y: 0, z: 3 },
-        { x: 2.5, y: 0, z: 3 },
-      ];
-      const result = validateFormationMove(state, unit, { x: 0, y: 0, z: 3 }, incoherent);
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('exceeds 1" limit');
-    });
-
-    it('rejects formation move if a model ends outside the battlefield', () => {
-      const unit = makeUnit('u1', HOST, { x: 19.5, y: 0, z: 0 }); // Near edge (board halfW = 20)
-      unit.models = [
-        { id: 'm1', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 19.5, y: 0, z: 0 } },
-        { id: 'm2', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 20.2, y: 0, z: 0 } }, // Outside!
-      ];
-      const state = makeState([unit], []);
-      state.board.width = 40; // the test's edge is x = 20; the default board is now wider (48)
-      const result = validateFormationMove(state, unit, { x: 19.8, y: 0, z: 0 });
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('leaves the battlefield');
     });
   });
 

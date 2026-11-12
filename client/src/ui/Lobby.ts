@@ -5,6 +5,9 @@ import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
 import { BuildInfo, checkForNewVersion, formatBuildStamp, getBuildInfo } from '../buildInfo';
+import { renderHowToPlayModalHtml } from './howToPlay';
+import { DISCLAIMER_TEXT } from './disclaimer';
+import { escapeHtml } from './escapeHtml';
 import {
   createInitialConnectionState,
   FIRST_CONNECT_GIVE_UP_MS,
@@ -18,8 +21,7 @@ import {
 
 const DEFAULT_HOST_ARMY = 'hdf';
 const DEFAULT_GUEST_ARMY = 'orc-marauders';
-export const LOBBY_DISCLAIMER =
-  'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.';
+export const LOBBY_DISCLAIMER = DISCLAIMER_TEXT;
 
 let spinnerStyleInjected = false;
 function ensureSpinnerStyles(): void {
@@ -90,6 +92,7 @@ export class Lobby {
   private connectGiveUpTimer: ReturnType<typeof setTimeout> | null = null;
   private roomSlowTimer: ReturnType<typeof setTimeout> | null = null;
   private roomTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private howToPlayOpen: boolean = false;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
@@ -101,7 +104,14 @@ export class Lobby {
     this.setupSignalingHandlers();
     // Developer mode toggle: F9 only while the lobby is showing (in game F9 is the LoS debugger).
     this.keydownHandler = (event: KeyboardEvent) => {
-      if (event.key !== 'F9' || this.container.style.display === 'none') return;
+      if (this.container.style.display === 'none') return;
+      if (event.key === 'Escape' && this.howToPlayOpen) {
+        event.preventDefault();
+        this.howToPlayOpen = false;
+        this.render();
+        return;
+      }
+      if (event.key !== 'F9') return;
       event.preventDefault();
       const on = toggleDevMode();
       this.sanitizeArmySelection();
@@ -144,7 +154,10 @@ export class Lobby {
         const params = new URLSearchParams(window.location.search);
         const roomParam = params.get('room');
         if (roomParam) {
-          this.initialRoomCode = roomParam.toUpperCase();
+          const upper = roomParam.toUpperCase();
+          if (/^[A-Z0-9-]{0,7}$/.test(upper)) {
+            this.initialRoomCode = upper;
+          }
         }
       } catch (e) {
         console.warn('[Lobby] Failed to read URL room parameter:', e);
@@ -410,6 +423,17 @@ export class Lobby {
       this.roomCode = msg.code;
       const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
       this.role = assignedRole;
+      if (typeof msg.rejoinToken === 'string') {
+        const active = this.sessionStore.getActiveSession();
+        if (active && active.roomCode.toUpperCase() === String(msg.code).toUpperCase()) {
+          this.sessionStore.saveActiveSession({
+            ...active,
+            role: assignedRole,
+            rejoinToken: msg.rejoinToken,
+            timestamp: Date.now(),
+          });
+        }
+      }
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
       this.webrtcClient = new WebRTCClient();
@@ -572,9 +596,9 @@ export class Lobby {
       this.container.innerHTML = `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 60px auto; padding: 30px; background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
-          <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${this.roomCode}</h2>
-          <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${this.role.toUpperCase()}</strong></p>
-          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${this.getMapDisplayName(this.selectedMapSelection)}</strong></p>
+          <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${escapeHtml(this.roomCode)}</h2>
+          <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${escapeHtml(this.role.toUpperCase())}</strong></p>
+          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${escapeHtml(this.getMapDisplayName(this.selectedMapSelection))}</strong></p>
           <p id="status" style="font-size: 14px; color: #ffd54f;">Waiting for peer...</p>
         </div>
       `;
@@ -586,10 +610,10 @@ export class Lobby {
       const resumeBannerHtml = hasActiveSession && activeSession ? `
         <div id="resumeBanner" style="margin-bottom: 20px; background: rgba(41, 182, 246, 0.15); border: 1px solid #29b6f6; border-radius: 8px; padding: 14px; text-align: left;">
           <div style="font-size: 14px; font-weight: bold; color: #ffd54f; margin-bottom: 6px;">
-            ⚠️ Active Game Detected (Room ${activeSession.roomCode})
+            ⚠️ Active Game Detected (Room ${escapeHtml(activeSession.roomCode)})
           </div>
           <div style="font-size: 13px; color: #b0bec5; margin-bottom: 12px;">
-            You have an ongoing match as <strong style="color: #29b6f6; text-transform: uppercase;">${activeSession.role.toUpperCase()}</strong>. Reconnect within the 5-minute grace window to resume.
+            You have an ongoing match as <strong style="color: #29b6f6; text-transform: uppercase;">${escapeHtml(activeSession.role.toUpperCase())}</strong>. Reconnect within the 5-minute grace window to resume.
           </div>
           <div style="display: flex; gap: 8px;">
             <button id="resumeBtn" style="padding: 8px 16px; font-size: 13px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer;">
@@ -606,7 +630,7 @@ export class Lobby {
       const customOptionsHtml = customMaps.length > 0
         ? `
           <optgroup label="Custom Maps">
-            ${customMaps.map((m) => `<option value="custom:${m.id}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${m.name} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
+            ${customMaps.map((m) => `<option value="custom:${escapeHtml(m.id)}" ${this.selectedMapSelection === `custom:${m.id}` ? 'selected' : ''}>${escapeHtml(m.name)} (${m.terrain?.length ?? 0} pieces, ${m.board?.width ?? DEFAULT_BOARD_SIZE}"×${m.board?.height ?? DEFAULT_BOARD_SIZE}")</option>`).join('')}
           </optgroup>
         `
         : '';
@@ -681,11 +705,14 @@ export class Lobby {
           <div style="display: flex; flex-direction: column; gap: 16px;">
             <button id="createBtn" style="padding: 12px 24px; font-size: 15px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 6px; cursor: pointer;">Create Room (Host)</button>
             <div style="display: flex; gap: 8px;">
-              <input id="codeInput" placeholder="XXX-XXX" value="${prefillCode}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
+              <input id="codeInput" placeholder="XXX-XXX" value="${escapeHtml(prefillCode)}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
             <div id="connectionStatus" role="status" aria-live="polite" style="display: none; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #b0bec5; flex-wrap: wrap;"></div>
-            <button id="openMapEditorBtn" style="padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
+            <div style="display: flex; gap: 8px;">
+              <button id="openMapEditorBtn" style="flex: 1; padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
+              <button id="howToPlayBtn" class="sl-how-to-play-btn" title="How to play" aria-label="How to play" style="padding: 10px 16px; font-size: 14px; font-weight: 700; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">?</button>
+            </div>
           </div>
 
           <div id="lobbyFooter" style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #2a3442; font-size: 11px; line-height: 1.5; color: #78909c;">
@@ -694,6 +721,7 @@ export class Lobby {
             <div style="margin-top: 4px;">Full rules: <a href="https://onepagerules.com" target="_blank" rel="noopener noreferrer" style="color: #90caf9;">onepagerules.com</a> (free)</div>
           </div>
         </div>
+        ${this.howToPlayOpen ? renderHowToPlayModalHtml() : ''}
       `;
 
       if (hasActiveSession && activeSession) {
@@ -701,7 +729,11 @@ export class Lobby {
           if (getConnectionStatusView(this.connectionState).buttonsDisabled) return;
           this.isCreatedRoom = false;
           this.beginRoomRequest('join');
-          this.signalingClient.joinRoom(activeSession.roomCode);
+          if (activeSession.rejoinToken) {
+            this.signalingClient.joinRoom(activeSession.roomCode, activeSession.rejoinToken);
+          } else {
+            this.signalingClient.joinRoom(activeSession.roomCode);
+          }
         });
 
         this.container.querySelector('#abandonBtn')?.addEventListener('click', () => {
@@ -753,6 +785,28 @@ export class Lobby {
       this.container.querySelector('#openMapEditorBtn')?.addEventListener('click', () => {
         this.options.onOpenMapEditor?.();
       });
+
+      this.container.querySelector('#howToPlayBtn')?.addEventListener('click', () => {
+        this.howToPlayOpen = true;
+        this.render();
+      });
+
+      this.container.querySelectorAll('[data-action="how-to-play-close"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.howToPlayOpen = false;
+          this.render();
+        });
+      });
+
+      const overlay = this.container.querySelector('.sl-how-to-play-overlay');
+      if (overlay) {
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) {
+            this.howToPlayOpen = false;
+            this.render();
+          }
+        });
+      }
     }
   }
 }

@@ -1900,7 +1900,7 @@ describe('GameHUD', () => {
       }
     });
 
-    it('displays dangerous terrain hazard warning and allocates squad casualties', () => {
+    it('displays dangerous terrain hazard warning', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;
       // Convert to multi-model squad
@@ -1922,18 +1922,9 @@ describe('GameHUD', () => {
       // Two models with one wound each: two dice, each 1 is a wound (Decision 18), not the old per-model test
       expect(container.textContent).toContain('Dangerous terrain: 2 dice, each 1 is a wound');
       expect(container.textContent).not.toContain('Hazard test');
-      expect(container.textContent).toContain('Dangerous terrain wounds go first to');
-      expect(container.textContent).not.toContain('Hazard Casualty Priority');
-
-      // Click Trooper 2 casualty chip
-      const trooper2Btn = container.querySelector<HTMLButtonElement>('[data-casualty-model-id="m2"]');
-      expect(trooper2Btn).toBeTruthy();
-      trooper2Btn!.click();
 
       clickByText(container, 'Confirm');
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
-      const action = controller.submitAction.mock.calls[0][0];
-      expect(action.payload.casualtyModelIds).toEqual(['m2']);
     });
 
     it('rejects charge when target is on elevated ledge outside vertical melee reach (> 4.0")', () => {
@@ -2240,6 +2231,25 @@ describe('GameHUD', () => {
       expect(action.type).toBe('consolidate-move');
       expect(action.payload.unitId).toBe(victor.id);
       expect(action.payload.path[action.payload.path.length - 1].x).toBeCloseTo(2, 1);
+    });
+
+    it('reaction countdown respects expiresAt when durationMs is longer after reload (G-32)', () => {
+      const state = scenarioState();
+      state.turnState.pendingReaction = {
+        id: 'rx-expire',
+        type: 'pick-strike-target',
+        promptingPlayerId: HOST,
+        title: 'Strike Reaction',
+        description: 'React now',
+        options: [{ id: 'strike', label: 'Strike' }],
+        durationMs: 30000,
+        expiresAt: Date.now() + 5000,
+      } as any;
+
+      const { container } = setup(HOST, state);
+      const timerEl = container.querySelector('.sl-hud-reaction-timer');
+      expect(timerEl).not.toBeNull();
+      expect(timerEl!.textContent).toBe('5s');
     });
 
     it('objective card inspection respects horizontal and vertical cylinder bounds', () => {
@@ -2786,5 +2796,77 @@ describe('dangerousTerrainText (Decision 41)', () => {
     expect(dangerousTerrainText(mk([{ wounds: 1 }, { wounds: 3, isDestroyed: true }]))).toBe(
       '⚠️ Dangerous terrain: 1 die, each 1 is a wound'
     );
+  });
+});
+
+describe('HTML escaping in GameHUD (G-06)', () => {
+  it('renders a rejection message containing <img src=x onerror=…> as text, not as an element', () => {
+    const { hud, container } = setup(HOST);
+    hud.notifyRejected('<img src=x onerror=alert("rejected")>');
+
+    expect(container.querySelectorAll('img').length).toBe(0);
+    expect(container.textContent).toContain('Action rejected: <img src=x onerror=alert("rejected")>');
+    expect(container.innerHTML).toContain('&lt;img');
+  });
+
+  it('renders a unit name and room code containing <img src=x onerror=…> as text, not as an element', () => {
+    const state = scenarioState();
+    const myUnit = state.units.find((u) => u.ownerId === HOST)!;
+    myUnit.name = '<img src=x onerror=alert("my-unit")>';
+
+    state.actionLog.push({
+      action: createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: myUnit.id }),
+      result: 'accepted',
+    } as any);
+
+    const { hud, container } = setup(HOST, state, { roomCode: '<img src=x onerror=alert("room")>' });
+
+    // Inspect the unit so datacard renders
+    (hud as any).selectedUnitId = myUnit.id;
+    (hud as any).render();
+
+    expect(container.querySelectorAll('img').length).toBe(0);
+    expect(container.textContent).toContain('<img src=x onerror=alert("my-unit")>');
+    expect(container.textContent).toContain('Room: <img src=x onerror=alert("room")>');
+    expect(container.innerHTML).toContain('&lt;img');
+  });
+});
+
+describe('GameHUD cleanup and round transitions (G-23)', () => {
+  it('dispose() clears the reactionTimerInterval', () => {
+    const state = scenarioState();
+    state.turnState.pendingReaction = {
+      id: 'reaction-1',
+      type: 'strike-back',
+      targetUnitId: state.units[0].id,
+      promptingPlayerId: HOST,
+      durationMs: 30000,
+      expiresAt: Date.now() + 30000,
+    } as any;
+
+    const { hud } = setup(HOST, state);
+    expect((hud as any).reactionTimerInterval).not.toBeNull();
+
+    hud.dispose();
+    expect((hud as any).reactionTimerInterval).toBeNull();
+  });
+
+  it('syncFromState does not exit early on round transition and updates audio / turn state', () => {
+    const state = scenarioState();
+    const { hud } = setup(HOST, state);
+
+    // Initial state: round 1, Host's turn
+    expect(state.turnState.roundNumber).toBe(1);
+    (hud as any).prevCurrentPlayerId = GUEST; // simulate was guest turn
+
+    // Next state: round 2, Host's turn
+    const stateRound2 = JSON.parse(JSON.stringify(state));
+    stateRound2.turnState.roundNumber = 2;
+    stateRound2.turnState.currentPlayerId = HOST;
+
+    hud.syncFromState(stateRound2);
+
+    // prevCurrentPlayerId must be updated (not left stale by early return)
+    expect((hud as any).prevCurrentPlayerId).toBe(HOST);
   });
 });

@@ -1,7 +1,7 @@
 # Architecture Document
 
 ## Overview
-This project is split into two main components: a frontend (browser-based Three.js client) and a backend (Node.js + TypeScript + ws signaling server). All gameplay is conducted over P2P WebRTC with the signaling server only used for initial connection establishment.
+This project is split into two main components: a frontend (browser-based Three.js client) and a backend (Node.js + TypeScript + ws signaling server). All gameplay is conducted over P2P WebRTC with the signaling server only used for initial connection establishment and authoritative dice rolls.
 
 ## High-Level Architecture
 
@@ -26,38 +26,88 @@ This project is split into two main components: a frontend (browser-based Three.
 
 ## Frontend Architecture
 
-### Folder Structure (as of Phase 5)
+### Folder Structure
 ```
 shared/src/
 ├── engine/                    # Pure rules logic (host-authoritative)
+│   ├── actions.ts             # Action validation + application
 │   ├── activation.ts          # Alternating activations & round management
-│   ├── combat.ts              # Q/D d6 resolution from server dice
-│   └── actions.ts             # Action validation + application
-├── data/                      # Data packs (no engine logic)
-│   ├── weapons.ts             # Weapon profiles
-│   ├── armies.ts              # Fighter definitions, two original armies
-│   └── scenario.ts            # Default deployment + terrain layout
+│   ├── blast.ts               # Blast area calculations & template coverage
+│   ├── blastSplit.ts          # Multi-target blast distribution & auto-splits
+│   ├── casualties.ts          # Wound allocation and tabletop casualty deferral
+│   ├── closestApproach.ts     # Nearest approach calculations along paths
+│   ├── combat.ts              # Q/D d6 combat resolution from server dice
+│   ├── crossing.ts            # Squad jump / drop group crossings
+│   ├── distanceGates.ts       # Distance-gated weapon rules and thresholds
+│   ├── matchSummary.ts        # Match end state and statistics summary
+│   ├── modelMovement.ts       # Per-model waypoint movements and step validations
+│   ├── pileIn.ts              # Defender pile-in movements and reaction checks
+│   ├── push.ts                # Melee push mechanics and attacker resolution
+│   ├── rematch.ts             # Rematch state resets
+│   ├── setup.ts               # Objectives and deployment rolls & placement rules
+│   ├── spatial.ts             # 3D spatial queries, LoS, cover, platform checks
+│   ├── specialRules.ts        # Unit and weapon special rule resolution
+│   ├── squadFollow.ts         # Coherency and squad member follow logic
+│   ├── squadTargeting.ts      # Multi-model squad targeting & cover evaluation
+│   ├── terrainStructure.ts    # Bounding boxes, apertures, walkable surfaces
+│   ├── traversal.ts           # Ladders, stairs, gaps, hazard tests, drop falls
+│   └── unitGeometry.ts        # Base dimensions, model offsets, bounding geometry
+├── data/                      # Data packs (ruleset-agnostic engine)
+│   ├── armies.ts              # Starter army rosters & fighter profiles
+│   ├── builtinMaps.ts         # Standard Battlefield & Jump Range table layouts
+│   ├── mapSchema.ts           # Terrain palette catalog and map definitions
+│   ├── scenario.ts            # Match setup & default empty battlefield
+│   ├── terrainStructures.ts   # Procedural terrain geometry & aperture blueprints
+│   └── weapons.ts             # Core and special weapon profile tables
+├── rules/
+│   └── traits.ts              # Special rule traits definitions
+├── gameState.ts               # State factories, serialization, snapshot utilities
+├── gameTypes.ts               # Serializable GameState, Unit, Model, Terrain types
+├── signaling.ts               # Signaling protocol schemas, DiceSpec, DiceResult
+├── types.ts                   # Core primitive geometry types (Vector3, Ray, etc.)
+└── index.ts                   # Shared package entry point
 
-src/                           # client/src
+client/src/
+├── audio/
+│   └── SoundFx.ts             # Procedural Web Audio API sound cues (turn chime, alert, combat SFX, stingers, mute)
 ├── core/
-│   └── GameManager.ts        # Host authority, engine application, dice orchestration
+│   └── GameManager.ts         # Host authority, state machine, dice orchestration
+├── editor/
+│   └── MapEditor.ts           # In-browser 3D map builder and inspector
 ├── network/
-│   ├── SignalingClient.ts     # WebSocket connection to signaling server (+ keep-alive)
-│   ├── SignalingDiceProvider.ts # Server-rolled dice for the host
-│   ├── WebRTCClient.ts        # WebRTC peer connection & data channel
-│   └── Protocol.ts            # Message types & serialization
+│   ├── SignalingClient.ts     # WebSocket client with keep-alive, auto-reconnect, and seat tokens
+│   ├── SignalingDiceProvider.ts # Authoritative server-rolled dice provider for the host
+│   ├── WebRTCClient.ts        # WebRTC peer connection, data channel & heartbeat monitor
+│   └── index.ts               # Network module exports
 ├── renderer/
-│   ├── SceneManager.ts        # Three.js scene setup
-│   ├── CameraController.ts    # Desktop camera controls
-│   ├── ModelLoader.ts         # Asset loading + GLB registry with placeholder swap
-│   ├── assetManifest.ts       # Curated CC0 (Kenney) asset mappings
-│   ├── BoardRenderer.ts       # Terrain/board visualization
-│   ├── UnitRenderer.ts        # Unit models (syncs from game state) + raycast picking
-│   ├── MarkerRenderer.ts      # Selection/target/range markers, outcome tokens
-│   └── GameView.ts            # State-driven facade + click picking
+│   ├── BoardRenderer.ts       # Terrain, board, and custom map rendering
+│   ├── CameraController.ts    # Player-perspective isometric camera controls
+│   ├── GameView.ts            # State-driven Three.js scene facade & click picking
+│   ├── MarkerRenderer.ts      # Selection/target/range rings, aim lines, keep-away, CSS2D labels
+│   ├── ModelLoader.ts         # Asset loader with procedural placeholder swap registry
+│   ├── ObjectiveRenderer.ts   # Objective beacons and scoring zone markers
+│   ├── SceneManager.ts        # Scene setup, lighting, and CSS2D rendering pass
+│   ├── UnitRenderer.ts        # Unit models and squad model sync from GameState
+│   ├── assetManifest.ts       # CC0 Kenney model asset registry mappings
+│   ├── rimColors.ts           # Tactical unit rim color definitions
+│   └── utils.ts               # Three.js utility helpers
+├── storage/
+│   ├── MapStore.ts            # Local custom map persistence (localStorage)
+│   └── SessionStore.ts        # Session persistence (room code, role, rejoinToken)
 ├── ui/
-│   ├── Lobby.ts               # Invite code creation/joining, peer-ready handoff
-│   └── GameHUD.ts             # Turn info, action selection, confirmation, dice display
+│   ├── GameHUD.ts             # In-match overlay (roster, action bar, dice & log panels)
+│   ├── Lobby.ts               # Room creation, invite code entry, match resumption UI
+│   ├── connectionStatus.ts    # Reconnection status display
+│   ├── devMode.ts             # Dev mode toggle and tools
+│   ├── distanceIndicators.ts  # Tactical distance badges and threshold markers
+│   ├── keepAwayZones.ts       # 1" keep-away zone calculations
+│   ├── loadout.ts             # Unit loadout display helpers
+│   ├── modelLoadout.ts        # Model-level equipment badges
+│   ├── movePreview.ts         # Movement path visualization helpers
+│   ├── rushStop.ts            # Rush movement stop indicator
+│   ├── setupPlacement.ts      # Objective and unit deployment placement guides
+│   └── stopNote.ts            # Path stop annotations
+├── buildInfo.ts               # Injected commit hash and build timestamp
 └── main.ts                    # Entry point: wires Lobby → GameManager → GameView + HUD
 ```
 
@@ -92,24 +142,25 @@ time (dice requests are awaited); rejections surface to both peers.
 
 ## Backend Architecture (Signaling Server)
 
-### Folder Structure (Proposed)
+### Folder Structure
 ```
-server/
-├── RoomManager.ts       # Room creation, lookup, cleanup, expiration
-├── SignalingServer.ts   # WebSocket server, message routing
-├── DiceRoller.ts        # Server-side RNG for dice rolls
-├── Room.ts              # Room state (host/guest, timers)
+server/src/
+├── DiceRoller.ts        # Server-side RNG, spec validation, and dice bounds
+├── Room.ts              # RoomManager (creation, seat rejoin tokens, cleanup, expiration)
+├── SignalingServer.ts   # WebSocket server, message routing and payload validation
 └── index.ts             # Server entry point
 ```
 
 ### Responsibilities
-- Create/join rooms with XXX-XXX codes
+- Create/join rooms with XXX-XXX codes and issue cryptographically random seat `rejoinToken`s
 - Relay SDP offers/answers between peers
 - Relay ICE candidates between peers
-- Generate and broadcast dice rolls on request
-- Handle room expiration (inactivity timeout, game end)
-- Clean up disconnected rooms
-- Heartbeat/health monitoring
+- Validate dice specs and generate authoritative server dice rolls on host request
+- Cache dice rolls by `rollId` for idempotency
+- Handle room expiration (inactivity timeout, 5-minute disconnect grace window, 3-hour max lifetime)
+- Enforce room limits (max 500 rooms, 64 KB max frame payload, 1 room per socket)
+- Clean up disconnected rooms and orphaned sockets
+- Health monitoring and HTTP status endpoints (`/` and `/healthz`)
 
 **Not Responsible For:** Game rules, game state validation, move legality, storing full game state long-term (beyond room lifecycle).
 
@@ -154,23 +205,26 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 - **MarkerRenderer:** Gameplay UI markers — selection and target indicators, movement-range ring, auto-clearing wound outcome tokens (GLB with procedural fallbacks)
 - **GameView:** State-driven rendering facade — the single entry point that turns game state into a scene (board/terrain rebuilt only on change, units diffed every sync), plus click picking (units and ground positions, camera drags filtered out). The renderer layer is injectable for tests, so scene logic is testable without WebGL
 - **GameHUD:** In-game overlay — round/turn info, unit list, action selection with explicit confirmation for every action, dice result and action log panels; driven purely by confirmed state
+- **SoundFx:** Procedural audio synthesis using the Web Audio API with zero external assets or network latency. Generates turn transition chimes, reaction decision alerts, a dice rattle when dice results appear in the Dice panel, a shot crack when shooting resolves, a melee impact when a melee strike resolves (charge, fight, strike back), and rising/falling stingers for Victory/Defeat when the results screen opens. A mute toggle (speaker icon) in the in-game header silences all cues and persists across reloads via `localStorage`. Unallowed or suspended audio states fail silently without throwing.
 
 ## Connection Lifecycle
 
-1. **Host creates room:** Client connects to signaling server, requests room creation, gets XXX-XXX code
-2. **Guest joins:** Client connects to signaling server, provides room code, joins room
+1. **Host creates room:** Client connects to signaling server, requests room creation, gets XXX-XXX code and seat `rejoinToken`
+2. **Guest joins:** Client connects to signaling server, provides room code, joins room and gets seat `rejoinToken`
 3. **Signaling:** Peers exchange offers/answers and ICE candidates through signaling server
 4. **Connection established:** WebRTC data channel opens; signaling WebSocket switches to 25s keep-alive mode for server dice requests
 5. **Gameplay:** All game movements, selection, and turn events flow over P2P data channel; attacks request authoritative server dice rolls via signaling server
-6. **Disconnect & Grace Window:** If signaling connection drops, server preserves room for a 5-minute grace window; client auto-reconnects with `reconnect-room`
-7. **Reconnection & Idempotent Rolls:** Host and guest can reclaim room slots; dice rolls retry automatically and use server-cached roll results
+6. **Disconnect & Grace Window:** If signaling connection drops, server preserves room for a 5-minute grace window; client auto-reconnects with `reconnect-room` using its saved `rejoinToken`
+7. **Reconnection & Idempotent Rolls:** Host and guest can reclaim room slots with their `rejoinToken`; dice rolls retry automatically and use server-cached roll results
 
 ## Error Handling & Resilience
 
-- **Heartbeat/Timeout:** Ping/pong over data channel every N seconds, timeout after M missed pongs
+- **Heartbeat/Timeout:** Ping/pong over data channel every 3 seconds (`heartbeatIntervalMs = 3000`), timeout after 6 seconds (`heartbeatTimeout = 6000`)
 - **Signaling Keep-Alive & Auto-Reconnect:** 25s ping interval beats Azure proxy timeouts; automatic client reconnection
-- **Room Grace Period:** 5-minute server grace window protects against dropped connections, Wi-Fi blips, and reboots
-- **Idempotent Dice Retries:** Combat actions retry server dice requests every 2s before timing out, backed by server roll caching
+- **Room Grace Period:** 5-minute server grace window protects against dropped connections, Wi-Fi blips, and reboots; host disconnect timestamp tracked independently of pings
+- **Seat Rejoin Tokens:** Cryptographic tokens issued on room creation/join prevent unauthorized seat hijacking
+- **Server Input & Dice Limits:** 64 KB WebSocket frame payload cap, 500 max rooms, 1 room per socket, and 1–64 dice specs (integer count 1–500, sides 2–20, total count ≤ 2000) restricted to the room's host
+- **Idempotent Dice Retries:** Combat actions retry server dice requests every 2s before timing out, backed by server roll caching with spec matching
 - **State validation:** Host validates all actions, rejects invalid actions with reason
 - **Desync detection:** Action log + sequence numbers to detect if states diverge
 - **Graceful degradation:** Clear UI feedback on connection issues

@@ -1,10 +1,13 @@
+import type { DiceSpec, DiceResult } from './types';
+export type { DiceSpec, DiceResult };
+
 // Signaling message types
 export type SignalingMessage =
   | { type: 'create-room' }
-  | { type: 'room-created', code: string }
-  | { type: 'join-room', code: string }
-  | { type: 'room-joined', code: string, role: 'host' | 'guest' }
-  | { type: 'reconnect-room', code: string, role: 'host' | 'guest' }
+  | { type: 'room-created', code: string, rejoinToken?: string }
+  | { type: 'join-room', code: string, rejoinToken?: string }
+  | { type: 'room-joined', code: string, role: 'host' | 'guest', rejoinToken?: string }
+  | { type: 'reconnect-room', code: string, role: 'host' | 'guest', rejoinToken?: string }
   | { type: 'room-reconnected', code: string, role: 'host' | 'guest' }
   | { type: 'peer-joined' }
   | { type: 'peer-reconnected', role: 'host' | 'guest' }
@@ -18,19 +21,3 @@ export type SignalingMessage =
   | { type: 'ping' }
   | { type: 'pong' };
 
-export interface DiceSpec {
-  count: number;
-  sides: number;
-  purpose?: string;
-  modifier?: number;
-}
-
-export interface DiceResult {
-  rolls: number[];
-  total: number;
-  modifier?: number;
-  finalTotal: number;
-  purpose?: string;
-  success?: boolean;
-  threshold?: number;
-}

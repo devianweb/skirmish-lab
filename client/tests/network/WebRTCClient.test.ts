@@ -39,10 +39,27 @@ describe('WebRTCClient', () => {
   });
 
   it('should update lastPongTime when receiving heartbeat-pong', () => {
-    const before = (client as any).lastPongTime;
-    (client as any).handleMessage({ type: 'heartbeat-pong', timestamp: Date.now() });
-    const after = (client as any).lastPongTime;
-    expect(after).toBeGreaterThanOrEqual(before);
+    vi.useFakeTimers();
+    try {
+      const dataChannel = {
+        readyState: 'open',
+        send: vi.fn(),
+        onopen: null,
+        onclose: null,
+        onerror: null,
+        onmessage: null,
+      };
+      (client as any).dataChannel = dataChannel;
+      (client as any).setupDataChannel();
+
+      const before = (client as any).lastPongTime;
+      vi.advanceTimersByTime(1000);
+      dataChannel.onmessage!({ data: JSON.stringify({ type: 'heartbeat-pong', timestamp: Date.now() }) });
+      const after = (client as any).lastPongTime;
+      expect(after).toBeGreaterThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('should report not connected when data channel is closed', () => {
