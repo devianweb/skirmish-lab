@@ -6,6 +6,7 @@ import {
   getBlastParticipants,
   ownThresholdRings,
   traitGateApplies,
+  TRAIT_REGISTRY,
   boardDistance,
   ChargeState,
   CombatModifierBreakdown,
@@ -206,7 +207,14 @@ export interface MarkerSnapshot {
    * Area rings: Hero morale aura (one per living model of each friendly Hero of the selected/hovered unit's side;
    * `active` = that Hero lends its Quality to the unit) and the Blast spread outline (one per living target model).
    */
-  auras?: Array<{ kind: 'hero' | 'blast'; position: Vector3; radius: number; active: boolean }>;
+  auras?: Array<{
+    kind: 'hero' | 'blast';
+    side?: 'host' | 'guest';
+    position: Vector3;
+    radius: number;
+    active: boolean;
+    label?: string;
+  }>;
   /** Units that would share the hits of the Blast shot being aimed (not the target itself). */
   blastSharingUnitIds?: string[];
 }
@@ -6666,6 +6674,7 @@ export class GameHUD {
       (this.selectedUnitId ? state.units.find((u) => u.id === this.selectedUnitId && !u.isDestroyed) ?? null : null);
     if (!subject || subject.isDeployed === false) return [];
     const reach = gateDistance('hero', 'morale-aura');
+    const labelText = `${TRAIT_REGISTRY.hero.displayName} ${reach}"`;
     const out: NonNullable<MarkerSnapshot['auras']> = [];
     for (const hero of state.units) {
       if (
@@ -6678,10 +6687,19 @@ export class GameHUD {
       ) {
         continue;
       }
+      const side = hero.ownerId === state.hostId ? 'host' : 'guest';
       const active = traitGateApplies('hero', 'morale-aura', unitDistance(hero, subject));
-      for (const position of livingModelPositions(hero)) {
-        out.push({ kind: 'hero', position: { ...position }, radius: reach + baseRadius(hero), active });
-      }
+      const positions = livingModelPositions(hero);
+      positions.forEach((position, index) => {
+        out.push({
+          kind: 'hero',
+          side,
+          position: { ...position },
+          radius: reach + baseRadius(hero),
+          active,
+          ...(index === 0 ? { label: labelText } : {}),
+        });
+      });
     }
     return out;
   }
@@ -6702,12 +6720,15 @@ export class GameHUD {
   private computeBlastAuras(hoveredUnit: Unit | null): NonNullable<MarkerSnapshot['auras']> {
     const aim = this.blastAim(hoveredUnit);
     if (!aim) return [];
-    const radius = gateDistance('blast', 'blast-spread') + baseRadius(aim.target);
-    return livingModelPositions(aim.target).map((position) => ({
+    const reach = gateDistance('blast', 'blast-spread');
+    const radius = reach + baseRadius(aim.target);
+    const labelText = `${TRAIT_REGISTRY.blast.displayName} ${reach}"`;
+    return livingModelPositions(aim.target).map((position, index) => ({
       kind: 'blast' as const,
       position: { ...position },
       radius,
       active: true,
+      ...(index === 0 ? { label: labelText } : {}),
     }));
   }
 

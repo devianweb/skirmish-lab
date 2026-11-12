@@ -1,9 +1,23 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { MarkerRenderer } from '../../src/renderer/MarkerRenderer';
 import { ModelLoader } from '../../src/renderer/ModelLoader';
+
+beforeAll(() => {
+  HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+    clearRect: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    fillText: vi.fn(),
+  }) as any;
+});
 
 function make() {
   const scene = new THREE.Scene();
@@ -108,34 +122,136 @@ describe('MarkerRenderer threshold rings', () => {
 
 describe('MarkerRenderer auras', () => {
   const auras = [
-    { kind: 'hero' as const, position: { x: 0, y: 0, z: 0 }, radius: 6.5, active: true },
-    { kind: 'hero' as const, position: { x: 4, y: 0, z: 0 }, radius: 6.5, active: false },
-    { kind: 'blast' as const, position: { x: 8, y: 0, z: 1 }, radius: 3.5, active: true },
+    { kind: 'hero' as const, side: 'host' as const, position: { x: 0, y: 0, z: 0 }, radius: 6.5, active: true, label: 'Hero 6"' },
+    { kind: 'hero' as const, side: 'guest' as const, position: { x: 4, y: 0, z: 0 }, radius: 6.5, active: false },
+    { kind: 'blast' as const, position: { x: 8, y: 0, z: 1 }, radius: 3.5, active: true, label: 'Blast 3"' },
   ];
-  const mat = (o: THREE.Object3D) => (o as THREE.Mesh).material as THREE.MeshBasicMaterial;
 
-  it('draws one ring per aura: gold for Hero (bright vs faint), orange for Blast, sized to the radius', () => {
+  it('draws dashed rings: host Hero blue, guest Hero red, Blast orange, with active/inactive opacities', () => {
     const { scene, renderer } = make();
-    renderer.setAuras(auras);
+    renderer.setAuras(auras, 'host');
     const group = scene.getObjectByName('marker-auras')!;
-    expect(group.children).toHaveLength(3);
-    const [a, b, c] = group.children as THREE.Mesh[];
-    expect(mat(a).color.getHex()).toBe(0xffd54f);
-    expect(mat(c).color.getHex()).toBe(0xff9800);
-    expect(mat(a).opacity).toBeGreaterThan(mat(b).opacity);
-    expect((a.geometry as THREE.RingGeometry).parameters.outerRadius).toBeCloseTo(6.5, 5);
-    expect(c.position.x).toBe(8);
-    expect(c.position.z).toBe(1);
+    const lines = group.children.filter((c): c is THREE.Line => c instanceof THREE.Line);
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      expect(line.material).toBeInstanceOf(THREE.LineDashedMaterial);
+      expect(line.geometry.getAttribute('lineDistance')).toBeDefined();
+    }
+    const [hostHeroLine, guestHeroLine, blastLine] = lines;
+    const hostMat = hostHeroLine.material as THREE.LineDashedMaterial;
+    const guestMat = guestHeroLine.material as THREE.LineDashedMaterial;
+    const blastMat = blastLine.material as THREE.LineDashedMaterial;
+    expect(hostMat.color.getHex()).toBe(0x29b6f6);
+    expect(guestMat.color.getHex()).toBe(0xef5350);
+    expect(blastMat.color.getHex()).toBe(0xff9800);
+    expect(hostMat.opacity).toBe(0.85);
+    expect(guestMat.opacity).toBe(0.25);
+    expect(hostMat.opacity).toBeGreaterThan(guestMat.opacity);
   });
 
-  it('replaces on the next snapshot and clears when empty', () => {
+  it('draws flat label meshes lying on the board plane, placed on local player\'s side, turned along tangent', () => {
     const { scene, renderer } = make();
-    renderer.setAuras(auras);
-    renderer.setAuras([auras[0]]);
+    renderer.setAuras(auras, 'host');
+    const group = scene.getObjectByName('marker-auras')!;
+    const labelMeshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
+    expect(labelMeshes).toHaveLength(2);
+    for (const label of labelMeshes) {
+      expect(label).toBeInstanceOf(THREE.Mesh);
+      expect(label).not.toBeInstanceOf(CSS2DObject);
+      expect(Math.abs(label.rotation.x)).toBeCloseTo(Math.PI / 2, 5);
+      expect(label.rotation.y).toBeCloseTo(0, 5);
+    }
+    const hostHeroLabel = labelMeshes[0];
+    expect(hostHeroLabel.position.x).toBe(0);
+    expect(hostHeroLabel.position.z).toBeLessThan(-6.5);
+    expect(hostHeroLabel.position.z).toBeCloseTo(-6.7, 1);
+
+    renderer.setAuras(auras, 'guest');
+    const groupGuest = scene.getObjectByName('marker-auras')!;
+    const guestLabels = groupGuest.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
+    expect(guestLabels).toHaveLength(2);
+    expect(guestLabels[0].position.x).toBe(0);
+    expect(guestLabels[0].position.z).toBeGreaterThan(6.5);
+    expect(guestLabels[0].position.z).toBeCloseTo(6.7, 1);
+    expect(Math.abs(guestLabels[0].rotation.z)).toBeCloseTo(Math.PI, 5);
+  });
+
+  it('label mesh never takes pointer events', () => {
+    const { scene, renderer } = make();
+    renderer.setAuras(auras, 'host');
+    const group = scene.getObjectByName('marker-auras')!;
+    const labelMeshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
+    const raycaster = new THREE.Raycaster();
+    const hits: THREE.Intersection[] = [];
+    labelMeshes[0].raycast(raycaster, hits);
+    expect(hits).toHaveLength(0);
+  });
+
+  it('replaces on the next snapshot, skips rebuild on identical snapshot, and clears when empty', () => {
+    const { scene, renderer } = make();
+    renderer.setAuras(auras, 'host');
+    const group = scene.getObjectByName('marker-auras');
+    renderer.setAuras(auras, 'host');
+    expect(scene.getObjectByName('marker-auras')).toBe(group);
+
+    renderer.setAuras([auras[0]], 'host');
     expect(scene.getObjectsByProperty('name', 'marker-auras')).toHaveLength(1);
-    expect(scene.getObjectByName('marker-auras')!.children).toHaveLength(1);
-    renderer.setAuras([]);
+    expect(scene.getObjectByName('marker-auras')!.children).toHaveLength(2); // 1 line + 1 label
+    renderer.setAuras([], 'host');
     expect(renderer.getRenderedMarkerNames()).not.toContain('marker-auras');
+  });
+});
+
+describe('MarkerRenderer Blast sharing mark', () => {
+  it('sharing units get orange ring in 0xff9800 and are distinct from dark-red reachable targets', () => {
+    const { scene, renderer } = make();
+    const sharingUnit = { id: 'u-sharing', position: { x: 3, y: 0, z: 5 } };
+    const reachableEnemy = { id: 'u-reachable', position: { x: -3, y: 0, z: 2 } };
+
+    renderer.setBlastSharing([sharingUnit]);
+    renderer.setReachableTargets([reachableEnemy]);
+
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-blast-sharing');
+    expect(renderer.getRenderedMarkerNames()).toContain('marker-reachable-targets');
+
+    const sharingGroup = scene.getObjectByName('marker-blast-sharing')!;
+    expect(sharingGroup.children).toHaveLength(1);
+    const sharingRing = sharingGroup.getObjectByName(`marker-blast-sharing-${sharingUnit.id}`)!;
+    expect(sharingRing).toBeDefined();
+    expect(sharingRing.userData.tintColor).toBe(0xff9800);
+    const sharingMesh = sharingRing.children[0] as THREE.Mesh;
+    const sharingMat = sharingMesh.material as THREE.MeshBasicMaterial;
+    expect(sharingMat.color.getHex()).toBe(0xff9800);
+
+    const reachableGroup = scene.getObjectByName('marker-reachable-targets')!;
+    expect(reachableGroup.children).toHaveLength(1);
+    const reachableRing = reachableGroup.getObjectByName(`marker-reachable-${reachableEnemy.id}`)!;
+    expect(reachableRing).toBeDefined();
+    expect(reachableRing.userData.tintColor).toBe(0x8e2424);
+    const reachableMesh = reachableRing.children[0] as THREE.Mesh;
+    const reachableMat = reachableMesh.material as THREE.MeshBasicMaterial;
+    expect(reachableMat.color.getHex()).toBe(0x8e2424);
+
+    expect(scene.getObjectByName(`marker-reachable-${sharingUnit.id}`)).toBeUndefined();
+  });
+
+  it('with no Blast aim nothing orange is drawn', () => {
+    const { renderer } = make();
+    renderer.setBlastSharing(null);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-blast-sharing');
+    renderer.setBlastSharing([]);
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-blast-sharing');
+  });
+
+  it('clearAll and dispose remove the blast sharing mark', () => {
+    const { renderer } = make();
+    renderer.setBlastSharing([{ id: 'u1', position: { x: 0, y: 0, z: 0 } }]);
+    renderer.clearAll();
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-blast-sharing');
+
+    renderer.setBlastSharing([{ id: 'u1', position: { x: 0, y: 0, z: 0 } }]);
+    renderer.dispose();
+    expect(renderer.getRenderedMarkerNames()).not.toContain('marker-blast-sharing');
   });
 });
 

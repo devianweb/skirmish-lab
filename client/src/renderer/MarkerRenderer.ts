@@ -90,14 +90,18 @@ export interface ThresholdRingsMarker {
 /** One Hero morale-aura or Blast-spread ring. */
 export interface AuraMarker {
   kind: 'hero' | 'blast';
+  side?: 'host' | 'guest';
   position: Vector3;
   radius: number;
   active: boolean;
+  label?: string;
 }
 
 const THRESHOLD_RING_COLOR = 0xff7961;
-const HERO_AURA_COLOR = 0xffd54f;
+const HOST_HERO_AURA_COLOR = 0x29b6f6;
+const GUEST_HERO_AURA_COLOR = 0xef5350;
 const BLAST_AURA_COLOR = 0xff9800;
+const BLAST_SHARING_COLOR = 0xff9800;
 
 /** One 1" keep-away disc to draw (see ui/keepAwayZones.ts). */
 export interface KeepAwayZoneMarker {
@@ -232,6 +236,7 @@ export class MarkerRenderer {
   private thresholdRingsSignature: string | null = null;
   private auras: THREE.Object3D | null = null;
   private aurasSignature: string | null = null;
+  private blastSharing: THREE.Object3D | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -404,6 +409,32 @@ export class MarkerRenderer {
     }
     this.markerGroup.add(group);
     this.reachableTargets = group;
+  }
+
+  /** Units that would share the hits of a Blast attack wear an orange ring (0xff9800, same style as target ring). */
+  setBlastSharing(units: MarkerUnit[] | null): void {
+    this.removeMarker('blastSharing');
+    if (!units || units.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-blast-sharing';
+    for (const unit of units) {
+      const positions =
+        unit.models && unit.models.length > 0
+          ? unit.models.map((m) => m.position)
+          : [unit.position];
+      for (const pos of positions) {
+        const ring = this.modelLoader.createMarkerMesh('target', () =>
+          this.createFlatRing(BLAST_SHARING_COLOR, 0.6, 0.025)
+        );
+        this.applyTint(ring, BLAST_SHARING_COLOR);
+        ring.name = `marker-blast-sharing-${unit.id}`;
+        ring.position.set(pos.x, (pos.y ?? 0) + 0.025, pos.z);
+        group.add(ring);
+      }
+    }
+    this.markerGroup.add(group);
+    this.blastSharing = group;
   }
 
   /** Thin movement-range ring sized to the unit's remaining movement (or override radius, e.g. for Rush). */
@@ -1374,36 +1405,121 @@ export class MarkerRenderer {
     this.thresholdRings = group;
   }
 
-  /** Hero morale-aura rings (gold; bright when the Hero lends its Quality, faint otherwise) and Blast outlines (orange). */
-  setAuras(auras: AuraMarker[] | null): void {
+  /** Flat text plane lying on the board just outside an aura ring. */
+  private createAuraLabel(
+    text: string,
+    color: number,
+    localSide: 'host' | 'guest'
+  ): THREE.Mesh {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(20, 24, 32, 0.85)';
+      const r = 16;
+      const x = 12;
+      const y = 8;
+      const w = 232;
+      const h = 48;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+
+      const hex = '#' + color.toString(16).padStart(6, '0');
+      ctx.strokeStyle = hex;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 128, 32);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const geometry = new THREE.PlaneGeometry(1.2, 0.3);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.raycast = () => {};
+
+    if (localSide === 'guest') {
+      mesh.rotation.set(Math.PI / 2, 0, Math.PI);
+    } else {
+      mesh.rotation.set(Math.PI / 2, 0, 0);
+    }
+    return mesh;
+  }
+
+  /** Hero morale-aura rings (dashed, side colour) and Blast outlines (dashed orange), each with a flat board label. */
+  setAuras(auras: AuraMarker[] | null, localSide: 'host' | 'guest' = 'host'): void {
     if (!auras || auras.length === 0) {
       this.aurasSignature = null;
       this.removeMarker('auras');
       return;
     }
-    const signature = JSON.stringify(auras);
+    const signature = JSON.stringify({ auras, localSide });
     if (signature === this.aurasSignature && this.auras) return;
     this.removeMarker('auras');
     this.aurasSignature = signature;
 
     const group = new THREE.Group();
     group.name = 'marker-auras';
+    const y = 0.04;
     for (const aura of auras) {
       const hero = aura.kind === 'hero';
-      const mesh = new THREE.Mesh(
-        new THREE.RingGeometry(Math.max(0.01, aura.radius - 0.06), aura.radius, 96),
-        new THREE.MeshBasicMaterial({
-          color: hero ? HERO_AURA_COLOR : BLAST_AURA_COLOR,
-          side: THREE.DoubleSide,
+      const color = hero
+        ? (aura.side === 'guest' ? GUEST_HERO_AURA_COLOR : HOST_HERO_AURA_COLOR)
+        : BLAST_AURA_COLOR;
+
+      const segs = 96;
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= segs; i++) {
+        const theta = (i / segs) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(theta) * aura.radius, 0, Math.sin(theta) * aura.radius));
+      }
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineDashedMaterial({
+          color,
+          dashSize: 0.5,
+          gapSize: 0.3,
           transparent: true,
           opacity: aura.active ? 0.85 : 0.25,
           depthWrite: false,
         })
       );
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(aura.position.x, (aura.position.y ?? 0) + 0.04, aura.position.z);
-      mesh.name = `aura-${aura.kind}`;
-      group.add(mesh);
+      line.computeLineDistances();
+      line.name = `aura-${aura.kind}`;
+      line.position.set(aura.position.x, (aura.position.y ?? 0) + y, aura.position.z);
+      group.add(line);
+
+      if (aura.label) {
+        const labelMesh = this.createAuraLabel(aura.label, color, localSide);
+        labelMesh.name = `aura-label-${aura.kind}`;
+        const labelZ =
+          localSide === 'guest'
+            ? aura.position.z + aura.radius + 0.2
+            : aura.position.z - (aura.radius + 0.2);
+        labelMesh.position.set(aura.position.x, (aura.position.y ?? 0) + y + 0.005, labelZ);
+        group.add(labelMesh);
+      }
     }
     this.markerGroup.add(group);
     this.auras = group;
@@ -1423,6 +1539,7 @@ export class MarkerRenderer {
     this.removeMarker('selection');
     this.removeMarker('target');
     this.removeMarker('reachableTargets');
+    this.removeMarker('blastSharing');
     this.removeMarker('range');
     this.removeMarker('attackRange');
     this.removeMarker('movePath');
@@ -1471,6 +1588,7 @@ export class MarkerRenderer {
       | 'selection'
       | 'target'
       | 'reachableTargets'
+      | 'blastSharing'
       | 'range'
       | 'attackRange'
       | 'movePath'
@@ -1494,6 +1612,14 @@ export class MarkerRenderer {
       if (kind === 'movePath' || kind === 'aimLines' || kind === 'targetBadges' || kind === 'thresholdRings') {
         current.traverse((child) => {
           if (child instanceof CSS2DObject) child.element.remove();
+        });
+      }
+      if (kind === 'auras') {
+        current.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.material) {
+            const mat = child.material as THREE.MeshBasicMaterial;
+            if (mat.map) mat.map.dispose();
+          }
         });
       }
       this.markerGroup.remove(current);
