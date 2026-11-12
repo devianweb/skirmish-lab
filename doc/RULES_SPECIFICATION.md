@@ -201,7 +201,7 @@ Every unblocked hit is one wound (before Deadly, Regeneration or other rules cha
 Morale is tested per unit at the end of an activation, not at the end of the round. There is no army-breaking test.
 
 1. **Trigger (14C-2 PR 1).** At the end of every activation, each unit of either side (including the active unit) that took at least one wound **during that activation** and was **not in melee during it** tests Morale if it is now at **half strength or less**: for several models, living models x 2 <= the unit's starting models; for a single model, remaining wounds x 2 <= Tough. A unit tests at most once per activation. Units in melee skip this test (melee results decide who tests; see the melee rules). The host keeps this in `turnState.woundBaseline` (each living unit's wounds when the activation began) and `turnState.meleeUnitIds`, both cleared when the activation ends.
-2. **The test** is a Quality test: roll 1d6, passes on a result of at least Quality; a 1 always fails, a 6 always passes. Faction morale traits (`steadfast`, `dauntless`, `iron-will`, the one-shot morale debuff) still modify the roll until 14C-3 retires them. A failure makes the unit **Shaken**. A unit that is already Shaken always fails, with no roll.
+2. **The test** is a Quality test: roll 1d6, passes on a result of at least Quality; a 1 always fails, a 6 always passes. The only Morale modifier is Hold the Line (+1 when the unit was shot from over 9" or charged from over 6" away). A failure makes the unit **Shaken**. A unit that is already Shaken always fails, with no roll.
 3. **Hero.** A unit within **6"** (horizontal, base edge to base edge) of a friendly, living, non-Shaken unit with `hero` may use the better of its own Quality and the Hero's for the test. The Hero may be the unit itself or any friendly unit.
 4. **Fearless.** When a unit with Fearless fails a Morale Test (including the automatic failure while Shaken), the host also rolls one die; on a 4+ the test counts as passed (the unit is not made Shaken, and an already-Shaken unit simply stays as it is).
 5. **Dice.** All morale dice are server dice requested with the `end-activation` action (`purpose: 'morale'` for each unit that is not already Shaken, `purpose: 'fearless'` for each Fearless unit). A move that can end in a fall or a hold in dangerous terrain also requests a spare `morale` die (and a `fearless` die for a Fearless mover) because the wounded mover's activation ends inside that action. Each test is attached to the action's log entry (`dice.outcome.moraleTests`: unit, roll, Quality needed, Fearless die, passed, outcome) so both peers render it from state.
@@ -262,12 +262,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`thrust`** | **Thrust** | When charging, attacks gain **$+1$ to hit** and **`ap(+1)`** in melee. |
 | **`tough(X)`** | **Tough(X)** | A model is removed once it has taken $X$ wounds. |
 | **`unstoppable`** | **Unstoppable** | Ignores target's `regeneration`, and ignores all negative modifiers applied to this weapon. |
-| **`steadfast`** | **Steadfast** | Units where all models have this rule gain **$+1$ to morale test rolls** ($+2$ with `steadfast-boost`). |
-| **`marksman`** | **Marksman** | Grants **$+1$ to hit rolls** when shooting. |
 | **`rupture`** | **Rupture** | Unmodified hit rolls of 6 gain **`ap(+2)`**. |
-| **`riot-shield`** | **Riot Shield** | Grants **$+1$ to Defense rolls** against hits that are not from powers. |
-| **`iron-will`** | **Iron Will** | Failed Morale Tests count as passed; roll dice equal to the wounds needed to destroy the unit (min 1) and take 1 unignorable wound per roll of 1–3. *(Faction trait; retired in 14C-3.)* |
-| **`double-time`** | **Double Time** | Moves **$+4"$** when using Advance actions. |
 
 ---
 

@@ -531,15 +531,14 @@ The v1 game ships a data pack in `shared/src/data/` — pure data, no engine log
   profile IDs each model carries (length = `modelCount`); `weapons` is then the distinct union. A spawned
   `Model` records its own list in `weaponIds`. Melee dice outcomes carry `outcome.meleeStrikes`
   (`WeaponAttackOutcome[]`, one per melee weapon that struck, in order) next to the summed totals.
-- **`weapons.ts`** — weapon profiles by ID (`rifle`, `carbine`, `scattergun`,
-  `handcannon`, `cannon`, `blade`, `fists`); originals with first-principles stats.
-- **`armies.ts`** — two original armies (**Frontier Wardens**, **Rust Raiders**),
-  five fighters each (`FighterDefinition` incl. a `modelType` for the renderer),
-  and `createUnitFromFighter` which copies stats/weapons into spawned `Unit`s.
-- **`scenario.ts`** — default deployment: both players' five fighters on
-  opposite edges of the 48×48 default skirmish board (deployed 24" apart, facing each
-  other) plus a central terrain layout (walls, crates, columns) with cover/LOS
-  flags.
+- **`weapons.ts`** — weapon profiles by ID (the Human Defense Force and Orc Marauders weapons, plus
+  generic profiles the dev-only TEST armies and tests use such as `rifle`, `carbine`, `blade`, `fists`).
+- **`armies.ts`** — the ready-made 400-pt armies in `STARTER_ARMIES` (**Human Defense Force** `hdf`,
+  **Orc Marauders** `orc-marauders`; fighters are `FighterDefinition`s incl. a `modelType` for the renderer)
+  plus the dev-only TEST armies, and `createUnitFromFighter` which copies stats/weapons into spawned `Unit`s.
+- **`scenario.ts`** — default deployment: `applyDefaultScenario` spawns the chosen armies (host Human
+  Defense Force vs guest Orc Marauders when none is chosen or the id is unknown) on opposite edges of the
+  48×48 default skirmish board (24" apart, facing each other), settled clear of the map's terrain.
 
 Deterministic player IDs (`player-host` / `player-guest`) let both peers
 identify the local player without negotiation.
