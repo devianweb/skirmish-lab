@@ -1,11 +1,11 @@
 # 14G: Wake-up loading indicator
-Status: ready for the owner's OK (written 2026-11-12 at the owner's request, from the roadmap entry of 2026-11-10). Intended for an outside implementer (Gemini); see `doc/plans/GEMINI_HANDOVER.md`.
+Status: done, merged as #377 (2026-11-12). Implemented by Gemini; the owner approved the decisions by handing the plan over on 2026-11-12. Review fix: a failed reconnect attempt after a socket has been open keeps the background reconnect loop going. Intended for an outside implementer (Gemini); see `doc/plans/GEMINI_HANDOVER.md`.
 Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G, "Wake-up loading indicator"
 
 ## Goal
 After a quiet spell the free-tier signaling server (Azure App Service F1) can take up to a minute to wake up. Today the lobby shows nothing at all until the WebSocket opens (`Lobby.init()` awaits `signalingClient.connect()` before its first `render()`), and Create / Join can hang without feedback. The lobby should appear at once and say plainly that it is waking the server, then either get on with it or show a clear error with a way to try again.
 
-## Decisions (agreed once the owner OKs the plan)
+## Decisions (agreed)
 1. **Render first.** `Lobby.init()` renders the lobby straight away and connects in the background. It no longer awaits the connection before the first render.
 2. **Connection status line.** The lobby card has one status line under the Create / Join buttons, driven by the signaling connection state:
    - connecting, for less than 1.5 s: nothing shown (no flash on a fast connection);
@@ -48,4 +48,4 @@ After a quiet spell the free-tier signaling server (Azure App Service F1) can ta
 - **Done when:** all workspaces green; the lobby renders without waiting for the socket; the manual checks are in the checklist.
 
 ## Open questions
-- The owner confirms Decisions 1-8 (in particular the timings: 1.5 s before the message shows, 3 s retries, 60 s before giving up, 10 s before "still waking up"). Then set Status: approved and hand it over.
+None. (Still to do: the `70b-lobby-waking-up` UI inventory screenshot.)
