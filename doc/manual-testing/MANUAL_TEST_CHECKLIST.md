@@ -27,7 +27,9 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - All items verified.
 
 ## 7. Movement, rush and shooting
-- All items verified.
+- [ ] **Dangerous terrain highlight during move planning (14G).** Setup: built-in map hazard-range with the dev-mode army test-hazard-army. Select the 5-model waders squad and click Advance or Rush. Plan a path crossing hazard pool A: verify pool A is outlined with a pulsing hazard lime border, matching the "Dangerous terrain: 5 dice, each 1 is a wound" note. Plan a path avoiding the pool: verify the outline disappears. Cancel or Confirm the move: verify the outline clears.
+- [ ] **Flying units immune to hazard highlight (14G).** Setup: built-in map hazard-range with the dev-mode army test-hazard-army. Select the Flying squad and plan an Advance or Rush crossing a hazard pool: verify no hazard outline is drawn and no dangerous terrain note appears.
+- [ ] **Dangerous terrain hover highlight and label (14G).** Setup: built-in map hazard-range with the dev-mode army test-hazard-army. Hover the cursor over a hazard pool at rest (no move being planned, outside F9): verify it pulses in hazard lime and displays a floating label "Hazard pool · dangerous: roll per wound, each 1 is a wound". Move the pointer away: verify the highlight and label clear. Hover non-dangerous terrain or clear ground: verify no highlight or label appears.
 
 ## 8. Melee, objectives & setup
 - All items verified.

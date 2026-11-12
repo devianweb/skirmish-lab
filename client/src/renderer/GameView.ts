@@ -25,6 +25,7 @@ import {
   MarkerUnit,
   MovePathMarker,
   PlacementMarker,
+  HazardHighlightMarker,
 } from './MarkerRenderer';
 import { ModelLoader } from './ModelLoader';
 import { SceneManager } from './SceneManager';
@@ -99,6 +100,7 @@ export class GameView {
   private hoverHandlers: Array<(target: PickTarget | null) => void> = [];
   private cameraRole: 'host' | 'guest' = 'host';
   private framedBoard: { width: number; height: number } | null = null;
+  private latestTerrain: TerrainPiece[] = [];
   private pointerDownAt: { x: number; y: number } | null = null;
   /** Max pointer travel (px) between down and up to count as a pick click. */
   private static readonly PICK_DRAG_TOLERANCE = 5;
@@ -160,6 +162,7 @@ export class GameView {
       this.markerRenderer.clearAll();
     }
     this.lastGameId = state.gameId;
+    this.latestTerrain = state.terrain;
     this.reframeCameraIfBoardChanged(state);
     const signature = this.computeBoardSignature(state);
     if (signature !== this.boardSignature) {
@@ -194,6 +197,7 @@ export class GameView {
 
       this.cameraController?.update();
       this.markerRenderer.orientOutcomeToCamera(this.camera);
+      this.markerRenderer.updateAnimation();
     });
   }
 
@@ -329,6 +333,11 @@ export class GameView {
 
   setCasualtyPicksMarker(positions: Vector3[] | null): void {
     this.markerRenderer.setCasualtyPicks(positions);
+  }
+
+  setHazardHighlightsMarker(marker: HazardHighlightMarker | null, terrain?: TerrainPiece[]): void {
+    const list = terrain ?? this.latestTerrain ?? [];
+    this.markerRenderer.setHazardHighlights(marker, list);
   }
 
   showOutcomeToken(position: Vector3, wounds: number): void {
