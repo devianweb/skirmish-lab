@@ -10,7 +10,8 @@ import {
 } from '../gameTypes';
 import { Vector3 } from '../types';
 import { getDeploymentZoneDepth } from '../data/mapSchema';
-import { getTraitValue, hasTrait } from '../rules/traits';
+import { gateDistance, getTraitValue, hasTrait } from '../rules/traits';
+import { traitGateApplies } from './distanceGates';
 import { getEffectiveSpeed } from './specialRules';
 import { resolveMoraleTest } from './combat';
 import { createSquadPositions, findEndOverlap, findTerrainAtPosition, isLadderPiece, isStairPiece } from './spatial';
@@ -288,7 +289,7 @@ export function ambushFootprintProblem(state: GameState, unit: Unit, position: V
 // ============================================================================
 
 /** Friendly Heroes within this base-edge distance lend their Quality to Morale Tests. */
-export const HERO_MORALE_RANGE = 6;
+export const HERO_MORALE_RANGE = gateDistance('hero', 'morale-aura');
 
 /** Total wounds the living models of a unit have left (a unit without models falls back to its own wounds). */
 export function unitWoundsLeft(unit: Unit): number {
@@ -453,7 +454,7 @@ export function heroQualityFor(state: GameState, unit: Unit): number | undefined
       !c.status.includes('shaken') &&
       !c.status.includes('routed') &&
       hasTrait(c.specialRules, 'hero') &&
-      unitDistance(c, unit) <= HERO_MORALE_RANGE + 0.001
+      traitGateApplies('hero', 'morale-aura', unitDistance(c, unit))
   );
   return heroes.length > 0 ? Math.min(...heroes.map((c) => c.quality)) : undefined;
 }

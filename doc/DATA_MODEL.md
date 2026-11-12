@@ -255,6 +255,22 @@ interface WeaponProfile {
 }
 ```
 
+### Trait metadata and distance gates
+
+`TRAIT_REGISTRY` (`shared/src/rules/traits.ts`) maps a rule id to `TraitMetadata { displayName, description, distanceGates? }`. A rule whose effect switches on at a distance declares `distanceGates: DistanceGate[]`:
+
+```typescript
+interface DistanceGate {
+  context: 'shooting' | 'charge' | 'morale-aura' | 'blast-spread';
+  holder: 'attacker' | 'target' | 'friendly';  // whose rule it is
+  comparison: 'beyond' | 'within';             // beyond = strictly more than; within = up to and including
+  distance: number;                            // inches, base edge to base edge
+  effect: string;                              // short own-words label for badges and ring labels
+}
+```
+
+Declared today for Relentless, Ferocious (shooting 9", charge 6"), Stealth, Hold the Line, Hero (6" morale aura) and Blast (3" spread). Rules without a gate omit the field.
+
 Note: to-hit capability comes from the fighter's Quality stat and survival from the target's Defense stat — weapons vary by range, attacks, and special rules.
 
 ## Built-in maps

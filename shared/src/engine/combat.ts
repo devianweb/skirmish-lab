@@ -1,5 +1,6 @@
 import { DiceSpec, DiceResult } from '../types';
 import { DISTANT_ATTACK_MORALE_TRAITS, getTraitValue, hasTrait, sumTraitValue } from '../rules/traits';
+import { traitGateApplies } from './distanceGates';
 
 /**
  * Quality/Defense d6 combat and morale resolution (first principles).
@@ -25,16 +26,16 @@ interface DistanceContext {
 /** Ferocious: unmodified 6s add a hit when shooting over 9" or when the charge began over 6" away. */
 function ferociousApplies(rules: readonly string[], ctx: DistanceContext): boolean {
   if (!hasTrait(rules, 'ferocious')) return false;
-  if (!ctx.isMelee) return ctx.distance > 9;
+  if (!ctx.isMelee) return traitGateApplies('ferocious', 'shooting', ctx.distance);
   if (!ctx.isCharging || ctx.chargedFrom === undefined) return false;
-  return ctx.chargedFrom === 'any' || ctx.chargedFrom > 6;
+  return ctx.chargedFrom === 'any' || traitGateApplies('ferocious', 'charge', ctx.chargedFrom);
 }
 
 /** Extra hits each unmodified 6 to hit adds (Surge, Relentless, Furious, Ferocious). */
 function bonusHitsPerSix(rules: readonly string[], ctx: DistanceContext): number {
   return (
     (hasTrait(rules, 'surge') ? 1 : 0) +
-    (!ctx.isMelee && ctx.distance > 9 && hasTrait(rules, 'relentless') ? 1 : 0) +
+    (!ctx.isMelee && hasTrait(rules, 'relentless') && traitGateApplies('relentless', 'shooting', ctx.distance) ? 1 : 0) +
     (ctx.isMelee && ctx.isCharging && hasTrait(rules, 'furious') ? 1 : 0) +
     (ferociousApplies(rules, ctx) ? 1 : 0)
   );
@@ -241,7 +242,7 @@ export function computeCombatModifiers(
       hitMod -= 1;
       hitModifiers.push('-1 Bad Shot');
     }
-    if (hasTrait(defenderRules, 'stealth') && distance > 9) {
+    if (hasTrait(defenderRules, 'stealth') && traitGateApplies('stealth', 'shooting', distance)) {
       hitMod -= 1;
       hitModifiers.push('-1 Stealth (>9")');
     }
@@ -628,9 +629,12 @@ export function distantAttackMoraleBonus(
 ): number {
   if (!attackedFrom) return 0;
   if (!DISTANT_ATTACK_MORALE_TRAITS.some((t) => hasTrait(rules, t))) return 0;
-  const shotFar = attackedFrom.shot !== undefined && attackedFrom.shot > 9;
-  const chargedFar = attackedFrom.charged !== undefined && attackedFrom.charged > 6;
-  return shotFar || chargedFar ? 1 : 0;
+  const far = DISTANT_ATTACK_MORALE_TRAITS.filter((t) => hasTrait(rules, t)).some(
+    (t) =>
+      (attackedFrom.shot !== undefined && traitGateApplies(t, 'shooting', attackedFrom.shot)) ||
+      (attackedFrom.charged !== undefined && traitGateApplies(t, 'charge', attackedFrom.charged))
+  );
+  return far ? 1 : 0;
 }
 
 /**
