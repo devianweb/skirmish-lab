@@ -5,11 +5,30 @@ import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
 import { BuildInfo, checkForNewVersion, formatBuildStamp, getBuildInfo } from '../buildInfo';
+import {
+  createInitialConnectionState,
+  FIRST_CONNECT_GIVE_UP_MS,
+  FIRST_CONNECT_RETRY_DELAY_MS,
+  getConnectionStatusView,
+  LobbyConnectionState,
+  ROOM_REQUEST_SLOW_DELAY_MS,
+  ROOM_REQUEST_TIMEOUT_MS,
+  WAKE_UP_NOTICE_DELAY_MS,
+} from './connectionStatus';
 
 const DEFAULT_HOST_ARMY = 'hdf';
 const DEFAULT_GUEST_ARMY = 'orc-marauders';
 export const LOBBY_DISCLAIMER =
   'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.';
+
+let spinnerStyleInjected = false;
+function ensureSpinnerStyles(): void {
+  if (spinnerStyleInjected || typeof document === 'undefined') return;
+  spinnerStyleInjected = true;
+  const style = document.createElement('style');
+  style.textContent = '@keyframes sl-lobby-spin { to { transform: rotate(360deg); } }';
+  document.head.appendChild(style);
+}
 
 /** Fired once the P2P data channel is alive (first heartbeat round-trip). */
 export interface PeerReadyContext {
@@ -31,6 +50,7 @@ export interface LobbyOptions {
   onOpenMapEditor?: () => void;
   sessionStore?: SessionStore;
   mapStore?: MapStore;
+  signalingClient?: SignalingClient;
   /** This tab's build (defaults to the injected build constants). */
   buildInfo?: BuildInfo;
   /** Resolves true when a newer build is deployed (defaults to fetching version.json). */
@@ -63,6 +83,13 @@ export class Lobby {
   private keydownHandler: (event: KeyboardEvent) => void;
   private buildInfo: BuildInfo;
   private newVersionAvailable = false;
+  private connectionState: LobbyConnectionState = createInitialConnectionState();
+  private connectCycleId = 0;
+  private wakeUpNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectGiveUpTimer: ReturnType<typeof setTimeout> | null = null;
+  private roomSlowTimer: ReturnType<typeof setTimeout> | null = null;
+  private roomTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(container: HTMLElement, options: LobbyOptions = {}) {
     this.container = container;
@@ -70,7 +97,7 @@ export class Lobby {
     this.buildInfo = options.buildInfo ?? getBuildInfo();
     this.sessionStore = options.sessionStore ?? defaultSessionStore;
     this.mapStore = options.mapStore ?? defaultMapStore;
-    this.signalingClient = new SignalingClient();
+    this.signalingClient = options.signalingClient ?? new SignalingClient();
     this.setupSignalingHandlers();
     // Developer mode toggle: F9 only while the lobby is showing (in game F9 is the LoS debugger).
     this.keydownHandler = (event: KeyboardEvent) => {
@@ -84,8 +111,11 @@ export class Lobby {
     if (typeof window !== 'undefined') window.addEventListener('keydown', this.keydownHandler);
   }
 
-  /** Remove the global key listener (tests / teardown). */
+  /** Remove the global key listener and pending timers (tests / teardown). */
   destroy(): void {
+    this.connectCycleId++;
+    this.clearConnectTimers();
+    this.clearRoomRequestTimers();
     if (typeof window !== 'undefined') window.removeEventListener('keydown', this.keydownHandler);
   }
 
@@ -109,7 +139,6 @@ export class Lobby {
   }
 
   async init(): Promise<void> {
-    await this.signalingClient.connect();
     if (typeof window !== 'undefined') {
       try {
         const params = new URLSearchParams(window.location.search);
@@ -121,8 +150,173 @@ export class Lobby {
         console.warn('[Lobby] Failed to read URL room parameter:', e);
       }
     }
+    this.startFirstConnection();
     this.render();
     void this.runVersionCheck();
+  }
+
+  private clearConnectTimers(): void {
+    if (this.wakeUpNoticeTimer !== null) {
+      clearTimeout(this.wakeUpNoticeTimer);
+      this.wakeUpNoticeTimer = null;
+    }
+    if (this.connectRetryTimer !== null) {
+      clearTimeout(this.connectRetryTimer);
+      this.connectRetryTimer = null;
+    }
+    if (this.connectGiveUpTimer !== null) {
+      clearTimeout(this.connectGiveUpTimer);
+      this.connectGiveUpTimer = null;
+    }
+  }
+
+  private clearRoomRequestTimers(): void {
+    if (this.roomSlowTimer !== null) {
+      clearTimeout(this.roomSlowTimer);
+      this.roomSlowTimer = null;
+    }
+    if (this.roomTimeoutTimer !== null) {
+      clearTimeout(this.roomTimeoutTimer);
+      this.roomTimeoutTimer = null;
+    }
+  }
+
+  private startFirstConnection(): void {
+    this.clearConnectTimers();
+    this.clearRoomRequest();
+    const cycleId = ++this.connectCycleId;
+    const startedAt = Date.now();
+    this.connectionState.connection = 'connecting-quiet';
+    this.applyConnectionStatus();
+
+    this.wakeUpNoticeTimer = setTimeout(() => {
+      this.wakeUpNoticeTimer = null;
+      if (this.connectCycleId !== cycleId) return;
+      if (this.connectionState.connection === 'connecting-quiet') {
+        this.connectionState.connection = 'connecting-slow';
+        this.applyConnectionStatus();
+      }
+    }, WAKE_UP_NOTICE_DELAY_MS);
+
+    this.connectGiveUpTimer = setTimeout(() => {
+      this.connectGiveUpTimer = null;
+      if (this.connectCycleId !== cycleId) return;
+      if (this.connectionState.connection === 'connected') return;
+      this.connectCycleId++;
+      this.clearConnectTimers();
+      this.signalingClient.disconnect?.();
+      this.connectionState.connection = 'failed';
+      this.applyConnectionStatus();
+    }, FIRST_CONNECT_GIVE_UP_MS);
+
+    this.attemptFirstConnect(cycleId, startedAt);
+  }
+
+  private attemptFirstConnect(cycleId: number, startedAt: number): void {
+    if (this.connectCycleId !== cycleId) return;
+    this.signalingClient
+      .connect()
+      .then(() => {
+        if (this.connectCycleId !== cycleId) return;
+        this.clearConnectTimers();
+        this.connectionState.connection = 'connected';
+        this.applyConnectionStatus();
+      })
+      .catch(() => {
+        if (this.connectCycleId !== cycleId) return;
+        const elapsed = Date.now() - startedAt;
+        if (elapsed + FIRST_CONNECT_RETRY_DELAY_MS >= FIRST_CONNECT_GIVE_UP_MS) {
+          return;
+        }
+        this.connectRetryTimer = setTimeout(() => {
+          this.connectRetryTimer = null;
+          this.attemptFirstConnect(cycleId, startedAt);
+        }, FIRST_CONNECT_RETRY_DELAY_MS);
+      });
+  }
+
+  private beginRoomRequest(kind: 'create' | 'join'): void {
+    this.clearRoomRequestTimers();
+    this.connectionState.roomRequest = kind === 'create' ? 'creating' : 'joining';
+    this.applyConnectionStatus();
+
+    this.roomSlowTimer = setTimeout(() => {
+      this.roomSlowTimer = null;
+      if (this.connectionState.roomRequest === 'creating') {
+        this.connectionState.roomRequest = 'creating-slow';
+        this.applyConnectionStatus();
+      } else if (this.connectionState.roomRequest === 'joining') {
+        this.connectionState.roomRequest = 'joining-slow';
+        this.applyConnectionStatus();
+      }
+    }, ROOM_REQUEST_SLOW_DELAY_MS);
+
+    this.roomTimeoutTimer = setTimeout(() => {
+      this.roomTimeoutTimer = null;
+      this.clearRoomRequestTimers();
+      this.connectionState.roomRequest = 'timed-out';
+      this.applyConnectionStatus();
+    }, ROOM_REQUEST_TIMEOUT_MS);
+  }
+
+  private clearRoomRequest(): void {
+    this.clearRoomRequestTimers();
+    if (this.connectionState.roomRequest !== 'none') {
+      this.connectionState.roomRequest = 'none';
+      this.applyConnectionStatus();
+    }
+  }
+
+  private applyConnectionStatus(): void {
+    if (this.roomCode && this.role) return;
+    const view = getConnectionStatusView(this.connectionState);
+
+    for (const selector of ['#createBtn', '#joinBtn', '#resumeBtn']) {
+      const btn = this.container.querySelector<HTMLButtonElement>(selector);
+      if (btn) {
+        btn.disabled = view.buttonsDisabled;
+        btn.style.opacity = view.buttonsDisabled ? '0.5' : '1';
+        btn.style.cursor = view.buttonsDisabled ? 'not-allowed' : 'pointer';
+      }
+    }
+
+    const statusEl = this.container.querySelector<HTMLElement>('#connectionStatus');
+    if (!statusEl) return;
+
+    statusEl.innerHTML = '';
+    if (!view.text && !view.spinner && !view.showRetry) {
+      statusEl.style.display = 'none';
+      return;
+    }
+
+    statusEl.style.display = 'flex';
+    if (view.spinner) {
+      ensureSpinnerStyles();
+      const spinner = document.createElement('span');
+      spinner.className = 'sl-spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      spinner.style.cssText =
+        'width: 14px; height: 14px; border: 2px solid #607d8b; border-top-color: #ffd54f; border-radius: 50%; display: inline-block; flex-shrink: 0; animation: sl-lobby-spin 0.8s linear infinite;';
+      statusEl.appendChild(spinner);
+    }
+
+    if (view.text) {
+      const textSpan = document.createElement('span');
+      textSpan.className = 'sl-status-text';
+      textSpan.textContent = view.text;
+      statusEl.appendChild(textSpan);
+    }
+
+    if (view.showRetry) {
+      const retryBtn = document.createElement('button');
+      retryBtn.id = 'retryConnectBtn';
+      retryBtn.type = 'button';
+      retryBtn.textContent = 'Try again';
+      retryBtn.style.cssText =
+        'padding: 5px 12px; font-size: 12px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 4px; cursor: pointer; flex-shrink: 0;';
+      retryBtn.addEventListener('click', () => this.startFirstConnection());
+      statusEl.appendChild(retryBtn);
+    }
   }
 
   hide(): void {
@@ -167,6 +361,7 @@ export class Lobby {
 
   /** Reset back to the initial lobby screen (e.g. after a game ends). */
   reset(): void {
+    this.clearRoomRequest();
     this.webrtcClient?.close();
     this.webrtcClient = null;
     if (this.roomCode) {
@@ -198,26 +393,32 @@ export class Lobby {
 
   private setupSignalingHandlers(): void {
     this.signalingClient.on('room-created', (msg: any) => {
+      this.clearRoomRequest();
       this.roomCode = msg.code;
       this.role = 'host';
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.('host');
       this.webrtcClient = new WebRTCClient();
-      this.setupWebRTCAsHost();
+      if (typeof RTCPeerConnection !== 'undefined') {
+        void this.setupWebRTCAsHost();
+      }
       this.render();
     });
 
     this.signalingClient.on('room-joined', async (msg: any) => {
+      this.clearRoomRequest();
       this.roomCode = msg.code;
       const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
       this.role = assignedRole;
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
       this.webrtcClient = new WebRTCClient();
-      if (assignedRole === 'host') {
-        await this.setupWebRTCAsHost();
-      } else {
-        await this.setupWebRTCAsGuest();
+      if (typeof RTCPeerConnection !== 'undefined') {
+        if (assignedRole === 'host') {
+          await this.setupWebRTCAsHost();
+        } else {
+          await this.setupWebRTCAsGuest();
+        }
       }
       this.render();
     });
@@ -262,12 +463,13 @@ export class Lobby {
         console.warn('Signaling notice:', msg.message);
         return;
       }
+      this.clearRoomRequest();
       alert(msg.message);
     });
   }
 
   private async setupWebRTCAsHost(): Promise<void> {
-    if (!this.webrtcClient) return;
+    if (!this.webrtcClient || typeof RTCPeerConnection === 'undefined') return;
     await this.webrtcClient.createPeerConnection();
     this.webrtcClient.createDataChannel();
     this.webrtcClient.onIceCandidate((candidate) => {
@@ -277,7 +479,7 @@ export class Lobby {
   }
 
   private async setupWebRTCAsGuest(): Promise<void> {
-    if (!this.webrtcClient) return;
+    if (!this.webrtcClient || typeof RTCPeerConnection === 'undefined') return;
     const client = this.webrtcClient;
     await client.createPeerConnection();
     client.onDataChannel((event) => {
@@ -361,6 +563,7 @@ export class Lobby {
 
   private render(): void {
     this.renderScreen();
+    this.applyConnectionStatus();
     this.applyNewVersionBanner();
   }
 
@@ -481,6 +684,7 @@ export class Lobby {
               <input id="codeInput" placeholder="XXX-XXX" value="${prefillCode}" style="flex: 1; padding: 10px; font-size: 14px; text-transform: uppercase; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 6px;" />
               <button id="joinBtn" style="padding: 10px 20px; font-size: 14px; font-weight: 600; background: #455a64; color: #eee; border: none; border-radius: 6px; cursor: pointer;">Join Room (Guest)</button>
             </div>
+            <div id="connectionStatus" role="status" aria-live="polite" style="display: none; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #b0bec5; flex-wrap: wrap;"></div>
             <button id="openMapEditorBtn" style="padding: 10px 18px; font-size: 13px; font-weight: 600; background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 6px; cursor: pointer;">🛠️ Map Builder</button>
           </div>
 
@@ -494,7 +698,9 @@ export class Lobby {
 
       if (hasActiveSession && activeSession) {
         this.container.querySelector('#resumeBtn')?.addEventListener('click', () => {
+          if (getConnectionStatusView(this.connectionState).buttonsDisabled) return;
           this.isCreatedRoom = false;
+          this.beginRoomRequest('join');
           this.signalingClient.joinRoom(activeSession.roomCode);
         });
 
@@ -528,14 +734,18 @@ export class Lobby {
       });
 
       this.container.querySelector('#createBtn')?.addEventListener('click', () => {
+        if (getConnectionStatusView(this.connectionState).buttonsDisabled) return;
         this.isCreatedRoom = true;
+        this.beginRoomRequest('create');
         this.signalingClient.createRoom();
       });
 
       this.container.querySelector('#joinBtn')?.addEventListener('click', () => {
+        if (getConnectionStatusView(this.connectionState).buttonsDisabled) return;
         this.isCreatedRoom = false;
         const input = this.container.querySelector<HTMLInputElement>('#codeInput');
         if (input && input.value) {
+          this.beginRoomRequest('join');
           this.signalingClient.joinRoom(input.value.toUpperCase());
         }
       });

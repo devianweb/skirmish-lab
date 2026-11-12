@@ -10,6 +10,8 @@ export class SignalingClient {
   private currentRole: 'host' | 'guest' | null = null;
   private reconnectTimeout: any = null;
   private intentionalClose = false;
+  /** True once any socket has opened: after that, a failed attempt keeps the background reconnect loop going. */
+  private everConnected = false;
   private stateChangeHandlers: Array<(state: 'connected' | 'disconnected' | 'reconnecting') => void> = [];
   private currentConnectionState: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
@@ -22,7 +24,13 @@ export class SignalingClient {
       this.intentionalClose = false;
       this.ws = new WebSocket(this.url);
 
+      let opened = false;
+      let settled = false;
+
       this.ws.onopen = () => {
+        opened = true;
+        settled = true;
+        this.everConnected = true;
         console.log('Connected to signaling server');
         this.setConnectionState('connected');
         resolve();
@@ -40,11 +48,29 @@ export class SignalingClient {
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         this.setConnectionState('disconnected');
-        reject(error);
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
       };
 
       this.ws.onclose = () => {
         console.log('Disconnected from signaling server');
+        if (!opened) {
+          if (!settled) {
+            settled = true;
+            reject(new Error('WebSocket closed before opening'));
+          }
+          // The lobby's first connection runs its own retry cycle. Once a socket has been open (a room or game is
+          // under way), keep the background reconnect loop alive, e.g. after ensureConnected() cancelled the
+          // pending reconnect and its own attempt failed.
+          if (this.everConnected && !this.intentionalClose && (this.currentRoomCode || this.handlers.size > 0)) {
+            this.scheduleReconnect();
+          } else {
+            this.setConnectionState('disconnected');
+          }
+          return;
+        }
         this.setConnectionState(this.intentionalClose ? 'disconnected' : 'reconnecting');
         if (!this.intentionalClose && (this.currentRoomCode || this.handlers.size > 0)) {
           this.scheduleReconnect();

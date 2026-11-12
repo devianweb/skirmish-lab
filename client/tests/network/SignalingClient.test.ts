@@ -108,4 +108,63 @@ describe('SignalingClient', () => {
       role: 'host',
     });
   });
+
+  it('connect rejects when socket closes before opening without scheduling internal reconnect', async () => {
+    let createdSocket: any = null;
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        onopen: (() => void) | null = null;
+        onmessage: ((e: any) => void) | null = null;
+        onerror: ((e: any) => void) | null = null;
+        onclose: (() => void) | null = null;
+        constructor() {
+          createdSocket = this;
+        }
+      }
+    );
+    try {
+      client.on('room-created', () => {});
+      const reconnectSpy = vi.spyOn(client, 'scheduleReconnect');
+      const connectPromise = client.connect();
+      createdSocket.onclose?.();
+      await expect(connectPromise).rejects.toThrow('WebSocket closed before opening');
+      expect(reconnectSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps reconnecting in the background when an attempt fails after the socket had been open', async () => {
+    const sockets: any[] = [];
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        static OPEN = 1;
+        readyState = 0;
+        onopen: (() => void) | null = null;
+        onmessage: ((e: any) => void) | null = null;
+        onerror: ((e: any) => void) | null = null;
+        onclose: (() => void) | null = null;
+        constructor() {
+          sockets.push(this);
+        }
+        close() {}
+      }
+    );
+    try {
+      client.on('room-created', () => {});
+      const first = client.connect();
+      sockets[0].onopen?.();
+      await first;
+      // The game's socket drops; a dice request's ensureConnected() then tries straight away and fails
+      const reconnectSpy = vi.spyOn(client, 'scheduleReconnect').mockImplementation(() => {});
+      const retry = client.ensureConnected();
+      sockets[1].onclose?.();
+      await expect(retry).rejects.toThrow('WebSocket closed before opening');
+      expect(reconnectSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
