@@ -1297,7 +1297,7 @@ export class MarkerRenderer {
     );
     this.applyTint(marker, wounds === 0 ? 0xb0bec5 : OUTCOME_COLOR);
     marker.name = `marker-${key}`;
-    marker.position.set(position.x, 1.6, position.z);
+    marker.position.set(position.x, (position.y ?? 0) + 1.6, position.z);
     marker.rotation.y = (-3 * Math.PI) / 4;
     this.markerGroup.add(marker);
     this.outcome = marker;

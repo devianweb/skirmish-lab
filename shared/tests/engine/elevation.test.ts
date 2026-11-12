@@ -7,7 +7,6 @@ import {
   FLOOR_TIER,
   findMoveBlocker,
   findNavPath,
-  findWalkablePlatformAt,
   findWalkableSurfaceAt,
   hasCoverAgainstAttack,
   hasLineOfSight,
@@ -87,7 +86,7 @@ describe('elevation: walkable decks', () => {
     const surface = findWalkableSurfaceAt(makeState([], [plat]), { x: 0, y: 3, z: 0 });
     expect(surface?.piece.id).toBe(plat.id);
     expect(surface?.topY).toBeCloseTo(3.0);
-    expect(findWalkablePlatformAt(makeState([], [plat]), { x: 5, y: 0, z: 0 })).toBeNull();
+    expect(findWalkableSurfaceAt(makeState([], [plat]), { x: 5, y: 0, z: 0 })).toBeNull();
   });
 
   it('models walk under a platform deck and under a catwalk, but pillar legs block', () => {

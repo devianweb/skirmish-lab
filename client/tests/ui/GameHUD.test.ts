@@ -1900,7 +1900,7 @@ describe('GameHUD', () => {
       }
     });
 
-    it('displays dangerous terrain hazard warning and allocates squad casualties', () => {
+    it('displays dangerous terrain hazard warning', () => {
       const state = scenarioState();
       const squad = state.units.find((u) => u.ownerId === HOST)!;
       // Convert to multi-model squad
@@ -1922,18 +1922,9 @@ describe('GameHUD', () => {
       // Two models with one wound each: two dice, each 1 is a wound (Decision 18), not the old per-model test
       expect(container.textContent).toContain('Dangerous terrain: 2 dice, each 1 is a wound');
       expect(container.textContent).not.toContain('Hazard test');
-      expect(container.textContent).toContain('Dangerous terrain wounds go first to');
-      expect(container.textContent).not.toContain('Hazard Casualty Priority');
-
-      // Click Trooper 2 casualty chip
-      const trooper2Btn = container.querySelector<HTMLButtonElement>('[data-casualty-model-id="m2"]');
-      expect(trooper2Btn).toBeTruthy();
-      trooper2Btn!.click();
 
       clickByText(container, 'Confirm');
       expect(controller.submitAction).toHaveBeenCalledTimes(1);
-      const action = controller.submitAction.mock.calls[0][0];
-      expect(action.payload.casualtyModelIds).toEqual(['m2']);
     });
 
     it('rejects charge when target is on elevated ledge outside vertical melee reach (> 4.0")', () => {
@@ -2240,6 +2231,25 @@ describe('GameHUD', () => {
       expect(action.type).toBe('consolidate-move');
       expect(action.payload.unitId).toBe(victor.id);
       expect(action.payload.path[action.payload.path.length - 1].x).toBeCloseTo(2, 1);
+    });
+
+    it('reaction countdown respects expiresAt when durationMs is longer after reload (G-32)', () => {
+      const state = scenarioState();
+      state.turnState.pendingReaction = {
+        id: 'rx-expire',
+        type: 'pick-strike-target',
+        promptingPlayerId: HOST,
+        title: 'Strike Reaction',
+        description: 'React now',
+        options: [{ id: 'strike', label: 'Strike' }],
+        durationMs: 30000,
+        expiresAt: Date.now() + 5000,
+      } as any;
+
+      const { container } = setup(HOST, state);
+      const timerEl = container.querySelector('.sl-hud-reaction-timer');
+      expect(timerEl).not.toBeNull();
+      expect(timerEl!.textContent).toBe('5s');
     });
 
     it('objective card inspection respects horizontal and vertical cylinder bounds', () => {

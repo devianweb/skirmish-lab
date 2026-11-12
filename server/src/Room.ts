@@ -19,7 +19,6 @@ export interface Room {
   guestDisconnectedAt?: number | null;
   createdAt: number;
   lastActivity: number;
-  gameStarted: boolean;
   rollCache?: Map<string, CachedRoll>;
 }
 
@@ -37,7 +36,6 @@ function isSeatOpen(ws: WebSocket | null): boolean {
 
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
-  private readonly codeLength = 6;
   private readonly maxRooms = MAX_ROOMS;
   private readonly inactivityTimeout = 5 * 60 * 1000; // 5 minutes
   private readonly graceTimeout = 5 * 60 * 1000; // 5 minutes grace window for disconnected peer
@@ -121,7 +119,6 @@ export class RoomManager {
       guestDisconnectedAt: null,
       createdAt: now,
       lastActivity: now,
-      gameStarted: false,
     };
 
     this.rooms.set(code, room);
@@ -288,17 +285,6 @@ export class RoomManager {
       }
     }
     return null;
-  }
-
-  endGame(code: string | null | undefined): void {
-    if (typeof code !== 'string' || !code) {
-      return;
-    }
-    const room = this.rooms.get(code.toUpperCase());
-    if (room) {
-      room.gameStarted = false;
-      // Room will be cleaned up by cleanup logic
-    }
   }
 
   cleanup(): void {

@@ -46,14 +46,6 @@ export const DROP_STANDOFF = 0.55;
 export function terrainHalfExtents(piece: TerrainPiece): { hx: number; hz: number } {
   const sx = Math.max(0.05, piece.scale.x);
   const sz = Math.max(0.05, piece.scale.z);
-  if (
-    piece.terrainType === 'wall' ||
-    piece.terrainType === 'wall-long' ||
-    piece.terrainType === 'wall-window' ||
-    piece.terrainType === 'wall-doorway'
-  ) {
-    return { hx: 0.5 * sx, hz: 0.5 * sz };
-  }
   return { hx: 0.5 * sx, hz: 0.5 * sz };
 }
 
@@ -82,7 +74,7 @@ const TERRAIN_MODEL_META: Record<string, { modelFile: string; rawGlbSize: string
     modelFile: 'models/wall-doorway.glb',
     rawGlbSize: '0.3 × 1.0 × 1.0 (normalized to 1×1×1)',
   },
-  crate: { modelFile: 'models/crate.glb', rawGlbSize: '0.5 × 0.5 × 0.5 (×1.4 = 0.7×0.7×0.7)' },
+  crate: { modelFile: 'models/crate.glb', rawGlbSize: '0.5 × 0.5 × 0.5 (normalized to 1×1×1)' },
   column: { modelFile: 'models/column.glb', rawGlbSize: '0.2 × 1.0 × 0.2 (×2.5 XZ = 0.5×1.0×0.5)' },
 };
 
@@ -1039,13 +1031,6 @@ export function findWalkableSurfaceIn(
 }
 
 /**
- * Finds a walkable elevated platform terrain piece at `point`.
- */
-export function findWalkablePlatformAt(state: GameState, point: Vector3): TerrainPiece | null {
-  return findWalkableSurfaceAt(state, point)?.piece ?? null;
-}
-
-/**
  * True if `point` is hanging in mid-air: well above the ground, yet not standing on a floor, a
  * stair/ramp slope, or a ladder (ladders have their own deck-arrival rule).
  */
@@ -1157,15 +1142,6 @@ export function describeEndOverlap(o: EndOverlap): string {
   return o.kind === 'terrain'
     ? 'Models cannot end movement overlapping terrain - stop short of it'
     : 'Models cannot end movement overlapping another model - stop short of it';
-}
-
-/**
- * Pull a path's end back to the first point that doesn't overlap terrain or another model, walking back along
- * the path in 0.05" steps (across segments). Never returns a point further along the path; if nothing is clear
- * it returns just the start.
- */
-export function settleMoveEnd(state: GameState, unit: Unit, path: Vector3[]): Vector3[] {
-  return pullBackEnd(path, (pt) => findEndOverlap(state, unit.id, pt) !== null);
 }
 
 /**
@@ -2347,43 +2323,6 @@ function stepFullyOntoFloor(
 }
 
 /**
- * Calculates projection points on a platform perimeter to provide a clean vertical
- * wall-base ascent fallback when climbing sheer walls.
- */
-export function addPlatformAscentPoints(
-  plat: TerrainPiece,
-  refPoint: Vector3,
-  waypoints: Vector3[]
-): void {
-  for (const surface of getWalkableSurfaces(plat)) {
-    const { x: lx, z: lz } = worldToLocal(plat, refPoint);
-
-    const clampedX = Math.max(surface.minX, Math.min(surface.maxX, lx));
-    const clampedZ = Math.max(surface.minZ, Math.min(surface.maxZ, lz));
-
-    let edgeX = clampedX;
-    let edgeZ = clampedZ;
-    const distToLeft = Math.abs(clampedX - surface.minX);
-    const distToRight = Math.abs(clampedX - surface.maxX);
-    const distToNear = Math.abs(clampedZ - surface.minZ);
-    const distToFar = Math.abs(clampedZ - surface.maxZ);
-    const minDist = Math.min(distToLeft, distToRight, distToNear, distToFar);
-
-    if (minDist === distToLeft) edgeX = surface.minX;
-    else if (minDist === distToRight) edgeX = surface.maxX;
-    else if (minDist === distToNear) edgeZ = surface.minZ;
-    else edgeZ = surface.maxZ;
-
-    const w = localToWorldXZ(plat, edgeX, edgeZ);
-    const wx = Math.round(w.x * 100) / 100;
-    const wz = Math.round(w.z * 100) / 100;
-
-    waypoints.push({ x: wx, y: 0, z: wz });
-    waypoints.push({ x: wx, y: surface.topY, z: wz });
-  }
-}
-
-/**
  * Where the segment `p1` (outside the piece) -> `p2` first reaches the piece's footprint grown by the
  * path-check margin, backed off a further 0.05" along the segment. The returned point is outside that
  * margin, so a path that stops there is never itself counted as crossing the piece, whatever the
@@ -3487,87 +3426,4 @@ export function createSquadPositions(
   return positions;
 }
 
-export interface FormationMoveResult {
-  valid: boolean;
-  reason?: string;
-  destination: Vector3;
-  modelPositions: Vector3[];
-}
-
-/**
- * Validates movement destination and formation positions for a multi-model squad.
- * If modelPositions are omitted, performs rigid translation from the squad's current positions.
- */
-export function validateFormationMove(
-  state: GameState,
-  unit: Unit,
-  destination: Vector3,
-  modelPositions?: Vector3[],
-  maxDistance: number = unit.remainingMovement
-): FormationMoveResult {
-  const currentPositions = getSquadModelPositions(unit);
-  let resolvedPositions: Vector3[];
-
-  if (modelPositions && modelPositions.length > 0) {
-    if (modelPositions.length !== currentPositions.length) {
-      return {
-        valid: false,
-        reason: `Formation count mismatch: received ${modelPositions.length} positions for ${currentPositions.length} active models`,
-        destination,
-        modelPositions: currentPositions,
-      };
-    }
-    const coherency = validateSquadCoherency(modelPositions);
-    if (!coherency.coherent) {
-      return {
-        valid: false,
-        reason: coherency.reason ?? 'Formation violates coherency',
-        destination,
-        modelPositions,
-      };
-    }
-    resolvedPositions = modelPositions;
-  } else {
-    // Rigid translation
-    const deltaX = destination.x - unit.position.x;
-    const deltaZ = destination.z - unit.position.z;
-    resolvedPositions = currentPositions.map((pos) => ({
-      x: Math.round((pos.x + deltaX) * 100) / 100,
-      y: destination.y ?? pos.y ?? 0,
-      z: Math.round((pos.z + deltaZ) * 100) / 100,
-    }));
-  }
-
-  // Check board boundaries for all models
-  const halfW = (state.board.width * state.board.gridSize) / 2;
-  const halfH = (state.board.height * state.board.gridSize) / 2;
-  for (let i = 0; i < resolvedPositions.length; i++) {
-    const p = resolvedPositions[i];
-    if (Math.abs(p.x) > halfW || Math.abs(p.z) > halfH) {
-      return {
-        valid: false,
-        reason: `Model ${i + 1} position leaves the battlefield`,
-        destination,
-        modelPositions: resolvedPositions,
-      };
-    }
-  }
-
-  const finalCentroid = computeSquadCentroid(resolvedPositions);
-  const moveDist = Math.hypot(finalCentroid.x - unit.position.x, finalCentroid.z - unit.position.z);
-  if (moveDist > maxDistance + 0.02) {
-    return {
-      valid: false,
-      reason: `Formation move distance of ${moveDist.toFixed(2)}" exceeds allowance of ${maxDistance}"`,
-      destination: finalCentroid,
-      modelPositions: resolvedPositions,
-    };
-  }
-
-  return {
-    valid: true,
-    destination: finalCentroid,
-    modelPositions: resolvedPositions,
-  };
-}
 

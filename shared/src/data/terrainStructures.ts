@@ -135,7 +135,7 @@ export const TERRAIN_STRUCTURES: Record<string, TerrainGroup> = {
 
 // --- Low cover & scatter (13.6D) ----------------------------------------------------------------
 // Single-solid pieces. Whether a piece blocks sight is a flag on the piece (palette metadata): barricades,
-// and pipes are low cover (crates keep the legacy inset footprint via the fallback body) (you see over them, the proximity rule gives cover); the container is a
+// crates, and pipes are low cover (you see over them, the proximity rule gives cover); the container is a
 // sight blocker with a walkable roof.
 TERRAIN_STRUCTURES.barricade = { id: 'barricade', solids: [solid(FULL, [0, 1], FULL, 'barricade-body')] };
 TERRAIN_STRUCTURES['industrial-pipe'] = { id: 'industrial-pipe', solids: [solid(FULL, [0, 1], FULL, 'pipe-body')] };

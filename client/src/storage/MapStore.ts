@@ -1,4 +1,4 @@
-import { CustomMapDefinition } from '@skirmish-lab/shared';
+import { CustomMapDefinition, DEFAULT_BOARD_SIZE } from '@skirmish-lab/shared';
 
 /**
  * MapStore handles persistent storage and JSON import/export
@@ -176,11 +176,11 @@ export class MapStore {
       board:
         parsed.board && typeof parsed.board === 'object'
           ? {
-              width: Number(parsed.board.width) || 44,
-              height: Number(parsed.board.height) || 30,
+              width: Number(parsed.board.width) || DEFAULT_BOARD_SIZE,
+              height: Number(parsed.board.height) || DEFAULT_BOARD_SIZE,
               theme: typeof parsed.board.theme === 'string' ? parsed.board.theme : 'outpost',
             }
-          : { width: 44, height: 30, theme: 'outpost' },
+          : { width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE, theme: 'outpost' },
       terrain: parsed.terrain,
       deploymentZones: parsed.deploymentZones,
     };

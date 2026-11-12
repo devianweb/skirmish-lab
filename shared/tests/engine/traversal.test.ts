@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allocateSquadCasualties,
   calculateJumpDice,
   countFallWounds,
   fallDiceCount,
@@ -323,28 +322,6 @@ describe('Phase 11A: Shared Traversal Engine', () => {
       const flyer: Unit = { ...dummyUnit, specialRules: ['flying'] };
       const outcome = resolveDangerousTerrain(flyer, [1, 1, 1]);
       expect(outcome.woundsInflicted).toBe(0);
-    });
-
-    it('allocates squad casualties to designated models from player selection modal', () => {
-      const squad: Unit = {
-        ...dummyUnit,
-        wounds: 3,
-        maxWounds: 3,
-        models: [
-          { id: 'm1', name: 'Trooper A', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
-          { id: 'm2', name: 'Trooper B', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
-          { id: 'm3', name: 'Trooper C', wounds: 1, maxWounds: 1, isDestroyed: false, position: { x: 2, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
-        ],
-      };
-
-      // Player selects Trooper B ('m2') to take the hazard wound
-      const res = allocateSquadCasualties(squad, 1, ['m2']);
-      expect(res.modelsDestroyed.length).toBe(1);
-      expect(res.modelsDestroyed[0].id).toBe('m2');
-      expect(squad.models[1].isDestroyed).toBe(true);
-      expect(squad.models[0].isDestroyed).toBe(false);
-      expect(squad.models[2].isDestroyed).toBe(false);
-      expect(squad.wounds).toBe(2);
     });
   });
 

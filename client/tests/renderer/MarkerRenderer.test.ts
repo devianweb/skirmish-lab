@@ -92,6 +92,14 @@ describe('MarkerRenderer', () => {
     expect(renderer.getRenderedMarkerNames()).toHaveLength(0);
   });
 
+  it('positions outcome token above elevated unit position', () => {
+    const renderer = makeRenderer();
+    renderer.showOutcome({ x: 2, y: 3.0, z: 2 }, 2);
+    const marker = (renderer as any).outcome;
+    expect(marker).toBeTruthy();
+    expect(marker.position.y).toBeCloseTo(4.6);
+  });
+
   it('renders unit debug wireframes when units are provided', () => {
     const renderer = makeRenderer();
     renderer.setUnitsDebug([

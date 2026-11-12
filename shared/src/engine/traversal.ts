@@ -763,67 +763,6 @@ export function resolveDangerousTerrain(
   return { woundsInflicted: wounds, failedCount: wounds };
 }
 
-/**
- * Allocates hazard or fall casualties to models in a squad.
- * If specific model IDs are selected by the player, those are prioritized (verifying they are alive).
- * Otherwise, allocates to living models in default order.
- */
-export function allocateSquadCasualties(
-  unit: Unit,
-  wounds: number,
-  preferredModelIds?: string[]
-): {
-  modelsDestroyed: Model[];
-  remainingWounds: number;
-} {
-  const modelsDestroyed: Model[] = [];
-  if (wounds <= 0 || !unit.models || unit.models.length === 0) {
-    return { modelsDestroyed, remainingWounds: wounds };
-  }
-
-  let unallocated = wounds;
-
-  // If preferred models were designated (e.g. via player selection modal)
-  if (preferredModelIds && preferredModelIds.length > 0) {
-    for (const modelId of preferredModelIds) {
-      if (unallocated <= 0) break;
-      const model = unit.models.find((m) => m.id === modelId && !m.isDestroyed);
-      if (model) {
-        model.isDestroyed = true;
-        model.wounds = 0;
-        modelsDestroyed.push(model);
-        unit.wounds = Math.max(1, unit.wounds - 1);
-        unallocated--;
-      }
-    }
-  }
-
-  // Fallback / automatic allocation for remaining wounds
-  while (unallocated > 0) {
-    const alive = unit.models.filter((m) => !m.isDestroyed);
-    if (alive.length <= 1) {
-      // Last surviving model is not auto-destroyed by multi-model loop;
-      // it takes the rest as ordinary wounds
-      break;
-    }
-    const victim = alive[0];
-    victim.isDestroyed = true;
-    victim.wounds = 0;
-    modelsDestroyed.push(victim);
-    unit.wounds = Math.max(1, unit.wounds - 1);
-    unallocated--;
-  }
-
-  if (modelsDestroyed.length > 0) {
-    const surviving = unit.models.filter((m) => !m.isDestroyed);
-    if (surviving.length > 0 && surviving.some((m) => m.position)) {
-      unit.position = computeSquadCentroid(surviving.map((m) => m.position ?? unit.position));
-    }
-  }
-
-  return { modelsDestroyed, remainingWounds: unallocated };
-}
-
 
 /** Height of the highest walkable floor under (`x`, `z`) that lies below `startY` (at least 0.5" lower); 0 for the ground. */
 export function floorHeightBelow(

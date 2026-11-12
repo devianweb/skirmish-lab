@@ -244,6 +244,32 @@ describe('ModelLoader', () => {
       );
       expect(hasDescendantName(plain, 'kept-fallback')).toBe(true);
     });
+
+    it('disposes loaded GLB clone if container was disposed before load resolved', async () => {
+      const def = deferred<THREE.Object3D>();
+      const loadFn = vi.fn().mockReturnValue(def.promise);
+      const loader = new ModelLoader(loadFn);
+      loader.registerMarkerAsset('target', { url: 'target.glb' });
+
+      const geomDispose = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose');
+      const matDispose = vi.spyOn(THREE.Material.prototype, 'dispose');
+
+      const marker = loader.createMarkerMesh('target', () => makeProto('fallback'));
+      disposeObject3D(marker);
+      expect(marker.userData.isDisposed).toBe(true);
+
+      const glb = makeProto('glb-target');
+      geomDispose.mockClear();
+      matDispose.mockClear();
+
+      def.resolve(glb);
+      await vi.waitFor(() => {
+        expect(geomDispose).toHaveBeenCalled();
+        expect(matDispose).toHaveBeenCalled();
+      });
+
+      expect(hasDescendantName(marker, 'glb-target')).toBe(false);
+    });
   });
 });
 

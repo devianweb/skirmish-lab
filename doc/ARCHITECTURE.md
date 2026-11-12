@@ -78,7 +78,6 @@ client/src/
 │   ├── SignalingClient.ts     # WebSocket client with keep-alive, auto-reconnect, and seat tokens
 │   ├── SignalingDiceProvider.ts # Authoritative server-rolled dice provider for the host
 │   ├── WebRTCClient.ts        # WebRTC peer connection, data channel & heartbeat monitor
-│   ├── Protocol.ts            # Network message serialization helpers
 │   └── index.ts               # Network module exports
 ├── renderer/
 │   ├── BoardRenderer.ts       # Terrain, board, and custom map rendering

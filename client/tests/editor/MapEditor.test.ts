@@ -699,4 +699,52 @@ describe('MapEditor selection and board size', () => {
       expect(editor.loadMap('builtin:nope')).toBe(false);
     });
   });
+
+  describe('cleanup and inspection reactivity (G-26)', () => {
+    it('unsubscribes onPick listener when disposed', () => {
+      const unsubscribe = vi.fn();
+      const mockGameView = {
+        onPick: vi.fn().mockReturnValue(unsubscribe),
+        syncFromState: vi.fn(),
+      } as any;
+
+      const editor = new MapEditor(container, { gameView: mockGameView });
+      expect(mockGameView.onPick).toHaveBeenCalledTimes(1);
+
+      editor.dispose();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('syncs game view and revalidates map when inspector checkboxes are toggled', () => {
+      const mockGameView = {
+        onPick: vi.fn().mockReturnValue(() => {}),
+        syncFromState: vi.fn(),
+        setTerrainDebugMarker: vi.fn(),
+      } as any;
+
+      const editor = new MapEditor(container, { gameView: mockGameView });
+      editor.show();
+      const piece = editor.placePieceAt('crate', { x: 0, y: 0, z: 0 });
+      expect(piece).toBeTruthy();
+
+      mockGameView.syncFromState.mockClear();
+
+      const coverCheck = container.querySelector('#inspectCover') as HTMLInputElement;
+      expect(coverCheck).toBeTruthy();
+      coverCheck.checked = false;
+      coverCheck.dispatchEvent(new Event('change'));
+
+      expect(piece!.providesCover).toBe(false);
+      expect(mockGameView.syncFromState).toHaveBeenCalled();
+
+      mockGameView.syncFromState.mockClear();
+      const losCheck = container.querySelector('#inspectLos') as HTMLInputElement;
+      expect(losCheck).toBeTruthy();
+      losCheck.checked = true;
+      losCheck.dispatchEvent(new Event('change'));
+
+      expect(piece!.blocksLineOfSight).toBe(true);
+      expect(mockGameView.syncFromState).toHaveBeenCalled();
+    });
+  });
 });
