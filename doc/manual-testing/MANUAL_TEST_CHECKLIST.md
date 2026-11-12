@@ -43,4 +43,12 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 
 - Verified items removed (owner pass, 2026-11-11, later the same day): grouped model headings and per-model wounds in the data card (PR 1G), ordered wound assignment with the locked wounded model, Deadly, timeout, Tough 1 unchanged and the melee pause (PR 1H, Decision 3g).
 
+- [ ] **Distance badge and 9" ring when shooting (14G).** Setup: Orc Marauders (host) vs Human Defense Force (guest), Standard Battlefield. Aim the Orc Leader's Carbine at an HDF unit more than 9" away: the badge above it reads the distance, `Ferocious ✓ (beyond 9")` and `Hold the Line +1 morale (beyond 9")`; from within 9" both read `✗ (needs beyond 9")` and are dim. The shooting fan has a dashed ring labelled `9": Ferocious`.
+- [ ] **Badges on each assigned target (14G).** Assign the Carbine to one HDF unit and the Heavy Flamer-Mod to another: both targets carry a badge.
+- [ ] **Charge badge and 6" ring (14G).** Choose Charge with the Orc Leader: the charge fan has a dashed `6": Ferocious` ring; hovering a target over 6" away shows `Ferocious ✓ (beyond 6")`.
+- [ ] **HDF badge cases (14G).** As HDF, aim at the Orc Veteran: the badge shows the distance only. Aim at the Orc Infiltrator from more than 9": `Stealth −1 to hit (beyond 9")`. The HDF fan has no dashed ring.
+- [ ] **Hero aura (14G).** Select an HDF unit near the Company Leader: a gold 6" ring around the Leader, bright when the unit is within 6", faint when not.
+- [ ] **Blast outline (14G).** Aim the Heavy Flamer-Mod at a unit with another HDF unit close by: orange 3" outlines around the target's models and the nearby unit wears the dark red target ring (shares the hits).
+- [ ] **No floating badges elsewhere (14G).** Nothing floats over the board in Fight, setup placement or the opponent's turn (apart from the Hero aura on select/hover); badges never block clicking the units under them.
+
 - Verified items removed (owner pass, 2026-11-12): the Orc Marauders list and data cards, Bad Shot, Ferocious when shooting and charging, Heavy Flamer-Mod Limited, Orc Biker Fast (PR 2), and the two-army pickers with the HDF vs Orc Marauders default (PR 2B).

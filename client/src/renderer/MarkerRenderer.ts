@@ -68,6 +68,37 @@ const AIM_LINE_COLOR = 0x66bb6a;
 const AIM_BLOCKED_COLOR = 0xef5350;
 const AIMED_MODEL_COLOR = 0xffeb3b;
 
+/** One run of text on a target badge (see ui/distanceIndicators.ts); the tone decides how it is drawn. */
+export interface TargetBadgeSegment {
+  text: string;
+  tone: 'distance' | 'on' | 'off' | 'negated';
+}
+
+/** A floating distance / gate badge above one target unit. */
+export interface TargetBadgeMarker {
+  unitId: string;
+  position: Vector3;
+  segments: TargetBadgeSegment[];
+}
+
+/** Dashed switch-distance rings centred on the attacker (radii already padded by the base radius). */
+export interface ThresholdRingsMarker {
+  position: Vector3;
+  rings: Array<{ radius: number; label: string }>;
+}
+
+/** One Hero morale-aura or Blast-spread ring. */
+export interface AuraMarker {
+  kind: 'hero' | 'blast';
+  position: Vector3;
+  radius: number;
+  active: boolean;
+}
+
+const THRESHOLD_RING_COLOR = 0xff7961;
+const HERO_AURA_COLOR = 0xffd54f;
+const BLAST_AURA_COLOR = 0xff9800;
+
 /** One 1" keep-away disc to draw (see ui/keepAwayZones.ts). */
 export interface KeepAwayZoneMarker {
   x: number;
@@ -195,6 +226,12 @@ export class MarkerRenderer {
   private keepAwayZones: THREE.Object3D | null = null;
   private placement: THREE.Object3D | null = null;
   private keepAwaySignature: string | null = null;
+  private targetBadges: THREE.Object3D | null = null;
+  private targetBadgesSignature: string | null = null;
+  private thresholdRings: THREE.Object3D | null = null;
+  private thresholdRingsSignature: string | null = null;
+  private auras: THREE.Object3D | null = null;
+  private aurasSignature: string | null = null;
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1237,6 +1274,140 @@ export class MarkerRenderer {
     this.outcomeTimer = setTimeout(() => this.clearOutcome(), 2500);
   }
 
+  /**
+   * Floating distance / gate badge above each target being aimed at or charged. One CSS2D label per badge, a
+   * styled run per segment (on = bright, off = dim, negated = struck through); never takes pointer events.
+   * Rebuilt only when the data changes, because hover re-emits markers often.
+   */
+  setTargetBadges(badges: TargetBadgeMarker[] | null): void {
+    if (!badges || badges.length === 0) {
+      this.targetBadgesSignature = null;
+      this.removeMarker('targetBadges');
+      return;
+    }
+    const signature = JSON.stringify(badges);
+    if (signature === this.targetBadgesSignature && this.targetBadges) return;
+    this.removeMarker('targetBadges');
+    this.targetBadgesSignature = signature;
+
+    const group = new THREE.Group();
+    group.name = 'marker-target-badges';
+    for (const badge of badges) {
+      const el = document.createElement('div');
+      el.className = 'sl-target-badge';
+      el.style.cssText =
+        'pointer-events:none;user-select:none;white-space:nowrap;padding:2px 8px;border-radius:10px;' +
+        'font:600 12px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid #ff7961;';
+      badge.segments.forEach((seg, i) => {
+        if (i > 0) el.appendChild(document.createTextNode(' · '));
+        const span = document.createElement('span');
+        span.dataset.tone = seg.tone;
+        span.textContent = seg.text;
+        if (seg.tone === 'on') span.style.fontWeight = '700';
+        if (seg.tone === 'off') span.style.opacity = '0.55';
+        if (seg.tone === 'negated') {
+          span.style.textDecoration = 'line-through';
+          span.style.opacity = '0.75';
+        }
+        el.appendChild(span);
+      });
+      const label = new CSS2DObject(el);
+      label.name = `marker-target-badge-${badge.unitId}`;
+      label.position.set(badge.position.x, badge.position.y ?? 0, badge.position.z);
+      group.add(label);
+    }
+    this.markerGroup.add(group);
+    this.targetBadges = group;
+  }
+
+  /** Dashed rings (one small label each) for the attacker's own switch distances, at range-fan height. */
+  setThresholdRings(spec: ThresholdRingsMarker | null): void {
+    if (!spec || spec.rings.length === 0) {
+      this.thresholdRingsSignature = null;
+      this.removeMarker('thresholdRings');
+      return;
+    }
+    const signature = JSON.stringify(spec);
+    if (signature === this.thresholdRingsSignature && this.thresholdRings) return;
+    this.removeMarker('thresholdRings');
+    this.thresholdRingsSignature = signature;
+
+    const group = new THREE.Group();
+    group.name = 'marker-threshold-rings';
+    const y = (spec.position.y ?? 0) + 0.045;
+    for (const ring of spec.rings) {
+      const segs = 96;
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= segs; i++) {
+        const theta = (i / segs) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(theta) * ring.radius, 0, Math.sin(theta) * ring.radius));
+      }
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineDashedMaterial({
+          color: THRESHOLD_RING_COLOR,
+          dashSize: 0.5,
+          gapSize: 0.3,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        })
+      );
+      line.computeLineDistances();
+      line.name = `threshold-ring-${ring.radius}`;
+      line.position.set(spec.position.x, y, spec.position.z);
+      group.add(line);
+
+      const el = document.createElement('div');
+      el.className = 'sl-threshold-label';
+      el.textContent = ring.label;
+      el.style.cssText =
+        'pointer-events:none;user-select:none;white-space:nowrap;padding:1px 6px;border-radius:8px;' +
+        'font:600 11px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid #ff7961;';
+      const label = new CSS2DObject(el);
+      label.name = `threshold-label-${ring.radius}`;
+      label.position.set(spec.position.x + ring.radius, y, spec.position.z);
+      group.add(label);
+    }
+    this.markerGroup.add(group);
+    this.thresholdRings = group;
+  }
+
+  /** Hero morale-aura rings (gold; bright when the Hero lends its Quality, faint otherwise) and Blast outlines (orange). */
+  setAuras(auras: AuraMarker[] | null): void {
+    if (!auras || auras.length === 0) {
+      this.aurasSignature = null;
+      this.removeMarker('auras');
+      return;
+    }
+    const signature = JSON.stringify(auras);
+    if (signature === this.aurasSignature && this.auras) return;
+    this.removeMarker('auras');
+    this.aurasSignature = signature;
+
+    const group = new THREE.Group();
+    group.name = 'marker-auras';
+    for (const aura of auras) {
+      const hero = aura.kind === 'hero';
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(0.01, aura.radius - 0.06), aura.radius, 96),
+        new THREE.MeshBasicMaterial({
+          color: hero ? HERO_AURA_COLOR : BLAST_AURA_COLOR,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: aura.active ? 0.85 : 0.25,
+          depthWrite: false,
+        })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(aura.position.x, (aura.position.y ?? 0) + 0.04, aura.position.z);
+      mesh.name = `aura-${aura.kind}`;
+      group.add(mesh);
+    }
+    this.markerGroup.add(group);
+    this.auras = group;
+  }
+
   /** Face the floating outcome token toward the active camera each frame. */
   orientOutcomeToCamera(camera: THREE.Camera | null): void {
     if (!this.outcome || !camera) return;
@@ -1266,6 +1437,10 @@ export class MarkerRenderer {
     this.keepAwaySignature = null;
     this.removeMarker('keepAwayZones');
     this.removeMarker('placement');
+    for (const kind of ['targetBadges', 'thresholdRings', 'auras'] as const) this.removeMarker(kind);
+    this.targetBadgesSignature = null;
+    this.thresholdRingsSignature = null;
+    this.aurasSignature = null;
     this.clearOutcome();
   }
 
@@ -1309,10 +1484,13 @@ export class MarkerRenderer {
       | 'casualtyPicks'
       | 'keepAwayZones'
       | 'placement'
+      | 'targetBadges'
+      | 'thresholdRings'
+      | 'auras'
   ): void {
     const current = this[kind];
     if (current) {
-      if (kind === 'movePath' || kind === 'aimLines') {
+      if (kind === 'movePath' || kind === 'aimLines' || kind === 'targetBadges' || kind === 'thresholdRings') {
         current.traverse((child) => {
           if (child instanceof CSS2DObject) child.element.remove();
         });
