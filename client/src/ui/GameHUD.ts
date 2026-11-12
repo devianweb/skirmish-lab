@@ -1,5 +1,11 @@
 import { computeKeepAwayZones, KeepAwayZone } from './keepAwayZones';
+import { badgeSegments, type BadgeSegment } from './distanceIndicators';
 import {
+  attackDistanceRules,
+  gateDistance,
+  getBlastParticipants,
+  ownThresholdRings,
+  traitGateApplies,
   boardDistance,
   ChargeState,
   CombatModifierBreakdown,
@@ -186,6 +192,23 @@ export interface MarkerSnapshot {
   casualtyPicks?: Vector3[] | null;
   /** 1" keep-away no-go discs shown while a move, rush, charge, push or pile-in is planned. */
   keepAwayZones?: KeepAwayZone[] | null;
+  /**
+   * One floating badge per target being aimed at or charged: the distance, then the distance rules that attack
+   * involves (see distanceIndicators.ts). `position` is above the target's centre. Empty when none.
+   */
+  targetBadges?: Array<{ unitId: string; position: Vector3; segments: BadgeSegment[] }>;
+  /**
+   * The attacker's own switch distances for the attack fan being shown (shoot or unit-wide charge), radii already
+   * padded by the attacker's base radius and limited to the fan. `position` is the attacker's position.
+   */
+  thresholdRings?: { position: Vector3; rings: Array<{ radius: number; label: string }> } | null;
+  /**
+   * Area rings: Hero morale aura (one per living model of each friendly Hero of the selected/hovered unit's side;
+   * `active` = that Hero lends its Quality to the unit) and the Blast spread outline (one per living target model).
+   */
+  auras?: Array<{ kind: 'hero' | 'blast'; position: Vector3; radius: number; active: boolean }>;
+  /** Units that would share the hits of the Blast shot being aimed (not the target itself). */
+  blastSharingUnitIds?: string[];
 }
 
 export type PickTarget =
@@ -6528,9 +6551,173 @@ export class GameHUD {
 
     markers.keepAwayZones = this.keepAwayZonesForFlow();
 
+    markers.targetBadges = this.computeTargetBadges(hoveredUnit);
+    markers.thresholdRings = this.computeThresholdRings(attackAction, markers.attackRange ?? null);
+    markers.auras = [...this.computeHeroAuras(hoveredUnit), ...this.computeBlastAuras(hoveredUnit)];
+    markers.blastSharingUnitIds = this.computeBlastSharing(hoveredUnit);
+
     for (const handler of this.markerHandlers) {
       handler(markers);
     }
+  }
+
+  /** Floor centre of a unit's living models, lifted so a label floats clear above the models. */
+  private badgePosition(unit: Unit): Vector3 {
+    const spots = livingModelPositions(unit);
+    if (spots.length === 0) return { x: unit.position.x, y: unit.position.y + 2.5, z: unit.position.z };
+    const n = spots.length;
+    return {
+      x: spots.reduce((a, p) => a + p.x, 0) / n,
+      y: spots.reduce((a, p) => a + p.y, 0) / n + 2.5,
+      z: spots.reduce((a, p) => a + p.z, 0) / n,
+    };
+  }
+
+  /** The weapon ids the player has assigned to `targetId`, in the unit's weapon order. */
+  private assignedWeaponIds(attacker: Unit, targetId: string): string[] {
+    return rangedWeaponsOf(attacker)
+      .filter((w) => this.shootAllocations.get(w.id) === targetId)
+      .map((w) => w.id);
+  }
+
+  /** Distance-rule badges for the attack being aimed or charged (shoot and charge only; Fight has none). */
+  private computeTargetBadges(hoveredUnit: Unit | null): NonNullable<MarkerSnapshot['targetBadges']> {
+    const state = this.state;
+    const attacker = this.activeUnit;
+    if (!state || !attacker || attacker.ownerId !== this.localPlayerId || !this.myTurn) return [];
+    const enemy = (id: string | null | undefined): Unit | null => {
+      const u = id ? state.units.find((x) => x.id === id) : undefined;
+      return u && u.ownerId !== this.localPlayerId && !u.isDestroyed ? u : null;
+    };
+    const jobs: Array<{ target: Unit; context: 'shooting' | 'charge'; weaponIds?: string[] }> = [];
+    const flow = this.flow;
+
+    if (flow.mode === 'targeting' && flow.action === 'shoot') {
+      const ids = new Set<string>();
+      for (const id of this.shootAllocations.values()) if (id) ids.add(id);
+      const hoveredEnemy = enemy(hoveredUnit?.id);
+      if (hoveredEnemy) ids.add(hoveredEnemy.id);
+      for (const id of ids) {
+        const target = enemy(id);
+        if (!target) continue;
+        const assigned = this.assignedWeaponIds(attacker, target.id);
+        const preview = assigned.length === 0 ? this.shootPreviewWeapon(attacker, target) : null;
+        jobs.push({ target, context: 'shooting', weaponIds: assigned.length > 0 ? assigned : preview ? [preview.id] : [] });
+      }
+    } else if (flow.mode === 'confirming' && flow.action.type === 'shoot') {
+      const payload = flow.action.payload as {
+        targetId?: string;
+        weaponId?: string;
+        allocations?: Array<{ weaponId: string; targetId: string }>;
+      };
+      const allocations = payload.allocations?.length
+        ? payload.allocations
+        : payload.targetId && payload.weaponId
+        ? [{ weaponId: payload.weaponId, targetId: payload.targetId }]
+        : [];
+      for (const id of new Set(allocations.map((a) => a.targetId))) {
+        const target = enemy(id);
+        if (target) {
+          jobs.push({
+            target,
+            context: 'shooting',
+            weaponIds: allocations.filter((a) => a.targetId === id).map((a) => a.weaponId),
+          });
+        }
+      }
+    } else if (flow.mode === 'targeting' && flow.action === 'charge') {
+      const target = enemy(this.declaredCharge?.targetId ?? hoveredUnit?.id);
+      if (target) jobs.push({ target, context: 'charge' });
+    } else if (flow.mode === 'confirming' && (flow.action.type === 'charge' || flow.action.type === 'charge-leg')) {
+      const payload = flow.action.payload as { targetId?: string };
+      const target = enemy(payload.targetId ?? this.declaredCharge?.targetId);
+      if (target) jobs.push({ target, context: 'charge' });
+    }
+
+    return jobs.map((job) => ({
+      unitId: job.target.id,
+      position: this.badgePosition(job.target),
+      segments: badgeSegments(
+        attackDistanceRules({ state, attacker, target: job.target, context: job.context, weaponIds: job.weaponIds })
+      ),
+    }));
+  }
+
+  /** Dashed switch-distance rings for the attacker's own gates, on the range fan that is being shown. */
+  private computeThresholdRings(
+    attackAction: string | null,
+    fan: MarkerSnapshot['attackRange'] | null
+  ): MarkerSnapshot['thresholdRings'] {
+    const active = this.activeUnit;
+    if (!active || !fan || (attackAction !== 'shoot' && attackAction !== 'charge')) return null;
+    const pad = baseRadius(active);
+    const rings = ownThresholdRings(active, attackAction === 'shoot' ? 'shooting' : 'charge')
+      .map((r) => ({ radius: r.distance + pad, label: r.label }))
+      .filter((r) => r.radius <= fan.range);
+    return rings.length > 0 ? { position: { ...active.position }, rings } : null;
+  }
+
+  /** Hero morale-aura rings around the friendly Heroes of the hovered (else selected) unit's side. */
+  private computeHeroAuras(hoveredUnit: Unit | null): NonNullable<MarkerSnapshot['auras']> {
+    const state = this.state;
+    if (!state) return [];
+    const subject =
+      hoveredUnit ??
+      (this.selectedUnitId ? state.units.find((u) => u.id === this.selectedUnitId && !u.isDestroyed) ?? null : null);
+    if (!subject || subject.isDeployed === false) return [];
+    const reach = gateDistance('hero', 'morale-aura');
+    const out: NonNullable<MarkerSnapshot['auras']> = [];
+    for (const hero of state.units) {
+      if (
+        hero.ownerId !== subject.ownerId ||
+        hero.isDestroyed ||
+        hero.isDeployed === false ||
+        hero.status.includes('shaken') ||
+        hero.status.includes('routed') ||
+        !hasTrait(hero.specialRules, 'hero')
+      ) {
+        continue;
+      }
+      const active = traitGateApplies('hero', 'morale-aura', unitDistance(hero, subject));
+      for (const position of livingModelPositions(hero)) {
+        out.push({ kind: 'hero', position: { ...position }, radius: reach + baseRadius(hero), active });
+      }
+    }
+    return out;
+  }
+
+  /** The shooter and hovered enemy when the shot being aimed has a Blast weapon (previewed or assigned), else null. */
+  private blastAim(hoveredUnit: Unit | null): { attacker: Unit; target: Unit } | null {
+    const attacker = this.activeUnit;
+    if (!this.state || !attacker || !hoveredUnit || attacker.ownerId !== this.localPlayerId || !this.myTurn) return null;
+    if (this.flow.mode !== 'targeting' || this.flow.action !== 'shoot') return null;
+    if (hoveredUnit.ownerId === this.localPlayerId || hoveredUnit.isDestroyed) return null;
+    const weapons = rangedWeaponsOf(attacker).filter((w) => this.shootAllocations.get(w.id) === hoveredUnit.id);
+    const preview = this.shootPreviewWeapon(attacker, hoveredUnit);
+    if (preview) weapons.push(preview);
+    return weapons.some((w) => hasTrait(w.profile.specialRules, 'blast')) ? { attacker, target: hoveredUnit } : null;
+  }
+
+  /** Blast spread outline around each living model of the hovered target. */
+  private computeBlastAuras(hoveredUnit: Unit | null): NonNullable<MarkerSnapshot['auras']> {
+    const aim = this.blastAim(hoveredUnit);
+    if (!aim) return [];
+    const radius = gateDistance('blast', 'blast-spread') + baseRadius(aim.target);
+    return livingModelPositions(aim.target).map((position) => ({
+      kind: 'blast' as const,
+      position: { ...position },
+      radius,
+      active: true,
+    }));
+  }
+
+  /** Other units that would share the hits of the Blast shot being aimed. */
+  private computeBlastSharing(hoveredUnit: Unit | null): string[] {
+    const aim = this.blastAim(hoveredUnit);
+    if (!aim || !this.state) return [];
+    return getBlastParticipants(this.state, aim.attacker, aim.target)
+      .slice(1)
+      .map((p) => p.unit.id);
   }
 
   /**
