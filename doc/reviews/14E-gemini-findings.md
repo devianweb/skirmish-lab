@@ -132,7 +132,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `client/src/core/GameManager.ts:169-175`
-- **Status:** fixed
+- **Status:** fixed in #401
 - **Defect:** When the host recovers state from the guest via `state-sync` (`else if (!this.gameState)`), it does not call `this.beginObjectivesIfNeeded()` (and accepts `msg.state` without structural validation).
 - **Failure scenario:** If the host reloads with empty `localStorage` during the initial `objectives` setup phase before `roll-objectives` has completed, the host adopts the guest's `state-sync` state (`objectivesRolled === false`) and never auto-submits `roll-objectives`, leaving both peers permanently stuck on `"Rolling for the number of objectives and the mission roll-off…"`.
 - **Suggested fix:** Validate the structure of `msg.state` and call `this.beginObjectivesIfNeeded()` at the end of the host's `state-sync` recovery branch in `GameManager.ts:174`.
@@ -142,7 +142,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `client/src/core/GameManager.ts:296-307, 327-333, 395-411`
-- **Status:** fixed
+- **Status:** fixed in #401
 - **Defect:** If `reactionTimeoutTimer` fires while an action is awaiting server dice (`this.pendingActionId !== null`) and that dice request subsequently fails or times out, `reactionTimeoutTimer` is left `null` and the pending reaction never expires.
 - **Failure scenario:** During a `melee-retaliation` (`strike-back`) or `pile-in` prompt, the player submits their reaction just before the timer expires; while `diceProvider.requestRoll` is in flight, `handleReactionTimeout()` fires, sets `this.reactionTimeoutTimer = null`, and calls `processAction(fallbackAction)`, which is rejected because `this.pendingActionId` is non-null. If `requestRoll` then times out (`catch` at `GameManager.ts:328`), `processAction` exits without calling `syncReactionTimer()`, leaving `pendingReaction` active with no timer.
 - **Suggested fix:** In `handleReactionTimeout()`, reschedule the timer if `this.pendingActionId !== null`, and in `processAction()`'s `finally` block, call `this.syncReactionTimer()` whenever `this.gameState?.turnState.pendingReaction` is still present and `this.reactionTimeoutTimer === null`.
