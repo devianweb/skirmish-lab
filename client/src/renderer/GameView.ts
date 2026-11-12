@@ -19,6 +19,9 @@ import {
   DeploymentZoneMarker,
   MarkerRenderer,
   KeepAwayZoneMarker,
+  TargetBadgeMarker,
+  ThresholdRingsMarker,
+  AuraMarker,
   MarkerUnit,
   MovePathMarker,
   PlacementMarker,
@@ -266,6 +269,18 @@ export class GameView {
 
   setKeepAwayZonesMarker(zones: KeepAwayZoneMarker[] | null): void {
     this.markerRenderer.setKeepAwayZones(zones);
+  }
+
+  setTargetBadgesMarker(badges: TargetBadgeMarker[] | null): void {
+    this.markerRenderer.setTargetBadges(badges);
+  }
+
+  setThresholdRingsMarker(spec: ThresholdRingsMarker | null): void {
+    this.markerRenderer.setThresholdRings(spec);
+  }
+
+  setAurasMarker(auras: AuraMarker[] | null): void {
+    this.markerRenderer.setAuras(auras);
   }
 
   setPlacementMarker(marker: PlacementMarker | null): void {

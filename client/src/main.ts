@@ -16,6 +16,9 @@ import { MarkerUnit } from './renderer/MarkerRenderer';
 import { defaultSessionStore } from './storage/SessionStore';
 import { GameHUD, MarkerSnapshot } from './ui/GameHUD';
 import { Lobby } from './ui/Lobby';
+import { formatBuildStamp, getBuildInfo } from './buildInfo';
+
+console.info(`[SkirmishLab] ${formatBuildStamp(getBuildInfo())}`);
 
 // 3D battlefield canvas, mounted behind the UI overlay.
 const gameContainer = document.createElement('div');
@@ -71,6 +74,12 @@ function applyMarkers(markers: MarkerSnapshot): void {
   const reachable = (markers.reachableTargetIds ?? [])
     .map((id) => unitForMarkers(id))
     .filter((u): u is MarkerUnit => u !== null);
+  // Units that would share a Blast's hits wear the same ring as reachable targets
+  const reachableIds = new Set(reachable.map((u) => u.id));
+  for (const id of markers.blastSharingUnitIds ?? []) {
+    const unit = reachableIds.has(id) ? null : unitForMarkers(id);
+    if (unit) reachable.push(unit);
+  }
   gameView.setReachableTargetsMarker(reachable);
   gameView.setAimLinesMarker(markers.aimLines ?? null);
   gameView.setMovementRangeMarker(
@@ -121,6 +130,9 @@ function applyMarkers(markers: MarkerSnapshot): void {
     markers.squadCoherency?.radius ?? 2.0
   );
   gameView.setKeepAwayZonesMarker(markers.keepAwayZones ?? null);
+  gameView.setTargetBadgesMarker(markers.targetBadges ?? null);
+  gameView.setThresholdRingsMarker(markers.thresholdRings ?? null);
+  gameView.setAurasMarker(markers.auras ?? null);
   gameView.setPlacementMarker(markers.placement ?? null);
   gameView.setCasualtyPicksMarker(markers.casualtyPicks ?? null);
   if (markers.outcome) {
