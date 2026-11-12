@@ -52,3 +52,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 
 - Verified items removed (owner pass, 2026-11-12): the Orc Marauders list and data cards, Bad Shot, Ferocious when shooting and charging, Heavy Flamer-Mod Limited, Orc Biker Fast (PR 2), and the two-army pickers with the HDF vs Orc Marauders default (PR 2B).
 
+- [ ] **Veterans' Grenade Launcher shows the Blast outline (14G follow-up).** Setup: Orc Marauders (host) vs Human Defense Force (guest), Standard Battlefield. Activate the HDF Veterans (2× Battle Rifle, 1× Grenade Launcher Blast(3)) and choose Shoot. Hover an enemy unit without selecting any weapon chip: verify the orange Blast outline around the target's models and the orange sharing rings appear because the Grenade Launcher would fire. Click the Battle Rifle chip: verify the Blast outline and sharing rings disappear. Click the Grenade Launcher chip: verify they appear again.
+- [ ] **Hero 6" floats above its ring (14G follow-up).** Same setup. Select an HDF unit near the Company Leader: verify the `Hero 6"` label is a camera-facing floating label on the far side of the dashed ring (host: +z, guest: -z) styled like the threshold ring labels, instead of a flat canvas-texture mesh lying on the board.
+- [ ] **Veterans' aim-line labels no longer overlap (14G follow-up).** Same setup. With the HDF Veterans aiming a shot at an enemy squad, verify that the weapon labels on neighbouring aim lines ("Battle Rifle", "Grenade Launcher") stack vertically and no longer overlap each other.
+

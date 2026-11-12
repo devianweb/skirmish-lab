@@ -104,7 +104,16 @@ describe('MarkerRenderer threshold rings', () => {
     expect(lines[0].position.z).toBe(-3);
     expect(labels[0].element.textContent).toBe('9": Ferocious, Relentless');
     expect(labels[0].element.style.pointerEvents).toBe('none');
-    expect(Math.hypot(labels[0].position.x - 2, labels[0].position.z + 3)).toBeCloseTo(9.5, 5);
+    // Threshold ring labels are at the far side (host: +z, guest: -z)
+    expect(labels[0].position.x).toBe(2);
+    expect(labels[0].position.z).toBeCloseTo(-3 + 9.5, 5);
+
+    // Guest side moves threshold ring labels to -z
+    renderer.setThresholdRings(spec, 'guest');
+    const guestGroup = scene.getObjectByName('marker-threshold-rings')!;
+    const guestLabels = guestGroup.children.filter((c): c is CSS2DObject => c instanceof CSS2DObject);
+    expect(guestLabels[0].position.x).toBe(2);
+    expect(guestLabels[0].position.z).toBeCloseTo(-3 - 9.5, 5);
   });
 
   it('replaces on the next snapshot and clears on null or no rings', () => {
@@ -149,42 +158,57 @@ describe('MarkerRenderer auras', () => {
     expect(hostMat.opacity).toBeGreaterThan(guestMat.opacity);
   });
 
-  it('draws flat label meshes lying on the board plane, placed on local player\'s side, turned along tangent', () => {
+  it('draws floating CSS2D labels on the far side for host (+z) and guest (-z), with no flat meshes remaining', () => {
     const { scene, renderer } = make();
     renderer.setAuras(auras, 'host');
     const group = scene.getObjectByName('marker-auras')!;
-    const labelMeshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
-    expect(labelMeshes).toHaveLength(2);
-    for (const label of labelMeshes) {
-      expect(label).toBeInstanceOf(THREE.Mesh);
-      expect(label).not.toBeInstanceOf(CSS2DObject);
-      expect(Math.abs(label.rotation.x)).toBeCloseTo(Math.PI / 2, 5);
-      expect(label.rotation.y).toBeCloseTo(0, 5);
-    }
-    const hostHeroLabel = labelMeshes[0];
-    expect(hostHeroLabel.position.x).toBe(0);
-    expect(hostHeroLabel.position.z).toBeLessThan(-6.5);
-    expect(hostHeroLabel.position.z).toBeCloseTo(-6.7, 1);
+    const labelObjects = group.children.filter((c): c is CSS2DObject => c instanceof CSS2DObject);
+    const meshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
 
+    expect(meshes).toHaveLength(0); // No flat label meshes remain
+    expect(labelObjects).toHaveLength(2);
+    for (const label of labelObjects) {
+      expect(label).toBeInstanceOf(CSS2DObject);
+      expect(label.element.style.pointerEvents).toBe('none');
+    }
+
+    // Host: far side is +z
+    const hostHeroLabel = labelObjects[0];
+    expect(hostHeroLabel.position.x).toBe(0);
+    expect(hostHeroLabel.position.z).toBeCloseTo(6.5, 5); // position.z + radius (0 + 6.5)
+    expect(hostHeroLabel.element.textContent).toBe('Hero 6"');
+
+    const hostBlastLabel = labelObjects[1];
+    expect(hostBlastLabel.position.x).toBe(8);
+    expect(hostBlastLabel.position.z).toBeCloseTo(4.5, 5); // position.z + radius (1 + 3.5)
+    expect(hostBlastLabel.element.textContent).toBe('Blast 3"');
+
+    // Guest: far side is -z
     renderer.setAuras(auras, 'guest');
     const groupGuest = scene.getObjectByName('marker-auras')!;
-    const guestLabels = groupGuest.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
-    expect(guestLabels).toHaveLength(2);
-    expect(guestLabels[0].position.x).toBe(0);
-    expect(guestLabels[0].position.z).toBeGreaterThan(6.5);
-    expect(guestLabels[0].position.z).toBeCloseTo(6.7, 1);
-    expect(Math.abs(guestLabels[0].rotation.z)).toBeCloseTo(Math.PI, 5);
+    const guestLabelObjects = groupGuest.children.filter((c): c is CSS2DObject => c instanceof CSS2DObject);
+    const guestMeshes = groupGuest.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
+
+    expect(guestMeshes).toHaveLength(0);
+    expect(guestLabelObjects).toHaveLength(2);
+
+    const guestHeroLabel = guestLabelObjects[0];
+    expect(guestHeroLabel.position.x).toBe(0);
+    expect(guestHeroLabel.position.z).toBeCloseTo(-6.5, 5); // position.z - radius (0 - 6.5)
+
+    const guestBlastLabel = guestLabelObjects[1];
+    expect(guestBlastLabel.position.x).toBe(8);
+    expect(guestBlastLabel.position.z).toBeCloseTo(-2.5, 5); // position.z - radius (1 - 3.5)
   });
 
-  it('label mesh never takes pointer events', () => {
+  it('aura CSS2D label never takes pointer events', () => {
     const { scene, renderer } = make();
     renderer.setAuras(auras, 'host');
     const group = scene.getObjectByName('marker-auras')!;
-    const labelMeshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && !(c instanceof THREE.Line));
-    const raycaster = new THREE.Raycaster();
-    const hits: THREE.Intersection[] = [];
-    labelMeshes[0].raycast(raycaster, hits);
-    expect(hits).toHaveLength(0);
+    const labelObjects = group.children.filter((c): c is CSS2DObject => c instanceof CSS2DObject);
+    expect(labelObjects).toHaveLength(2);
+    expect(labelObjects[0].element.style.pointerEvents).toBe('none');
+    expect(labelObjects[1].element.style.pointerEvents).toBe('none');
   });
 
   it('replaces on the next snapshot, skips rebuild on identical snapshot, and clears when empty', () => {
@@ -266,5 +290,64 @@ describe('clearAll / dispose', () => {
     renderer.setTargetBadges([badge()]);
     renderer.dispose();
     expect(renderer.getRenderedMarkerNames()).toEqual([]);
+  });
+});
+
+describe('MarkerRenderer labelLayout integration', () => {
+  it('stacks overlapping marker labels upward in order (badge before aura before ring before aim-line before path)', () => {
+    const { scene, renderer } = make();
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+    camera.position.set(0, 10, 20);
+    camera.lookAt(0, 0, 0);
+
+    // Place a badge at (0, 0, 0)
+    renderer.setTargetBadges([{
+      unitId: 'u1',
+      position: { x: 0, y: 0, z: 0 },
+      segments: [{ text: 'Badge Label', tone: 'distance' }],
+    }]);
+
+    // Place an aura label whose 3D position projects near the same spot
+    renderer.setAuras([{
+      kind: 'hero',
+      side: 'host',
+      position: { x: 0, y: 0, z: -6.5 },
+      radius: 6.5,
+      active: true,
+      label: 'Hero 6"', // Far-side host placement puts this at z = 0! Exactly overlapping the badge!
+    }], 'host');
+
+    // Run layoutLabels for 1000x1000 viewport
+    renderer.layoutLabels(camera, 1000, 1000);
+
+    const groupBadges = scene.getObjectByName('marker-target-badges')!;
+    const badgeLabel = groupBadges.children.find((c): c is CSS2DObject => c instanceof CSS2DObject)!;
+
+    const groupAuras = scene.getObjectByName('marker-auras')!;
+    const auraLabel = groupAuras.children.find((c): c is CSS2DObject => c instanceof CSS2DObject)!;
+
+    expect(badgeLabel.element.style.pointerEvents).toBe('none');
+    expect(auraLabel.element.style.pointerEvents).toBe('none');
+
+    // Badge was placed first (no upward shift, finalY = screenY)
+    // Aura label was placed second and overlapped badge, so it shifted upward (finalY < screenY)
+    const badgeTransform = badgeLabel.element.style.transform;
+    const auraTransform = auraLabel.element.style.transform;
+
+    expect(badgeTransform).toContain('translate(');
+    expect(auraTransform).toContain('translate(');
+
+    // Parse screen translateY from translate(...) translate(Xpx, Ypx)
+    const getY = (t: string) => {
+      const match = t.match(/translate\([^,]+,\s*([^p]+)px\)/);
+      return match ? parseFloat(match[1]) : null;
+    };
+
+    const badgeY = getY(badgeTransform);
+    const auraY = getY(auraTransform);
+    expect(badgeY).not.toBeNull();
+    expect(auraY).not.toBeNull();
+    // In screen space, upward is smaller Y
+    expect(auraY!).toBeLessThan(badgeY!);
   });
 });

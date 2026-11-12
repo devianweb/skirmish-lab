@@ -69,9 +69,20 @@ export class SceneManager {
     return this.renderer;
   }
 
+  private onAfterRender?: () => void;
+
+  setOnAfterRender(callback: (() => void) | undefined): void {
+    this.onAfterRender = callback;
+  }
+
+  getLabelRendererSize(): { width: number; height: number } {
+    return this.labelRenderer.getSize();
+  }
+
   render(): void {
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+    if (this.onAfterRender) this.onAfterRender();
   }
 
   startAnimationLoop(callback?: () => void): void {

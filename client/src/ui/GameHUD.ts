@@ -1630,7 +1630,7 @@ export class GameHUD {
       for (const w of ranged) {
         this.shootAllocations.set(w.id, null);
       }
-      this.selectedShootWeaponId = ranged[0]?.id ?? null;
+      this.selectedShootWeaponId = null;
     }
 
     // If fighting and there is only one enemy in engagement range, automatically
@@ -6771,9 +6771,36 @@ export class GameHUD {
     if (!this.state || !attacker || !hoveredUnit || attacker.ownerId !== this.localPlayerId || !this.myTurn) return null;
     if (this.flow.mode !== 'targeting' || this.flow.action !== 'shoot') return null;
     if (hoveredUnit.ownerId === this.localPlayerId || hoveredUnit.isDestroyed) return null;
-    const weapons = rangedWeaponsOf(attacker).filter((w) => this.shootAllocations.get(w.id) === hoveredUnit.id);
-    const preview = this.shootPreviewWeapon(attacker, hoveredUnit);
-    if (preview) weapons.push(preview);
+
+    const ranged = rangedWeaponsOf(attacker);
+    const weapons: Weapon[] = [];
+    const seen = new Set<string>();
+    const addWeapon = (w: Weapon) => {
+      if (!seen.has(w.id)) {
+        seen.add(w.id);
+        weapons.push(w);
+      }
+    };
+
+    // Weapons already assigned to the hovered target
+    for (const w of ranged) {
+      if (this.shootAllocations.get(w.id) === hoveredUnit.id) {
+        addWeapon(w);
+      }
+    }
+
+    if (this.selectedShootWeaponId) {
+      const selected = ranged.find((w) => w.id === this.selectedShootWeaponId);
+      if (selected) addWeapon(selected);
+    } else {
+      const state = this.state;
+      for (const w of ranged) {
+        if (firingModels(state, attacker, hoveredUnit, w).length > 0) {
+          addWeapon(w);
+        }
+      }
+    }
+
     return weapons.some((w) => hasTrait(w.profile.specialRules, 'blast')) ? { attacker, target: hoveredUnit } : null;
   }
 
