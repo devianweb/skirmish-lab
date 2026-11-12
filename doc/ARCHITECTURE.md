@@ -69,7 +69,7 @@ shared/src/
 
 client/src/
 ├── audio/
-│   └── SoundFx.ts             # Procedural Web Audio API sound cues (turn chime, alert)
+│   └── SoundFx.ts             # Procedural Web Audio API sound cues (turn chime, alert, combat SFX, stingers, mute)
 ├── core/
 │   └── GameManager.ts         # Host authority, state machine, dice orchestration
 ├── editor/
@@ -205,6 +205,7 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 - **MarkerRenderer:** Gameplay UI markers — selection and target indicators, movement-range ring, auto-clearing wound outcome tokens (GLB with procedural fallbacks)
 - **GameView:** State-driven rendering facade — the single entry point that turns game state into a scene (board/terrain rebuilt only on change, units diffed every sync), plus click picking (units and ground positions, camera drags filtered out). The renderer layer is injectable for tests, so scene logic is testable without WebGL
 - **GameHUD:** In-game overlay — round/turn info, unit list, action selection with explicit confirmation for every action, dice result and action log panels; driven purely by confirmed state
+- **SoundFx:** Procedural audio synthesis using the Web Audio API with zero external assets or network latency. Generates turn transition chimes, reaction decision alerts, a dice rattle when dice results appear in the Dice panel, a shot crack when shooting resolves, a melee impact when a melee strike resolves (charge, fight, strike back), and rising/falling stingers for Victory/Defeat when the results screen opens. A mute toggle (speaker icon) in the in-game header silences all cues and persists across reloads via `localStorage`. Unallowed or suspended audio states fail silently without throwing.
 
 ## Connection Lifecycle
 

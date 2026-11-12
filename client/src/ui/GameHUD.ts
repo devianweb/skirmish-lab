@@ -385,6 +385,8 @@ export class GameHUD {
   private markerHandlers: Array<(markers: MarkerSnapshot) => void> = [];
   /** Log index already reflected (used for transient wound tokens). */
   private lastSeenLogIndex = 0;
+  private lastAudioLogIndex: number | null = null;
+  private gameOverStingerPlayed = false;
   private lastRoundNumber: number | null = null;
   private toast: string | null = null;
   /** Concede confirmation dialog is open. */
@@ -490,12 +492,38 @@ export class GameHUD {
     if (newMatch) this.resetForNewMatch();
     const prevRound = this.lastRoundNumber;
     this.lastRoundNumber = state.turnState.roundNumber;
+    const isInitialSync = this.state === null;
     this.state = state;
     if (newMatch) this.showToast('Rematch started — same armies, same map');
     this.placementCursor = null;
     this.placementHint = null;
     this.announceSetupRolls(state);
+
+    // Audio cues for action log entries (never twice for one log entry, e.g. after re-sync or reconnect)
+    if (isInitialSync) {
+      this.lastAudioLogIndex = state.actionLog.length;
+    } else {
+      const startIdx = this.lastAudioLogIndex ?? state.actionLog.length;
+      for (let i = startIdx; i < state.actionLog.length; i++) {
+        const entry = state.actionLog[i];
+        const cue = this.getAudioCueForLogEntry(entry);
+        if (cue === 'shot') soundFx.playShot();
+        else if (cue === 'melee') soundFx.playMeleeImpact();
+        else if (cue === 'dice') soundFx.playDiceRattle();
+      }
+      this.lastAudioLogIndex = state.actionLog.length;
+    }
+
     if (state.status === 'game-over') {
+      if (!this.gameOverStingerPlayed) {
+        this.gameOverStingerPlayed = true;
+        const result = this.resultTitle();
+        if (result === 'Victory') {
+          soundFx.playVictory();
+        } else if (result === 'Defeat') {
+          soundFx.playDefeat();
+        }
+      }
       this.concedeConfirmOpen = false;
       this.concedePending = false;
       this.clearConcedeTimer();
@@ -611,6 +639,8 @@ export class GameHUD {
     this.blastRows = [];
     this.blastReactionId = null;
     this.lastSeenLogIndex = 0;
+    this.lastAudioLogIndex = 0;
+    this.gameOverStingerPlayed = false;
     this.lastRoundNumber = null;
     this.prevCurrentPlayerId = null;
     this.prevPendingReactionId = null;
@@ -3987,6 +4017,7 @@ export class GameHUD {
         </span>
         <span class="sl-hud-turn ${this.myTurn ? 'mine' : 'theirs'}">${turnLabel}</span>
         ${this.roomCode ? `<span class="sl-hud-room">Room: ${this.roomCode}</span>` : '<span style="margin-left: auto;"></span>'}
+        <button class="sl-hud-btn sl-hud-mute" data-action="audio-mute-toggle" title="${soundFx.isMuted() ? 'Unmute audio' : 'Mute audio'}" aria-label="${soundFx.isMuted() ? 'Unmute audio' : 'Mute audio'}">${soundFx.isMuted() ? '🔇' : '🔊'}</button>
         <button class="sl-hud-btn sl-hud-how-to-play" data-action="how-to-play-open" title="How to play" aria-label="How to play">?</button>
         ${
           state.status === 'game-over'
@@ -4130,6 +4161,45 @@ export class GameHUD {
     const name = this.state?.players.find((p) => p.id === playerId)?.name;
     const role = playerId === this.state?.hostId ? 'Host' : 'Guest';
     return name && name !== role ? `${name} (${role})` : role;
+  }
+
+  private getAudioCueForLogEntry(entry: GameState['actionLog'][number]): 'shot' | 'melee' | 'dice' | null {
+    if (entry.result !== 'accepted') return null;
+    const actionType = entry.action.type;
+
+    if (actionType === 'shoot' || actionType === 'blast-split') {
+      return 'shot';
+    }
+
+    if (actionType === 'fight') {
+      return 'melee';
+    }
+    if (actionType === 'charge') {
+      if (
+        !entry.dice?.outcome.traversal ||
+        entry.dice.outcome.attackCount > 0 ||
+        (entry.dice.outcome.meleeStrikes && entry.dice.outcome.meleeStrikes.length > 0)
+      ) {
+        return 'melee';
+      }
+    }
+    if (actionType === 'respond-reaction') {
+      const payload = entry.action.payload as { choiceId?: string };
+      if (payload?.choiceId === 'strike-back') {
+        return 'melee';
+      }
+    }
+    if (actionType === 'pile-in-move') {
+      if (entry.dice && (entry.dice.outcome.meleeStrikes?.length || entry.dice.outcome.attackCount > 0)) {
+        return 'melee';
+      }
+    }
+
+    if (entry.dice) {
+      return 'dice';
+    }
+
+    return null;
   }
 
   private resultTitle(): string {
@@ -6102,6 +6172,10 @@ export class GameHUD {
           case 'cancel':
             this.cancel();
             break;
+          case 'audio-mute-toggle':
+            soundFx.toggleMute();
+            this.render();
+            break;
           case 'how-to-play-open':
             this.howToPlayOpen = true;
             this.render();
@@ -6965,6 +7039,9 @@ export class GameHUD {
   background: transparent; color: #ef9a9a; border: 1px solid #7a3b3b; border-radius: 5px; cursor: pointer; }
 .sl-hud-concede:hover:not(:disabled) { background: #3a1d1d; }
 .sl-hud-concede:disabled { opacity: 0.6; cursor: default; }
+.sl-hud-mute { margin-left: 8px; pointer-events: auto; font-size: 13px; width: 26px; height: 26px; line-height: 24px; padding: 0; text-align: center;
+  background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.sl-hud-mute:hover { background: #37474f; border-color: #ffd54f; }
 .sl-hud-how-to-play { margin-left: 8px; pointer-events: auto; font-size: 13px; font-weight: 700; width: 26px; height: 26px; line-height: 24px; padding: 0; text-align: center;
   background: #263238; color: #ffd54f; border: 1px solid #37474f; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .sl-hud-how-to-play:hover { background: #37474f; border-color: #ffd54f; }
