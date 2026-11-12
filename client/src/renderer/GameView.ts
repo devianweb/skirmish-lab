@@ -280,7 +280,11 @@ export class GameView {
   }
 
   setAurasMarker(auras: AuraMarker[] | null): void {
-    this.markerRenderer.setAuras(auras);
+    this.markerRenderer.setAuras(auras, this.cameraRole);
+  }
+
+  setBlastSharingMarker(units: MarkerUnit[] | null): void {
+    this.markerRenderer.setBlastSharing(units);
   }
 
   setPlacementMarker(marker: PlacementMarker | null): void {

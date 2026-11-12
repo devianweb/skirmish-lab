@@ -1,11 +1,25 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import * as THREE from 'three';
 import { GameView, SceneManagerLike } from '../../src/renderer/GameView';
 import { BoardRenderer } from '../../src/renderer/BoardRenderer';
 import { UnitRenderer } from '../../src/renderer/UnitRenderer';
 import { GameState } from '@skirmish-lab/shared';
 import { makeState, makeUnit, makeTerrain } from './helpers';
+
+beforeAll(() => {
+  HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+    clearRect: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    fillText: vi.fn(),
+  }) as any;
+});
 
 describe('GameView', () => {
   /** WebGL-free stand-in for SceneManager: real scene, inert loop. */
@@ -523,6 +537,30 @@ describe('GameView', () => {
       expect(scene.getObjectByName('marker-terrain-debug')).toBeUndefined();
       expect(scene.getObjectByName('marker-objectives-debug')).toBeUndefined();
       expect(scene.getObjectByName('marker-shooting-debug')).toBeUndefined();
+    });
+
+    it('sets auras using the active camera role and sets blast sharing marker', () => {
+      const sceneManager = makeSceneManager();
+      const gameView = new GameView({ sceneManager });
+      gameView.setupCameraForRole('guest');
+      const scene = sceneManager.getScene();
+
+      gameView.setAurasMarker([
+        { kind: 'hero', side: 'guest', position: { x: 0, y: 0, z: 0 }, radius: 6.5, active: true, label: 'Hero 6"' },
+      ]);
+      expect(scene.getObjectByName('marker-auras')).toBeDefined();
+      const label = scene.getObjectByName('aura-label-hero') as THREE.Mesh;
+      expect(label).toBeDefined();
+      expect(label.position.z).toBeGreaterThan(6.5);
+
+      gameView.setBlastSharingMarker([
+        { id: 'u1', position: { x: 2, y: 0, z: 3 } },
+      ]);
+      expect(scene.getObjectByName('marker-blast-sharing')).toBeDefined();
+
+      gameView.clearMarkers();
+      expect(scene.getObjectByName('marker-auras')).toBeUndefined();
+      expect(scene.getObjectByName('marker-blast-sharing')).toBeUndefined();
     });
   });
 
