@@ -22,6 +22,7 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { disposeObject3D } from './utils';
 import { outcomeMarkerKey } from './assetManifest';
 import { labelLayout, LabelBox } from './labelLayout';
+import { dangerousTerrainLabelText, hazardPulseOpacity } from '../ui/hazardIndicators';
 
 /** Minimal unit shape the markers need (decoupled from game state schema). */
 export interface MarkerUnit {
@@ -103,6 +104,14 @@ const HOST_HERO_AURA_COLOR = 0x29b6f6;
 const GUEST_HERO_AURA_COLOR = 0xef5350;
 const BLAST_AURA_COLOR = 0xff9800;
 const BLAST_SHARING_COLOR = 0xff9800;
+
+export const HAZARD_HIGHLIGHT_COLOR = 0xaeea00;
+
+/** Dangerous terrain pieces to highlight (pulsing hazard outline), and the hovered piece (with floating label). */
+export interface HazardHighlightMarker {
+  pieceIds: string[];
+  hoveredPieceId?: string | null;
+}
 
 /** One 1" keep-away disc to draw (see ui/keepAwayZones.ts). */
 export interface KeepAwayZoneMarker {
@@ -238,6 +247,8 @@ export class MarkerRenderer {
   private auras: THREE.Object3D | null = null;
   private aurasSignature: string | null = null;
   private blastSharing: THREE.Object3D | null = null;
+  private hazardHighlights: THREE.Group | null = null;
+  private hazardMaterials: THREE.LineBasicMaterial[] = [];
   private outcome: THREE.Object3D | null = null;
   private outcomeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1469,6 +1480,83 @@ export class MarkerRenderer {
     this.auras = group;
   }
 
+  /**
+   * Highlights dangerous terrain pieces with a pulsing hazard outline (about 1s period).
+   * If a piece is hovered, also attaches a floating CSS2D label with its name and rule summary.
+   */
+  setHazardHighlights(spec: HazardHighlightMarker | null, terrain: TerrainPiece[]): void {
+    this.removeMarker('hazardHighlights');
+    if (!spec || spec.pieceIds.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = 'marker-hazard-highlights';
+
+    for (const pieceId of spec.pieceIds) {
+      const piece = terrain.find((t) => t.id === pieceId);
+      if (!piece) continue;
+
+      const { hx, hz } = terrainHalfExtents(piece);
+      const baseY = piece.position.y ?? 0;
+      const y = baseY + 0.09;
+
+      const pts = [
+        new THREE.Vector3(-hx, y, -hz),
+        new THREE.Vector3(hx, y, -hz),
+        new THREE.Vector3(hx, y, hz),
+        new THREE.Vector3(-hx, y, hz),
+        new THREE.Vector3(-hx, y, -hz),
+      ];
+
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const mat = new THREE.LineBasicMaterial({
+        color: HAZARD_HIGHLIGHT_COLOR,
+        transparent: true,
+        opacity: 0.9,
+      });
+      this.hazardMaterials.push(mat);
+
+      const line = new THREE.Line(geo, mat);
+      line.name = `hazard-outline-${piece.id}`;
+      line.position.set(piece.position.x, 0, piece.position.z);
+      line.rotation.y = piece.rotation.y || 0;
+      group.add(line);
+    }
+
+    if (spec.hoveredPieceId && typeof document !== 'undefined') {
+      const hPiece = terrain.find((t) => t.id === spec.hoveredPieceId);
+      if (hPiece && isDangerousPiece(hPiece)) {
+        const el = document.createElement('div');
+        el.className = 'sl-hazard-label';
+        el.textContent = dangerousTerrainLabelText(hPiece);
+        const hex = '#' + HAZARD_HIGHLIGHT_COLOR.toString(16).padStart(6, '0');
+        el.style.cssText =
+          'pointer-events:none;user-select:none;white-space:nowrap;padding:2px 8px;border-radius:8px;' +
+          `font:600 11px sans-serif;color:#fff;background:rgba(20,24,32,0.85);border:1px solid ${hex};`;
+        const label = new CSS2DObject(el);
+        label.name = `hazard-label-${hPiece.id}`;
+        label.position.set(
+          hPiece.position.x,
+          (hPiece.position.y ?? 0) + Math.max(0.2, hPiece.scale.y) + 0.5,
+          hPiece.position.z
+        );
+        group.add(label);
+      }
+    }
+
+    this.markerGroup.add(group);
+    this.hazardHighlights = group;
+  }
+
+  /** Update animation state of markers (e.g. pulsing hazard outline). */
+  updateAnimation(timeMs: number = Date.now()): void {
+    if (this.hazardMaterials.length > 0) {
+      const opacity = hazardPulseOpacity(timeMs);
+      for (const mat of this.hazardMaterials) {
+        mat.opacity = opacity;
+      }
+    }
+  }
+
   /** Face the floating outcome token toward the active camera each frame. */
   orientOutcomeToCamera(camera: THREE.Camera | null): void {
     if (!this.outcome || !camera) return;
@@ -1506,6 +1594,7 @@ export class MarkerRenderer {
     collectLabels(this.thresholdRings);
     collectLabels(this.aimLines);
     collectLabels(this.movePath);
+    collectLabels(this.hazardHighlights);
 
     if (labelObjects.length === 0) return;
 
@@ -1600,6 +1689,7 @@ export class MarkerRenderer {
     this.keepAwaySignature = null;
     this.removeMarker('keepAwayZones');
     this.removeMarker('placement');
+    this.removeMarker('hazardHighlights');
     for (const kind of ['targetBadges', 'thresholdRings', 'auras'] as const) this.removeMarker(kind);
     this.targetBadgesSignature = null;
     this.thresholdRingsSignature = null;
@@ -1651,6 +1741,7 @@ export class MarkerRenderer {
       | 'targetBadges'
       | 'thresholdRings'
       | 'auras'
+      | 'hazardHighlights'
   ): void {
     const current = this[kind];
     if (current) {
@@ -1659,7 +1750,8 @@ export class MarkerRenderer {
         kind === 'aimLines' ||
         kind === 'targetBadges' ||
         kind === 'thresholdRings' ||
-        kind === 'auras'
+        kind === 'auras' ||
+        kind === 'hazardHighlights'
       ) {
         current.traverse((child) => {
           if (child instanceof CSS2DObject) child.element.remove();
@@ -1668,6 +1760,9 @@ export class MarkerRenderer {
       this.markerGroup.remove(current);
       disposeObject3D(current);
       this[kind] = null;
+      if (kind === 'hazardHighlights') {
+        this.hazardMaterials = [];
+      }
     }
   }
 
