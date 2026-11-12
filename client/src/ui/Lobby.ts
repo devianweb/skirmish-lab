@@ -410,6 +410,17 @@ export class Lobby {
       this.roomCode = msg.code;
       const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
       this.role = assignedRole;
+      if (typeof msg.rejoinToken === 'string') {
+        const active = this.sessionStore.getActiveSession();
+        if (active && active.roomCode.toUpperCase() === String(msg.code).toUpperCase()) {
+          this.sessionStore.saveActiveSession({
+            ...active,
+            role: assignedRole,
+            rejoinToken: msg.rejoinToken,
+            timestamp: Date.now(),
+          });
+        }
+      }
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
       this.webrtcClient = new WebRTCClient();
@@ -701,7 +712,11 @@ export class Lobby {
           if (getConnectionStatusView(this.connectionState).buttonsDisabled) return;
           this.isCreatedRoom = false;
           this.beginRoomRequest('join');
-          this.signalingClient.joinRoom(activeSession.roomCode);
+          if (activeSession.rejoinToken) {
+            this.signalingClient.joinRoom(activeSession.roomCode, activeSession.rejoinToken);
+          } else {
+            this.signalingClient.joinRoom(activeSession.roomCode);
+          }
         });
 
         this.container.querySelector('#abandonBtn')?.addEventListener('click', () => {

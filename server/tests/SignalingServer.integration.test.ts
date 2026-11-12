@@ -127,8 +127,8 @@ describe('SignalingServer Integration', () => {
     await new Promise((resolve) => guest.once('message', resolve));
     await new Promise((resolve) => host.once('message', resolve));
     
-    // Request dice roll
-    guest.send(JSON.stringify({
+    // Request dice roll from host
+    host.send(JSON.stringify({
       type: 'roll-dice-request',
       rollId: 'test-roll-1',
       dice: [{ count: 2, sides: 6, purpose: 'to-hit' }]
@@ -231,9 +231,14 @@ describe('SignalingServer Integration', () => {
     expect(guestJoinMsg.type).toBe('room-joined');
     expect(guestJoinMsg.role).toBe('guest');
 
-    // Host disconnects, guest remains in room
+    // Host disconnects, guest remains in room and receives disconnect notice
+    const disconnectNotice = new Promise<any>((resolve) => {
+      guest.once('message', (data) => resolve(JSON.parse(data.toString())));
+    });
     host.close();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const noticeMsg = await disconnectNotice;
+    expect(noticeMsg.type).toBe('error');
+    expect(noticeMsg.message).toBe('Host disconnected');
 
     // New host socket joins room using join-room message
     const newHost = new WebSocket(`ws://localhost:${port}`);
@@ -316,8 +321,13 @@ describe('SignalingServer Integration', () => {
     expect(firstRoll.rollId).toBe('roll-abc');
 
     // Simulate host network drop
+    const hostClosed = new Promise((resolve) => hostWs.once('close', resolve));
     hostWs.close();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await hostClosed;
+    // Wait until server processes close event
+    while (server['roomManager'].getRoom(code)?.host !== null) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
 
     // Room is preserved during grace period
     expect(server['roomManager'].getRoom(code)).toBeDefined();
@@ -351,5 +361,405 @@ describe('SignalingServer Integration', () => {
     expect(secondRoll.results).toEqual(firstRoll.results);
 
     reconnectedHost.close();
+  });
+
+  describe('G-01: dice request validation', () => {
+    it('rejects invalid dice payloads with an error message without crashing', async () => {
+      const host = new WebSocket(`ws://localhost:${port}`);
+      await new Promise((resolve) => host.on('open', resolve));
+
+      const nextMsg = () =>
+        new Promise<any>((resolve) => {
+          host.once('message', (data) => resolve(JSON.parse(data.toString())));
+        });
+
+      host.send(JSON.stringify({ type: 'create-room' }));
+      await nextMsg();
+
+      const invalidDicePayloads = [
+        null,
+        [],
+        Array.from({ length: 65 }, () => ({ count: 1, sides: 6 })),
+        [{ count: 0, sides: 6 }],
+        [{ count: -2, sides: 6 }],
+        [{ count: 1.5, sides: 6 }],
+        [{ count: 501, sides: 6 }],
+        [{ count: 1, sides: 0 }],
+        [{ count: 1, sides: 1 }],
+        [{ count: 1, sides: -6 }],
+        [{ count: 1, sides: 2.5 }],
+        [{ count: 1, sides: 21 }],
+        [
+          { count: 500, sides: 6 },
+          { count: 500, sides: 6 },
+          { count: 500, sides: 6 },
+          { count: 500, sides: 6 },
+          { count: 1, sides: 6 },
+        ],
+      ];
+
+      for (let i = 0; i < invalidDicePayloads.length; i++) {
+        host.send(
+          JSON.stringify({
+            type: 'roll-dice-request',
+            rollId: `bad-${i}`,
+            dice: invalidDicePayloads[i],
+          })
+        );
+        const reply = await nextMsg();
+        expect(reply.type).toBe('error');
+      }
+
+      // Server remains healthy and accepts a valid boundary request (total count 2000, sides 2..20)
+      host.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          rollId: 'valid-boundary',
+          dice: [
+            { count: 500, sides: 2 },
+            { count: 500, sides: 20 },
+            { count: 500, sides: 6 },
+            { count: 500, sides: 6 },
+          ],
+        })
+      );
+      const okReply = await nextMsg();
+      expect(okReply.type).toBe('roll-dice-result');
+      expect(okReply.results).toHaveLength(4);
+      expect(okReply.results[0].rolls).toHaveLength(500);
+
+      host.close();
+    });
+  });
+
+  describe('G-05: host-only dice, rollId validation, spec collisions, and cache eviction', () => {
+    it('rejects dice requests from guest, missing/empty rollId, or mismatched repeat rollId specs', async () => {
+      const host = new WebSocket(`ws://localhost:${port}`);
+      const guest = new WebSocket(`ws://localhost:${port}`);
+      await Promise.all([
+        new Promise((resolve) => host.on('open', resolve)),
+        new Promise((resolve) => guest.on('open', resolve)),
+      ]);
+
+      const nextMsg = (ws: WebSocket) =>
+        new Promise<any>((resolve) => {
+          ws.once('message', (data) => resolve(JSON.parse(data.toString())));
+        });
+
+      host.send(JSON.stringify({ type: 'create-room' }));
+      const { code } = await nextMsg(host);
+
+      guest.send(JSON.stringify({ type: 'join-room', code }));
+      await nextMsg(guest);
+      await nextMsg(host); // peer-joined
+
+      // Guest attempts to pre-seed or request dice -> rejected with error
+      guest.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          rollId: 'shared-roll-id',
+          dice: [{ count: 3, sides: 2, purpose: 'to-hit' }],
+        })
+      );
+      const guestErr = await nextMsg(guest);
+      expect(guestErr.type).toBe('error');
+
+      // Missing or empty rollId from host -> rejected with error
+      host.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          rollId: '',
+          dice: [{ count: 2, sides: 6 }],
+        })
+      );
+      expect((await nextMsg(host)).type).toBe('error');
+
+      host.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          dice: [{ count: 2, sides: 6 }],
+        })
+      );
+      expect((await nextMsg(host)).type).toBe('error');
+
+      // Host rolls with 'shared-roll-id' -> succeeds (not poisoned by guest)
+      host.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          rollId: 'shared-roll-id',
+          dice: [{ count: 2, sides: 6, purpose: 'to-hit' }],
+        })
+      );
+      const [hostRoll, guestRoll] = await Promise.all([nextMsg(host), nextMsg(guest)]);
+      expect(hostRoll.type).toBe('roll-dice-result');
+      expect(guestRoll.type).toBe('roll-dice-result');
+      expect(hostRoll.results[0].rolls).toHaveLength(2);
+
+      // Repeat rollId with DIFFERENT specs -> rejected with error
+      host.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          rollId: 'shared-roll-id',
+          dice: [{ count: 5, sides: 6, purpose: 'to-hit' }],
+        })
+      );
+      const collisionErr = await nextMsg(host);
+      expect(collisionErr.type).toBe('error');
+
+      // Repeat rollId with IDENTICAL specs -> returns cached results
+      host.send(
+        JSON.stringify({
+          type: 'roll-dice-request',
+          rollId: 'shared-roll-id',
+          dice: [{ count: 2, sides: 6, purpose: 'to-hit' }],
+        })
+      );
+      const [hostRetry, guestRetry] = await Promise.all([nextMsg(host), nextMsg(guest)]);
+      expect(hostRetry.type).toBe('roll-dice-result');
+      expect(hostRetry.results).toEqual(hostRoll.results);
+      expect(guestRetry.results).toEqual(hostRoll.results);
+
+      host.close();
+      guest.close();
+    });
+
+    it('evicts the oldest rollCache entry when cache size exceeds 100', async () => {
+      const host = new WebSocket(`ws://localhost:${port}`);
+      await new Promise((resolve) => host.on('open', resolve));
+
+      const nextMsg = () =>
+        new Promise<any>((resolve) => {
+          host.once('message', (data) => resolve(JSON.parse(data.toString())));
+        });
+
+      host.send(JSON.stringify({ type: 'create-room' }));
+      const { code } = await nextMsg();
+
+      for (let i = 0; i < 101; i++) {
+        host.send(
+          JSON.stringify({
+            type: 'roll-dice-request',
+            rollId: `r-${i}`,
+            dice: [{ count: 1, sides: 6 }],
+          })
+        );
+        await nextMsg();
+      }
+
+      const room = server['roomManager'].getRoom(code)!;
+      expect(room.rollCache?.size).toBe(100);
+      expect(room.rollCache?.has('r-0')).toBe(false);
+      expect(room.rollCache?.has('r-100')).toBe(true);
+
+      host.close();
+    });
+  });
+
+  describe('G-02: seat takeover protection & rejoin tokens', () => {
+    it('issues rejoinToken on room-created and room-joined, blocks unauthorized takeover of OPEN seats, and cleans up replaced clientRooms entries', async () => {
+      const host = new WebSocket(`ws://localhost:${port}`);
+      const guest = new WebSocket(`ws://localhost:${port}`);
+      const attacker = new WebSocket(`ws://localhost:${port}`);
+      await Promise.all([
+        new Promise((resolve) => host.on('open', resolve)),
+        new Promise((resolve) => guest.on('open', resolve)),
+        new Promise((resolve) => attacker.on('open', resolve)),
+      ]);
+
+      const nextMsg = (ws: WebSocket) =>
+        new Promise<any>((resolve) => {
+          ws.once('message', (data) => resolve(JSON.parse(data.toString())));
+        });
+
+      host.send(JSON.stringify({ type: 'create-room' }));
+      const created = await nextMsg(host);
+      expect(created.type).toBe('room-created');
+      expect(typeof created.rejoinToken).toBe('string');
+      expect(created.rejoinToken.length).toBeGreaterThan(0);
+      const code = created.code;
+      const hostToken = created.rejoinToken;
+
+      guest.send(JSON.stringify({ type: 'join-room', code }));
+      const joined = await nextMsg(guest);
+      await nextMsg(host); // peer-joined
+      expect(joined.type).toBe('room-joined');
+      expect(typeof joined.rejoinToken).toBe('string');
+      expect(joined.rejoinToken.length).toBeGreaterThan(0);
+      const guestToken = joined.rejoinToken;
+
+      // Attacker tries to hijack open host seat via reconnect-room (no token / wrong token)
+      attacker.send(JSON.stringify({ type: 'reconnect-room', code, role: 'host' }));
+      expect((await nextMsg(attacker)).type).toBe('error');
+
+      attacker.send(JSON.stringify({ type: 'reconnect-room', code, role: 'host', rejoinToken: 'bad' }));
+      expect((await nextMsg(attacker)).type).toBe('error');
+
+      // Attacker tries to hijack open guest seat via reconnect-room
+      attacker.send(JSON.stringify({ type: 'reconnect-room', code, role: 'guest' }));
+      expect((await nextMsg(attacker)).type).toBe('error');
+
+      // Original host is still active and able to relay offers to guest
+      host.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: 'v=0' } }));
+      const relayed = await nextMsg(guest);
+      expect(relayed.type).toBe('offer');
+
+      // Legitimate host replaces its still-OPEN seat using its rejoinToken via reconnect-room
+      const newHost = new WebSocket(`ws://localhost:${port}`);
+      await new Promise((resolve) => newHost.on('open', resolve));
+
+      newHost.send(JSON.stringify({ type: 'reconnect-room', code, role: 'host', rejoinToken: hostToken }));
+      const [reconReply, peerReconNotice] = await Promise.all([nextMsg(newHost), nextMsg(guest)]);
+      expect(reconReply.type).toBe('room-reconnected');
+      expect(peerReconNotice).toEqual({ type: 'peer-reconnected', role: 'host' });
+
+      // Old replaced host socket was removed from clientRooms -> cannot relay messages anymore
+      host.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: 'stale' } }));
+      const staleErr = await nextMsg(host);
+      expect(staleErr.type).toBe('error');
+      expect(staleErr.message).toBe('Not in a room');
+
+      // Legitimate guest resumes its still-OPEN seat using its rejoinToken via join-room
+      const newGuest = new WebSocket(`ws://localhost:${port}`);
+      await new Promise((resolve) => newGuest.on('open', resolve));
+
+      newGuest.send(JSON.stringify({ type: 'join-room', code, rejoinToken: guestToken }));
+      const [guestRejoin, hostPeerJoined] = await Promise.all([nextMsg(newGuest), nextMsg(newHost)]);
+      expect(guestRejoin.type).toBe('room-joined');
+      expect(guestRejoin.role).toBe('guest');
+      expect(typeof guestRejoin.rejoinToken).toBe('string');
+      expect(hostPeerJoined.type).toBe('peer-joined');
+
+      // Old replaced guest socket was removed from clientRooms
+      guest.send(JSON.stringify({ type: 'answer', sdp: { type: 'answer', sdp: 'stale' } }));
+      expect((await nextMsg(guest)).type).toBe('error');
+
+      host.close();
+      guest.close();
+      attacker.close();
+      newHost.close();
+      newGuest.close();
+    });
+  });
+
+  describe('G-25 & G-29: limits, malformed messages, and leave/disconnect notices', () => {
+    it('configures 64 KB maxPayload on WebSocketServer and rejects oversized payloads', async () => {
+      expect((server['wss'].options as any).maxPayload).toBe(64 * 1024);
+
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      await new Promise((resolve) => ws.on('open', resolve));
+
+      const closePromise = new Promise<number>((resolve) => {
+        ws.once('close', (code) => resolve(code));
+      });
+
+      ws.send('x'.repeat(65 * 1024));
+      const closeCode = await closePromise;
+      expect(closeCode).toBe(1009);
+    });
+
+    it('handles malformed messages and leave-room notifications cleanly', async () => {
+      const host = new WebSocket(`ws://localhost:${port}`);
+      const guest = new WebSocket(`ws://localhost:${port}`);
+      await Promise.all([
+        new Promise((resolve) => host.on('open', resolve)),
+        new Promise((resolve) => guest.on('open', resolve)),
+      ]);
+
+      const nextMsg = (ws: WebSocket) =>
+        new Promise<any>((resolve) => {
+          ws.once('message', (data) => resolve(JSON.parse(data.toString())));
+        });
+
+      // Non-JSON, JSON primitive, missing type, unknown type, missing code/role
+      host.send('not-json{{{');
+      expect((await nextMsg(host)).type).toBe('error');
+
+      host.send('null');
+      expect((await nextMsg(host)).type).toBe('error');
+
+      host.send(JSON.stringify({}));
+      expect((await nextMsg(host)).type).toBe('error');
+
+      host.send(JSON.stringify({ type: 'unknown-cmd' }));
+      expect((await nextMsg(host)).type).toBe('error');
+
+      host.send(JSON.stringify({ type: 'join-room' }));
+      expect((await nextMsg(host)).type).toBe('error');
+
+      host.send(JSON.stringify({ type: 'reconnect-room', code: 'ABC-123', role: 'spectator' }));
+      expect((await nextMsg(host)).type).toBe('error');
+
+      // Create and join a room, then guest leaves explicitly via leave-room
+      host.send(JSON.stringify({ type: 'create-room' }));
+      const { code } = await nextMsg(host);
+
+      guest.send(JSON.stringify({ type: 'join-room', code }));
+      await nextMsg(guest);
+      await nextMsg(host); // peer-joined
+
+      guest.send(JSON.stringify({ type: 'leave-room' }));
+      const leaveNotice = await nextMsg(host);
+      expect(leaveNotice).toEqual({ type: 'error', message: 'Guest left room' });
+
+      host.close();
+      guest.close();
+    });
+
+    it('enforces at most one room per socket and refuses room creation beyond 500 rooms with an error', async () => {
+      const host = new WebSocket(`ws://localhost:${port}`);
+      const guest = new WebSocket(`ws://localhost:${port}`);
+      await Promise.all([
+        new Promise((resolve) => host.on('open', resolve)),
+        new Promise((resolve) => guest.on('open', resolve)),
+      ]);
+
+      const nextMsg = (ws: WebSocket) =>
+        new Promise<any>((resolve) => {
+          ws.once('message', (data) => resolve(JSON.parse(data.toString())));
+        });
+
+      host.send(JSON.stringify({ type: 'create-room' }));
+      const firstRoom = await nextMsg(host);
+      guest.send(JSON.stringify({ type: 'join-room', code: firstRoom.code }));
+      await nextMsg(guest);
+      await nextMsg(host); // peer-joined
+
+      // Host creates a second room on the same socket -> guest in first room gets 'Host left room'
+      host.send(JSON.stringify({ type: 'create-room' }));
+      const [secondRoom, guestNotice] = await Promise.all([nextMsg(host), nextMsg(guest)]);
+      expect(secondRoom.type).toBe('room-created');
+      expect(secondRoom.code).not.toBe(firstRoom.code);
+      expect(guestNotice).toEqual({ type: 'error', message: 'Host left room' });
+      expect(server['roomManager'].getRoom(firstRoom.code)?.host).toBeNull();
+      expect(server['roomManager'].getRoom(secondRoom.code)?.host).toBeDefined();
+
+      // Fill room manager to 500 rooms, then verify 501st socket receives an error
+      const roomManager = server['roomManager'];
+      const dummySockets: WebSocket[] = [];
+      while (roomManager.getRoomCount() < 500) {
+        const fakeWs = { readyState: WebSocket.OPEN } as unknown as WebSocket;
+        dummySockets.push(fakeWs);
+        roomManager.createRoom(fakeWs);
+      }
+      expect(roomManager.getRoomCount()).toBe(500);
+
+      const overflowClient = new WebSocket(`ws://localhost:${port}`);
+      await new Promise((resolve) => overflowClient.on('open', resolve));
+      overflowClient.send(JSON.stringify({ type: 'create-room' }));
+      const overflowReply = await nextMsg(overflowClient);
+      expect(overflowReply.type).toBe('error');
+
+      // Clean up dummy rooms so other tests are unaffected
+      for (const fakeWs of dummySockets) {
+        roomManager.removeClient(fakeWs);
+      }
+      roomManager['rooms'].forEach((r, c) => {
+        if (!r.host && !r.guest) roomManager['rooms'].delete(c);
+      });
+
+      host.close();
+      guest.close();
+      overflowClient.close();
+    });
   });
 });

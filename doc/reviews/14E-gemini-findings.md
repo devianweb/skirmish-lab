@@ -42,7 +42,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** critical
 - **Category:** security
 - **Location:** `server/src/SignalingServer.ts:179-205`, `server/src/DiceRoller.ts:5-29`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** `handleDiceRoll` and `DiceRoller.rollDice` do not validate that `message.dice` is a bounded array of positive integer `count` and `sides` values, allowing any client to crash or freeze the signaling server.
 - **Failure scenario:** A client in a room sends `{ type: "roll-dice-request", rollId: "r1", dice: [{ count: 1, sides: 0 }] }` (or `sides: -6`, `sides: 1.5`, or `dice: null`), which throws an uncaught `RangeError [ERR_OUT_OF_RANGE]` in `crypto.randomInt(1, spec.sides + 1)` (`DiceRoller.ts:12`); or sends `{ count: 1e9, sides: 6 }`, which blocks the single-threaded Node.js event loop in a synchronous loop and exhausts process memory on the Azure Free F1 instance.
 - **Suggested fix:** In `handleDiceRoll`, validate that `Array.isArray(message.dice)` (`1 <= message.dice.length <= 64`) and that every spec has integer `1 <= count <= 200` and `1 <= sides <= 100` before calling `rollDice`, returning an `error` message otherwise.
@@ -52,7 +52,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** critical
 - **Category:** security
 - **Location:** `server/src/Room.ts:97-115`, `server/src/SignalingServer.ts:137-154`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** `RoomManager.reconnectRoom` unconditionally overwrites `room.host` or `room.guest` even when that role slot already has an open WebSocket connection, allowing unauthenticated role hijacking and leaving the displaced socket orphaned in `clientRooms`.
 - **Failure scenario:** While a match is active in room `ABC-DEF` with a connected host, another client sends `{ type: "reconnect-room", code: "ABC-DEF", role: "host" }`; `reconnectRoom` overwrites `room.host` with the new socket (redirecting all signaling and dice broadcasts to it), while the original host socket remains mapped in `this.clientRooms` and has all subsequent `relayMessage` calls silently dropped because `room.host !== ws`.
 - **Suggested fix:** Reject `reconnectRoom` when the target slot (`room.host` or `room.guest`) already holds a different socket with `readyState === WebSocket.OPEN`, and clean up any prior `this.clientRooms` entry before binding a socket to a room.
@@ -82,7 +82,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** security
 - **Location:** `server/src/SignalingServer.ts:179-205`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** `handleDiceRoll` neither restricts `roll-dice-request` to the room's host nor checks that a cached `room.rollCache.get(message.rollId)` entry matches the requested `DiceSpec[]` (and fails to evict falsy `rollId` keys when `size > 100`).
 - **Failure scenario:** Because the guest generates `action.id` before sending `action-request` to the host and the host requests dice with `rollId = action.id` (`GameManager.ts:323`), a guest can send `{ type: "roll-dice-request", rollId: action.id, dice: [{ count: 10, sides: 1, purpose: "to-hit" }] }` to the signaling server first; when the host requests the real combat dice for `action.id`, the server returns the guest's pre-populated all-1s roll from `rollCache`.
 - **Suggested fix:** Require `room.host === ws` and a non-empty string `rollId` in `handleDiceRoll`, store the serialized `DiceSpec[]` alongside cached results so mismatched specs are rejected, and check `if (firstKey !== undefined)` when evicting from `rollCache`.
@@ -282,7 +282,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** security
 - **Location:** `server/src/SignalingServer.ts:25, 39-47, 73-135`, `server/src/Room.ts:32-61, 143-156`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** The signaling server sets no `maxPayload` on `WebSocketServer` (allowing 100 MB messages), enforces no cap on room creation or per-socket room membership, and never expires headless rooms while a remaining guest sends keep-alive pings.
 - **Failure scenario:** When a host closes their tab and never returns, the guest's 25s `{ type: 'ping' }` calls `roomManager.updateActivity(roomCode)` (`SignalingServer.ts:97`), keeping `now - room.lastActivity < 25s` so `hostGoneLongEnough` (`!room.host && now - room.lastActivity > graceTimeout` at `Room.ts:147`) is never true and the room stays in memory for 3 hours; meanwhile, a single client can send repeated `create-room` messages or 99 MB WebSocket frames to exhaust server memory.
 - **Suggested fix:** Configure `maxPayload: 64 * 1024` on `WebSocketServer`, track `hostDisconnectedAt` / `guestDisconnectedAt` timestamps separately from `lastActivity`, cap `this.rooms.size`, and clean up any previous room when a socket calls `create-room` or `join-room`.
@@ -322,7 +322,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** test-gap
 - **Location:** `server/tests/RoomManager.test.ts:1-165`, `server/tests/DiceRoller.test.ts:1-60`, `server/tests/SignalingServer.integration.test.ts:1-168`
-- **Status:** verified
+- **Status:** fixed in #387
 - **Defect:** Server test suites lack tests for room expiration/grace cleanup (`RoomManager.cleanup`), invalid/malformed signaling and dice requests, `rollId` cache collisions, and disconnect/reconnect notifications, while `RoomManager.test.ts` leaks `setInterval` timers on every test.
 - **Failure scenario:** Because `RoomManager.test.ts` never calls `roomManager.destroy()` in `afterEach` and has zero tests for `cleanup()`, the broken `hostGoneLongEnough` grace-window logic (`Room.ts:147`) and the missing input validation in `SignalingServer.ts` and `DiceRoller.ts` went undetected.
 - **Suggested fix:** Add `afterEach(() => roomManager.destroy())` and fake-timer tests for `cleanup()` in `RoomManager.test.ts`, and add negative/boundary and reconnect/disconnect tests in `DiceRoller.test.ts` and `SignalingServer.integration.test.ts`.

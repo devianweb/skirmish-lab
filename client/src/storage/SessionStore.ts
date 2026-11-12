@@ -6,6 +6,7 @@ export interface ActiveSession {
   playerId: string;
   playerName: string;
   armyId?: string;
+  rejoinToken?: string;
   timestamp: number;
 }
 
@@ -74,7 +75,18 @@ export class SessionStore {
   }
 
   saveActiveSession(session: ActiveSession): void {
-    const payload = JSON.stringify(session);
+    let toSave = session;
+    if (toSave.rejoinToken === undefined) {
+      const existing = this.getActiveSession();
+      if (
+        existing?.rejoinToken &&
+        existing.roomCode.toUpperCase() === toSave.roomCode.toUpperCase() &&
+        existing.role === toSave.role
+      ) {
+        toSave = { ...toSave, rejoinToken: existing.rejoinToken };
+      }
+    }
+    const payload = JSON.stringify(toSave);
     this.setItem(SessionStore.ACTIVE_SESSION_KEY, payload);
   }
 

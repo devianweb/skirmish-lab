@@ -54,4 +54,73 @@ describe('DiceRoller', () => {
     expect(roll).toBeGreaterThanOrEqual(1);
     expect(roll).toBeLessThanOrEqual(6);
   });
+
+  describe('input validation (G-01)', () => {
+    it('rejects non-array, empty array, or more than 64 dice specs', () => {
+      expect(diceRoller.isValidSpecs(null)).toBe(false);
+      expect(diceRoller.isValidSpecs(undefined)).toBe(false);
+      expect(diceRoller.isValidSpecs({})).toBe(false);
+      expect(diceRoller.isValidSpecs([])).toBe(false);
+      const tooMany = Array.from({ length: 65 }, () => ({ count: 1, sides: 6 }));
+      expect(diceRoller.isValidSpecs(tooMany)).toBe(false);
+      const maxAllowed = Array.from({ length: 64 }, () => ({ count: 1, sides: 6 }));
+      expect(diceRoller.isValidSpecs(maxAllowed)).toBe(true);
+    });
+
+    it('enforces integer count in 1..500 and integer sides in 2..20', () => {
+      expect(diceRoller.isValidSpecs([{ count: 0, sides: 6 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: -1, sides: 6 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 1.5, sides: 6 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 501, sides: 6 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 500, sides: 6 }])).toBe(true);
+
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: 0 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: 1 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: -6 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: 2.5 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: 21 }])).toBe(false);
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: 2 }])).toBe(true);
+      expect(diceRoller.isValidSpecs([{ count: 1, sides: 20 }])).toBe(true);
+    });
+
+    it('enforces a maximum total dice count of 2000 across all specs', () => {
+      const exact2000 = [
+        { count: 500, sides: 6 },
+        { count: 500, sides: 6 },
+        { count: 500, sides: 6 },
+        { count: 500, sides: 6 },
+      ];
+      expect(diceRoller.isValidSpecs(exact2000)).toBe(true);
+
+      const over2000 = [...exact2000, { count: 1, sides: 6 }];
+      expect(diceRoller.isValidSpecs(over2000)).toBe(false);
+    });
+
+    it('compares dice spec arrays accurately for rollCache collision checks (G-05)', () => {
+      expect(
+        diceRoller.areSpecsEqual(
+          [{ count: 2, sides: 6, purpose: 'to-hit' }],
+          [{ count: 2, sides: 6, purpose: 'to-hit' }]
+        )
+      ).toBe(true);
+      expect(
+        diceRoller.areSpecsEqual(
+          [{ count: 2, sides: 6, purpose: 'to-hit' }],
+          [{ count: 3, sides: 6, purpose: 'to-hit' }]
+        )
+      ).toBe(false);
+      expect(
+        diceRoller.areSpecsEqual(
+          [{ count: 2, sides: 6, purpose: 'to-hit' }],
+          [{ count: 2, sides: 3, purpose: 'to-hit' }]
+        )
+      ).toBe(false);
+      expect(
+        diceRoller.areSpecsEqual(
+          [{ count: 2, sides: 6, purpose: 'to-hit' }],
+          [{ count: 2, sides: 6, purpose: 'defense' }]
+        )
+      ).toBe(false);
+    });
+  });
 });

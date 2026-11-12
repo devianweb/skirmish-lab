@@ -14,12 +14,13 @@ This document details the networking architecture for the SkirmishLab browser ga
 - **Code Format:** XXX-XXX (e.g., ABC-123, using alphanumeric characters)
 - **Generation:** Random generation on host request
 - **No Matchmaking:** Direct invite only
+- **Limits:** WebSocket frames are capped at 64 KB (`maxPayload = 64 * 1024`), each socket may occupy at most one room at a time (creating or joining a new room vacates the socket's previous room, deleting it if empty), and the server allows at most 500 rooms in total (refusing room creation beyond 500 with an `error` message)
 - **Ephemeral:** Rooms expire after inactivity or when game ends
 - **Cleanup:** Server periodically cleans up expired rooms
 
 ### Room Lifecycle
-1. Host requests room creation → Server generates unique XXX-XXX code → Room created with host
-2. Guest joins with code → Server adds guest to room → Both peers notified
+1. Host requests room creation → Server generates unique XXX-XXX code and a random seat `rejoinToken` (`crypto.randomUUID()`) → Room created with host
+2. Guest joins with code → Server adds guest to room and issues a random seat `rejoinToken` → Both peers notified
 3. Signaling exchange occurs (offer/answer/ICE) → Peers establish WebRTC connection
 4. Once data channel open, server no longer relays game messages
 5. Room expires on inactivity timeout or explicit game end
@@ -27,7 +28,7 @@ This document details the networking architecture for the SkirmishLab browser ga
 
 ### Room Expiration Rules
 - **Inactivity:** No signaling activity for 5 minutes (`inactivityTimeout = 5 * 60 * 1000`)
-- **Disconnect Grace Window:** If host or guest disconnects, the room is preserved for 5 minutes (`graceTimeout = 5 * 60 * 1000`) rather than destroyed immediately, allowing reboots or temporary socket drops to recover without losing the session
+- **Disconnect Grace Window:** If host or guest disconnects, the room is preserved for 5 minutes (`graceTimeout = 5 * 60 * 1000`) rather than destroyed immediately, allowing reboots or temporary socket drops to recover without losing the session. Host disconnect time (`hostDisconnectedAt`) is tracked independently of `lastActivity` so a room whose host has been gone past the 5-minute grace window expires even if the guest keeps sending keep-alive pings
 - **Post-game:** Room expires after game ends + grace period
 - **Max lifetime:** Absolute maximum room lifetime (3 hours) as safety measure
 
@@ -58,16 +59,22 @@ All messages are JSON serialized. Messages flow over WebRTC data channel for gam
 ```typescript
 type SignalingMessage =
   | { type: 'create-room' }
-  | { type: 'room-created', code: string }
-  | { type: 'join-room', code: string }
-  | { type: 'room-joined', code: string, role: 'host' | 'guest' }
+  | { type: 'room-created', code: string, rejoinToken?: string }
+  | { type: 'join-room', code: string, rejoinToken?: string }
+  | { type: 'room-joined', code: string, role: 'host' | 'guest', rejoinToken?: string }
+  | { type: 'reconnect-room', code: string, role: 'host' | 'guest', rejoinToken?: string }
+  | { type: 'room-reconnected', code: string, role: 'host' | 'guest' }
   | { type: 'peer-joined' }
+  | { type: 'peer-reconnected', role: 'host' | 'guest' }
   | { type: 'offer', sdp: RTCSessionDescriptionInit }
   | { type: 'answer', sdp: RTCSessionDescriptionInit }
   | { type: 'ice-candidate', candidate: RTCIceCandidateInit }
   | { type: 'error', message: string }
   | { type: 'roll-dice-request', rollId: string, dice: DiceSpec[] }
   | { type: 'roll-dice-result', rollId: string, results: DiceResult[] }
+  | { type: 'leave-room' }
+  | { type: 'ping' }
+  | { type: 'pong' }
 ```
 
 ### Game Messages (WebRTC Data Channel)
@@ -87,7 +94,7 @@ type GameMessage =
 - **Signaling Server:** Only routes signaling messages and dice roll requests/results. Never routes game messages.
 - **Host:** Receives action-requests from guest, validates, sends state-update or action-rejected
 - **Guest:** Sends action-requests to host, applies state-updates from host, caches snapshots
-- **Dice:** Any peer can request dice roll via signaling server, server rolls and broadcasts result to both peers
+- **Dice:** Only the room's host socket may send `roll-dice-request` (with a non-empty `rollId` and 1–64 dice specs, each with integer `count` 1–500, integer `sides` 2–20, and total count ≤ 2000). The server rolls and broadcasts `roll-dice-result` to both peers simultaneously, and caches each roll's specs alongside its results (`room.rollCache`, up to 100 entries): an identical repeat `rollId` returns the cached results, while a repeat `rollId` with different specs is rejected with an `error` message.
 
 ## Host Authority Model
 
@@ -202,8 +209,14 @@ The server's `ping` handler refreshes room activity, preventing mid-game
 inactivity cleanup.
 
 If the WebSocket disconnects unexpectedly (e.g. WiFi hiccup or Azure socket recycling),
-`SignalingClient` automatically reconnects and issues `reconnect-room` to re-bind
-to its active room slot.
+`SignalingClient` automatically reconnects and issues `reconnect-room` (including its seat
+`rejoinToken`) to re-bind to its active room slot.
+
+### Seat Rejoin Tokens
+- `room-created` and `room-joined` return a random `rejoinToken` (`crypto.randomUUID()`) for the client's assigned seat (`host` or `guest`).
+- The client stores `rejoinToken` in `SignalingClient` and persists it with `ActiveSession` in `SessionStore` (`localStorage`), sending it with `reconnect-room` and with `join-room` when resuming a match.
+- Taking a seat whose current WebSocket is still `OPEN` requires the matching `rejoinToken` (preventing a second tab or another client with the invite code from hijacking an active seat). A vacant or closed seat can be taken with the invite code as before.
+- When a socket is replaced or leaves a room, its old `clientRooms` entry is removed immediately.
 
 ### Resilient Server-Rolled Dice
 To prevent actions from hanging or failing if a temporary disconnect occurs right
@@ -287,6 +300,8 @@ if (now - lastPongTime > timeout) {
 ```typescript
 {
   port: 8080,
+  maxPayload: 65536,        // 64 KB WebSocket frame limit
+  maxRooms: 500,            // Maximum concurrent rooms (at most 1 room per socket)
   roomCodeLength: 6,        // XXX-XXX format
   roomInactivityTimeout: 300000, // 5 minutes
   roomGraceTimeout: 300000,      // 5 minutes disconnect grace window
