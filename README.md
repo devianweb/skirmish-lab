@@ -25,6 +25,7 @@ SkirmishLab simulates the skirmish games from [One Page Rules](https://onepageru
 - Direct play via XXX-XXX invite codes (no matchmaking)
 - Server-rolled dice for fair play
 - 3D battlefield rendering with controllable cameras
+- Two ready-made 400-pt armies: Human Defense Force and Orc Marauders (more later)
 - Ruleset-agnostic engine — armies and rules are data, not code
 - Low-poly art style with original assets
 

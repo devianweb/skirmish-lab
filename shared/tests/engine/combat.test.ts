@@ -27,9 +27,9 @@ describe('combat: core Quality / Defense & Cover axioms', () => {
   });
 
   it('enforces natural 1 always fails and natural 6 always succeeds despite modifiers', () => {
-    // Q2+ with Marksman (+1) still misses on natural 1.
+    // Q2+ with Thrust's charge bonus (+1) still misses on natural 1.
     const nat1 = resolveAttack(
-      { quality: 2, specialRules: ['marksman'] },
+      { quality: 2, specialRules: ['thrust'], isMelee: true, isCharging: true },
       { defense: 2, weaponRules: ['ap(4)'] } as any,
       1,
       { toHit: [1], defense: [6] }
@@ -231,10 +231,10 @@ describe('combat: special rules & weapon traits', () => {
     expect(surge.hitCount).toBe(2);
   });
 
-  it('Marksman (+1), Stealth (-1 >9"), and Unstoppable (ignores negative mods)', () => {
-    // Q5+ with Marksman (+1) hits on 4+.
+  it('Thrust charge (+1), Stealth (-1 >9"), and Unstoppable (ignores negative mods)', () => {
+    // Q5+ with Thrust's charge bonus (+1) hits on 4+.
     const marksman = resolveAttack(
-      { quality: 5, specialRules: ['marksman'], distance: 12 },
+      { quality: 5, specialRules: ['thrust'], isMelee: true, isCharging: true, distance: 12 },
       { defense: 6 },
       1,
       { toHit: [4], defense: [1] }
@@ -321,10 +321,6 @@ describe('combat: Morale resolution', () => {
     expect(resolveMoraleTest({ quality: 4, alreadyShaken: true }).passed).toBe(false); // no roll needed
   });
 
-  it('Steadfast (+1) turns a roll of 3 into a pass against Quality 4', () => {
-    expect(resolveMoraleTest({ quality: 4, roll: 3, specialRules: ['steadfast'] }).outcome).toBe('passed');
-  });
-
   it('a Hero lends a better Quality, never a worse one', () => {
     expect(resolveMoraleTest({ quality: 6, roll: 4, heroQuality: 4 }).outcome).toBe('passed');
     expect(resolveMoraleTest({ quality: 3, roll: 3, heroQuality: 5 })).toMatchObject({ effectiveQuality: 3, passed: true });
@@ -340,16 +336,5 @@ describe('combat: Morale resolution', () => {
     expect(
       resolveMoraleTest({ quality: 4, alreadyShaken: true, specialRules: ['fearless'], fearlessRoll: 3 }).outcome
     ).toBe('shaken');
-  });
-
-  it('Iron Will counts a failed test as passed and deals self-wounds on 1-3', () => {
-    const ironWill = resolveMoraleTest({
-      quality: 4,
-      roll: 2,
-      specialRules: ['iron-will'],
-      ironWillRolls: [1, 3, 5],
-    });
-    expect(ironWill.outcome).toBe('passed');
-    expect(ironWill.ironWillWounds).toBe(2);
   });
 });

@@ -183,12 +183,12 @@ interface ArmyDefinition {
 > **Phase 5 note:** the shipped `FighterDefinition` (in
 > `shared/src/data/armies.ts`) adds a `modelType` field
 > (`leader | trooper | specialist | heavy`) that the renderer maps to a
-> curated model. The v1 pack ships two original armies — **Frontier
-> Wardens** (defensive) and **Rust Raiders** (fast) — each with five
-> fighters, plus a default scenario (`shared/src/data/scenario.ts`):
-> edge deployment, five units per side, and a central terrain layout.
+> curated model. The pack ships two ready-made 400-pt armies — **Human Defense
+> Force** and **Orc Marauders** — plus dev-only TEST armies, and a default
+> scenario (`shared/src/data/scenario.ts`): host Human Defense Force vs guest
+> Orc Marauders on opposite edges, deployed inside their 12" zones.
 
-- **v1 ships two hardcoded armies** as data files with original faction names and fighters.
+- **Two ready-made armies ship** as data files (Human Defense Force and Orc Marauders), using OPR's own names.
 - The schema is intentionally shaped so external roster formats (e.g., Army Forge) can be ingested later as a data-layer feature without engine changes.
 
 ## Action Validation (Host-Side)

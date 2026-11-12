@@ -35,7 +35,7 @@ Players of One Page Rules skirmish games (Grimdark Future: Firefight first) who 
 - [ ] Host-authoritative alternating-activation gameplay
 - [x] 3D battlefield rendering with Three.js
 - [ ] OPR skirmish rule implementation (Q/D rolls, alternating activations, wounds/stun, morale)
-- [ ] Two hardcoded armies as data files (original faction names)
+- [x] Two ready-made armies as data files: Human Defense Force and Orc Marauders (OPR's own names; 400 pts each)
 - [ ] Server-rolled dice
 - [ ] Action confirmation system (no real-time dragging)
 - [ ] Basic reconnection (rejoin host's state if host returns)

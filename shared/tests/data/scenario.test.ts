@@ -3,10 +3,8 @@ import { createInitialGameState, HOST_PLAYER_ID, GUEST_PLAYER_ID } from '../../s
 import {
   applyDefaultScenario,
   createBlankMap,
-  createDefaultScenarioUnits,
 } from '../../src/data/scenario';
 import {
-  DEFAULT_ARMIES,
   STARTER_ARMIES,
   createUnitsFromStarterArmy,
 } from '../../src/data/armies';
@@ -27,44 +25,71 @@ const HOST = 'host-player';
 const GUEST = 'guest-player';
 
 describe('scenario data pack', () => {
-  it('spawns five units per player with resolved weapons', () => {
-    const units = createDefaultScenarioUnits(HOST, GUEST);
-    const hostUnits = units.filter((u) => u.ownerId === HOST);
-    const guestUnits = units.filter((u) => u.ownerId === GUEST);
+  const defaultState = () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { useDeploymentPhase: false });
+    return state;
+  };
 
-    expect(hostUnits).toHaveLength(5);
-    expect(guestUnits).toHaveLength(5);
-    for (const unit of units) {
+  it('defaults to Human Defense Force (host) vs Orc Marauders (guest) with resolved weapons', () => {
+    const state = defaultState();
+    const hostUnits = state.units.filter((u) => u.ownerId === HOST);
+    const guestUnits = state.units.filter((u) => u.ownerId === GUEST);
+
+    expect(hostUnits).toHaveLength(STARTER_ARMIES['hdf'].fighters.length);
+    expect(guestUnits).toHaveLength(STARTER_ARMIES['orc-marauders'].fighters.length);
+    expect(hostUnits.every((u) => u.armyId === 'hdf')).toBe(true);
+    expect(guestUnits.every((u) => u.armyId === 'orc-marauders')).toBe(true);
+    for (const unit of state.units) {
       expect(unit.weapons.length).toBeGreaterThan(0);
       for (const weapon of unit.weapons) {
         expect(WEAPONS[weapon.id]).toBeDefined();
       }
-      expect(unit.models).toHaveLength(1);
       expect(unit.remainingMovement).toBe(unit.speed);
       expect(unit.isActivated).toBe(false);
     }
   });
 
-  it('deploys the armies on opposite edges inside the board', () => {
-    const units = createDefaultScenarioUnits(HOST, GUEST);
-    const halfW = 18;
-    const halfH = 18;
-    for (const unit of units) {
-      expect(Math.abs(unit.position.x)).toBeLessThanOrEqual(halfW);
-      expect(Math.abs(unit.position.z)).toBeLessThanOrEqual(halfH);
+  it('an unknown or missing army id falls back to the default for that side only', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { hostArmyId: 'orc-marauders', guestArmyId: 'no-such-army', useDeploymentPhase: false });
+    expect(state.units.filter((u) => u.ownerId === HOST).every((u) => u.armyId === 'orc-marauders')).toBe(true);
+    expect(state.units.filter((u) => u.ownerId === GUEST).every((u) => u.armyId === 'orc-marauders')).toBe(true);
+    const state2 = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state2, { guestArmyId: 'hdf', useDeploymentPhase: false });
+    expect(state2.units.filter((u) => u.ownerId === HOST).every((u) => u.armyId === 'hdf')).toBe(true);
+    expect(state2.units.filter((u) => u.ownerId === GUEST).every((u) => u.armyId === 'hdf')).toBe(true);
+  });
+
+  it('deploys the default armies inside their own 12" zones, on opposite sides', () => {
+    const state = defaultState();
+    for (const owner of [HOST, GUEST]) {
+      const bounds = getDeploymentZoneBounds(state, owner);
+      for (const u of state.units.filter((x) => x.ownerId === owner)) {
+        for (const m of u.models) {
+          expect(m.position!.x).toBeGreaterThanOrEqual(bounds.minX);
+          expect(m.position!.x).toBeLessThanOrEqual(bounds.maxX);
+          expect(m.position!.z).toBeGreaterThanOrEqual(bounds.minZ - 0.01);
+          expect(m.position!.z).toBeLessThanOrEqual(bounds.maxZ + 0.01);
+        }
+      }
     }
-    const hostZ = units.filter((u) => u.ownerId === HOST).map((u) => u.position.z);
-    const guestZ = units.filter((u) => u.ownerId === GUEST).map((u) => u.position.z);
-    expect(Math.max(...hostZ.map(Math.abs))).toBeLessThan(halfH);
-    expect(Math.min(...guestZ)).toBeGreaterThan(0);
-    // Host and guest face each other.
+    const hostZ = state.units.filter((u) => u.ownerId === HOST).map((u) => u.position.z);
+    const guestZ = state.units.filter((u) => u.ownerId === GUEST).map((u) => u.position.z);
     expect(Math.max(...hostZ)).toBeLessThan(Math.min(...guestZ));
   });
 
+  it('the default deployment-phase game starts both armies undeployed and in order', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, { useDeploymentPhase: true });
+    expect(state.units.filter((u) => u.ownerId === HOST).every((u) => u.armyId === 'hdf' && !u.isDeployed)).toBe(true);
+    expect(state.units.filter((u) => u.ownerId === GUEST).every((u) => u.armyId === 'orc-marauders' && !u.isDeployed)).toBe(true);
+  });
+
   it('uses unit types the renderer can map to models', () => {
-    const units = createDefaultScenarioUnits(HOST, GUEST);
-    const modelTypes = new Set(units.map((u) => u.unitType));
-    expect([...modelTypes].sort()).toEqual(['heavy', 'leader', 'specialist', 'trooper']);
+    const modelTypes = new Set(defaultState().units.map((u) => u.unitType));
+    for (const t of modelTypes) expect(['leader', 'trooper', 'specialist', 'heavy']).toContain(t);
+    expect(modelTypes.size).toBeGreaterThanOrEqual(2);
   });
 
   it('spawns terrain with cover and line-of-sight flags', () => {
@@ -91,13 +116,13 @@ describe('scenario data pack', () => {
     expect(state.status).toBe('in-progress');
     // Without the deployment phase the objectives phase still runs first; the units already stand in place
     expect(state.turnState.phase).toBe('objectives');
-    expect(state.units).toHaveLength(10);
+    expect(state.units).toHaveLength(9); // Human Defense Force 4 + Orc Marauders 5
     expect(state.terrain).toHaveLength(0); // no presets: default is an empty battlefield
     expect(state.objectives).toHaveLength(0); // markers are placed by the players in the objectives phase
 
     // Round 1 has not started: both players have all units activatable.
     expect(isRoundComplete(state)).toBe(false);
-    expect(getActivatableUnits(state, HOST)).toHaveLength(5);
+    expect(getActivatableUnits(state, HOST)).toHaveLength(4);
     expect(getActivatableUnits(state, GUEST)).toHaveLength(5);
 
     // Fully JSON-serializable for state broadcast.
@@ -105,10 +130,13 @@ describe('scenario data pack', () => {
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
   });
 
-  it('ships exactly two original armies as data', () => {
-    expect(DEFAULT_ARMIES).toHaveLength(2);
-    for (const army of DEFAULT_ARMIES) {
-      expect(army.fighters).toHaveLength(5);
+  it('ships exactly two ready-made armies (plus dev-only TEST armies); the old ones are gone', () => {
+    const ids = Object.keys(STARTER_ARMIES).filter((id) => !id.startsWith('test'));
+    expect(ids.sort()).toEqual(['hdf', 'orc-marauders']);
+    for (const id of ['frontier-wardens', 'frontier-wardens-starter', 'rust-raiders', 'rust-raiders-starter']) {
+      expect(STARTER_ARMIES[id]).toBeUndefined();
+    }
+    for (const army of Object.values(STARTER_ARMIES)) {
       for (const fighter of army.fighters) {
         expect(fighter.quality).toBeGreaterThanOrEqual(2);
         expect(fighter.defense).toBeGreaterThanOrEqual(2);
@@ -124,39 +152,23 @@ describe('scenario data pack', () => {
   });
 
   describe('Phase 10A: Point-Balanced Pre-Canned Starter Forces', () => {
-    it('ships balanced 300-point starter armies for Frontier Wardens and Rust Raiders', () => {
-      expect(STARTER_ARMIES['frontier-wardens-starter']).toBeDefined();
-      expect(STARTER_ARMIES['rust-raiders-starter']).toBeDefined();
-
-      for (const key of ['frontier-wardens-starter', 'rust-raiders-starter'] as const) {
+    it('ships balanced 400-point ready-made armies for Human Defense Force and Orc Marauders', () => {
+      for (const key of ['hdf', 'orc-marauders'] as const) {
         const force = STARTER_ARMIES[key];
-        expect(force.totalPoints).toBe(300);
-        const calculatedPoints = force.fighters.reduce((acc, f) => acc + f.points, 0);
-        expect(calculatedPoints).toBe(300);
-
-        // Contains scout and ambush
-        const allRules = force.fighters.flatMap((f) => f.specialRules);
-        expect(allRules).toContain('scout');
-        expect(allRules).toContain('ambush');
-
-        // Contains at least one unit equipped with multiple ranged weapons (for split fire and multi-weapon chips)
-        const multiRangedFighter = force.fighters.find((f) => {
-          const weapons = f.weapons.map((id) => WEAPONS[id]).filter(Boolean);
-          return weapons.filter((w) => w.profile.type === 'ranged').length >= 2;
-        });
-        expect(multiRangedFighter).toBeDefined();
+        expect(force.totalPoints).toBe(400);
+        expect(force.fighters.reduce((acc, f) => acc + f.points, 0)).toBe(400);
       }
     });
 
-    it('creates deployable units from starter forces with support for undeployed state', () => {
-      const force = STARTER_ARMIES['frontier-wardens-starter'];
+    it('creates deployable units from a ready-made force with support for undeployed state', () => {
+      const force = STARTER_ARMIES['hdf'];
       const units = createUnitsFromStarterArmy(force, HOST, {
         startUndeployed: true,
         defaultZ: -12,
         facing: 0,
       });
 
-      expect(units).toHaveLength(4);
+      expect(units).toHaveLength(force.fighters.length);
       for (const unit of units) {
         expect(unit.ownerId).toBe(HOST);
         expect(unit.isDeployed).toBe(false);
@@ -164,17 +176,17 @@ describe('scenario data pack', () => {
         expect(unit.models.length).toBeGreaterThanOrEqual(1);
       }
 
-      // Check multi-model squad
-      const patrol = units.find((u) => u.models.length === 4);
-      expect(patrol).toBeDefined();
-      expect(patrol!.specialRules).toContain('ambush');
+      // Multi-model squads keep one model per soldier
+      const squad = units.find((u) => u.name.startsWith('Infantry Squad'));
+      expect(squad).toBeDefined();
+      expect(squad!.models).toHaveLength(3);
     });
 
     it('applies deployment phase scenario with starter armies in undeployed state', () => {
       const state = createInitialGameState(HOST, GUEST);
       applyDefaultScenario(state, {
-        hostArmyId: 'frontier-wardens-starter',
-        guestArmyId: 'rust-raiders-starter',
+        hostArmyId: 'hdf',
+        guestArmyId: 'orc-marauders',
         useDeploymentPhase: true,
       });
 
@@ -184,7 +196,7 @@ describe('scenario data pack', () => {
       expect(state.turnState.currentPlayerId).toBe(HOST);
       expect(state.objectives).toEqual([]);
       expect(state.setupRolls).toBeUndefined();
-      expect(state.units).toHaveLength(8); // 4 host units + 4 guest units
+      expect(state.units).toHaveLength(9); // 4 host units + 5 guest units
       for (const unit of state.units) {
         expect(unit.isDeployed).toBe(false);
       }

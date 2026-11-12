@@ -101,11 +101,11 @@ function customMap(): CustomMapDefinition {
   };
 }
 
-const STARTERS = { hostArmyId: 'frontier-wardens-starter', guestArmyId: 'rust-raiders-starter' };
+const STARTERS = { hostArmyId: 'hdf', guestArmyId: 'orc-marauders' };
 
 const VARIANTS: [string, () => ScenarioOptions | undefined][] = [
   ['a plain game with starter armies', () => ({ ...STARTERS })],
-  ['a deployment-phase game', () => ({ hostArmyId: 'rust-raiders-starter', guestArmyId: 'frontier-wardens-starter', useDeploymentPhase: true })],
+  ['a deployment-phase game', () => ({ hostArmyId: 'orc-marauders', guestArmyId: 'hdf', useDeploymentPhase: true })],
   ['a custom map (44x30, terrain, objectives)', () => ({ ...STARTERS, customMap: customMap() })],
   ['a custom map in a deployment game', () => ({ useDeploymentPhase: true, customMap: customMap() })],
   ['the default armies (no army ids)', () => ({})],
@@ -125,7 +125,7 @@ describe('applyDefaultScenario records setup', () => {
   });
 
   it('records exactly the options that were given', () => {
-    expect(startState({ hostArmyId: 'frontier-wardens-starter' }).setup).toEqual({ hostArmyId: 'frontier-wardens-starter' });
+    expect(startState({ hostArmyId: 'hdf' }).setup).toEqual({ hostArmyId: 'hdf' });
     expect(startState({ useDeploymentPhase: true }).setup).toEqual({ useDeploymentPhase: true });
     expect(
       startState({ hostArmyId: 'a', guestArmyId: 'b', useDeploymentPhase: false, customMap: customMap() }).setup,
@@ -133,7 +133,7 @@ describe('applyDefaultScenario records setup', () => {
   });
 
   it('keeps the state JSON-safe (no undefined keys)', () => {
-    const s = startState({ hostArmyId: 'frontier-wardens-starter' });
+    const s = startState({ hostArmyId: 'hdf' });
     expect(JSON.parse(JSON.stringify(s))).toEqual(s);
   });
 });

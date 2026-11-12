@@ -9,7 +9,6 @@ const URL = 'http://localhost:3000/skirmish-lab/';
   await shot(h, '70-lobby');
   await h.keyboard.press('F9'); await h.waitForTimeout(500);
   await shot(h, '71-lobby-dev-mode');
-  await h.selectOption('#hostArmySelect', { index: 1 }).catch(() => {});
   await h.click('#createBtn'); await h.waitForTimeout(2500);
   await shot(h, '72-lobby-waiting-room');
   const code = await h.evaluate(() => (document.body.innerText.match(/[A-Z0-9]{3}-[A-Z0-9]{3}/) || [''])[0]);

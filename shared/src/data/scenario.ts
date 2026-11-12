@@ -1,53 +1,19 @@
-import { GameState, MatchSetup, Objective, SetupRolls, TerrainPiece, Unit } from '../gameTypes';
-import {
-  ARMY_FRONTIER_WARDENS,
-  ARMY_RUST_RAIDERS,
-  STARTER_ARMIES,
-  createUnitFromFighter,
-  createUnitsFromStarterArmy,
-} from './armies';
+import { GameState, MatchSetup, Objective, SetupRolls, TerrainPiece } from '../gameTypes';
+import { STARTER_ARMIES, createUnitsFromStarterArmy } from './armies';
 import { CustomMapDefinition, DEFAULT_BOARD_SIZE } from './mapSchema';
 import { settleSpawnPositions } from '../engine/activation';
 
 /**
- * Default v1 scenario data: each player deploys a five-fighter force on
- * opposite edges of the board, with a scattering of terrain toward the
- * middle. Terrain types match the renderer's asset manifest (walls, crates,
- * columns). Pure data — the engine has no scenario-specific logic.
+ * Default scenario data: each player deploys a ready-made force on opposite edges of the board (host Human
+ * Defense Force vs guest Orc Marauders unless the lobby picked others). Pure data — the engine has no
+ * scenario-specific logic.
  *
  * Board: 48 x 48 by default (see DEFAULT_BOARD_SIZE), centered at the origin, with forces deployed 24" apart (z = ±12).
  */
 
-const DEPLOYMENT_SPREAD = [-8, -4, 0, 4, 8];
-const HOST_DEPLOYMENT_Z = -12;
-const GUEST_DEPLOYMENT_Z = 12;
-
-function deployArmy(
-  army: typeof ARMY_FRONTIER_WARDENS,
-  ownerId: string,
-  z: number,
-  facing: number
-): Unit[] {
-  return army.fighters.map((fighter, index) =>
-    createUnitFromFighter(fighter, ownerId, army.id, {
-      x: DEPLOYMENT_SPREAD[index],
-      y: 0,
-      z,
-    }, {
-      unitId: `${ownerId}-fighter-${index + 1}`,
-      nameSuffix: String(index + 1),
-    })
-  ).map((unit) => ({ ...unit, rotation: { x: 0, y: facing, z: 0 } }));
-}
-
-/** Spawn the two default armies for host and guest. */
-export function createDefaultScenarioUnits(hostId: string, guestId: string): Unit[] {
-  // Host faces +z (toward the guest edge); guest faces -z.
-  return [
-    ...deployArmy(ARMY_FRONTIER_WARDENS, hostId, HOST_DEPLOYMENT_Z, 0),
-    ...deployArmy(ARMY_RUST_RAIDERS, guestId, GUEST_DEPLOYMENT_Z, Math.PI),
-  ];
-}
+/** Default matchup when a side has no (known) army chosen: host Human Defense Force vs guest Orc Marauders. */
+export const DEFAULT_HOST_ARMY_ID = 'hdf';
+export const DEFAULT_GUEST_ARMY_ID = 'orc-marauders';
 
 export interface ScenarioOptions {
   hostArmyId?: string;
@@ -74,12 +40,8 @@ export function createBlankMap(): CustomMapDefinition {
 
 /** Apply the default scenario to a fresh game state (host-side, at start). */
 export function applyDefaultScenario(state: GameState, options: ScenarioOptions = {}): void {
-  const hostStarter = options.hostArmyId && options.hostArmyId in STARTER_ARMIES
-    ? STARTER_ARMIES[options.hostArmyId as keyof typeof STARTER_ARMIES]
-    : null;
-  const guestStarter = options.guestArmyId && options.guestArmyId in STARTER_ARMIES
-    ? STARTER_ARMIES[options.guestArmyId as keyof typeof STARTER_ARMIES]
-    : null;
+  const hostStarter = STARTER_ARMIES[options.hostArmyId ?? ''] ?? STARTER_ARMIES[DEFAULT_HOST_ARMY_ID];
+  const guestStarter = STARTER_ARMIES[options.guestArmyId ?? ''] ?? STARTER_ARMIES[DEFAULT_GUEST_ARMY_ID];
 
   const setup: MatchSetup = {};
   if (options.hostArmyId !== undefined) setup.hostArmyId = options.hostArmyId;
@@ -104,15 +66,12 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     scale: { ...t.scale },
   }));
   if (options.useDeploymentPhase) {
-    const hostForce = hostStarter ?? STARTER_ARMIES['frontier-wardens-starter'];
-    const guestForce = guestStarter ?? STARTER_ARMIES['rust-raiders-starter'];
-
-    const hostUnits = createUnitsFromStarterArmy(hostForce, state.hostId, {
+    const hostUnits = createUnitsFromStarterArmy(hostStarter, state.hostId, {
       startUndeployed: true,
       defaultZ: -12,
       facing: 0,
     });
-    const guestUnits = createUnitsFromStarterArmy(guestForce, state.guestId, {
+    const guestUnits = createUnitsFromStarterArmy(guestStarter, state.guestId, {
       startUndeployed: true,
       defaultZ: 12,
       facing: Math.PI,
@@ -149,24 +108,20 @@ export function applyDefaultScenario(state: GameState, options: ScenarioOptions 
     return;
   }
 
-  if (hostStarter && guestStarter) {
-    const hostUnits = createUnitsFromStarterArmy(hostStarter, state.hostId, {
-      startUndeployed: false,
-      defaultZ: -12,
-      facing: 0,
-    });
-    const guestUnits = createUnitsFromStarterArmy(guestStarter, state.guestId, {
-      startUndeployed: false,
-      defaultZ: 12,
-      facing: Math.PI,
-    });
-    state.units = [...hostUnits, ...guestUnits];
-    // No deployment phase: move any unit whose spawn spot collides with the map's terrain to the nearest clear spot
-    state.terrain = mapTerrain;
-    settleSpawnPositions(state, state.units);
-  } else {
-    state.units = createDefaultScenarioUnits(state.hostId, state.guestId);
-  }
+  const hostUnits = createUnitsFromStarterArmy(hostStarter, state.hostId, {
+    startUndeployed: false,
+    defaultZ: -12,
+    facing: 0,
+  });
+  const guestUnits = createUnitsFromStarterArmy(guestStarter, state.guestId, {
+    startUndeployed: false,
+    defaultZ: 12,
+    facing: Math.PI,
+  });
+  state.units = [...hostUnits, ...guestUnits];
+  // No deployment phase: move any unit whose spawn spot collides with the map's terrain to the nearest clear spot
+  state.terrain = mapTerrain;
+  settleSpawnPositions(state, state.units);
 
   state.terrain = mapTerrain;
   state.markers = [];

@@ -7,7 +7,7 @@ import { DISTANT_ATTACK_MORALE_TRAITS, getTraitValue, hasTrait, sumTraitValue } 
  * Core Axioms:
  *   - Natural 1 always fails; Natural 6 always succeeds.
  *   - To-Hit:  roll + hitMod >= baseQuality -> hit
- *   - Defense: roll + coverBonus + shieldBonus - ap >= defense -> hit blocked
+ *   - Defense: roll + coverBonus - ap >= defense -> hit blocked
  *   - Morale:  1d6 + moraleMod >= effectiveQuality
  *
  * Dice are always rolled by the signaling server (never client-side).
@@ -58,8 +58,6 @@ export interface MoraleTestInput {
   fearlessRoll?: number;
   /** How far away the attacker was when this unit was shot or charged (Hold the Line). */
   attackedFrom?: { shot?: number; charged?: number };
-  /** Optional dice rolls for Iron Will (No Retreat self-wounds on 1-3). */
-  ironWillRolls?: number[];
 }
 
 export interface MoraleTestOutcome {
@@ -68,8 +66,6 @@ export interface MoraleTestOutcome {
   effectiveQuality: number;
   passed: boolean;
   fearlessSaved?: boolean;
-  ironWillUsed?: boolean;
-  ironWillWounds?: number;
   outcome: 'passed' | 'shaken' | 'routed';
 }
 
@@ -107,7 +103,7 @@ export interface CombatOutcome {
 
 export interface CombatStats {
   quality: number;
-  /** Unit special rules (marksman, furious, surge, rupture, etc.). */
+  /** Unit special rules (furious, surge, rupture, etc.). */
   specialRules?: string[];
   /** Weapon special rules (ap(X), blast(X), deadly(X), rending, reliable, etc.). */
   weaponRules?: string[];
@@ -128,12 +124,10 @@ export interface CombatStats {
 export interface DefenseStats {
   defense: number;
   inCover?: boolean;
-  /** Defender special rules (stealth, riot-shield, regeneration, entrenched, etc.). */
+  /** Defender special rules (stealth, regeneration, etc.). */
   specialRules?: string[];
   /** Number of alive models in the defending unit (caps blast(X), default 1). */
   modelCount?: number;
-  /** Whether the defending unit has moved this round (used by entrenched). */
-  hasMoved?: boolean;
 }
 
 export interface AttackDiceOptions {
@@ -243,10 +237,6 @@ export function computeCombatModifiers(
     hitModifiers.push('Reliable (Q2)');
   }
   if (!isMelee) {
-    if (hasTrait(allAttackerRules, 'marksman')) {
-      hitMod += 1;
-      hitModifiers.push('+1 Marksman');
-    }
     if (hasTrait(allAttackerRules, 'bad-shot')) {
       hitMod -= 1;
       hitModifiers.push('-1 Bad Shot');
@@ -254,10 +244,6 @@ export function computeCombatModifiers(
     if (hasTrait(defenderRules, 'stealth') && distance > 9) {
       hitMod -= 1;
       hitModifiers.push('-1 Stealth (>9")');
-    }
-    if (hasTrait(defenderRules, 'entrenched') && !defender.hasMoved && distance > 9) {
-      hitMod -= 1;
-      hitModifiers.push('-1 Entrenched (>9")');
     }
   } else {
     if (hasTrait(allAttackerRules, 'thrust') && isCharging) {
@@ -295,17 +281,13 @@ export function computeCombatModifiers(
   if (coverApplied) {
     defenseModifiers.push('+1 Cover');
   }
-  const shieldBonus = hasTrait(defenderRules, 'riot-shield') ? 1 : 0;
-  if (shieldBonus > 0) {
-    defenseModifiers.push('+1 Riot Shield');
-  }
   if (baseAp > 0) {
     defenseModifiers.push(`-${baseAp} AP(${baseAp})`);
   }
 
   const effectiveDefense = Math.max(
     2,
-    Math.min(6, defender.defense - coverBonus - shieldBonus + baseAp)
+    Math.min(6, defender.defense - coverBonus + baseAp)
   );
 
   return {
@@ -422,7 +404,7 @@ export interface ImpactOutcome {
 
 /**
  * Impact(X) on a charge: each of the `impactDice` dice showing 2+ is a hit on the target. A hit gets a plain
- * Defense roll (no AP, no cover; Riot Shield still counts) and Regeneration applies to what gets through.
+ * Defense roll (no AP, no cover) and Regeneration applies to what gets through.
  */
 export function resolveImpact(
   impactDice: number,
@@ -434,7 +416,6 @@ export function resolveImpact(
   if (impactRolls.length < impactDice || rolls.defense.length < hitCount) {
     throw new Error(`Incomplete dice results: need ${impactDice} Impact and ${hitCount} Defense rolls`);
   }
-  const shieldBonus = hasTrait(defender.specialRules ?? [], 'riot-shield') ? 1 : 0;
   const hasRegeneration = hasTrait(defender.specialRules ?? [], 'regeneration');
   const defenseRolls = rolls.defense.slice(0, hitCount);
   const regenerationRolls: number[] = [];
@@ -442,7 +423,7 @@ export function resolveImpact(
   let regenerationSavedCount = 0;
   let wounds = 0;
   for (const roll of defenseRolls) {
-    const blocked = roll <= 1 ? false : roll >= 6 ? true : roll + shieldBonus >= defender.defense;
+    const blocked = roll <= 1 ? false : roll >= 6 ? true : roll >= defender.defense;
     if (blocked) {
       blockedCount += 1;
       continue;
@@ -547,10 +528,9 @@ export function resolveAttack(
 
   const hitCount = expandedHits.length;
 
-  // 3. Defense Rolls (Cover +1, Riot Shield +1, AP -AP, Bane re-rolls 6s)
+  // 3. Defense Rolls (Cover +1, AP -AP, Bane re-rolls 6s)
   const isBane = hasTrait(allAttackerRules, 'bane');
   const coverBonus = coverApplied ? 1 : 0;
-  const shieldBonus = hasTrait(defender.specialRules ?? [], 'riot-shield') ? 1 : 0;
 
   const usedDefenseRolls: number[] = [];
   const rerolledDefenseRolls: number[] = [];
@@ -577,7 +557,7 @@ export function resolveAttack(
     } else if (finalDefRoll >= 6) {
       blocked = true;  // Natural 6 always blocks
     } else {
-      blocked = finalDefRoll + coverBonus + shieldBonus - hit.ap >= defender.defense;
+      blocked = finalDefRoll + coverBonus - hit.ap >= defender.defense;
     }
 
     blockedRolls.push(blocked);
@@ -657,10 +637,8 @@ export function distantAttackMoraleBonus(
  * Resolve a Morale Test: a Quality test (1d6 + moraleMod >= effectiveQuality).
  *   - A Shaken unit always fails (no roll needed).
  *   - Natural 1 always fails; natural 6 always passes.
- *   - Steadfast (+1, or +2 with Steadfast Boost), Dauntless (+1), Morale Debuff (-1) modify the roll
- *     (faction traits, until 14C-3 retires them).
+ *   - Hold the Line's +1 applies when the unit was shot from over 9" or charged from over 6" away.
  *   - Fearless: after a failure (including the automatic one while Shaken), `fearlessRoll >= 4` counts as passed.
- *   - Iron Will (No Retreat): on failure, counts as passed and takes 1 wound per 1-3 in `ironWillRolls`.
  * A plain failure is 'shaken'. Only a failed melee test can Rout; the caller turns that into 'routed'.
  */
 export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
@@ -671,17 +649,7 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
       : input.quality;
   const roll = input.roll ?? 0;
 
-  let modifier = 0;
-  if (hasTrait(rules, 'steadfast')) {
-    modifier += hasTrait(rules, 'steadfast-boost') ? 2 : 1;
-  }
-  if (hasTrait(rules, 'dauntless')) {
-    modifier += 1;
-  }
-  if (hasTrait(rules, 'morale-debuff')) {
-    modifier -= 1;
-  }
-  modifier += distantAttackMoraleBonus(rules, input.attackedFrom);
+  const modifier = distantAttackMoraleBonus(rules, input.attackedFrom);
 
   let passed: boolean;
   if (input.alreadyShaken) {
@@ -705,20 +673,6 @@ export function resolveMoraleTest(input: MoraleTestInput): MoraleTestOutcome {
         outcome: 'passed',
       };
     }
-  }
-
-  if (!passed && !input.alreadyShaken && hasTrait(rules, 'iron-will')) {
-    const selfRolls = input.ironWillRolls ?? [];
-    const selfWounds = selfRolls.filter((r) => r >= 1 && r <= 3).length;
-    return {
-      roll,
-      modifier,
-      effectiveQuality,
-      passed: true,
-      ironWillUsed: true,
-      ironWillWounds: selfWounds,
-      outcome: 'passed',
-    };
   }
 
   return {

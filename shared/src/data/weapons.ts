@@ -20,32 +20,11 @@ export const WEAPONS: Record<string, Weapon> = {
     profile: { type: 'ranged', range: 18, attacks: 2, specialRules: ['rending'] },
     isEquipped: true,
   },
-  scattergun: {
-    id: 'scattergun',
-    weaponType: 'scattergun',
-    name: 'Scattergun',
-    profile: { type: 'ranged', range: 12, attacks: 3, specialRules: ['ap(1)'] },
-    isEquipped: true,
-  },
-  handcannon: {
-    id: 'handcannon',
-    weaponType: 'handcannon',
-    name: 'Hand Cannon',
-    profile: { type: 'ranged', range: 12, attacks: 1, specialRules: ['ap(1)'] },
-    isEquipped: true,
-  },
   sidearm: {
     id: 'sidearm',
     weaponType: 'sidearm',
     name: 'Sidearm',
     profile: { type: 'ranged', range: 12, attacks: 1, specialRules: [] },
-    isEquipped: true,
-  },
-  cannon: {
-    id: 'cannon',
-    weaponType: 'cannon',
-    name: 'Cannon',
-    profile: { type: 'ranged', range: 30, attacks: 3, specialRules: ['ap(1)', 'rupture'] },
     isEquipped: true,
   },
   blade: {

@@ -1,15 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_ARMIES, FighterDefinition, STARTER_ARMIES } from '../../src/data/armies';
+import { FighterDefinition, STARTER_ARMIES } from '../../src/data/armies';
 import { getTraitValue, hasTrait } from '../../src/rules/traits';
 
 /** 400-point Force Org limits (14C-3 Decision 1). */
 const LIMITS = { points: 400, heroes: 1, copies: 2, unitPoints: 140, units: 5, tough: 30 };
-
-/**
- * Armies that predate the 400-pt lists and are deleted in 14C-3 PR 4 (together with this list). Nothing
- * else may be exempt: new armies must meet every limit.
- */
-const LEGACY_ARMY_IDS_DELETED_IN_PR4 = ['frontier-wardens', 'rust-raiders', 'frontier-wardens-starter', 'rust-raiders-starter'];
 
 interface Roster {
   id: string;
@@ -39,9 +33,8 @@ function forceOrgProblems(army: Roster): string[] {
 }
 
 const rosters: Roster[] = [
-  ...DEFAULT_ARMIES,
   ...Object.values(STARTER_ARMIES).map((a) => ({ id: a.id, fighters: a.fighters })),
-].filter((a) => !a.id.startsWith('test') && !LEGACY_ARMY_IDS_DELETED_IN_PR4.includes(a.id));
+].filter((a) => !a.id.startsWith('test'));
 
 describe('Force Org checker', () => {
   const unit = (over: Partial<FighterDefinition>): FighterDefinition => ({
@@ -94,9 +87,8 @@ describe('every non-TEST army follows Force Org at 400 pts', () => {
     expect(rosters.map((a) => a.id)).toContain('hdf');
     expect(forceOrgProblems(rosters.find((a) => a.id === 'hdf')!)).toEqual([]);
   });
-  it('has armies to check once the legacy ones are gone', () => {
-    // Until PR 4 deletes the legacy armies this is empty; it must never silently skip a new army.
-    for (const a of rosters) expect(a.id.startsWith('test')).toBe(false);
+  it('checks exactly the two ready-made armies, with no exemptions', () => {
+    expect(rosters.map((a) => a.id).sort()).toEqual(['hdf', 'orc-marauders']);
   });
   for (const army of rosters) {
     it(army.id, () => {

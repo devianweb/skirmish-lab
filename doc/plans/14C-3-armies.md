@@ -204,6 +204,7 @@ Owner, 2026-11-11: go. Follow PR 1D (Human Defense Force) as the pattern.
 
 ## PR 2B: Remove Frontier Wardens / Rust Raiders, default matchup HDF vs Orc Marauders  (branch: `14C-3-armies-2b`, after PR 2 is merged)
 Owner, 2026-11-11: "Yes, remove the old armies." Approved.
+Status: done, merged as #365 (2026-11-12). Waiting for the owner's manual check. Rupture, Carbine and Long Rifle are kept (engine rule and test fixtures; no army uses them).
 - **Layer:** shared data + lobby + docs. Delete the Frontier Wardens and Rust Raiders armies (every `frontier-wardens*` / `rust-raiders*` entry), their fighters, their weapons that nothing else uses, and the old faction traits no other army uses (Decision 5: keep a trait only if a TEST army still needs it, and then only for that army). Delete the Force Org harness's legacy exemption list (PR 1A). The picker then offers Human Defense Force and Orc Marauders, plus the TEST armies in dev mode.
 - **Default matchup (Decision 8):** host Human Defense Force vs guest Orc Marauders, in the lobby defaults and in the `applyDefaultScenario` fallbacks.
 - **Tests first:** the old army IDs are gone from data and from the lobby options; the default game is HDF vs Orc Marauders and deploys inside its zones; every non-TEST army passes Force Org with no exemptions. Tests that used the old armies move to a TEST army or to HDF / Orc Marauders without weakening what they assert.
