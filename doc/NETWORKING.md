@@ -188,6 +188,9 @@ The host client drives attack resolution (`SignalingDiceProvider` +
 The host processes one action at a time; actions arriving while dice are
 in flight are rejected with "Another action is being processed".
 
+### Lobby First-Connection Wake-Up & Retry
+The lobby renders immediately on load and opens its initial signaling WebSocket in the background with Create Room, Join Room and Resume disabled until the socket is open. If the connection takes 1.5 s or longer (such as when the free-tier Azure App Service instance is waking from idle), the lobby card shows a spinner and `"Waking up the server, this can take up to a minute…"` under the Create / Join buttons. Failed first-connection attempts retry every 3 s for up to 60 s, after which the lobby stops retrying and displays `"Couldn't reach the game server. Check your connection, then try again."` with a **Try again** button that starts a fresh 60 s window. Once connected, Create / Join / Resume requests show progress on the same status line (`"Creating room…"` / `"Joining room…"`, adding `"the server is still waking up"` after 10 s and timing out at 60 s with `"The server didn't answer. Try again."`).
+
 ### Signaling Keep-Alive & Auto-Reconnect
 Once gameplay runs over the data channel, the signaling WebSocket sees no
 natural traffic — but dice requests still need the room to exist on the
