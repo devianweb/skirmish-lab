@@ -53,23 +53,21 @@ describe('Lobby UI', () => {
     expect(deployCheck).toBeTruthy();
     expect(deployCheck.checked).toBe(true);
 
-    expect(hostSelect.value).toBe('frontier-wardens-starter');
-    expect(guestSelect.value).toBe('rust-raiders-starter');
+    expect(hostSelect.value).toBe('hdf');
+    expect(guestSelect.value).toBe('orc-marauders');
   });
 
-  it('offers Human Defense Force to both players without dev mode, and keeps the default matchup', () => {
+  it('offers exactly Human Defense Force and Orc Marauders to both players without dev mode', () => {
     const lobby = new Lobby(container);
     (lobby as any).render();
     for (const id of ['#hostArmySelect', '#guestArmySelect']) {
       const select = container.querySelector(id) as HTMLSelectElement;
-      const option = [...select.options].find((o) => o.value === 'hdf');
-      expect(option?.textContent).toContain('Human Defense Force (400 pts)');
+      expect([...select.options].map((o) => o.value)).toEqual(['hdf', 'orc-marauders']);
+      expect(select.options[0].textContent).toContain('Human Defense Force (400 pts)');
+      expect(select.options[1].textContent).toContain('Orc Marauders (400 pts)');
     }
-    expect((lobby as any).hostArmyId).toBe('frontier-wardens-starter');
-    expect((lobby as any).guestArmyId).toBe('rust-raiders-starter');
-    (container.querySelector('#hostArmySelect') as HTMLSelectElement).value = 'hdf';
-    container.querySelector('#hostArmySelect')!.dispatchEvent(new Event('change'));
     expect((lobby as any).hostArmyId).toBe('hdf');
+    expect((lobby as any).guestArmyId).toBe('orc-marauders');
   });
 
   it('updates starter force selection and deployment mode on user change', () => {
@@ -79,13 +77,13 @@ describe('Lobby UI', () => {
     const hostSelect = container.querySelector('#hostArmySelect') as HTMLSelectElement;
     const deployCheck = container.querySelector('#deployPhaseCheck') as HTMLInputElement;
 
-    hostSelect.value = 'rust-raiders-starter';
+    hostSelect.value = 'orc-marauders';
     hostSelect.dispatchEvent(new Event('change'));
 
     deployCheck.checked = false;
     deployCheck.dispatchEvent(new Event('change'));
 
-    expect((lobby as any).hostArmyId).toBe('rust-raiders-starter');
+    expect((lobby as any).hostArmyId).toBe('orc-marauders');
     expect((lobby as any).useDeploymentPhase).toBe(false);
   });
 
@@ -99,7 +97,7 @@ describe('Lobby UI', () => {
     (lobby as any).render();
 
     const hostSelect = container.querySelector('#hostArmySelect') as HTMLSelectElement;
-    hostSelect.value = 'rust-raiders-starter';
+    hostSelect.value = 'orc-marauders';
     hostSelect.dispatchEvent(new Event('change'));
 
     (lobby as any).roomCode = 'TEST-123';
@@ -111,8 +109,8 @@ describe('Lobby UI', () => {
     (lobby as any).maybeFirePeerReady();
 
     expect(capturedContext).toBeTruthy();
-    expect(capturedContext!.hostArmyId).toBe('rust-raiders-starter');
-    expect(capturedContext!.guestArmyId).toBe('rust-raiders-starter');
+    expect(capturedContext!.hostArmyId).toBe('orc-marauders');
+    expect(capturedContext!.guestArmyId).toBe('orc-marauders');
     expect(capturedContext!.useDeploymentPhase).toBe(true);
     expect(capturedContext!.role).toBe('host');
     expect(capturedContext!.roomCode).toBe('TEST-123');
@@ -370,8 +368,8 @@ describe('Lobby UI', () => {
       (lobby as any).hostArmyId = 'test-army';
       (lobby as any).guestArmyId = 'test-squad-army';
       (lobby as any).render();
-      expect((container.querySelector('#hostArmySelect') as HTMLSelectElement).value).toBe('frontier-wardens-starter');
-      expect((container.querySelector('#guestArmySelect') as HTMLSelectElement).value).toBe('rust-raiders-starter');
+      expect((container.querySelector('#hostArmySelect') as HTMLSelectElement).value).toBe('hdf');
+      expect((container.querySelector('#guestArmySelect') as HTMLSelectElement).value).toBe('orc-marauders');
     });
 
     it('F9 on the lobby turns dev mode on, then off', () => {
@@ -412,7 +410,7 @@ describe('Lobby UI', () => {
       sel.value = 'test-army';
       sel.dispatchEvent(new Event('change'));
       f9();
-      expect((lobby as any).hostArmyId).toBe('frontier-wardens-starter');
+      expect((lobby as any).hostArmyId).toBe('hdf');
     });
 
     it('does not hand a TEST army to the game when dev mode is off', () => {
@@ -423,7 +421,7 @@ describe('Lobby UI', () => {
       (lobby as any).role = 'host';
       (lobby as any).webrtcClient = { isConnected: () => true, close: vi.fn() };
       (lobby as any).maybeFirePeerReady();
-      expect(ctx!.hostArmyId).toBe('frontier-wardens-starter');
+      expect(ctx!.hostArmyId).toBe('hdf');
     });
 
     it('ignores F9 while the lobby is hidden (in-game F9 is the LoS debugger)', () => {

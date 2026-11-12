@@ -13,11 +13,40 @@ import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
  * Starts a host game for tests about play: a game without the deployment phase opens with the objectives phase,
  * which these tests skip (units already stand in place, no markers).
  */
+/**
+ * One Test Runner per side (rifle, blade, 1 wound, Q3+): the ready-made armies have multi-attack weapons and
+ * multi-model units, which these fixtures do not want. TEST armies are dev-only data, not an army choice.
+ */
+const TEST_ARMIES = { hostArmyId: 'test-army', guestArmyId: 'test-army' };
+
+/** TEST_ARMIES games get a second, sturdier (3 wounds) Test Runner per side: wiping out one unit does not end the game. */
+function addSpareRunners(state: any): void {
+  for (const unit of [...state.units]) {
+    const dx = 6;
+    state.units.push({
+      ...JSON.parse(JSON.stringify(unit)),
+      id: `${unit.id}-spare`,
+      name: `${unit.name} (spare)`,
+      wounds: 3,
+      maxWounds: 3,
+      position: { ...unit.position, x: unit.position.x + dx },
+      models: unit.models.map((m: any, i: number) => ({
+        ...JSON.parse(JSON.stringify(m)),
+        id: `${unit.id}-spare-model-${i + 1}`,
+        wounds: 3,
+        maxWounds: 3,
+        position: { ...m.position, x: m.position.x + dx },
+      })),
+    });
+  }
+}
+
 function startPlay(manager: GameManager, ...args: unknown[]): void {
   const spy = vi.spyOn(manager as any, 'beginObjectivesIfNeeded').mockImplementation(() => {});
   (manager as any).startGame(...args);
   spy.mockRestore();
   const state = (manager as any).gameState;
+  if (state.setup?.hostArmyId === TEST_ARMIES.hostArmyId) addSpareRunners(state);
   startRoundOne(state);
   (manager as any).saveSnapshot(state);
   (manager as any).broadcastState('game-start');
@@ -159,7 +188,7 @@ describe('GameManager', () => {
 
       const state = gameManagerHost.getGameState()!;
       expect(state.status).toBe('in-progress');
-      expect(state.units).toHaveLength(10);
+      expect(state.units).toHaveLength(9); // Human Defense Force 4 + Orc Marauders 5
       expect(state.terrain).toHaveLength(0); // default is an empty battlefield
       expect(state.players[0].name).toBe('Alice');
       expect(state.players[1].name).toBe('Bob');
@@ -181,7 +210,7 @@ describe('GameManager', () => {
   describe('Phase 5 action flow (host authoritative)', () => {
     function startedHost(diceProvider?: any): GameManager {
       const manager = new GameManager(mockWebRTC, true, { diceProvider });
-      startPlay(manager);
+      startPlay(manager, 'Host', 'Guest', TEST_ARMIES);
       (mockWebRTC.send as any).mockClear();
       return manager;
     }
@@ -494,7 +523,7 @@ describe('GameManager', () => {
         ),
       };
       const manager = new GameManager(mockWebRTC, true, { diceProvider });
-      startPlay(manager);
+      startPlay(manager, 'Host', 'Guest', TEST_ARMIES);
       const state = manager.getGameState()!;
       const attacker = state.units.find(
         (u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.profile.type === 'ranged')
@@ -630,7 +659,7 @@ describe('GameManager', () => {
       startPlay(host);
 
       // Guest received the starting state.
-      expect(guest.getGameState()?.units).toHaveLength(10);
+      expect(guest.getGameState()?.units).toHaveLength(9);
       expect(guestStates[0].status).toBe('in-progress');
 
       // Host activates their first unit.
@@ -702,7 +731,7 @@ describe('GameManager', () => {
       const host = new GameManager(hostWebRTC, true, { diceProvider });
       const guest = new GameManager(guestWebRTC, false);
 
-      startPlay(host, 'Host', 'Guest');
+      startPlay(host, 'Host', 'Guest', TEST_ARMIES);
 
       // 1. Host charges a guest fighter and strikes it; charge automatically resolves
       //    the melee strike to destruction and finishes the activation.
@@ -804,11 +833,11 @@ describe('GameManager', () => {
       const host = new GameManager(hostWebRTC, true, { diceProvider });
       const guest = new GameManager(guestWebRTC, false);
 
-      startPlay(host, 'Host', 'Guest');
+      startPlay(host, 'Host', 'Guest', TEST_ARMIES);
 
       const hostCharger = host
         .getGameState()!
-        .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.weapons.some((w) => w.id === 'blade'))!;
+        .units.find((u) => u.ownerId === HOST_PLAYER_ID && u.maxWounds >= 2 && u.weapons.some((w) => w.id === 'blade'))!;
       const guestTarget = host
         .getGameState()!
         .units.find((u) => u.ownerId === GUEST_PLAYER_ID && u.maxWounds >= 2)!;
@@ -932,7 +961,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      startPlay(host, 'Host', 'Guest');
+      startPlay(host, 'Host', 'Guest', TEST_ARMIES);
 
       const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
       const guestTarget = host
@@ -1016,7 +1045,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      startPlay(host, 'Host', 'Guest');
+      startPlay(host, 'Host', 'Guest', TEST_ARMIES);
 
       const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
       const guestTarget = host
@@ -1253,7 +1282,7 @@ describe('GameManager', () => {
         },
       });
       const guest = new GameManager(guestWebRTC, false);
-      startPlay(host, 'Host', 'Guest');
+      startPlay(host, 'Host', 'Guest', TEST_ARMIES);
 
       const hostCharger = host.getGameState()!.units.find((u) => u.ownerId === HOST_PLAYER_ID)!;
       const guestTarget = host

@@ -503,11 +503,6 @@ export function applyEndOfActivationMorale(
       attackedFrom: state.turnState.attackedFrom?.[unit.id],
     });
 
-    // Consume one-shot morale-debuff if present.
-    if (hasTrait(unit.specialRules, 'morale-debuff')) {
-      unit.specialRules = unit.specialRules.filter((r) => r !== 'morale-debuff');
-    }
-
     let outcome = result.outcome;
     if (outcome === 'shaken' && wouldRout) {
       outcome = 'routed';

@@ -31,11 +31,11 @@ function toSquad(unit: GameState['units'][number], spots: Spot[]): void {
   unit.position = { x: spots[0].x, y: 0, z: spots[0].z };
 }
 
-/** Open field: a 3-model host squad with rifles facing a 2-model guest squad. */
+/** Open field: a 3-model host squad with Battle Rifles facing a 2-model guest squad. */
 function squadState(): GameState {
   const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
   applyDefaultScenario(state, { customMap: { ...createBlankMap(), id: 'open', terrain: [] } }); startRoundOne(state);
-  const attacker = state.units.find((u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle'))!;
+  const attacker = state.units.find((u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'battle-rifle'))!;
   const target = state.units.find((u) => u.ownerId === GUEST)!;
   toSquad(attacker, [{ x: -2, z: 0 }, { x: 0, z: 0 }, { x: 2, z: 0 }]);
   toSquad(target, [{ x: -2, z: 10 }, { x: 2, z: 10 }]);
@@ -98,7 +98,7 @@ describe('GameHUD: shooting preview for squads', () => {
   it('shows "N of M models can fire" when only some shooters have range', () => {
     const state = squadState();
     const attacker = state.units.find((u) => u.ownerId === HOST && u.id === state.turnState.activeUnitId)!;
-    // Rifle range 24": move the right-hand shooter well out of reach (centre gap 40").
+    // Battle Rifle range 24": move the right-hand shooter well out of reach (centre gap 40").
     attacker.models![2].position = { x: 2, y: 0, z: -40 };
     attacker.hasMoved = true; // the stray is out of coherency, so the squad must have moved to shoot
     const target = state.units.find((u) => u.ownerId === GUEST)!;

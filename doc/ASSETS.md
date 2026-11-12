@@ -32,12 +32,14 @@ Fighters in SkirmishLab are rendered procedurally by [`client/src/renderer/Model
 - **Team Tinting:** Miniature body/armor dynamically tints to the player's team color (Host = Blue `#29b6f6` / `0x3a7bd5`, Guest = Red `#ef5350` / `0xd54a3a`).
 - **Dimensions:** Standing height $1.12"$ above base $\implies$ **total model height $\approx 1.22"$ ($31\text{ mm}$)** with $0.72"$ shoulder span, fitting $1:1$ with terrain doorframes, window sills, and elevations.
 
-| Role (`modelType`) | Geometry Type | Dimensions | Frontier Wardens Units | Rust Raiders Units |
-| :--- | :--- | :---: | :--- | :--- |
-| **`leader`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Captain** (`warden-captain`), **Warden Storm Commander** (`warden-storm-commander`), **Marshal Vance** (`marshal-vance`) | **Raid Boss** (`raider-boss`) |
-| **`trooper`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Test Runner** (`test-runner`, TEST army only, speed 24"), **Test Squad** (`test-squad`, 4 models, TEST squad army only, speed 12"), **Warden Trooper** (`warden-trooper`), **Warden Patrol Squad** (`warden-patrol-squad`), **Line Trooper Squad** (`line-trooper-squad`), **Sentry Automaton** (`sentry-automaton`), **Warden Veteran** (`warden-veteran`) | **Rust Runner** (`raider-trooper`), **Rust Patrol Mob** (`raider-patrol-mob`) |
-| **`specialist`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Marksman** (`warden-marksman`), **Warden Breacher** (`warden-breacher`), **Warden Demolitionist** (`warden-demolitionist`), **Shock Trooper** (`shock-trooper`), **Warden Sharpshooter** (`warden-sharpshooter`) | **Rust Skirmisher** (`raider-skirmisher`), **Rust Sapper** (`raider-sapper`) |
-| **`heavy`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Warden Gun Crew** (`warden-gun-crew`), **Heavy Ordnance Crew** (`heavy-ordnance-crew`), **Goliath Automaton** (`goliath-automaton`) | **Rust Bruiser** (`raider-bruiser`) |
+| Role (`modelType`) | Geometry Type | Dimensions | Dev-only TEST units |
+| :--- | :--- | :---: | :--- |
+| **`leader`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | `test-hero`, `test-hazard-hero`, `test-loadout-leader` |
+| **`trooper`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | **Test Runner** (`test-runner`, TEST army only, speed 24"), **Test Squad** (`test-squad`, 4 models, TEST squad army only, speed 12"), and the other TEST squads |
+| **`specialist`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | the `test-special-*` and `test-setup-*` units |
+| **`heavy`** | Procedural Hero Mini + 1.0" Base | $1.0" \times 1.22" \times 1.0"$ | `test-heavy-gunner` |
+
+The ready-made armies (Human Defense Force and Orc Marauders) map their units to these four roles below. Frontier Wardens and Rust Raiders were removed in 14C-3 PR 2B.
 
 **Human Defense Force (`hdf`, 14C-3 PR 1D)** reuses these roles; no new models. Squads show one mini per model, all alike (per-model weapons are not drawn differently).
 

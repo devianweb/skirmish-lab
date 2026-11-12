@@ -3647,7 +3647,6 @@ function resolveShoot(
               inCover: false,
               specialRules: spill.specialRules,
               modelCount: participants[k].cap,
-              hasMoved: spill.hasMoved,
             },
             totalAttacks,
             spillRolls,
@@ -3912,7 +3911,6 @@ function resolveChargeStrike(
           defense: attacker.defense,
           inCover: false,
           specialRules: attacker.specialRules,
-          hasMoved: attacker.hasMoved,
           modelCount: livingModels(attacker).length || 1,
         },
         counterAttacks,
@@ -4310,7 +4308,6 @@ function resolveStrikes(
         inCover: false,
         specialRules: foe.specialRules,
         modelCount: foeModels,
-        hasMoved: foe.hasMoved,
       },
       (weapon.profile.attacks as number) * entry.strikers,
       strikeRolls(dice, slot)

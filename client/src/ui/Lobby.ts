@@ -5,8 +5,8 @@ import { defaultMapStore, MapStore } from '../storage/MapStore';
 import { defaultSessionStore, SessionStore } from '../storage/SessionStore';
 import { isDevMode, toggleDevMode, isDevOnlyArmy } from './devMode';
 
-const DEFAULT_HOST_ARMY = 'frontier-wardens-starter';
-const DEFAULT_GUEST_ARMY = 'rust-raiders-starter';
+const DEFAULT_HOST_ARMY = 'hdf';
+const DEFAULT_GUEST_ARMY = 'orc-marauders';
 export const LOBBY_DISCLAIMER =
   'Unofficial fan project for One Page Rules games. Not affiliated with or endorsed by One Page Rules.';
 
@@ -45,8 +45,8 @@ export class Lobby {
   private role: 'host' | 'guest' | null = null;
   private options: LobbyOptions;
   private peerReadyFired = false;
-  private hostArmyId: string = 'frontier-wardens-starter';
-  private guestArmyId: string = 'rust-raiders-starter';
+  private hostArmyId: string = DEFAULT_HOST_ARMY;
+  private guestArmyId: string = DEFAULT_GUEST_ARMY;
   private useDeploymentPhase: boolean = true;
   private sessionStore: SessionStore;
   private mapStore: MapStore;
@@ -408,8 +408,6 @@ export class Lobby {
             <div style="margin-bottom: 12px;">
               <label style="display: block; font-size: 12px; color: #29b6f6; margin-bottom: 4px; font-weight: 600;">Host Force (South):</label>
               <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
-                <option value="frontier-wardens-starter" ${this.hostArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
-                <option value="rust-raiders-starter" ${this.hostArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
                 <option value="hdf" ${this.hostArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
                 <option value="orc-marauders" ${this.hostArmyId === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
                 ${testOptions(this.hostArmyId)}
@@ -418,8 +416,6 @@ export class Lobby {
             <div style="margin-bottom: 14px;">
               <label style="display: block; font-size: 12px; color: #ef5350; margin-bottom: 4px; font-weight: 600;">Guest Force (North):</label>
               <select id="guestArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
-                <option value="rust-raiders-starter" ${this.guestArmyId === 'rust-raiders-starter' ? 'selected' : ''}>Rust Raiders (300 pts) — Scavenger Incursion</option>
-                <option value="frontier-wardens-starter" ${this.guestArmyId === 'frontier-wardens-starter' ? 'selected' : ''}>Frontier Wardens (300 pts) — Outpost Defenders</option>
                 <option value="hdf" ${this.guestArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
                 <option value="orc-marauders" ${this.guestArmyId === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
                 ${testOptions(this.guestArmyId)}

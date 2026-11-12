@@ -14,6 +14,7 @@ import {
   PUSH_AUTO_CHOICE,
   PUSH_DECLINE_CHOICE,
   PUSH_CONFIRM_CHOICE,
+  STARTER_ARMIES,
 } from '@skirmish-lab/shared';
 import { legacyScenarioTerrain } from '../../../shared/tests/fixtures/legacyScenarioTerrain';
 import { startRoundOne } from '../../../shared/tests/fixtures/setupFlow';
@@ -83,8 +84,8 @@ describe('GameHUD', () => {
     expect(container.textContent).toContain('Round 3');
     expect(container.textContent).toContain("Your turn");
     expect(container.textContent).toContain('Alice — Fighters');
-    // Five units of the local player + five enemy units are listed with stats.
-    expect(container.querySelectorAll('.sl-hud-unit:not(.enemy)').length).toBe(5);
+    // Four Human Defense Force units of the local player + five Orc Marauders enemy units are listed with stats.
+    expect(container.querySelectorAll('.sl-hud-unit:not(.enemy)').length).toBe(4);
     expect(container.querySelectorAll('.sl-hud-unit.enemy').length).toBe(5);
     expect(container.textContent).toContain('Q4+');
   });
@@ -103,7 +104,7 @@ describe('GameHUD', () => {
     const { container } = setup(HOST, state);
 
     const activatable = container.querySelectorAll('.sl-hud-unit.activatable');
-    expect(activatable.length).toBe(4); // routed unit excluded
+    expect(activatable.length).toBe(3); // routed unit excluded
   });
 
   it('requires confirmation before any action is submitted', () => {
@@ -196,9 +197,18 @@ describe('GameHUD', () => {
     const { hud, container, controller } = setup(HOST, state);
 
     clickByText(container, 'Advance');
-    // Picking a destination in front of Warden Trooper 2 at (-4, 0, -12) clamps movement 1" (base edge) short of it
-    hud.handleBoardPick({ kind: 'position', position: { x: start.x + 3.3, y: 0, z: start.z } });
-    expect(container.textContent).toContain('2.0" (max 6") · can shoot after moving');
+    // Picking the spot of the nearest friendly model clamps movement 1" (two base radii) short of it
+    const friend = state.units.find((u) => u.ownerId === HOST && u.id !== unit.id)!;
+    const nearest = friend.models
+      .map((m) => m.position!)
+      .sort((p, q) => Math.hypot(p.x - start.x, p.z - start.z) - Math.hypot(q.x - start.x, q.z - start.z))[0];
+    const gap = Math.hypot(nearest.x - start.x, nearest.z - start.z) - 1;
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThan(6);
+    hud.handleBoardPick({ kind: 'position', position: { x: nearest.x, y: 0, z: nearest.z } });
+    const clamped = Number(/([0-9.]+)" \(max 6"\) · can shoot after moving/.exec(container.textContent!)![1]);
+    expect(clamped).toBeGreaterThan(0);
+    expect(clamped).toBeLessThanOrEqual(gap + 0.05); // stops short of the friendly model
     clickByText(container, 'Cancel');
 
     // Moving forward (+z) into open ground clamps to the full remaining movement radius (6.0")
@@ -217,7 +227,7 @@ describe('GameHUD', () => {
   it('shoot flow: enemy target in range → confirmed action with weapon', () => {
     const state = scenarioState();
     const attacker = state.units.find(
-      (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle')
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'pistol')
     )!;
     activateUnit(state, HOST, attacker.id);
     const target = state.units.find((u) => u.ownerId === GUEST)!;
@@ -228,7 +238,7 @@ describe('GameHUD', () => {
     clickByText(container, 'Shoot');
     hud.handleBoardPick({ kind: 'unit', unitId: target.id });
 
-    expect(container.textContent).toContain('fires Rifle at');
+    expect(container.textContent).toContain('fires Pistol at');
     clickByText(container, 'Confirm');
 
     expect(controller.submitAction).toHaveBeenCalledTimes(1);
@@ -238,8 +248,8 @@ describe('GameHUD', () => {
       type: 'shoot',
       attackerId: attacker.id,
       targetId: target.id,
-      weaponId: 'rifle',
-      allocations: [{ weaponId: 'rifle', targetId: target.id }],
+      weaponId: 'pistol',
+      allocations: [{ weaponId: 'pistol', targetId: target.id }],
     });
   });
 
@@ -266,13 +276,13 @@ describe('GameHUD', () => {
     clickByText(container, 'Shoot');
     hud.handleBoardPick({ kind: 'unit', unitId: target.id });
 
-    expect(container.textContent).toContain('fires Hand Cannon & Sidearm');
+    expect(container.textContent).toContain('fires Pistol & Sidearm');
     clickByText(container, 'Confirm');
 
     const action = controller.submitAction.mock.calls[0][0];
     expect(action.type).toBe('shoot');
     expect(action.payload.allocations).toEqual([
-      { weaponId: 'handcannon', targetId: target.id },
+      { weaponId: 'pistol', targetId: target.id },
       { weaponId: 'pistol-sidearm', targetId: target.id },
     ]);
   });
@@ -294,7 +304,7 @@ describe('GameHUD', () => {
     const targetB = guestUnits[1];
     targetA.position = { x: attacker.position.x, y: 0, z: attacker.position.z + 8 };
     syncModels(targetA);
-    targetB.position = { x: attacker.position.x + 5, y: 0, z: attacker.position.z + 8 };
+    targetB.position = { x: attacker.position.x + 3, y: 0, z: attacker.position.z + 8 };
     syncModels(targetB);
 
     activateUnit(state, HOST, attacker.id);
@@ -302,12 +312,12 @@ describe('GameHUD', () => {
 
     clickByText(container, 'Shoot');
     // Verify weapon chips are rendered
-    expect(container.textContent).toContain('Hand Cannon (12")');
+    expect(container.textContent).toContain('Pistol (12")');
     expect(container.textContent).toContain('Sidearm (12")');
 
     // Click target A -> default all to target A
     hud.handleBoardPick({ kind: 'unit', unitId: targetA.id });
-    expect(container.textContent).toContain('fires Hand Cannon & Sidearm');
+    expect(container.textContent).toContain('fires Pistol & Sidearm');
 
     // Now click the Sidearm chip to reassign it
     const sidearmChip = container.querySelector<HTMLButtonElement>('[data-weapon-id="pistol-sidearm"]')!;
@@ -327,7 +337,7 @@ describe('GameHUD', () => {
     const action = controller.submitAction.mock.calls[0][0];
     expect(action.type).toBe('shoot');
     expect(action.payload.allocations).toEqual([
-      { weaponId: 'handcannon', targetId: targetA.id },
+      { weaponId: 'pistol', targetId: targetA.id },
       { weaponId: 'pistol-sidearm', targetId: targetB.id },
     ]);
   });
@@ -857,7 +867,7 @@ describe('GameHUD', () => {
     // With an active unit, selection is shown, but movement-range ring is ONLY shown when Move is hovered/clicked.
     const state2 = scenarioState();
     const active = state2.units.find(
-      (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'rifle')
+      (u) => u.ownerId === HOST && u.weapons.some((w) => w.id === 'battle-rifle')
     )!;
     activateUnit(state2, HOST, active.id);
     hud.syncFromState(state2);
@@ -1114,13 +1124,13 @@ describe('GameHUD', () => {
     const state = scenarioState();
     // From Host perspective: Host units are team-blue, Guest units are team-red
     const hostView = setup(HOST, state);
-    expect(hostView.container.querySelectorAll('.sl-hud-unit.team-blue').length).toBe(5);
+    expect(hostView.container.querySelectorAll('.sl-hud-unit.team-blue').length).toBe(4);
     expect(hostView.container.querySelectorAll('.sl-hud-unit.enemy.team-red').length).toBe(5);
 
     // From Guest perspective: Guest units are still team-red, Host enemy units are team-blue
     const guestView = setup(GUEST, state);
     expect(guestView.container.querySelectorAll('.sl-hud-unit.team-red:not(.enemy)').length).toBe(5);
-    expect(guestView.container.querySelectorAll('.sl-hud-unit.enemy.team-blue').length).toBe(5);
+    expect(guestView.container.querySelectorAll('.sl-hud-unit.enemy.team-blue').length).toBe(4);
   });
 
   it('renders trait tooltips with describeTrait explanations', () => {
@@ -1684,7 +1694,7 @@ describe('GameHUD', () => {
 
   it('renders wound progress badge (e.g. 1/3 W) for a Tough model with damage below Tough', () => {
     const state = scenarioState();
-    const boss = state.units.find((u) => u.specialRules.includes('tough(3)'))!;
+    const boss = state.units.find((u) => u.models.length === 1 && u.specialRules.includes('tough(3)'))!;
     boss.models[0].wounds = 2;
     boss.wounds = 2;
     const { container } = setup(HOST, state);
@@ -1751,11 +1761,11 @@ describe('GameHUD', () => {
   });
 
   describe('Phase 10C: Interactive Deployment HUD', () => {
-    function deploymentState(): GameState {
+    function deploymentState(hostArmyId = 'hdf'): GameState {
       const state = createInitialGameState(HOST, GUEST, 'Alice', 'Bob');
       applyDefaultScenario(state, {
-        hostArmyId: 'frontier-wardens-starter',
-        guestArmyId: 'rust-raiders-starter',
+        hostArmyId,
+        guestArmyId: 'orc-marauders',
         useDeploymentPhase: true,
       });
       // The objectives phase (rolls and placement) is covered by the shared tests: start at deployment
@@ -1774,13 +1784,14 @@ describe('GameHUD', () => {
     });
 
     it('displays undeployed status tags on units and highlights deployable fighters', () => {
-      const state = deploymentState();
+      // The ready-made armies have no Ambush unit, so this check uses the dev-only Scout/Ambush TEST army
+      const state = deploymentState('test-scout-ambush-army');
       const { container } = setup(HOST, state);
 
       const hostRows = Array.from(container.querySelectorAll('.sl-hud-unit.team-blue'));
-      expect(hostRows.length).toBe(4);
+      expect(hostRows.length).toBe(STARTER_ARMIES['test-scout-ambush-army'].fighters.length);
 
-      // Patrol squad has ambush
+      // The Ambush units wait in reserve
       const dropReserveRow = hostRows.find((r) => r.textContent?.includes('IN RESERVE (AMBUSH)'));
       expect(dropReserveRow).toBeTruthy();
 
@@ -2552,8 +2563,8 @@ describe('GameHUD', () => {
       clickByText(container, 'Shoot');
       hud.handleBoardPick({ kind: 'unit', unitId: enemy.id });
 
-      // Confirmation summary must reflect 4 living models * 1 attack = 4d6
-      expect(container.textContent).toContain('4d6');
+      // Confirmation summary must reflect 4 living models * Pistol A2 = 8d6
+      expect(container.textContent).toContain('8d6');
     });
 
     it('allows a 4-model squad to move into one unbroken chain', () => {
