@@ -83,6 +83,10 @@ Both workflows live in `.github/workflows/`:
 4. GitHub Actions will build, test, and deploy both the client to GitHub Pages and the signaling server to Azure App Service.
 5. Visit `https://devianweb.github.io/skirmish-lab/` to demo live peer-to-peer skirmishes.
 
+### Build stamp and new-version notice
+
+Every client build carries the short commit (`GITHUB_SHA` in CI, else `git rev-parse --short HEAD`, else `dev`) and the UTC build time, injected by `client/vite.config.ts`, and writes `version.json` (`{ "commit", "builtAt" }`) next to `index.html`. The lobby footer shows `Build <hash> · <time> UTC` (and the console logs it at start-up). Whenever the lobby opens, the client fetches `version.json` with the cache bypassed and, if the deployed commit differs from the tab's own, shows a banner with a Reload button. There is no check during a game. After a release, hard-refresh or use Reload, and start a new room: a room reopened from its link restores the match as saved by the older build.
+
 ## Troubleshooting
 
 | Issue | Fix |

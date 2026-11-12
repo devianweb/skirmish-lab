@@ -33,7 +33,10 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - All items verified.
 
 ## 9. Multiplayer & custom maps
-- All items verified.
+- All earlier items verified.
+- [ ] **Build stamp (14G).** Setup: the deployed site after a release, no army or map needed. The lobby footer shows `Build <hash> · <time> UTC` under the disclaimer, and the hash matches the release's commit on GitHub. On a local dev server it reads `Build dev`, and the browser console shows the same line once at start-up.
+- [ ] **New-version banner (14G).** Keep a lobby tab open, deploy a new release, then return to the lobby (or reload from cache): a banner "A newer version of SkirmishLab is available." appears with Reload; Reload brings the new build, the banner is gone and the stamp shows the new hash. A dev server never shows the banner.
+- [ ] **No banner in a game (14G).** Start a match from a tab that is behind the deployed build: no banner or reload prompt appears during play.
 
 ## 10. Armies and faction rules (14C-3)
 - Verified items removed (owner pass, 2026-11-11): Repel Ambushers, Hold the Line, loadout counts, Blast on the launcher only, two-weapon melee and strike-back, HDF list, squad-mates don't block sight, which model has which weapon, Deadly first, per-model weapon sub-headings in the data card (PR 1F). Follow-up from the PR 1F pass: identical models share one sub-heading, each model shows its wounds, and the hover line in the card header goes (plan PR 1G).

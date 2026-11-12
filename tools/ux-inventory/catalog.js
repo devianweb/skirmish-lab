@@ -3,7 +3,7 @@ module.exports = [
   {
     id: 'lobby', title: 'Lobby and Map Builder', blurb: 'What a player sees before a match starts.',
     entries: [
-      { img: '70-lobby', title: 'Lobby', what: 'Centred card with the SkirmishLab title, a "Battlefield & Forces" box (map, Host force, Guest force, deployment checkbox), Create Room, the invite-code field with Join Room, Map Builder, and the fan-project disclaimer with the link to the free rules.',
+      { img: '70-lobby', title: 'Lobby', what: 'Centred card with the SkirmishLab title, a "Battlefield & Forces" box (map, Host force, Guest force, deployment checkbox), Create Room, the invite-code field with Join Room, Map Builder, and the fan-project disclaimer with the link to the free rules and a small muted build stamp ("Build a1b2c3d · 2026-11-11 23:00 UTC", or "Build dev" locally). When a newer build has been deployed, a yellow banner ("A newer version of SkirmishLab is available." with a Reload button) floats at the top of the lobby; it never appears during a game.',
         purpose: 'The only entry point. The host picks the map and both armies here, then creates a room; the guest types the XXX-XXX code and joins.' },
       { img: '71-lobby-dev-mode', title: 'Lobby, developer mode', what: 'Same card with a yellow DEV badge top right and a "Developer mode on" pill at the bottom. F9 toggles it.',
         purpose: 'Unlocks the TEST armies (and the dev maps) in the army lists for hand testing.' },
