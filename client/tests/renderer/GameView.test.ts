@@ -602,4 +602,35 @@ describe('GameView', () => {
     gameView.syncFromState({ ...base, gameId: 'rematch-game' });
     expect(outcome()).toBeUndefined();
   });
+
+  it('updates unit animations during start() animation loop and exposes update() and setReducedMotion()', () => {
+    const sceneManager = makeSceneManager();
+    let updateCalledWith: number | null = null;
+    const stubUnitRenderer = {
+      syncFromState: vi.fn(),
+      clear: vi.fn(),
+      raycastUnitHit: vi.fn().mockReturnValue(null),
+      update: vi.fn((dt: number) => {
+        updateCalledWith = dt;
+      }),
+      setReducedMotion: vi.fn(),
+    } as unknown as UnitRenderer;
+
+    const gameView = new GameView({ sceneManager, unitRenderer: stubUnitRenderer });
+    gameView.setReducedMotion(true);
+    expect(stubUnitRenderer.setReducedMotion).toHaveBeenCalledWith(true);
+
+    gameView.update(0.123);
+    expect(stubUnitRenderer.update).toHaveBeenCalledWith(0.123);
+
+    gameView.start();
+    expect(sceneManager.loopCallback).toBeDefined();
+
+    // Trigger loop callback twice with fake time progression
+    vi.spyOn(performance, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(1050);
+    sceneManager.loopCallback!();
+    sceneManager.loopCallback!();
+
+    expect(updateCalledWith).toBeCloseTo(0.05, 2);
+  });
 });

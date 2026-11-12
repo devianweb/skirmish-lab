@@ -91,6 +91,7 @@ export class GameView {
   private objectiveRenderer: ObjectiveRenderer;
   private boardSignature: string | null = null;
   private lastGameId: string | null = null;
+  private lastLoopTime: number | null = null;
 
   private camera: THREE.Camera | null;
   private inputElement: HTMLElement | null;
@@ -170,9 +171,27 @@ export class GameView {
     this.objectiveRenderer.syncFromState(state);
   }
 
-  /** Start the render loop (camera controls and outcome orientation are updated each frame). */
+  /** Set reduced motion preference override (defaults to querying window matchMedia). */
+  setReducedMotion(enabled: boolean): void {
+    this.unitRenderer.setReducedMotion(enabled);
+  }
+
+  /** Advance animations by deltaSeconds (exposed for test harnesses and render loops). */
+  update(deltaSeconds: number): void {
+    this.unitRenderer.update(deltaSeconds);
+  }
+
+  /** Start the render loop (camera controls, outcome orientation, and animations are updated each frame). */
   start(): void {
+    this.lastLoopTime = null;
     this.sceneManager.startAnimationLoop(() => {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (this.lastLoopTime !== null) {
+        const deltaSeconds = Math.min((now - this.lastLoopTime) / 1000, 0.1);
+        this.unitRenderer.update(deltaSeconds);
+      }
+      this.lastLoopTime = now;
+
       this.cameraController?.update();
       this.markerRenderer.orientOutcomeToCamera(this.camera);
     });

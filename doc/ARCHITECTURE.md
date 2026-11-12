@@ -192,6 +192,7 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
 - **State-driven:** When game state changes, renderer diffs and updates scene
 - **Separation:** Unit positions, rotations, etc. come from game state, not from mesh transforms as source of truth
 - **Performance:** Use instancing where possible, low poly models
+- **Animations (purely visual):** Game state updates immediately on confirmed actions; animations only move Three.js meshes visually afterwards and never delay, block, or change state, input, or networking. Both peers see identical animations driven by confirmed state and the action log. Movement tweens glide over 0.4s (ease in-out) following action payload paths (or straight lines); casualties sink 0.3" and fade out over 0.4s before mesh disposal; hits flash a red tint for 0.25s. Mid-tween state updates snap in-flight tweens to completion first. When the browser reports `prefers-reduced-motion`, all transforms snap instantaneously.
 
 ### Key Components
 - **SceneManager:** Initializes Three.js scene, camera, lighting, renderer
@@ -199,7 +200,8 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for full schema. Key points:
   - Host views from South isometric corner `(d, d, -d)` looking north (+z) over friendly forces (d = half the board's longer edge)
   - Guest views from North isometric corner `(-d, d, d)` looking south (-z) over friendly forces
 - **BoardRenderer:** Renders terrain, trenches, obstacles from game state (registered terrain types render as curated GLB models)
-- **UnitRenderer:** Creates/updates/removes meshes based on units in game state; provides raycast picking for the unit layer
+- **UnitRenderer:** Creates/updates/removes meshes based on units in game state; provides raycast picking for the unit layer; manages visual movement tweens, casualty fade/sink, and hit flashes
+- **animationMath:** Pure math module (zero dependencies, node-tested) providing quadratic ease-in-out curves, path length calculation, and arc-length parameterized waypoint sampling for movement tweens
 - **ModelLoader:** Loads and caches GLTF models; hosts a unit/terrain/marker asset registry — registered types get a procedural placeholder that swaps to the GLB clone once loaded (per-instance geometry/materials keep tinting and disposal safe)
 - **assetManifest:** Maps fighter roles, terrain types, and UI markers to curated CC0 (Kenney prototype kit) GLBs in `client/public/models/`
 - **MarkerRenderer:** Gameplay UI markers — selection and target indicators, movement-range ring, auto-clearing wound outcome tokens (GLB with procedural fallbacks)
