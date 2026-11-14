@@ -67,7 +67,7 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
 
 ---
 
-## PR 2: 2C Movement, Consolidation & Spawn Validation (branch: `bugfix-2c-movement`)
+## PR 2: 2C Movement, Consolidation & Spawn Validation (branch: `bugfix-2c-movement`) — **Done**
 - **Layer:** shared engine
 - **Files:**
   - `shared/src/engine/actions.ts`

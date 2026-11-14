@@ -4,6 +4,7 @@ import {
   DiceResult,
   GameAction,
   GameState,
+  TerrainPiece,
   Unit,
   Vector3,
   Weapon,
@@ -446,7 +447,7 @@ describe('applyAction: advance', () => {
     expect(moved.rotation.y).toBeCloseTo(Math.PI / 2);
   });
 
-  it('translates all squad models rigidly when modelPositions is omitted', () => {
+  it('rejects squad advance when modelPositions is omitted (G-07)', () => {
     const state = moveState();
     const unit = state.units.find((u) => u.id === 'h1')!;
     unit.models = [
@@ -460,11 +461,8 @@ describe('applyAction: advance', () => {
       finalPosition: { x: 0, y: 0, z: 4 },
     });
     const outcome = act(state, action);
-    expect(outcome.ok).toBe(true);
-    const moved = outcome.state!.units.find((u) => u.id === 'h1')!;
-    expect(moved.position).toEqual({ x: 0, y: 0, z: 4 });
-    expect(moved.models[0].position).toEqual({ x: 0, y: 0, z: 4 });
-    expect(moved.models[1].position).toEqual({ x: 0.8, y: 0, z: 4 });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toBe('Multi-model squad move requires modelPositions');
   });
 
   it('applies explicit coherent modelPositions and sets centroid', () => {
@@ -2208,6 +2206,429 @@ describe('applyAction invariants', () => {
         finalPosition: { x: 0, y: 3.0, z: 2.55 },
       });
       expect(validateAction(state, deckMove).valid).toBe(true);
+    });
+  });
+});
+
+describe('Bugfix Batch 2 — PR 2: G-07, G-17, G-08', () => {
+  function squadUnit(id: string, ownerId: string, modelCoords: Vector3[], overrides: Partial<Unit> = {}): Unit {
+    return makeUnit(id, ownerId, {
+      position: { ...modelCoords[0] },
+      wounds: modelCoords.length,
+      maxWounds: modelCoords.length,
+      speed: 6,
+      remainingMovement: 6,
+      models: modelCoords.map((p, i) => ({
+        id: `${id}-m${i}`,
+        wounds: 1,
+        maxWounds: 1,
+        isDestroyed: false,
+        position: { ...p },
+        rotation: { x: 0, y: 0, z: 0 },
+      })),
+      ...overrides,
+    });
+  }
+
+  describe('G-07: multi-model advance/rush must provide modelPositions', () => {
+    it('rejects advance for a multi-model squad when modelPositions is omitted', () => {
+      const h1 = squadUnit('h1', HOST, [
+        { x: -0.6, y: 0, z: 0 },
+        { x: 0.6, y: 0, z: 0 },
+      ]);
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, g1]);
+      state.turnState.activeUnitId = 'h1';
+      h1.isActivated = true;
+
+      const res = validateAction(
+        state,
+        createAction(HOST, 'advance', {
+          type: 'advance',
+          unitId: 'h1',
+          path: [{ x: -0.6, y: 0, z: 0 }, { x: -0.6, y: 0, z: 4 }],
+          finalPosition: { x: -0.6, y: 0, z: 4 },
+        })
+      );
+      expect(res.valid).toBe(false);
+      expect(res.reason).toBe('Multi-model squad move requires modelPositions');
+    });
+
+    it('rejects rush for a multi-model squad when modelPositions is omitted', () => {
+      const h1 = squadUnit('h1', HOST, [
+        { x: -0.6, y: 0, z: 0 },
+        { x: 0.6, y: 0, z: 0 },
+      ]);
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, g1]);
+      state.turnState.activeUnitId = 'h1';
+      h1.isActivated = true;
+
+      const res = validateAction(
+        state,
+        createAction(HOST, 'rush', {
+          type: 'rush',
+          unitId: 'h1',
+          path: [{ x: -0.6, y: 0, z: 0 }, { x: -0.6, y: 0, z: 8 }],
+          finalPosition: { x: -0.6, y: 0, z: 8 },
+        })
+      );
+      expect(res.valid).toBe(false);
+      expect(res.reason).toBe('Multi-model squad move requires modelPositions');
+    });
+  });
+
+  describe('G-17: multi-model advance/rush without modelPaths synthesizes per-model paths for dice & traversal', () => {
+    it('requests hazard dice in getDiceSpecs and applies hazard wounds in applyAction when modelPaths is omitted', () => {
+      const hazard: TerrainPiece = {
+        id: 'pool-1',
+        terrainType: 'hazard-pool',
+        position: { x: 0, y: 0, z: 3 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 0.1, z: 2 },
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+        isDangerous: true,
+      };
+      const h1 = squadUnit('h1', HOST, [
+        { x: -0.6, y: 0, z: 0 },
+        { x: 0.6, y: 0, z: 0 },
+      ]);
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, g1]);
+      state.terrain = [hazard];
+      state.turnState.activeUnitId = 'h1';
+      h1.isActivated = true;
+
+      const action = createAction(HOST, 'advance', {
+        type: 'advance',
+        unitId: 'h1',
+        path: [],
+        finalPosition: { x: 0, y: 0, z: 5.5 },
+        modelPositions: [
+          { x: -0.6, y: 0, z: 5.5 },
+          { x: 0.6, y: 0, z: 5.5 },
+        ],
+      });
+      const specs = getDiceSpecs(state, action);
+      expect(specs).toEqual([{ count: 2, sides: 6, purpose: 'hazard_pool-1' }]);
+
+      const outcome = act(state, action, [
+        { rolls: [1, 6], total: 7, finalTotal: 7, purpose: 'hazard_pool-1' },
+      ]);
+      expect(outcome.ok).toBe(true);
+      const after = outcome.state!.units.find((u) => u.id === 'h1')!;
+      expect(after.wounds).toBe(1);
+      expect(after.models.filter((m) => m.isDestroyed)).toHaveLength(1);
+    });
+
+    it('requests jump/fall dice in getDiceSpecs and resolves fall wounds in applyAction when rushing off a cliff without modelPaths', () => {
+      const deck: TerrainPiece = {
+        id: 'cliff-deck',
+        terrainType: 'platform-small',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 4, z: 4 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        isWalkable: true,
+        elevation: 4,
+      };
+      const start0 = { x: -0.6, y: 4, z: 1.5 };
+      const start1 = { x: 0.6, y: 4, z: 1.5 };
+      const end0 = { x: -0.6, y: 0, z: 3.0 };
+      const end1 = { x: 0.6, y: 0, z: 3.0 };
+      const h1 = squadUnit('h1', HOST, [start0, start1], {
+        models: [
+          { id: 'h1-m0', wounds: 4, maxWounds: 4, isDestroyed: false, position: { ...start0 } },
+          { id: 'h1-m1', wounds: 4, maxWounds: 4, isDestroyed: false, position: { ...start1 } },
+        ],
+        wounds: 8,
+        maxWounds: 8,
+      });
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 25 } });
+      const state = makeState([h1, g1]);
+      state.terrain = [deck];
+      state.turnState.activeUnitId = 'h1';
+      h1.isActivated = true;
+
+      const action = createAction(HOST, 'rush', {
+        type: 'rush',
+        unitId: 'h1',
+        path: [],
+        finalPosition: { x: 0, y: 0, z: 3.0 },
+        modelPositions: [end0, end1],
+        modelTraversals: [
+          { kind: 'jump-drop', takeoff: start0, landing: end0 },
+          { kind: 'jump-drop', takeoff: start1, landing: end1 },
+        ],
+      } as any);
+      const specs = getDiceSpecs(state, action);
+      expect(specs).not.toBeNull();
+      expect(specs!.some((s) => s.purpose === 'jump')).toBe(true);
+      expect(specs!.some((s) => s.purpose === 'fall' && s.count === 4)).toBe(true);
+
+      const outcome = act(state, action, [
+        { rolls: [1, 1, 1, 1], total: 4, finalTotal: 4, purpose: 'jump' },
+        { rolls: [1, 2, 6, 6], total: 15, finalTotal: 15, purpose: 'fall' },
+        { rolls: [6], total: 6, finalTotal: 6, purpose: 'morale' },
+      ]);
+      expect(outcome.ok).toBe(true);
+      const after = outcome.state!.units.find((u) => u.id === 'h1')!;
+      expect(after.wounds).toBe(6);
+      expect(after.remainingMovement).toBe(0);
+    });
+  });
+
+  describe('G-08: consolidate-move full geometry, keep-away, traversal, and squad validation', () => {
+    function consolidationState(victor: Unit, extraUnits: Unit[] = [], terrain: TerrainPiece[] = []): GameState {
+      const state = makeState([victor, ...extraUnits]);
+      state.terrain = terrain;
+      state.turnState.activeUnitId = victor.id;
+      victor.isActivated = true;
+      state.turnState.pendingReaction = {
+        id: 'rx-cons',
+        type: 'melee-consolidation',
+        promptingPlayerId: victor.ownerId,
+        sourceUnitId: victor.id,
+        targetUnitId: victor.id,
+        title: 'Victory Consolidation',
+        description: 'Consolidate',
+        options: [{ id: 'stay', label: 'Stay Put', isDefault: true }],
+        data: { unitId: victor.id, maxDistance: 3.0 },
+      };
+      return state;
+    }
+
+    it('rejects single-model consolidation that teleports, leaves the board, violates keep-away, enters engagement, or ends inside obstacle/mid-air/overhang/ladder/hazard/jump/drop', () => {
+      const victor = makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 } });
+      const enemy = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 3.5 } });
+      const blockingEnemy = makeUnit('g2', GUEST, { position: { x: 4, y: 0, z: 0 } });
+      const crate: TerrainPiece = {
+        id: 'crate-1',
+        terrainType: 'crate',
+        position: { x: 0, y: 0, z: -2.2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1.5, y: 1.5, z: 1.5 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+      };
+      const hazard: TerrainPiece = {
+        id: 'haz-1',
+        terrainType: 'hazard-pool',
+        position: { x: -3, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 2, y: 0.1, z: 2 },
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+        isDangerous: true,
+      };
+      const deck: TerrainPiece = {
+        id: 'deck-high',
+        terrainType: 'platform-small',
+        position: { x: 10, y: 0, z: 10 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 3, z: 4 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        isWalkable: true,
+        elevation: 3,
+      };
+      const ladder: TerrainPiece = {
+        id: 'lad-1',
+        terrainType: 'ladder',
+        climbType: 'ladder',
+        position: { x: 10, y: 0, z: 8 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 0.5, y: 3, z: 0.25 },
+        elevation: 3,
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+      };
+
+      const s = consolidationState(victor, [enemy, blockingEnemy], [crate, hazard, deck, ladder]);
+
+      // Teleport: path[0] != unit.position
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 10, y: 0, z: 0 }, { x: 11, y: 0, z: 0 }],
+        })).valid
+      ).toBe(false);
+
+      // Leaves board
+      const edgeVictor = makeUnit('h1', HOST, { position: { x: 23.5, y: 0, z: 0 } });
+      const edgeState = consolidationState(edgeVictor, [enemy]);
+      expect(
+        validateAction(edgeState, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 23.5, y: 0, z: 0 }, { x: 25, y: 0, z: 0 }],
+        })).valid
+      ).toBe(false);
+
+      // Violates 1" keep-away on way or at end (g1 at z=3.5: centre-to-centre 1.5" => 0.5" edge gap < 1")
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2.0 }],
+        })).valid
+      ).toBe(false);
+
+      // Ends in melee contact (g1 at z=3.5: moving to z=2.5 puts bases in contact)
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2.5 }],
+        })).valid
+      ).toBe(false);
+
+      // Ends inside obstacle
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -2.2 }],
+        })).valid
+      ).toBe(false);
+
+      // Crosses dangerous terrain
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 0, y: 0, z: 0 }, { x: -2.5, y: 0, z: 0 }],
+        })).valid
+      ).toBe(false);
+
+      // Ends suspended mid-air / overhanging / on ladder rungs / > 3" drop
+      const airVictor = makeUnit('h1', HOST, { position: { x: 10, y: 3, z: 10 } });
+      const airState = consolidationState(airVictor, [enemy], [deck, ladder]);
+      expect(
+        validateAction(airState, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 10, y: 3, z: 10 }, { x: 10, y: 3, z: 12.2 }],
+        })).valid
+      ).toBe(false); // overhanging edge
+      expect(
+        validateAction(airState, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 10, y: 3, z: 10 }, { x: 10, y: 1.5, z: 12.8 }],
+        })).valid
+      ).toBe(false); // mid-air
+      expect(
+        validateAction(airState, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 10, y: 3, z: 10 }, { x: 10, y: 3, z: 8.55 }, { x: 10, y: 1.5, z: 7.45 }],
+        })).valid
+      ).toBe(false); // suspended on ladder rungs
+      const tallDeck: TerrainPiece = { ...deck, id: 'deck-4', scale: { x: 4, y: 4, z: 4 }, elevation: 4 };
+      const tallVictor = makeUnit('h1', HOST, { position: { x: 10, y: 4, z: 10 } });
+      const tallState = consolidationState(tallVictor, [enemy], [tallDeck]);
+      expect(
+        validateAction(tallState, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 10, y: 4, z: 10 }, { x: 10, y: 0, z: 12.8 }],
+        })).valid
+      ).toBe(false); // > 3" drop without jumping/climbing
+    });
+
+    it('requires modelPositions for squad consolidation, validates coherency/overlap, and preserves per-model y via placeSquadModels', () => {
+      const deck: TerrainPiece = {
+        id: 'step-deck',
+        terrainType: 'platform-small',
+        position: { x: 0, y: 0, z: 4 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 1.5, z: 4 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        isWalkable: true,
+        elevation: 1.5,
+      };
+      const ladder: TerrainPiece = {
+        id: 'step-ladder',
+        terrainType: 'ladder',
+        climbType: 'ladder',
+        position: { x: 0, y: 0, z: 2 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 0.5, y: 1.5, z: 0.25 },
+        elevation: 1.5,
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+      };
+      const victor = squadUnit('h1', HOST, [
+        { x: -0.8, y: 1.5, z: 2.7 },
+        { x: 0.8, y: 0, z: 1.2 },
+      ]);
+      const enemy = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: -20 } });
+      const s = consolidationState(victor, [enemy], [deck, ladder]);
+
+      // Rejects squad consolidate-move without modelPositions
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: victor.position.x, y: victor.position.y, z: victor.position.z }, { x: victor.position.x, y: victor.position.y, z: victor.position.z - 1 }],
+        })).valid
+      ).toBe(false);
+
+      // Rejects breaking coherency (> 3" apart)
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }],
+          modelPositions: [
+            { x: -2.0, y: 1.5, z: 2.7 },
+            { x: 2.5, y: 0, z: 0.2 },
+          ],
+        })).valid
+      ).toBe(false);
+
+      // Rejects squadmate overlap (< 0.90")
+      expect(
+        validateAction(s, createAction(HOST, 'consolidate-move', {
+          type: 'consolidate-move',
+          unitId: 'h1',
+          path: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }],
+          modelPositions: [
+            { x: 0, y: 1.5, z: 2.7 },
+            { x: 0.4, y: 1.5, z: 2.7 },
+          ],
+        })).valid
+      ).toBe(false);
+
+      // Valid multi-level consolidation keeps individual model y (1.5 for deck model, 0 for ground model)
+      const validAction = createAction(HOST, 'consolidate-move', {
+        type: 'consolidate-move',
+        unitId: 'h1',
+        path: [{ x: -0.8, y: 1.5, z: 2.7 }, { x: -0.8, y: 1.5, z: 3.5 }],
+        modelPositions: [
+          { x: -0.8, y: 1.5, z: 3.5 },
+          { x: 0.8, y: 0, z: 0.8 },
+        ],
+      });
+      expect(validateAction(s, validAction).valid).toBe(true);
+      const outcome = act(s, validAction);
+      expect(outcome.ok).toBe(true);
+      const after = outcome.state!.units.find((u) => u.id === 'h1')!;
+      expect(after.models[0].position!.y).toBeCloseTo(1.5, 2);
+      expect(after.models[1].position!.y).toBeCloseTo(0, 2);
     });
   });
 });

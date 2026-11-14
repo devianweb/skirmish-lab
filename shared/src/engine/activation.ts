@@ -760,6 +760,9 @@ export function deploymentFootprintProblem(
 export function settleSpawnPositions(state: GameState, units: Unit[]): void {
   for (const u of units) u.isDeployed = false;
   for (const unit of units) {
+    if (hasTrait(unit.specialRules, 'ambush')) {
+      continue;
+    }
     const origin = unit.position;
     let chosen: Vector3 | null = null;
     if (!deploymentFootprintProblem(state, unit, origin)) chosen = origin;

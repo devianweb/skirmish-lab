@@ -17,6 +17,7 @@ import { WEAPONS } from '../../src/data/weapons';
 import { getBlastParticipants } from '../../src/engine/blast';
 import { deploymentFootprintProblem } from '../../src/engine/activation';
 import { findEndOverlap } from '../../src/engine/spatial';
+import { hasTrait } from '../../src/rules/traits';
 import { BUILTIN_MAPS } from '../../src/data/builtinMaps';
 import { legacyScenarioTerrain } from '../fixtures/legacyScenarioTerrain';
 import { getActivatableUnits, isRoundComplete, getDeploymentZoneBounds } from '../../src/engine/activation';
@@ -491,6 +492,7 @@ describe('spawning without a deployment phase', () => {
       const state = createInitialGameState(HOST, GUEST);
       applyDefaultScenario(state, { hostArmyId: army, guestArmyId: army, customMap: BUILTIN_MAPS[map]() });
       for (const unit of state.units) {
+        if (unit.isDeployed === false) continue;
         expect(deploymentFootprintProblem(state, unit, unit.position)).toBeNull();
         for (const m of unit.models) {
           expect(findEndOverlap(state, unit.id, m.position!)?.kind).not.toBe('terrain');
@@ -498,4 +500,48 @@ describe('spawning without a deployment phase', () => {
       }
     }
   );
+
+  it('G-20: dynamically spaces >4-unit starter armies without overlap and keeps Ambush units in reserve', () => {
+    const state = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(state, {
+      hostArmyId: 'orc-marauders',
+      guestArmyId: 'test-special-rules-army',
+      useDeploymentPhase: false,
+    });
+
+    for (const owner of [HOST, GUEST]) {
+      const deployed = state.units.filter((u) => u.ownerId === owner && u.isDeployed !== false);
+      expect(deployed.length).toBeGreaterThanOrEqual(5);
+      for (const u of deployed) {
+        expect(deploymentFootprintProblem(state, u, u.position)).toBeNull();
+      }
+      for (let i = 0; i < deployed.length; i++) {
+        for (let j = i + 1; j < deployed.length; j++) {
+          const dist = Math.hypot(
+            deployed[i].position.x - deployed[j].position.x,
+            deployed[i].position.z - deployed[j].position.z
+          );
+          expect(dist).toBeGreaterThanOrEqual(3.99);
+        }
+      }
+    }
+
+    const ambushState = createInitialGameState(HOST, GUEST);
+    applyDefaultScenario(ambushState, {
+      hostArmyId: 'test-scout-ambush-army',
+      guestArmyId: 'hdf',
+      useDeploymentPhase: false,
+    });
+    const hostUnits = ambushState.units.filter((u) => u.ownerId === HOST);
+    const ambushers = hostUnits.filter((u) => hasTrait(u.specialRules, 'ambush'));
+    const regulars = hostUnits.filter((u) => !hasTrait(u.specialRules, 'ambush'));
+    expect(ambushers.length).toBeGreaterThan(0);
+    for (const u of ambushers) {
+      expect(u.isDeployed).toBe(false);
+    }
+    for (const u of regulars) {
+      expect(u.isDeployed).toBe(true);
+      expect(deploymentFootprintProblem(ambushState, u, u.position)).toBeNull();
+    }
+  });
 });

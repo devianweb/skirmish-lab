@@ -355,7 +355,7 @@ export type ActionPayload =
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
-  | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3 }
+  | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] }
   | { type: 'pick-casualties', unitId: string, modelIds: string[] }
   | { type: 'blast-split', splits: number[][] }
