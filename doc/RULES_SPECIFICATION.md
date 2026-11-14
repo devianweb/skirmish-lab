@@ -137,6 +137,7 @@ sequenceDiagram
    - **Blocking:** an attacker's own squad-mates never block its sight; models of any other unit (friend or foe) do. The target unit's own models do not block sight to each other.
    - **Distance rules:** the `> 9"` rule checks and the distance shown to the player use the closest pair of models. `unit.position` is only an anchor for a squad and is never used to measure between units.
    - A squad may divide its fire among up to **two distinct targets**, provided each target is fired upon by distinct weapon profiles.
+   - **Simultaneous Salvo:** One `shoot` action is a single simultaneous salvo: every declared weapon allocation captures its target model count, cover status, and `Blast(X)` participants/caps from the pre-salvo battlefield state before any allocation applies casualties. Wounds are then applied in allocation order (with `Deadly` allocations applying wounds first).
 2. **Hit Allocation:**
    - Attacker rolls 1d6 per weapon attack count. Each roll $\ge Q$ scores 1 hit.
 3. **Protection Test:**
@@ -173,7 +174,7 @@ sequenceDiagram
    - If either unit is completely wiped out, the surviving unit may consolidate up to **3"**.
    - If both units survive, the charging unit must push back to create a **1" gap** between the units. It is done per model (batch 1D PR 11): every charging model that is within 1" (base edge) of any enemy model slides directly away to a 1" gap; models already clear stay put. The new spots must be on the board, clear of terrain and models and keep a coherent squad coherent; otherwise the whole formation steps back together along the old anchor line.
 6. **Fatigue / Exhaustion:**
-   - Once a unit has charged or retaliated in melee during a round, it becomes **Fatigued**.
+   - Once a unit has charged or retaliated in melee (or finished a Counter exchange) during a round, it becomes **Fatigued** (`fatigued` status). If a Counter unit finishes its Counter strikes when the charger was destroyed or has no melee weapons left, or declines a non-Counter strike-back after countering, it still becomes Fatigued once the melee exchange completes.
    - For the rest of the round, fatigued units only hit in melee on **unmodified natural 6s**.
 
 ---
@@ -236,7 +237,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`bad-shot`** | **Bad Shot** | $-1$ to hit rolls when shooting (Orc Marauders). No effect in melee. A natural 6 still hits. Shown as "-1 Bad Shot" in the hit modifiers. |
 | **`blast(X)`** | **Blast(X)** | Ignores cover. After all other special rules each hit becomes $X$ hits, split between the target and every other enemy unit with a model within $3"$ of it. When more than one unit is eligible the target's owner chooses the split (any split within each unit's cap, one hit per living model, that assigns every hit that can land; the Auto split is the even one with the odd hit to the target); a timeout uses the Auto split. A unit takes at most one hit per living model; the rest are lost. The engine's Auto split deals hits as evenly as possible (odd hit to the target first, then nearest neighbours) and re-spreads hits a unit cannot take. Each unit defends its share with its own Defense batch. |
 | **`caster(X)`** | **Caster(X)** | Generates $X$ tokens per round (cap 6). Spends tokens equal to power cost to cast; succeeds on 1d6 roll of 4+. Friendly/enemy casters within 18" in LOS may spend tokens to grant $\pm 1$ modifier. |
-| **`counter`** | **Counter** | When the unit is charged, it strikes first with **every** Counter weapon it carries (one resolution each): after the charger's Impact hits and before the charger's own strike. A Fatigued unit, and a Shaken unit (it counts as Fatigued), makes no Counter strike; a Shaken unit can still strike back afterwards, hitting only on 6s. If the charger survives, it then strikes. Afterwards the charged unit is offered the normal strike back with its first **non-Counter** melee weapon (an Assault weapon counts); if it has none, no strike-back prompt. When Counter wounds remove models from a surviving squad charger, its owner picks them **before** it strikes, and the charger strikes with the models it has left in reach (likewise Impact casualties on a squad that Counters are picked before the Counter strike). The charger no longer loses Impact hits. *(14C-2 PR 7 and 7B, Decisions 43-45.)* |
+| **`counter`** | **Counter** | When the unit is charged, it strikes first with **every** carried Counter weapon (`isCarried`, one resolution each): after the charger's Impact hits (and any Impact casualty picks) and before the charger's own strike. A Fatigued unit, and a Shaken unit (it counts as Fatigued), makes no Counter strike; a Shaken unit can still strike back afterwards, hitting only on 6s. If the charger survives, it then strikes. Afterwards the charged unit is offered the normal strike back with all carried **non-Counter** melee weapons (including Assault weapons), hitting at normal Quality (unless it was already Fatigued or is Shaken); if it has none, no strike-back prompt. The defending unit becomes Fatigued once the Counter melee exchange completes (or if it declines strike-back). When Counter wounds remove models from a surviving squad charger, its owner picks them **before** it strikes, and the charger strikes with the models it has left in reach (likewise Impact casualties on any surviving multi-model squad are picked before Counter or normal strikes). The charger no longer loses Impact hits. *(14C-2 PR 7, 7B & 2F Decisions 4, 7.)* |
 | **`deadly(X)`** | **Deadly(X)** | Wounds from this weapon deal $X$ wounds each. Resolved first; extra wounds do not carry over to other models in squad. |
 | **`ferocious`** | **Ferocious** | When this model shoots at a target more than $9"$ away, or charges a target that was more than $6"$ away when the charge began, each unmodified hit roll of 6 deals 1 extra hit (Orc Marauders). Exactly $9.0"$ / $6.0"$ does not count. The charge distance is the one noted at the start of the charge (the same `attackedFrom` figure Hold the Line reads). The extra hit is not a 6 for other rules: Rending / Rupture AP applies to the original hit only (this holds for Surge, Relentless and Furious too). Shown as "Ferocious (6s add a hit)" in the hit modifiers and "(incl. N extra from 6s)" in the hit total. |
 | **`fast`** | **Fast** | Advance distance $+2"$ (8" from Speed 6), Rush and Charge $+4"$ (16"). Applied to the Speed stat through `getEffectiveSpeed`; difficult terrain still caps a move at 6". |
@@ -246,7 +247,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`furious`** | **Furious** | When charging, unmodified hit rolls of 6 in melee generate 1 additional hit (bonus hit does not trigger further 6s). |
 | **`hero`** | **Hero** | Friendly units within 6" (base edge to base edge) may use the Hero's Quality for Morale Tests while the Hero is not Shaken. |
 | **`immobile`** | **Immobile** | Unit may only execute **Hold** actions. Cannot move, advance, or charge. |
-| **`impact(X)`** | **Impact(X)** | On a charge each striking model (within melee reach) rolls $X$ dice (the unit's rule plus the striking weapon's), each 2+ is a hit that must get past a plain Defense roll; resolved before any melee strike. No dice at all if the charging unit is already Fatigued. *(Per model, as Impact is a model rule in OPR.)* |
+| **`impact(X)`** | **Impact(X)** | On a charge each striking model (within melee reach) rolls $X$ dice (the unit's rule plus the striking weapon's), each 2+ is a hit that must get past a plain Defense roll; resolved before any melee strike. Surviving multi-model defenders choose Impact casualties via `pick-casualties` under the standard prompt rules (whether or not they have `Counter`) before Counter or normal melee strikes resolve. No dice at all if the charging unit is already Fatigued. *(Per model, as Impact is a model rule in OPR.)* |
 | **`indirect`** | **Indirect** | If the unit held (did not move) this activation, fires without line of sight and ignores cover from sight blockers. After moving it needs line of sight like any weapon. No to-hit penalty. |
 | **`limited`** | **Limited** | Weapon profile or ability may only be used **once per match**. |
 | **`regeneration`** | **Regeneration** | Whenever suffering wounds, roll 1d6 per wound. On a **5+**, the wound is ignored. |
@@ -257,7 +258,7 @@ Every special rule is modeled as a declarative modifier or state machine interce
 | **`shred`** | **Shred** | Each unmodified Defense roll of 1 against this weapon adds one extra wound (a plain wound, not multiplied by Deadly; Regeneration still applies). Not Rending. |
 | **`slow`** | **Slow** | Decreases movement: $-2"$ to Advance (Speed 4"), $-4"$ to Rush/Charge (Speed 8"). |
 | **`stealth`** | **Stealth** | When targeted by ranged attacks from $>9"$ distance, enemy attack rolls suffer a **$-1$ penalty to hit**. |
-| **`pathfinder`** | **Strider** | Ignores Difficult Terrain speed cap. Rolls half the jump dice (rounding up). |
+| **`strider`** | **Strider** | Ignores Difficult Terrain speed cap. Rolls half the jump dice (rounding up). |
 | **`surge`** | **Surge** | Unmodified hit rolls of 6 deal 1 additional hit. |
 | **`thrust`** | **Thrust** | When charging, attacks gain **$+1$ to hit** and **`ap(+1)`** in melee. |
 | **`tough(X)`** | **Tough(X)** | A model is removed once it has taken $X$ wounds. |
@@ -312,7 +313,7 @@ export interface UnitProfile {
   speed: number;        // Standard base speed, default 6
   size: number;         // Model count in squad
   wounds: number;       // Wounds left across living models
-  status: Array<'ready' | 'activated' | 'suppressed' | 'fatigued' | 'engaged' | 'destroyed'>;
+  status: Array<'ready' | 'activated' | 'shaken' | 'fatigued' | 'routed' | 'engaged' | 'in-cover' | 'destroyed'>;
   weapons: WeaponProfile[];
   traits: TraitInstance[];
 }

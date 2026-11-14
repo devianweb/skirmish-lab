@@ -812,6 +812,11 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
   },
 };
 
+/** True when `id` is a known army key in `STARTER_ARMIES` (starter or TEST army). */
+export function isKnownArmyId(id: unknown): id is string {
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(STARTER_ARMIES, id);
+}
+
 /**
  * Creates full Unit instances from a StarterArmy definition for game setup or interactive deployment.
  */
@@ -824,16 +829,22 @@ export function createUnitsFromStarterArmy(
     facing?: number;
   } = {}
 ): Unit[] {
-  // 6" apart: two 4-model squads side by side still keep more than 1" between bases (their rings are ~3.4" wide).
-  const spread = [-9, -3, 3, 9];
+  // 6" apart per column across up to 6 columns per row; additional rows step deeper into the player's zone.
+  const perRow = 6;
+  const spacing = 6;
+  const rowStepZ = 6;
   const z = options.defaultZ ?? 0;
   const facing = options.facing ?? 0;
+  const zSign = z < 0 ? -1 : 1;
 
   return starterArmy.fighters.map((fighter, index) => {
+    const row = Math.floor(index / perRow);
+    const col = index % perRow;
+    const colsInRow = Math.min(perRow, starterArmy.fighters.length - row * perRow);
     const pos = {
-      x: spread[index % spread.length],
+      x: Math.round((col - (colsInRow - 1) / 2) * spacing * 100) / 100,
       y: 0,
-      z,
+      z: z + row * rowStepZ * zSign,
     };
     const unit = createUnitFromFighter(fighter, ownerId, starterArmy.factionId, pos, {
       unitId: `${ownerId}-${fighter.id}-${index + 1}`,

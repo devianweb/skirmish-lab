@@ -1,6 +1,6 @@
 # 14G: Indicators for distance-gated rules
-Status: approved (owner, 2026-11-12: "Go ahead with the build stamp and the indicators"; the owner's roadmap entry of 2026-11-10 is the spec, the decisions below fill in the details)
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G, "Indicators for distance-gated rules"
+Status: done (PRs #370, #371, #373 merged)
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14G, "Indicators for distance-gated rules"
 
 ## Goal
 While aiming or charging, a player can see how far the target is and which distance rules switch on for that attack, without doing the maths. The attacker's own switch distances are drawn on the range fan, and the two area effects (a Hero's 6" morale help and Blast's 3" spread) are drawn when they matter. Everything is data-driven: each rule in the trait registry declares its distance gate, and the HUD and scene draw gates generically, with no per-rule code.

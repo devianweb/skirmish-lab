@@ -200,3 +200,32 @@ describe('ownThresholdRings', () => {
     expect(ownThresholdRings(mk('u', HOST, [0], ['stealth', 'hold-the-line', 'hero']), 'shooting')).toEqual([]);
   });
 });
+
+describe('G-18: distanceGates filters by isEquipped, isCarried, and isMeleeWeapon', () => {
+  it('ignores unequipped and dead-carrier weapons in attackDistanceRules and ownThresholdRings', () => {
+    const deadCarrierRifle = weapon('dead-rifle', 'rifle', ['relentless']);
+    const unequippedRifle = { ...weapon('spent-rifle', 'rifle', ['ferocious']), isEquipped: false };
+    const a = mk('a', HOST, [0, -1], [], [deadCarrierRifle, unequippedRifle]);
+    a.models![0].weaponIds = ['spent-rifle'];
+    a.models![1].weaponIds = ['dead-rifle'];
+    a.models![1].isDestroyed = true;
+    const t = mk('t', GUEST, [15]);
+    const s = mkState([a, t]);
+
+    expect(attackDistanceRules({ state: s, attacker: a, target: t, context: 'shooting' }).entries).toEqual([]);
+    expect(ownThresholdRings(a, 'shooting')).toEqual([]);
+  });
+
+  it('includes equipped carried Assault ranged weapons in charge context', () => {
+    const carbine = weapon('carbine', 'rifle', ['assault', 'ferocious']);
+    const blade = weapon('blade', 'blade');
+    const a = mk('a', HOST, [0], [], [carbine, blade]);
+    a.models![0].weaponIds = ['carbine', 'blade'];
+    const t = mk('t', GUEST, [10]);
+    const s = mkState([a, t]);
+
+    expect(ownThresholdRings(a, 'charge').map((r) => r.traitIds)).toEqual([['ferocious']]);
+    const rules = attackDistanceRules({ state: s, attacker: a, target: t, context: 'charge' });
+    expect(rules.entries.map((e) => e.traitId)).toEqual(['ferocious']);
+  });
+});

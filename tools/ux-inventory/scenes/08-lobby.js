@@ -19,7 +19,9 @@ const URL = 'http://localhost:3000/skirmish-lab/';
   await shot(g, '73-lobby-join-filled');
   await g.click('#joinBtn'); await g.waitForTimeout(800);
   await shot(g, '74-lobby-joining');
-  await g.waitForTimeout(6000);
+  await h.waitForSelector('#startMatchBtn:not([disabled])', { timeout: 15000 });
+  await h.click('#startMatchBtn');
+  await g.waitForSelector('.sl-hud-turn', { timeout: 15000 });
   await shot(h, '75-game-start-host');
   await shot(g, '76-game-start-guest');
   // map editor

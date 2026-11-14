@@ -88,7 +88,7 @@ All terrain pieces are instances of types registered in `TERRAIN_PALETTE_CATALOG
 | `industrial-pipe` | Industrial Pipe (4") | `scatter` | `4 × 0.75 × 0.75` | no | Low 0.75" waist-height conduit obstacle providing cover. |
 | `shipping-container` | Shipping Container (5") | `scatter` | `5 × 2.25 × 2.25` | walkable & climbable | Solid sight blocker and obstacle with a walkable 2.25" roof. |
 | `rubble-field` | Rubble Field (6"×4") | `area` | `6 × 0.25 × 4` | area (walkable) | Difficult area terrain: 6.0" movement speed cap, grants cover to models inside; no collision solids. |
-| `hazard-pool` | Hazard Pool (4"×4") | `area` | `4 × 0.1 × 4` | area (walkable) | Dangerous area terrain: 1d6 hazard check per model on crossing or activating (1s inflict unsaved wounds); no cover; no collision solids. |
+| `hazard-pool` | Hazard Pool (4"×4") | `area` | `4 × 0.1 × 4` | area (walkable) | Dangerous area terrain: rolls one d6 per wound it would take to destroy the unit (living models' remaining wounds summed, once per piece per activation; each 1 is a wound; Flying is immune); no cover; no collision solids. |
 
 ---
 

@@ -204,4 +204,62 @@ describe('SignalingClient', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('deduplicates concurrent connect() and ensureConnected() calls while connecting (G-24)', async () => {
+    const sockets: any[] = [];
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        static OPEN = 1;
+        readyState = 0;
+        onopen: (() => void) | null = null;
+        onmessage: ((e: any) => void) | null = null;
+        onerror: ((e: any) => void) | null = null;
+        onclose: (() => void) | null = null;
+        constructor() {
+          sockets.push(this);
+        }
+        send() {}
+        close() {
+          this.readyState = 3;
+        }
+      }
+    );
+
+    try {
+      const p1 = client.connect();
+      const p2 = client.connect();
+      const p3 = client.ensureConnected();
+
+      // Must reuse the single in-flight socket instead of spawning duplicates
+      expect(sockets).toHaveLength(1);
+      expect(p2).toBe(p1);
+
+      sockets[0].readyState = 1;
+      sockets[0].onopen?.();
+
+      await Promise.all([p1, p2, p3]);
+
+      // Already connected: resolves without creating another socket
+      await client.connect();
+      expect(sockets).toHaveLength(1);
+
+      // Simulate drop -> connect() creates a fresh socket, and failure clears connectPromise for retry
+      sockets[0].readyState = 3;
+      sockets[0].onclose?.();
+
+      const failAttempt = client.connect();
+      expect(sockets).toHaveLength(2);
+      sockets[1].onclose?.();
+      await expect(failAttempt).rejects.toThrow('WebSocket closed before opening');
+
+      const retryAttempt = client.connect();
+      expect(sockets).toHaveLength(3);
+      sockets[2].readyState = 1;
+      sockets[2].onopen?.();
+      await expect(retryAttempt).resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

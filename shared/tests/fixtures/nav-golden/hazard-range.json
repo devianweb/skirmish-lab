@@ -1,0 +1,314 @@
+[
+  {
+    "id": "hr-fast-1",
+    "category": "fast-path",
+    "label": "fast-path: straight through hazard pool A (-9, -8)",
+    "path": [
+      {
+        "x": -13,
+        "y": 0,
+        "z": -8
+      },
+      {
+        "x": -5,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-fast-2",
+    "category": "fast-path",
+    "label": "fast-path: straight across pools A and B (-9 to -1)",
+    "path": [
+      {
+        "x": -13,
+        "y": 0,
+        "z": -8
+      },
+      {
+        "x": 1,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-fast-3",
+    "category": "fast-path",
+    "label": "fast-path: diagonal across lone pool C (9, -8)",
+    "path": [
+      {
+        "x": 6,
+        "y": 0,
+        "z": -12
+      },
+      {
+        "x": 12,
+        "y": 0,
+        "z": -4
+      }
+    ]
+  },
+  {
+    "id": "hr-fast-4",
+    "category": "fast-path",
+    "label": "fast-path: straight through guest twin pool (-9, 8)",
+    "path": [
+      {
+        "x": -13,
+        "y": 0,
+        "z": 8
+      },
+      {
+        "x": -5,
+        "y": 0,
+        "z": 8
+      }
+    ]
+  },
+  {
+    "id": "hr-clamp-1",
+    "category": "clamped",
+    "label": "clamped: advance across pool A capped at 6.0\"",
+    "path": [
+      {
+        "x": -13,
+        "y": 0,
+        "z": -8
+      },
+      {
+        "x": -7,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-clamp-2",
+    "category": "clamped",
+    "label": "clamped: rush across pools A and B capped at 12.0\"",
+    "path": [
+      {
+        "x": -13,
+        "y": 0,
+        "z": -8
+      },
+      {
+        "x": -1,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-clamp-3",
+    "category": "clamped",
+    "label": "clamped: short move toward pool C capped at 4.0\"",
+    "path": [
+      {
+        "x": 9,
+        "y": 0,
+        "z": -16
+      },
+      {
+        "x": 9,
+        "y": 0,
+        "z": -12
+      }
+    ]
+  },
+  {
+    "id": "hr-clamp-4",
+    "category": "clamped",
+    "label": "clamped: diagonal rush across mid-field capped at 10.0\"",
+    "path": [
+      {
+        "x": -12,
+        "y": 0,
+        "z": -16
+      },
+      {
+        "x": -6,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-keep-1",
+    "category": "keep-away",
+    "label": "keep-away: enemy unit on strip between pools A and B forces detour",
+    "path": [
+      {
+        "x": -6,
+        "y": 0,
+        "z": -13
+      },
+      {
+        "x": -3.95,
+        "y": 0,
+        "z": -8.85
+      },
+      {
+        "x": -3.95,
+        "y": 0,
+        "z": -7.15
+      },
+      {
+        "x": -6,
+        "y": 0,
+        "z": -3
+      }
+    ]
+  },
+  {
+    "id": "hr-keep-2",
+    "category": "keep-away",
+    "label": "keep-away: two enemy models in pool A form wall requiring wide detour",
+    "path": [
+      {
+        "x": -9,
+        "y": 0,
+        "z": -13
+      },
+      {
+        "x": -5.95,
+        "y": 0,
+        "z": -8.85
+      },
+      {
+        "x": -5.95,
+        "y": 0,
+        "z": -7.15
+      },
+      {
+        "x": -9,
+        "y": 0,
+        "z": -3
+      }
+    ]
+  },
+  {
+    "id": "hr-keep-3",
+    "category": "keep-away",
+    "label": "keep-away: friendly unit near pool C forces detour",
+    "path": [
+      {
+        "x": 5,
+        "y": 0,
+        "z": -8
+      },
+      {
+        "x": 8.15,
+        "y": 0,
+        "z": -10.05
+      },
+      {
+        "x": 9.85,
+        "y": 0,
+        "z": -10.05
+      },
+      {
+        "x": 13,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-keep-4",
+    "category": "keep-away",
+    "label": "keep-away: enemy unit at destination pulls stop back outside 1\" keep-away",
+    "path": [
+      {
+        "x": 0,
+        "y": 0,
+        "z": -14
+      },
+      {
+        "x": 0,
+        "y": 0,
+        "z": -8
+      }
+    ]
+  },
+  {
+    "id": "hr-keep-5",
+    "category": "keep-away",
+    "label": "keep-away: 3-model enemy squad in L-formation forces multi-leg detour",
+    "path": [
+      {
+        "x": 0,
+        "y": 0,
+        "z": -14
+      },
+      {
+        "x": -3.55,
+        "y": 0,
+        "z": -6.85
+      },
+      {
+        "x": -3.55,
+        "y": 0,
+        "z": -5.15
+      },
+      {
+        "x": 0,
+        "y": 0,
+        "z": 2
+      }
+    ]
+  },
+  {
+    "id": "hr-fly-1",
+    "category": "flying",
+    "label": "flying: straight over enemy unit in pool A with keepAway",
+    "path": [
+      {
+        "x": -9,
+        "y": 0,
+        "z": -13
+      },
+      {
+        "x": -9,
+        "y": 0,
+        "z": -3
+      }
+    ]
+  },
+  {
+    "id": "hr-fly-2",
+    "category": "flying",
+    "label": "flying: straight over two enemy units between pools A and B",
+    "path": [
+      {
+        "x": -6,
+        "y": 0,
+        "z": -13
+      },
+      {
+        "x": -6,
+        "y": 0,
+        "z": -3
+      }
+    ]
+  },
+  {
+    "id": "hr-noroute-1",
+    "category": "no-route",
+    "label": "no-route: destination surrounded by a ring of enemy models with keepAway",
+    "path": [
+      {
+        "x": 0,
+        "y": 0,
+        "z": -18
+      },
+      {
+        "x": 0,
+        "y": 0,
+        "z": -4
+      }
+    ]
+  }
+]

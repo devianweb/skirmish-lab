@@ -7,6 +7,7 @@ import {
   type DistanceGate,
   type DistanceGateContext,
 } from '../rules/traits';
+import { isCarried, isMeleeWeapon } from './specialRules';
 import { unitDistance } from './unitGeometry';
 
 /**
@@ -67,10 +68,11 @@ export interface AttackDistanceInput {
 
 const weaponRuleList = (weapon: Weapon): string[] => weapon.profile.specialRules;
 
-/** Weapons whose rules count for `context`: the listed ones, else (charge only) every melee weapon. */
+/** Equipped carried weapons whose rules count for `context`: the listed ones, else (charge only) every melee weapon. */
 function weaponsInAttack(unit: Unit, context: AttackGateContext, weaponIds?: readonly string[]): Weapon[] {
-  if (weaponIds) return unit.weapons.filter((w) => weaponIds.includes(w.id));
-  return context === 'charge' ? unit.weapons.filter((w) => w.profile.type === 'melee') : [];
+  const usable = unit.weapons.filter((w) => w.isEquipped && isCarried(unit, w));
+  if (weaponIds) return usable.filter((w) => weaponIds.includes(w.id));
+  return context === 'charge' ? usable.filter((w) => isMeleeWeapon(w)) : [];
 }
 
 /** Distinct trait ids in `rules`, in order. */
@@ -137,10 +139,11 @@ export interface ThresholdRing {
  * there. Shooting counts the unit's rules plus its ranged weapons'; a charge the unit's rules plus its melee weapons'.
  */
 export function ownThresholdRings(unit: Unit, context: AttackGateContext): ThresholdRing[] {
-  const wantType = context === 'shooting' ? 'ranged' : 'melee';
+  const matchesContext = (w: Weapon) =>
+    w.isEquipped && isCarried(unit, w) && (context === 'shooting' ? w.profile.type === 'ranged' : isMeleeWeapon(w));
   const rules = [
     ...unit.specialRules,
-    ...unit.weapons.filter((w) => w.profile.type === wantType).flatMap(weaponRuleList),
+    ...unit.weapons.filter(matchesContext).flatMap(weaponRuleList),
   ];
   const byDistance = new Map<number, string[]>();
   for (const traitId of traitIds(rules)) {

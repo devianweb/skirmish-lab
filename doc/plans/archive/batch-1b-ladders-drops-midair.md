@@ -62,7 +62,7 @@ The movement bugs from playtesting on `fixtures/testy-mctestface.json`. Order: P
 
 **Agreed behaviour (Decision 5):** when the target is the ground (or any lower floor), the path walks to the deck edge and drops down: free if ≤ 3", the jump test if 3–6". It never crosses the gap at deck height, and it never ends over open air.
 
-- **Fixture:** the owner's map is saved at `doc/plans/fixtures/testy-mctestface.json` (ruin-l at (−2,−1) with its 3.0" ledge; platform-small A at (7,−1) with a ladder on its west face at x=5 and stairs on its south face (head at z=1, foot at z=5); catwalk (9…15) flush to platform-small B at (17,−1). The ruin ledge's east end (x=0) and platform A's west edge (x=5) leave a 5" gap). Copy it to `shared/tests/fixtures/` and drive the tests below from it.
+- **Fixture:** the owner's map is saved at `doc/plans/archive/fixtures/testy-mctestface.json` (ruin-l at (−2,−1) with its 3.0" ledge; platform-small A at (7,−1) with a ladder on its west face at x=5 and stairs on its south face (head at z=1, foot at z=5); catwalk (9…15) flush to platform-small B at (17,−1). The ruin ledge's east end (x=0) and platform A's west edge (x=5) leave a 5" gap). Copy it to `shared/tests/fixtures/` and drive the tests below from it.
 - **Reproduced in the engine alone, no client involved (2026-11-02, `findNavPath` on the fixture, budget 12):**
   | From → to | Path today | What's wrong |
   | :--- | :--- | :--- |

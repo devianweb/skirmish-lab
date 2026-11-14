@@ -1,0 +1,35 @@
+[
+  {
+    "id": "charge-valid-4v3",
+    "category": "valid",
+    "label": "valid 4-model squad charge on Standard Battlefield (2 in contact, 2 behind)",
+    "result": {
+      "valid": true
+    }
+  },
+  {
+    "id": "charge-rejected-could-get-closer",
+    "category": "rejected-closer",
+    "label": "rejected 4-model squad charge: back model stopped too far (\"could get closer\")",
+    "result": {
+      "valid": false,
+      "reason": "Model 4 could get closer to the target"
+    }
+  },
+  {
+    "id": "charge-6v6-round-terrain",
+    "category": "6v6-terrain",
+    "label": "6-model squad charging 6-model target round wall-long (8, -16)",
+    "result": {
+      "valid": true
+    }
+  },
+  {
+    "id": "charge-10v5-stress",
+    "category": "10-model-stress",
+    "label": "10-model extreme squad charge on Standard Battlefield beside wall-long (8, -16)",
+    "result": {
+      "valid": true
+    }
+  }
+]

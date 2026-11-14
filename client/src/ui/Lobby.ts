@@ -1,4 +1,12 @@
-import { BUILTIN_MAPS, CustomMapDefinition, createBlankMap, DEFAULT_BOARD_SIZE } from '@skirmish-lab/shared';
+import {
+  BUILTIN_MAPS,
+  CustomMapDefinition,
+  createBlankMap,
+  DEFAULT_BOARD_SIZE,
+  GUEST_PLAYER_ID,
+  isKnownArmyId,
+  STARTER_ARMIES,
+} from '@skirmish-lab/shared';
 import { SignalingClient } from '../network/SignalingClient';
 import { WebRTCClient } from '../network/WebRTCClient';
 import { defaultMapStore, MapStore } from '../storage/MapStore';
@@ -50,6 +58,8 @@ export interface LobbyOptions {
   onPeerReady?: (context: PeerReadyContext) => void;
   onRoleAssigned?: (role: 'host' | 'guest') => void;
   onOpenMapEditor?: () => void;
+  /** Returns true when a match is already active in memory so reconnects skip the waiting room. */
+  hasActiveMatch?: () => boolean;
   sessionStore?: SessionStore;
   mapStore?: MapStore;
   signalingClient?: SignalingClient;
@@ -74,8 +84,13 @@ export class Lobby {
   private role: 'host' | 'guest' | null = null;
   private options: LobbyOptions;
   private peerReadyFired = false;
+  private yourArmyId: string = DEFAULT_HOST_ARMY;
+  private hasEditedArmy: boolean = false;
   private hostArmyId: string = DEFAULT_HOST_ARMY;
   private guestArmyId: string = DEFAULT_GUEST_ARMY;
+  private guestArmyReceived: boolean = false;
+  private peerConnected: boolean = false;
+  private remoteMapName: string | null = null;
   private useDeploymentPhase: boolean = true;
   private sessionStore: SessionStore;
   private mapStore: MapStore;
@@ -115,6 +130,13 @@ export class Lobby {
       event.preventDefault();
       const on = toggleDevMode();
       this.sanitizeArmySelection();
+      if (this.role === 'host') {
+        this.hostArmyId = this.yourArmyId;
+        if (this.peerConnected) this.sendLobbyState();
+      } else if (this.role === 'guest') {
+        this.guestArmyId = this.yourArmyId;
+        if (this.peerConnected) this.sendGuestArmySelection();
+      }
       this.render();
       this.showToast(on ? 'Developer mode on' : 'Developer mode off');
     };
@@ -129,11 +151,61 @@ export class Lobby {
     if (typeof window !== 'undefined') window.removeEventListener('keydown', this.keydownHandler);
   }
 
-  /** TEST armies are only valid in developer mode; otherwise fall back to the defaults. */
+  /** TEST armies are only valid in the local client's developer mode; unknown IDs always fall back to defaults. */
   private sanitizeArmySelection(): void {
-    if (isDevMode()) return;
-    if (isDevOnlyArmy(this.hostArmyId)) this.hostArmyId = DEFAULT_HOST_ARMY;
-    if (isDevOnlyArmy(this.guestArmyId)) this.guestArmyId = DEFAULT_GUEST_ARMY;
+    if (!isDevMode()) {
+      const localFallback = this.role === 'guest' ? DEFAULT_GUEST_ARMY : DEFAULT_HOST_ARMY;
+      if (isDevOnlyArmy(this.yourArmyId)) {
+        this.yourArmyId = localFallback;
+      }
+      if (this.role !== 'guest' && isDevOnlyArmy(this.hostArmyId)) {
+        this.hostArmyId = DEFAULT_HOST_ARMY;
+      }
+      if (this.role === 'guest' && isDevOnlyArmy(this.guestArmyId)) {
+        this.guestArmyId = DEFAULT_GUEST_ARMY;
+      }
+    }
+    if (!isKnownArmyId(this.hostArmyId)) this.hostArmyId = DEFAULT_HOST_ARMY;
+    if (!isKnownArmyId(this.guestArmyId)) this.guestArmyId = DEFAULT_GUEST_ARMY;
+    if (!isKnownArmyId(this.yourArmyId)) {
+      this.yourArmyId = this.role === 'guest' ? DEFAULT_GUEST_ARMY : DEFAULT_HOST_ARMY;
+    }
+  }
+
+  private getArmyDisplayName(armyId: string): string {
+    return STARTER_ARMIES[armyId]?.name ?? armyId;
+  }
+
+  private isResumingMatch(): boolean {
+    if (this.options.hasActiveMatch?.()) return true;
+    if (this.role === 'host') return !this.isCreatedRoom;
+    if (this.role === 'guest') {
+      return Boolean(this.roomCode && this.sessionStore.getSnapshot(this.roomCode));
+    }
+    return false;
+  }
+
+  private sendLobbyState(): void {
+    if (!this.webrtcClient || !this.webrtcClient.isConnected() || this.role !== 'host') return;
+    this.sanitizeArmySelection();
+    this.webrtcClient.send({
+      type: 'lobby-state',
+      hostArmyId: this.hostArmyId,
+      guestArmyId: this.guestArmyReceived ? this.guestArmyId : undefined,
+      mapName: this.getMapDisplayName(this.selectedMapSelection),
+      useDeploymentPhase: this.useDeploymentPhase,
+    });
+  }
+
+  private sendGuestArmySelection(): void {
+    if (!this.webrtcClient || !this.webrtcClient.isConnected() || this.role !== 'guest') return;
+    this.sanitizeArmySelection();
+    this.guestArmyId = this.yourArmyId;
+    this.webrtcClient.send({
+      type: 'select-army',
+      armyId: this.yourArmyId,
+      playerId: GUEST_PLAYER_ID,
+    });
   }
 
   private showToast(text: string): void {
@@ -157,6 +229,10 @@ export class Lobby {
           const upper = roomParam.toUpperCase();
           if (/^[A-Z0-9-]{0,7}$/.test(upper)) {
             this.initialRoomCode = upper;
+            if (!this.hasEditedArmy) {
+              this.yourArmyId = DEFAULT_GUEST_ARMY;
+              this.guestArmyId = DEFAULT_GUEST_ARMY;
+            }
           }
         }
       } catch (e) {
@@ -378,13 +454,20 @@ export class Lobby {
     this.webrtcClient?.close();
     this.webrtcClient = null;
     if (this.roomCode) {
-      this.signalingClient.send({ type: 'leave-room' });
+      this.signalingClient.leaveRoom();
     }
     this.updateUrlRoomCode(null);
     this.roomCode = null;
     this.role = null;
     this.peerReadyFired = false;
     this.isCreatedRoom = false;
+    this.peerConnected = false;
+    this.guestArmyReceived = false;
+    this.remoteMapName = null;
+    this.hasEditedArmy = false;
+    this.yourArmyId = DEFAULT_HOST_ARMY;
+    this.hostArmyId = DEFAULT_HOST_ARMY;
+    this.guestArmyId = DEFAULT_GUEST_ARMY;
     this.show();
     this.render();
   }
@@ -409,6 +492,9 @@ export class Lobby {
       this.clearRoomRequest();
       this.roomCode = msg.code;
       this.role = 'host';
+      this.hostArmyId = this.yourArmyId;
+      this.guestArmyReceived = false;
+      this.peerConnected = false;
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.('host');
       this.webrtcClient = new WebRTCClient();
@@ -423,6 +509,15 @@ export class Lobby {
       this.roomCode = msg.code;
       const assignedRole: 'host' | 'guest' = (msg.role as 'host' | 'guest') || 'guest';
       this.role = assignedRole;
+      if (assignedRole === 'guest') {
+        if (!this.hasEditedArmy) {
+          this.yourArmyId = DEFAULT_GUEST_ARMY;
+        }
+        this.guestArmyId = this.yourArmyId;
+      } else {
+        this.hostArmyId = this.yourArmyId;
+      }
+      this.peerConnected = false;
       if (typeof msg.rejoinToken === 'string') {
         const active = this.sessionStore.getActiveSession();
         if (active && active.roomCode.toUpperCase() === String(msg.code).toUpperCase()) {
@@ -436,10 +531,14 @@ export class Lobby {
       }
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
-      this.webrtcClient = new WebRTCClient();
+      const client = new WebRTCClient();
+      this.webrtcClient = client;
       if (typeof RTCPeerConnection !== 'undefined') {
         if (assignedRole === 'host') {
           await this.setupWebRTCAsHost();
+          if (this.webrtcClient === client) {
+            await this.createAndSendOffer();
+          }
         } else {
           await this.setupWebRTCAsGuest();
         }
@@ -448,12 +547,17 @@ export class Lobby {
     });
 
     this.signalingClient.on('peer-joined', async () => {
+      this.peerConnected = false;
       if (this.role === 'host') {
         this.peerReadyFired = false;
+        this.guestArmyReceived = false;
         this.webrtcClient?.close();
-        this.webrtcClient = new WebRTCClient();
+        const client = new WebRTCClient();
+        this.webrtcClient = client;
         await this.setupWebRTCAsHost();
-        await this.createAndSendOffer();
+        if (this.webrtcClient === client) {
+          await this.createAndSendOffer();
+        }
       } else if (this.role === 'guest') {
         this.peerReadyFired = false;
         this.webrtcClient?.close();
@@ -517,12 +621,59 @@ export class Lobby {
 
   private registerPeerReadyListeners(client: WebRTCClient): void {
     client.on('heartbeat-ping', () => {
-      const status = document.getElementById('status');
-      if (status) status.textContent = 'Connected!';
-      this.maybeFirePeerReady();
+      if (this.peerReadyFired) return;
+      if (this.isResumingMatch()) {
+        const status = document.getElementById('status');
+        if (status) status.textContent = 'Connected!';
+        this.maybeFirePeerReady();
+        return;
+      }
+      const wasConnected = this.peerConnected;
+      this.peerConnected = true;
+      if (this.role === 'host') {
+        if (!wasConnected || !this.guestArmyReceived) {
+          this.sendLobbyState();
+        }
+      } else if (this.role === 'guest') {
+        if (!wasConnected) {
+          this.sendGuestArmySelection();
+        }
+      }
+      if (!wasConnected) {
+        this.render();
+      }
+    });
+    client.on('select-army', (msg: any) => {
+      if (this.role !== 'host' || this.peerReadyFired) return;
+      this.peerConnected = true;
+      this.guestArmyId = isKnownArmyId(msg.armyId) ? msg.armyId : DEFAULT_GUEST_ARMY;
+      this.guestArmyReceived = true;
+      this.sendLobbyState();
+      this.render();
+    });
+    client.on('lobby-state', (msg: any) => {
+      if (this.role !== 'guest' || this.peerReadyFired) return;
+      this.peerConnected = true;
+      if (isKnownArmyId(msg.hostArmyId)) {
+        this.hostArmyId = msg.hostArmyId;
+      }
+      if (msg.guestArmyId !== undefined && isKnownArmyId(msg.guestArmyId)) {
+        this.guestArmyId = msg.guestArmyId;
+      }
+      if (typeof msg.mapName === 'string' && msg.mapName.length > 0) {
+        this.remoteMapName = msg.mapName;
+      }
+      if (typeof msg.useDeploymentPhase === 'boolean') {
+        this.useDeploymentPhase = msg.useDeploymentPhase;
+      }
+      if (msg.guestArmyId === undefined) {
+        this.sendGuestArmySelection();
+      }
+      this.render();
     });
     client.on('state-update', (msg: any) => this.maybeFirePeerReady(msg.state));
     client.on('state-sync', (msg: any) => this.maybeFirePeerReady(msg.state));
+    client.on('request-state-sync', () => this.maybeFirePeerReady());
   }
 
   private async createAndSendOffer(): Promise<void> {
@@ -591,17 +742,104 @@ export class Lobby {
     this.applyNewVersionBanner();
   }
 
+  private renderArmyOptionsHtml(selected: string, dev: boolean): string {
+    const testOptions = dev
+      ? `<option value="test-army" ${selected === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
+                <option value="test-squad-army" ${selected === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
+                <option value="test-rules-army" ${selected === 'test-rules-army' ? 'selected' : ''}>TEST: Rules Check (Hero, Blast, Indirect, multi-weapon) — playtesting</option>
+                <option value="test-jump-army" ${selected === 'test-jump-army' ? 'selected' : ''}>TEST: Jump Check (squad, Strider squad, Flying squad) — playtesting</option>
+                <option value="test-hazard-army" ${selected === 'test-hazard-army' ? 'selected' : ''}>TEST: Hazard Check (5-model squad, Tough 3 Hero, Flying squad) — playtesting</option>
+                <option value="test-special-rules-army" ${selected === 'test-special-rules-army' ? 'selected' : ''}>TEST: Special Rules Check (Fast, Slow, Impact, Counter, Assault, Shred, Fear) — playtesting</option>
+                <option value="test-scout-ambush-army" ${selected === 'test-scout-ambush-army' ? 'selected' : ''}>TEST: Scout & Ambush Check — playtesting</option>
+                <option value="test-loadouts-army" ${selected === 'test-loadouts-army' ? 'selected' : ''}>TEST: Loadouts Check (mixed weapons, two-weapon melee) — playtesting</option>`
+      : '';
+    return `
+      <option value="hdf" ${selected === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
+      <option value="orc-marauders" ${selected === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
+      ${testOptions}
+    `;
+  }
+
   private renderScreen(): void {
+    this.sanitizeArmySelection();
+    const dev = isDevMode();
+    const devBadgeHtml = dev
+      ? '<div id="devBadge" style="position: fixed; top: 12px; right: 12px; padding: 3px 8px; background: #ffd54f; color: #12161c; font: 700 11px Arial, sans-serif; border-radius: 4px; letter-spacing: 1px;">DEV</div>'
+      : '';
+
     if (this.roomCode && this.role) {
+      const mapDisplayName =
+        this.role === 'guest' && this.remoteMapName
+          ? this.remoteMapName
+          : this.getMapDisplayName(this.selectedMapSelection);
+      const hostPickLabel = this.getArmyDisplayName(this.hostArmyId);
+      const guestPickLabel =
+        this.role === 'guest' || this.guestArmyReceived
+          ? this.getArmyDisplayName(this.guestArmyId)
+          : 'Waiting for guest…';
+
+      let statusText = 'Waiting for peer...';
+      if (this.peerConnected) {
+        if (this.role === 'host') {
+          statusText = this.guestArmyReceived
+            ? 'Connected! Ready to start.'
+            : 'Connected! Waiting for guest army...';
+        } else {
+          statusText = 'Connected! Waiting for host to start...';
+        }
+      }
+
+      const canStart = this.role === 'host' && this.peerConnected && this.guestArmyReceived;
+      const startButtonHtml =
+        this.role === 'host'
+          ? `<button id="startMatchBtn" ${canStart ? '' : 'disabled'} style="margin-top: 16px; width: 100%; padding: 12px 24px; font-size: 15px; font-weight: 600; background: #29b6f6; color: #12161c; border: none; border-radius: 6px; cursor: ${canStart ? 'pointer' : 'not-allowed'}; opacity: ${canStart ? '1' : '0.5'};">${canStart ? 'Start Match' : 'Waiting for guest…'}</button>`
+          : '';
+
       this.container.innerHTML = `
+        ${devBadgeHtml}
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 60px auto; padding: 30px; background: rgba(18, 22, 28, 0.95); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
           <h1 style="margin-top: 0; color: #ffd54f;">SkirmishLab</h1>
           <h2 style="font-size: 28px; letter-spacing: 2px; color: #29b6f6; margin: 16px 0;">Room: ${escapeHtml(this.roomCode)}</h2>
           <p style="font-size: 15px; color: #b0bec5;">Role: <strong style="color: ${this.role === 'host' ? '#29b6f6' : '#ef5350'}">${escapeHtml(this.role.toUpperCase())}</strong></p>
-          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${escapeHtml(this.getMapDisplayName(this.selectedMapSelection))}</strong></p>
-          <p id="status" style="font-size: 14px; color: #ffd54f;">Waiting for peer...</p>
+          <p style="font-size: 13px; color: #90caf9; margin-bottom: 16px;">Map: <strong style="color: #ffd54f;">${escapeHtml(mapDisplayName)}</strong></p>
+
+          <div style="text-align: left; background: rgba(26, 31, 41, 0.7); padding: 14px 16px; border-radius: 8px; border: 1px solid #2a3442; margin-bottom: 16px;">
+            <div style="font-size: 13px; margin-bottom: 6px; color: #b0bec5;">
+              Host Force (South): <strong id="hostPickDisplay" style="color: #29b6f6;">${escapeHtml(hostPickLabel)}</strong>
+            </div>
+            <div style="font-size: 13px; margin-bottom: 12px; color: #b0bec5;">
+              Guest Force (North): <strong id="guestPickDisplay" style="color: #ef5350;">${escapeHtml(guestPickLabel)}</strong>
+            </div>
+            <label for="armySelect" style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Your Army:</label>
+            <select id="armySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
+              ${this.renderArmyOptionsHtml(this.yourArmyId, dev)}
+            </select>
+          </div>
+
+          <p id="status" style="font-size: 14px; color: #ffd54f; margin: 0;">${escapeHtml(statusText)}</p>
+          ${startButtonHtml}
         </div>
       `;
+
+      const armySelect = this.container.querySelector<HTMLSelectElement>('#armySelect');
+      armySelect?.addEventListener('change', () => {
+        this.yourArmyId = armySelect.value;
+        this.hasEditedArmy = true;
+        if (this.role === 'host') {
+          this.hostArmyId = this.yourArmyId;
+          this.sendLobbyState();
+        } else if (this.role === 'guest') {
+          this.guestArmyId = this.yourArmyId;
+          this.sendGuestArmySelection();
+        }
+        this.render();
+      });
+
+      this.container.querySelector<HTMLButtonElement>('#startMatchBtn')?.addEventListener('click', () => {
+        if (this.role === 'host' && this.peerConnected && this.guestArmyReceived) {
+          this.maybeFirePeerReady();
+        }
+      });
     } else {
       const activeSession = this.sessionStore.getActiveSession();
       const hasActiveSession = this.sessionStore.isSessionValid(activeSession);
@@ -644,22 +882,6 @@ export class Lobby {
           </optgroup>
       `;
 
-      this.sanitizeArmySelection();
-      const dev = isDevMode();
-      const testOptions = (selected: string) => dev
-        ? `<option value="test-army" ${selected === 'test-army' ? 'selected' : ''}>TEST: Single Runner (speed 24") — playtesting</option>
-                <option value="test-squad-army" ${selected === 'test-squad-army' ? 'selected' : ''}>TEST: Single Squad (4 models, speed 12") — playtesting</option>
-                <option value="test-rules-army" ${selected === 'test-rules-army' ? 'selected' : ''}>TEST: Rules Check (Hero, Blast, Indirect, multi-weapon) — playtesting</option>
-                <option value="test-jump-army" ${selected === 'test-jump-army' ? 'selected' : ''}>TEST: Jump Check (squad, Strider squad, Flying squad) — playtesting</option>
-                <option value="test-hazard-army" ${selected === 'test-hazard-army' ? 'selected' : ''}>TEST: Hazard Check (5-model squad, Tough 3 Hero, Flying squad) — playtesting</option>
-                <option value="test-special-rules-army" ${selected === 'test-special-rules-army' ? 'selected' : ''}>TEST: Special Rules Check (Fast, Slow, Impact, Counter, Assault, Shred, Fear) — playtesting</option>
-                <option value="test-scout-ambush-army" ${selected === 'test-scout-ambush-army' ? 'selected' : ''}>TEST: Scout & Ambush Check — playtesting</option>
-                <option value="test-loadouts-army" ${selected === 'test-loadouts-army' ? 'selected' : ''}>TEST: Loadouts Check (mixed weapons, two-weapon melee) — playtesting</option>`
-        : '';
-      const devBadgeHtml = dev
-        ? '<div id="devBadge" style="position: fixed; top: 12px; right: 12px; padding: 3px 8px; background: #ffd54f; color: #12161c; font: 700 11px Arial, sans-serif; border-radius: 4px; letter-spacing: 1px;">DEV</div>'
-        : '';
-
       this.container.innerHTML = `
         ${devBadgeHtml}
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 40px auto; padding: 30px; background: rgba(18, 22, 28, 0.92); border: 1px solid #37474f; border-radius: 12px; color: #eee; text-align: center;">
@@ -680,20 +902,10 @@ export class Lobby {
               </select>
             </div>
 
-            <div style="margin-bottom: 12px;">
-              <label style="display: block; font-size: 12px; color: #29b6f6; margin-bottom: 4px; font-weight: 600;">Host Force (South):</label>
-              <select id="hostArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
-                <option value="hdf" ${this.hostArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
-                <option value="orc-marauders" ${this.hostArmyId === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
-                ${testOptions(this.hostArmyId)}
-              </select>
-            </div>
             <div style="margin-bottom: 14px;">
-              <label style="display: block; font-size: 12px; color: #ef5350; margin-bottom: 4px; font-weight: 600;">Guest Force (North):</label>
-              <select id="guestArmySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
-                <option value="hdf" ${this.guestArmyId === 'hdf' ? 'selected' : ''}>Human Defense Force (400 pts) — Colonial Line Infantry</option>
-                <option value="orc-marauders" ${this.guestArmyId === 'orc-marauders' ? 'selected' : ''}>Orc Marauders (400 pts) — Clan Raiders</option>
-                ${testOptions(this.guestArmyId)}
+              <label for="armySelect" style="display: block; font-size: 12px; color: #ffd54f; margin-bottom: 4px; font-weight: 600;">Your Army:</label>
+              <select id="armySelect" style="width: 100%; padding: 8px 10px; background: #12161c; border: 1px solid #37474f; color: #eee; border-radius: 4px; font-size: 13px;">
+                ${this.renderArmyOptionsHtml(this.yourArmyId, dev)}
               </select>
             </div>
             <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ffd54f; cursor: pointer; user-select: none;">
@@ -750,14 +962,11 @@ export class Lobby {
         this.selectedMapSelection = mapSelect.value;
       });
 
-      const hostSelect = this.container.querySelector<HTMLSelectElement>('#hostArmySelect');
-      hostSelect?.addEventListener('change', () => {
-        this.hostArmyId = hostSelect.value;
-      });
-
-      const guestSelect = this.container.querySelector<HTMLSelectElement>('#guestArmySelect');
-      guestSelect?.addEventListener('change', () => {
-        this.guestArmyId = guestSelect.value;
+      const armySelect = this.container.querySelector<HTMLSelectElement>('#armySelect');
+      armySelect?.addEventListener('change', () => {
+        this.yourArmyId = armySelect.value;
+        this.hasEditedArmy = true;
+        this.hostArmyId = this.yourArmyId;
       });
 
       const deployCheck = this.container.querySelector<HTMLInputElement>('#deployPhaseCheck');
@@ -768,6 +977,9 @@ export class Lobby {
       this.container.querySelector('#createBtn')?.addEventListener('click', () => {
         if (getConnectionStatusView(this.connectionState).buttonsDisabled) return;
         this.isCreatedRoom = true;
+        this.hostArmyId = this.yourArmyId;
+        this.guestArmyReceived = false;
+        this.peerConnected = false;
         this.beginRoomRequest('create');
         this.signalingClient.createRoom();
       });
@@ -777,6 +989,10 @@ export class Lobby {
         this.isCreatedRoom = false;
         const input = this.container.querySelector<HTMLInputElement>('#codeInput');
         if (input && input.value) {
+          if (!this.hasEditedArmy) {
+            this.yourArmyId = DEFAULT_GUEST_ARMY;
+          }
+          this.guestArmyId = this.yourArmyId;
           this.beginRoomRequest('join');
           this.signalingClient.joinRoom(input.value.toUpperCase());
         }

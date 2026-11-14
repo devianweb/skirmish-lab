@@ -6,6 +6,7 @@ import { WEAPONS } from '../../src/data/weapons';
 import { validateAction } from '../../src/engine/actions';
 import { closestApproach } from '../../src/engine/closestApproach';
 import { coherencyShortfall, validateSquadCoherency } from '../../src/engine/spatial';
+import { isPathDangerous } from '../../src/engine/traversal';
 import { livingModelPositions, modelGap } from '../../src/engine/unitGeometry';
 
 const HOST = 'host1';
@@ -161,6 +162,20 @@ describe('closestApproach', () => {
     expect(res.gap).toBeLessThan(0.1);
     expect(res.position.z).toBeGreaterThan(6);
   });
+
+  it('F4: routes around a dangerous terrain piece when budget permits instead of staying put', () => {
+    const hazard = piece('hz', 'hazard-pool', 9, -8, {
+      scale: { ...TERRAIN_PALETTE_CATALOG['hazard-pool'].defaultScale },
+      isDangerous: true,
+    });
+    const state = mkState([mkUnit('h1', HOST, [[9, -14]]), mkUnit('g1', GUEST, [[9, -4]])], [hazard]);
+    const res = closestApproach(state, state.units[0], 0, P(9, -14), 12, state.units[1], [])!;
+    expect(res).not.toBeNull();
+    expect(res.cost).toBeGreaterThan(0);
+    expect(res.path.length).toBeGreaterThanOrEqual(3);
+    expect(res.gap).toBeLessThan(1.0);
+    expect(isPathDangerous(state, res.path, state.units[0])).toBe(false);
+  });
 });
 
 describe('closestApproach: speed of the host check for a 10-model squad', () => {
@@ -187,7 +202,7 @@ describe('closestApproach: speed of the host check for a 10-model squad', () => 
     const res = validateAction(state, action);
     const ms = performance.now() - t0;
     // Whether the back row is close enough is the rule's business; the check must be fast either way
-    expect(ms).toBeLessThan(1500);
+    expect(ms).toBeLessThan(150);
   });
 
   it('finds spots for ten models round a wall (worst case: every model has to path-find)', () => {
@@ -206,6 +221,6 @@ describe('closestApproach: speed of the host check for a 10-model squad', () => 
     });
     const ms = performance.now() - t0;
     expect(placed.length).toBeGreaterThan(5);
-    expect(ms).toBeLessThan(3000);
+    expect(ms).toBeLessThan(250);
   });
 });

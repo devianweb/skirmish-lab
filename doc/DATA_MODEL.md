@@ -109,7 +109,7 @@ interface ChargeState {
 
 interface PendingReaction {
   id: string;
-  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | 'blast-split'
+  type: string;                // 'melee-retaliation' | 'melee-consolidation' | 'pile-in' | 'pick-casualties' | 'push' | 'blast-split'
   promptingPlayerId: string;   // The player who must choose (defender)
   sourceUnitId: string;        // The attacker/charger
   targetUnitId: string;        // The defender making the decision
@@ -126,7 +126,8 @@ interface PendingReaction {
 // 'blast-split' data (plain JSON): { shoot: GameAction, dice: DiceResult[], blasts: BlastSplitPrompt[] } (per Blast weapon: allocIndex, weaponId, weaponName, totalHits, participants [{ unitId, unitName, cap }], auto: number[])
 // CasualtyEntry = { unitId, count (unhurt models to pick, in order), applications: { wounds, deadlyValue }[],
 //                   lockedModelIds (wounded models that take wounds first), removed (models the attack removes) }
-// CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'strike-back', attackerId, targetId?, weaponId? }
+// 'push' data (plain JSON): { targetUnitId, targetUnitName, rest: string[] }
+// CasualtyContinuation = { kind: 'shoot' | 'fight' | 'charge-strike' | 'charge-resume' | 'strike-back' | 'activation-hazard', attackerId, targetId?, weaponId?, stage?, chargeDistance?, dice?, counterStruck?, finish? }
 
 // MoraleTestRecord = { unitId, unitName, roll?: number /* absent when already Shaken */, effectiveQuality, fearlessRoll?, passed, outcome: 'passed' | 'shaken' | 'routed' }
 
@@ -142,6 +143,7 @@ interface ReactionOption {
 
 type TurnPhase = 
   | 'setup'
+  | 'objectives'      // Players roll for the objective count and place markers
   | 'deployment'
   | 'activation'      // Players alternate activating units
   | 'round-cleanup'   // Morale, end-of-round effects
@@ -231,6 +233,7 @@ interface Vector3 {
 ```typescript
 type UnitStatus = 
   | 'shaken'          // Failed a Morale Test: may only end its activation idle (then recovers), always fails Morale Tests, strikes back as Fatigued, cannot seize or contest objectives
+  | 'fatigued'        // Charged or retaliated in melee this round (hits only on unmodified 6s in melee)
   | 'routed'          // Removed as destroyed by a failed melee Morale Test
   | 'engaged'         // In melee engagement range
   | 'in-cover'        // Benefit from cover (defense modifier)
@@ -361,23 +364,29 @@ interface GameAction {
 ```typescript
 type ActionType =
   | 'activate-unit'
+  | 'roll-objectives'  // Objectives phase start: server rolls objective count and mission roll-off
+  | 'place-objective'  // Place an objective marker during the objectives phase
+  | 'deploy-unit'      // Place a unit during deployment or Ambush arrival
+  | 'hold-scout'       // Keep a Scout unit back to deploy after normal units
+  | 'skip-ambush'      // Decline to place remaining Ambush units this round
   | 'advance'
   | 'rush'
   | 'shoot'
-  | 'begin-charge'   // Declare a charge on a target (split charge)
-  | 'charge-leg'     // One leg of a declared charge (safe path or declared jump)
+  | 'begin-charge'     // Declare a charge on a target (split charge)
+  | 'charge-leg'       // One leg of a declared charge (safe path or declared jump)
   | 'charge'
   | 'fight'
+  | 'use-ability'
+  | 'hold'
   | 'respond-reaction' // Reaction choice submitted by player
   | 'consolidate-move' // Winner's 3" consolidation after wiping out a unit
   | 'pile-in-move'     // Defender places the models that were not touching a charger (reaction type 'pile-in')
-  | 'blast-split'      // Defender shares a Blast's hits between the eligible units (reaction type 'blast-split')
   | 'pick-casualties'  // Owner names, in order, the unhurt models that take an attack's wounds in a damaged squad (reaction type 'pick-casualties')
-  | 'use-ability'
-  | 'hold'
+  | 'blast-split'      // Defender shares a Blast's hits between the eligible units (reaction type 'blast-split')
+  | 'push-move'        // Winner pushes a newly Shaken enemy unit's chosen model up to 2" (reaction type 'push')
   | 'end-activation'   // Finish current unit's activation
-  | 'end-round'       // Finish the round (cleanup/morale)
-  | 'concede'        // Forfeit the match; valid any time until game over, no dice
+  | 'end-round'        // Finish the round (cleanup/morale)
+  | 'concede'          // Forfeit the match; valid any time until game over, no dice
   | 'request-rematch'; // Play Again; valid only at game over, host/guest only, no dice
 ```
 
@@ -408,6 +417,11 @@ type ActionPayload =
   | { type: 'blast-split', splits: number[][] } // one row per Blast weapon of the paused shot, one count per eligible unit; each within the unit's cap, summing to every hit that can land
   | { type: 'pile-in-move', modelPositions: Vector3[], modelPaths?: Vector3[][] } // living-model order; only the models listed in the pending reaction's data.modelIds may move (<= 3")
   | { type: 'activate-unit', unitId: string }
+  | { type: 'roll-objectives' }
+  | { type: 'place-objective', position: Vector3 }
+  | { type: 'deploy-unit', unitId: string, position: Vector3, rotation?: Vector3 }
+  | { type: 'hold-scout', unitId: string }
+  | { type: 'skip-ambush' }
   | { type: 'advance', unitId: string, path: Vector3[], finalPosition: Vector3, traversal?: DeclaredTraversal,
       modelPositions?: Vector3[], modelPaths?: Vector3[][], modelTraversals?: (DeclaredTraversal | null)[], jumpLeader?: number, crossers?: number[] }  // squad: one entry per living model
   | { type: 'rush', unitId: string, path: Vector3[], traversal?: DeclaredTraversal,
@@ -432,6 +446,8 @@ type ActionPayload =
   // its modelPaths entry is ignored (no path, no move spent) and its modelTraversals entry must be null. On a failed roll carried models are put back where they started.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
+  | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] } // winner's <= 3" ordinary consolidation; multi-model squads MUST send modelPositions (one per living model)
+  | { type: 'push-move', modelId: string, destination: Vector3 } // attacker moves a pushed model up to 2" (host recomputes height/fall)
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
   | { type: 'end-activation' }

@@ -1,0 +1,450 @@
+[
+  {
+    "id": "jr-fast-1",
+    "category": "fast-path",
+    "label": "fast-path: open ground in host deployment zone",
+    "path": [
+      {
+        "x": -6,
+        "y": 0,
+        "z": -18
+      },
+      {
+        "x": 4,
+        "y": 0,
+        "z": -18
+      }
+    ]
+  },
+  {
+    "id": "jr-fast-2",
+    "category": "fast-path",
+    "label": "fast-path: straight along 8\"-deep deck A top",
+    "path": [
+      {
+        "x": -9,
+        "y": 3,
+        "z": -9
+      },
+      {
+        "x": -9,
+        "y": 3,
+        "z": -3
+      }
+    ]
+  },
+  {
+    "id": "jr-obs-1",
+    "category": "obstacle",
+    "label": "obstacle: ground route round stairs A wedge (-9, -12)",
+    "path": [
+      {
+        "x": -12,
+        "y": 0,
+        "z": -11
+      },
+      {
+        "x": -10.57,
+        "y": 0,
+        "z": -14.57
+      },
+      {
+        "x": -7.43,
+        "y": 0,
+        "z": -14.57
+      },
+      {
+        "x": -6,
+        "y": 0,
+        "z": -11
+      }
+    ]
+  },
+  {
+    "id": "jr-obs-2",
+    "category": "obstacle",
+    "label": "obstacle: ground route round deck C north pillars (-2.5)",
+    "path": [
+      {
+        "x": 1,
+        "y": 0,
+        "z": -2.5
+      },
+      {
+        "x": 2.68,
+        "y": 0,
+        "z": -1.93
+      },
+      {
+        "x": 7.32,
+        "y": 0,
+        "z": -1.93
+      },
+      {
+        "x": 9,
+        "y": 0,
+        "z": -2.5
+      }
+    ]
+  },
+  {
+    "id": "jr-stairs-1",
+    "category": "stairs",
+    "label": "stairs: up stairs A (-9, -12) onto 3\" deck A",
+    "path": [
+      {
+        "x": -9,
+        "y": 0,
+        "z": -16
+      },
+      {
+        "x": -9,
+        "y": 0,
+        "z": -14.2
+      },
+      {
+        "x": -9,
+        "y": 3,
+        "z": -9.8
+      },
+      {
+        "x": -9,
+        "y": 3,
+        "z": -7
+      }
+    ]
+  },
+  {
+    "id": "jr-stairs-2",
+    "category": "stairs",
+    "label": "stairs: up stairs B (-3, -12) onto 3\" deck B",
+    "path": [
+      {
+        "x": -3,
+        "y": 0,
+        "z": -16
+      },
+      {
+        "x": -3,
+        "y": 0,
+        "z": -14.2
+      },
+      {
+        "x": -3,
+        "y": 3,
+        "z": -9.8
+      },
+      {
+        "x": -3,
+        "y": 3,
+        "z": -7
+      }
+    ]
+  },
+  {
+    "id": "jr-stairs-3",
+    "category": "stairs",
+    "label": "stairs: up guest stairs C (-5, 12) onto guest deck C",
+    "path": [
+      {
+        "x": -5,
+        "y": 0,
+        "z": 16
+      },
+      {
+        "x": -5,
+        "y": 0,
+        "z": 14.2
+      },
+      {
+        "x": -5,
+        "y": 3,
+        "z": 9.8
+      },
+      {
+        "x": -5,
+        "y": 3,
+        "z": 7
+      }
+    ]
+  },
+  {
+    "id": "jr-ladder-1",
+    "category": "ladder",
+    "label": "ladder: up 4.5\" ladder (-20, -6) onto tall deck D",
+    "path": [
+      {
+        "x": -22,
+        "y": 0,
+        "z": -6
+      },
+      {
+        "x": -20.55,
+        "y": 0,
+        "z": -6
+      },
+      {
+        "x": -20.55,
+        "y": 4.5,
+        "z": -6
+      },
+      {
+        "x": -19.45,
+        "y": 4.5,
+        "z": -6
+      },
+      {
+        "x": -18,
+        "y": 4.5,
+        "z": -6
+      }
+    ]
+  },
+  {
+    "id": "jr-ladder-2",
+    "category": "ladder",
+    "label": "ladder: down 4.5\" ladder (-20, -6) from tall deck D to ground",
+    "path": [
+      {
+        "x": -18,
+        "y": 4.5,
+        "z": -6
+      },
+      {
+        "x": -19.45,
+        "y": 4.5,
+        "z": -6
+      },
+      {
+        "x": -20.55,
+        "y": 4.5,
+        "z": -6
+      },
+      {
+        "x": -20.55,
+        "y": 0,
+        "z": -6
+      },
+      {
+        "x": -22,
+        "y": 0,
+        "z": -6
+      }
+    ]
+  },
+  {
+    "id": "jr-ladder-3",
+    "category": "ladder",
+    "label": "ladder: up guest 4.5\" ladder (20, 6) onto guest tall deck D",
+    "path": [
+      {
+        "x": 22,
+        "y": 0,
+        "z": 6
+      },
+      {
+        "x": 20.55,
+        "y": 0,
+        "z": 6
+      },
+      {
+        "x": 20.55,
+        "y": 4.5,
+        "z": 6
+      },
+      {
+        "x": 19.45,
+        "y": 4.5,
+        "z": 6
+      },
+      {
+        "x": 18,
+        "y": 4.5,
+        "z": 6
+      }
+    ]
+  },
+  {
+    "id": "jr-drop-1",
+    "category": "drop",
+    "label": "drop: off east edge of 3\" deck A to ground gap",
+    "path": [
+      {
+        "x": -9,
+        "y": 3,
+        "z": -6
+      },
+      {
+        "x": -6.45,
+        "y": 3,
+        "z": -6
+      },
+      {
+        "x": -6,
+        "y": 0,
+        "z": -6
+      }
+    ]
+  },
+  {
+    "id": "jr-drop-2",
+    "category": "drop",
+    "label": "drop: off west edge of 3\" deck C to ground",
+    "path": [
+      {
+        "x": 5,
+        "y": 3,
+        "z": -6
+      },
+      {
+        "x": 2.45,
+        "y": 3,
+        "z": -6
+      },
+      {
+        "x": 2,
+        "y": 0,
+        "z": -6
+      }
+    ]
+  },
+  {
+    "id": "jr-noroute-1",
+    "category": "no-route",
+    "label": "no-route: ground to 4.5\" tall deck D when its ladder foot is blocked",
+    "path": [
+      {
+        "x": -14,
+        "y": 0,
+        "z": -6
+      },
+      {
+        "x": -18,
+        "y": 0,
+        "z": -6
+      }
+    ]
+  },
+  {
+    "id": "jr-noroute-2",
+    "category": "no-route",
+    "label": "no-route: destination inside solid stairs A wedge body (-9, 0, -11)",
+    "path": [
+      {
+        "x": -12,
+        "y": 0,
+        "z": -11
+      },
+      {
+        "x": -10.5,
+        "y": 0,
+        "z": -11
+      }
+    ]
+  },
+  {
+    "id": "jr-clamp-1",
+    "category": "clamped",
+    "label": "clamped: open ground advance capped at 6.0\"",
+    "path": [
+      {
+        "x": 0,
+        "y": 0,
+        "z": -18
+      },
+      {
+        "x": 0,
+        "y": 0,
+        "z": -12
+      }
+    ]
+  },
+  {
+    "id": "jr-clamp-2",
+    "category": "clamped",
+    "label": "clamped: long ground advance across host half capped at 12.0\"",
+    "path": [
+      {
+        "x": -14,
+        "y": 0,
+        "z": -18
+      },
+      {
+        "x": -2,
+        "y": 0,
+        "z": -18
+      }
+    ]
+  },
+  {
+    "id": "jr-keep-1",
+    "category": "keep-away",
+    "label": "keep-away: enemy model near stairs A foot forces detour round 1\" keep-away",
+    "path": [
+      {
+        "x": -9,
+        "y": 0,
+        "z": -19
+      },
+      {
+        "x": -6.95,
+        "y": 0,
+        "z": -16.85
+      },
+      {
+        "x": -6.95,
+        "y": 0,
+        "z": -15.15
+      },
+      {
+        "x": -8.15,
+        "y": 0,
+        "z": -13.95
+      },
+      {
+        "x": -9,
+        "y": 3,
+        "z": -9.8
+      },
+      {
+        "x": -9,
+        "y": 3,
+        "z": -7
+      }
+    ]
+  },
+  {
+    "id": "jr-fly-1",
+    "category": "flying",
+    "label": "flying: straight across 4\" gap between deck B (-3, -6) and deck C (5, -6)",
+    "path": [
+      {
+        "x": -2,
+        "y": 3,
+        "z": -6
+      },
+      {
+        "x": 4,
+        "y": 3,
+        "z": -6
+      }
+    ]
+  },
+  {
+    "id": "jr-fly-2",
+    "category": "flying",
+    "label": "flying: straight from ground up to 4.5\" tall deck D bypassing ladder",
+    "path": [
+      {
+        "x": -14,
+        "y": 0,
+        "z": -6
+      },
+      {
+        "x": -18,
+        "y": 4.5,
+        "z": -6
+      }
+    ]
+  }
+]

@@ -224,4 +224,91 @@ describe('SessionStore', () => {
       expect(store.getActiveSession()).toBeNull();
     });
   });
+
+  describe('Split Default Storage (per-tab sessionStorage + shared localStorage snapshots)', () => {
+    function makeMemoryStorage(): { storage: Storage; data: Record<string, string> } {
+      const data: Record<string, string> = {};
+      const storage = {
+        getItem: vi.fn((key: string) => data[key] ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          data[key] = value;
+        }),
+        removeItem: vi.fn((key: string) => {
+          delete data[key];
+        }),
+        clear: vi.fn(() => {
+          for (const k of Object.keys(data)) delete data[k];
+        }),
+        key: vi.fn((idx: number) => Object.keys(data)[idx] ?? null),
+        get length() {
+          return Object.keys(data).length;
+        },
+      } as unknown as Storage;
+      return { storage, data };
+    }
+
+    it('stores active session in window.sessionStorage and snapshots in window.localStorage by default', () => {
+      const local = makeMemoryStorage();
+      const session = makeMemoryStorage();
+      vi.stubGlobal('window', {
+        localStorage: local.storage,
+        sessionStorage: session.storage,
+      });
+
+      try {
+        const splitStore = new SessionStore();
+        const state = createInitialGameState('h', 'g');
+        applyDefaultScenario(state);
+
+        splitStore.saveActiveSession({
+          roomCode: 'TAB-101',
+          role: 'host',
+          playerId: 'h',
+          playerName: 'Host',
+          rejoinToken: 'host-tab-token',
+          timestamp: Date.now(),
+        });
+        splitStore.saveSnapshot('TAB-101', state);
+
+        // Active session goes only to sessionStorage (per-tab)
+        expect(session.data[SessionStore.ACTIVE_SESSION_KEY]).toBeDefined();
+        expect(local.data[SessionStore.ACTIVE_SESSION_KEY]).toBeUndefined();
+        expect(splitStore.getActiveSession()?.rejoinToken).toBe('host-tab-token');
+
+        // Snapshot goes only to localStorage
+        const snapKey = `${SessionStore.SNAPSHOT_PREFIX}TAB-101`;
+        expect(local.data[snapKey]).toBeDefined();
+        expect(session.data[snapKey]).toBeUndefined();
+        expect(splitStore.getSnapshot('TAB-101')?.units.length).toBe(state.units.length);
+
+        // Two tabs share localStorage snapshots without clobbering each other's sessionStorage seat
+        const guestSession = makeMemoryStorage();
+        vi.stubGlobal('window', {
+          localStorage: local.storage,
+          sessionStorage: guestSession.storage,
+        });
+        const guestStore = new SessionStore();
+        guestStore.saveActiveSession({
+          roomCode: 'TAB-101',
+          role: 'guest',
+          playerId: 'g',
+          playerName: 'Guest',
+          rejoinToken: 'guest-tab-token',
+          timestamp: Date.now(),
+        });
+
+        expect(guestStore.getActiveSession()?.role).toBe('guest');
+        expect(guestStore.getActiveSession()?.rejoinToken).toBe('guest-tab-token');
+        expect(splitStore.getActiveSession()?.role).toBe('host');
+        expect(splitStore.getActiveSession()?.rejoinToken).toBe('host-tab-token');
+
+        // clearAll removes keys from both sessionStorage and localStorage
+        splitStore.clearAll();
+        expect(session.data[SessionStore.ACTIVE_SESSION_KEY]).toBeUndefined();
+        expect(local.data[snapKey]).toBeUndefined();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

@@ -806,22 +806,73 @@ export class GameHUD {
         const victor = this.state.units.find((u) => u.id === victorId);
         if (victor) {
           const maxDist = pendingReaction.data?.maxDistance ?? 3.0;
-          const path = findNavPath(this.state, victor, target.position, maxDist);
-          if (path.length >= 2) {
-            const distance = pathMovementCost(this.state!, path, victor);
-            this.flow = {
-              mode: 'confirming',
-              action: createAction(this.localPlayerId, 'consolidate-move', {
-                type: 'consolidate-move',
-                unitId: victor.id,
-                path,
-              }),
-              summary: `Consolidate ${victor.name} ${distance.toFixed(1)}" (max ${maxDist.toFixed(1)}")`,
-            };
-            this.movePathPreview = path;
-            this.movePreview = path[path.length - 1];
-            this.render();
-            this.emitMarkers();
+          const alive = (victor.models ?? []).filter((m) => !m.isDestroyed);
+          if (alive.length > 1) {
+            const start0 = alive[0].position ?? victor.position;
+            const path0 = findNavPath(this.state, victor, target.position, maxDist, {
+              startPosition: start0,
+              keepAway: true,
+            });
+            if (path0.length >= 2) {
+              const end0 = path0[path0.length - 1];
+              const follow = autoPlaceSquadFollowers(this.state, victor, {
+                kind: 'move',
+                models: alive.map((m, index) => ({
+                  index,
+                  start: m.position ?? victor.position,
+                  budget: maxDist,
+                  difficultBudget: maxDist,
+                })),
+                placed: [{ index: 0, position: end0 }],
+                stopBeforeDifficult: false,
+              });
+              if (!follow.ok) {
+                this.showToast(follow.reason);
+                return;
+              }
+              const modelPositions = alive.map((m, index) =>
+                index === 0 ? end0 : (follow.placements.get(index)?.position ?? m.position ?? victor.position)
+              );
+              const modelPaths = alive.map((m, index) =>
+                index === 0 ? path0 : (follow.placements.get(index)?.path ?? [m.position ?? victor.position, modelPositions[index]])
+              );
+              const distance = Math.max(...modelPaths.map((p) => pathMovementCost(this.state!, p, victor)));
+              this.flow = {
+                mode: 'confirming',
+                action: createAction(this.localPlayerId, 'consolidate-move', {
+                  type: 'consolidate-move',
+                  unitId: victor.id,
+                  path: path0,
+                  modelPositions,
+                  modelPaths,
+                }),
+                summary: `Consolidate ${victor.name} ${distance.toFixed(1)}" (max ${maxDist.toFixed(1)}")`,
+              };
+              this.movePathPreview = path0;
+              this.movePreview = end0;
+              this.render();
+              this.emitMarkers();
+            }
+          } else {
+            const path = findNavPath(this.state, victor, target.position, maxDist, {
+              keepAway: true,
+            });
+            if (path.length >= 2) {
+              const distance = pathMovementCost(this.state!, path, victor);
+              this.flow = {
+                mode: 'confirming',
+                action: createAction(this.localPlayerId, 'consolidate-move', {
+                  type: 'consolidate-move',
+                  unitId: victor.id,
+                  path,
+                }),
+                summary: `Consolidate ${victor.name} ${distance.toFixed(1)}" (max ${maxDist.toFixed(1)}")`,
+              };
+              this.movePathPreview = path;
+              this.movePreview = path[path.length - 1];
+              this.render();
+              this.emitMarkers();
+            }
           }
         }
       }
@@ -1076,7 +1127,12 @@ export class GameHUD {
       const victor = this.state.units.find((u) => u.id === victorId);
       if (victor && target?.kind === 'position') {
         const maxDist = pendingReaction.data?.maxDistance ?? 3.0;
-        const path = findNavPath(this.state, victor, target.position, maxDist);
+        const alive = (victor.models ?? []).filter((m) => !m.isDestroyed);
+        const startPos = alive.length > 1 ? (alive[0].position ?? victor.position) : undefined;
+        const path = findNavPath(this.state, victor, target.position, maxDist, {
+          keepAway: true,
+          ...(startPos ? { startPosition: startPos } : {}),
+        });
         this.movePathPreview = path;
         this.movePreview = path.length > 0 ? path[path.length - 1] : null;
         this.emitMarkers();

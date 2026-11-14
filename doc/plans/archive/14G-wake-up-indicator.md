@@ -1,6 +1,6 @@
 # 14G: Wake-up loading indicator
-Status: done, merged as #377 (2026-11-12). Implemented by Gemini; the owner approved the decisions by handing the plan over on 2026-11-12. Review fix: a failed reconnect attempt after a socket has been open keeps the background reconnect loop going. Intended for an outside implementer (Gemini); see `doc/plans/GEMINI_HANDOVER.md`.
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G, "Wake-up loading indicator"
+Status: done, merged as #377 (2026-11-12). Implemented by Gemini; the owner approved the decisions by handing the plan over on 2026-11-12. Review fix: a failed reconnect attempt after a socket has been open keeps the background reconnect loop going. Intended for an outside implementer (Gemini); see [GEMINI_HANDOVER.md](../GEMINI_HANDOVER.md).
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14G, "Wake-up loading indicator"
 
 ## Goal
 After a quiet spell the free-tier signaling server (Azure App Service F1) can take up to a minute to wake up. Today the lobby shows nothing at all until the WebSocket opens (`Lobby.init()` awaits `signalingClient.connect()` before its first `render()`), and Create / Join can hang without feedback. The lobby should appear at once and say plainly that it is waking the server, then either get on with it or show a clear error with a way to try again.

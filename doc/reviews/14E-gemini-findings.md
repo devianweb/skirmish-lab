@@ -102,7 +102,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** architecture
 - **Location:** `shared/src/engine/actions.ts:906, 1395, 2774-2790, 3008-3024`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** Unlike `charge` and `charge-leg` (`actions.ts:1232, 1310`), `advance` and `rush` do not require `modelPositions` when `livingModels(unit).length > 1`, allowing a multi-model squad to move via a single centroid `path` that bypasses per-model validation.
 - **Failure scenario:** A guest submits an `advance` or `rush` action for a 5-model squad with a centroid `path` and omits `modelPositions`; `validateAction` checks only the centroid path, and `applyAction` (`actions.ts:2784-2789, 3018-3023`) translates every living model by `(deltaX, deltaZ)` and overwrites every model's `y` with `targetPos.y`, allowing squad members to pass through walls, end inside obstacles or off the board, violate the 1" keep-away zone, or float in mid-air.
 - **Suggested fix:** In `validateAction` for `advance` (`actions.ts:906`) and `rush` (`actions.ts:1395`), reject actions when `livingModels(unit).length > 1` and `!modelPositions || modelPositions.length === 0`.
@@ -112,7 +112,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:1690-1722, 3358-3387`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** `consolidate-move` does not validate that `path[0]` starts at `unit.position`, that waypoints stay within board bounds, that `{ keepAway: true }` and end-overlap/overhang/mid-air/traversal checks pass, or that multi-model squad members retain valid individual elevations.
 - **Failure scenario:** During a `melee-consolidation` prompt, a player submits `path: [{ x: 20, y: 0, z: 20 }, { x: 21, y: 0, z: 20 }]` (cost `1.0" <= 3.0"`) to teleport across the board or into base contact with a new enemy unit, or consolidates a multi-level squad onto a platform so `applyAction` (`actions.ts:3376`) sets `m.position.y = end.y` on all models and suspends off-platform models in mid-air.
 - **Suggested fix:** Validate in `validateAction` (`actions.ts:1690-1722`) that `path[0]` matches `unit.position`, enforce board bounds, `keepAway: true`, end-overlap, mid-air, overhang, and coherency checks, and require per-model positions/paths for multi-model squads on consolidation.
@@ -122,7 +122,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `client/src/ui/Lobby.ts:408-439`, `client/src/network/SignalingClient.ts:156-159`, `server/src/Room.ts:69-74`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2d-reconnect` (PR 5)
 - **Defect:** When a disconnected host clicks "Resume Match" (which sends `join-room` via `Lobby.joinRoom`) while the guest is still connected in the room, neither peer initiates a WebRTC SDP offer and `SignalingClient` overwrites `this.currentRole` with `'guest'`.
 - **Failure scenario:** The host reloads the page mid-match and clicks "Resume Match" (`Lobby.ts:704`); `RoomManager.joinRoom` (`Room.ts:69-74`) assigns the vacant host slot (`role: 'host'`) and sends `room-joined` (`role: 'host'`) to the host and `peer-joined` to the guest. In `Lobby.ts:408-424`, `room-joined` with `assignedRole === 'host'` calls `setupWebRTCAsHost()` without calling `createAndSendOffer()`, while `peer-joined` on the guest (`Lobby.ts:433-438`) calls `setupWebRTCAsGuest()` and waits for an offer, hanging both peers at `"Waiting for peer..."`.
 - **Suggested fix:** Have the "Resume Match" flow call `signalingClient.reconnectRoom(code, role)` (or in `Lobby.ts:413`, call `await this.createAndSendOffer()` when `room-joined` assigns `role === 'host'` and a guest is present), and set `this.currentRole = message.role` in `SignalingClient.ts:158`.
@@ -152,7 +152,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:2363-2372, 2751-2758, 2986-2993, 3073, 3167`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** When a unit is destroyed by dangerous terrain during `advance`, `rush`, `charge-leg`, or `charge` without a jump/drop fall (`fallen === null`), `applyLegTraversals` returns `{ terminated: false }` and `finishActivation` is never called.
 - **Failure scenario:** An active unit with 1 wound remaining moves, rushes, or charges across a `hazard-pool` and rolls a `1` on its hazard test; `resolveHazardTests` marks `unit.isDestroyed = true`, but `applyLegTraversals` only calls `finishActivation` inside `if (fallen)` (`actions.ts:2369`), leaving `state.turnState.activeUnitId` pointing to the destroyed unit and preventing the turn from advancing.
 - **Suggested fix:** In `applyLegTraversals` (`actions.ts:2366`), check `if (fallen || unit.isDestroyed)` so fatal dangerous-terrain rolls terminate and finish the activation, and include end-of-activation morale specs in `getDiceSpecs` when hazard specs are requested.
@@ -162,7 +162,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:3466, 3490, 3604-3656, 3685`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2f-rules` (PR 4)
 - **Defect:** In multi-weapon `shoot` actions, `resolveShoot` applies each weapon's wounds in place before resolving subsequent allocations, causing earlier allocations (and the auto-split trial in `blastSplitPause`) to mutate target model counts and blast participants for later Blast allocations.
 - **Failure scenario:** A unit fires two `Blast(3)` weapons at a 2-model squad `g1` with another 2-model squad `g2` within 3". During `blastSplitPause`'s trial run (`actions.ts:3466`), allocation 0's auto-split destroys `g2`, so allocation 1's `prompts[1]` is recorded with only 1 participant (`[g1]`). When the defender submits a custom split for allocation 0 that keeps `g2` alive, `applyBlastSplit` (`actions.ts:3490`) re-runs `resolveShoot`: allocation 1 now finds 2 participants (`[g1, g2]`), reads `shares[1] === undefined`, and passes `count: undefined` into `resolveAttack`, producing `NaN` hit counts.
 - **Suggested fix:** Compute `getBlastParticipants` (and range/cover/blast caps) for all allocations in a `shoot` action from the pre-salvo snapshot before applying any allocation's wounds, or defer applying wounds until all allocations in the salvo have been resolved.
@@ -172,7 +172,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:1779-1792, 4453-4463`, `shared/src/engine/activation.ts:403-413, 471-475`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** When a `shaken` active unit is wounded to half strength during its activation (via an `activate-unit` dangerous-terrain test) and then executes `end-activation`, `getDiceSpecs('end-activation')` requests 0 morale dice while `finishActivation` clears `shaken` before calling `applyEndOfActivationMorale`.
 - **Failure scenario:** A 2-model `shaken` squad standing in a `hazard-pool` activates (`activate-unit`), loses 1 model to the activation hazard test (now at 50% strength), and sends `end-activation`. In `getDiceSpecs` (`actions.ts:1781`), `active.status.includes('shaken')` is still `true`, so `moraleDiceCounts` (`activation.ts:408`) requests `0` morale dice; then `finishActivation` (`actions.ts:4454`) strips `'shaken'` before calling `applyEndOfActivationMorale` (`actions.ts:4463`), which sees `alreadyShaken === false`, reads `moraleRolls[0] === undefined` (`activation.ts:475`), and executes `break`, skipping the morale test (and any subsequent units' morale tests).
 - **Suggested fix:** In `getDiceSpecs('end-activation')` (`actions.ts:1781`), exclude the active unit's `'shaken'` status when computing `moraleDiceCounts` (matching `finishActivation` clearing `'shaken'` before `applyEndOfActivationMorale`), or clear the active unit's `'shaken'` status only if it did not take a new morale test.
@@ -192,7 +192,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:3974-3979`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** When `resolveChargeStrike` resumes at `stage = 'counter'` after an Impact `pick-casualties` prompt, `resumed` is `true` and `stage === 'strike'` is `false`, causing `DiceResolution.results` to be set to `[]`.
 - **Failure scenario:** A charger with `Impact` wounds a multi-model defender equipped with a `Counter` weapon; the charge pauses at stage `'impact'` for the defender to pick casualties, and when `applyPickCasualties` calls `resumeChargeStrike` with `stage = 'counter'`, line 3979 (`!resumed ? dice : stage === 'strike' ? ... : []`) evaluates to `[]`, wiping all Counter and charger melee dice rolls from the resulting `ActionLogEntry.dice.results`.
 - **Suggested fix:** When `stage === 'counter'` in `resolveChargeStrike` (`actions.ts:3979`), include the `counter*` dice (and when `!paused`, also the non-`impact`/non-`counter` strike dice) in `results` instead of returning `[]`.
@@ -202,7 +202,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:1818-1824, 2073, 2751-2755, 2986-2990`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** For squad `advance` and `rush` actions that include `modelPositions` without `modelPaths`, `validateAction` synthesizes per-model straight paths `[mStart, modelPositions[i]]`, whereas `moveLegEntries`, `getDiceSpecs`, and `applyAction` only inspect `payload.modelPaths` and fall back to `payload.path`.
 - **Failure scenario:** A squad `advance` or `rush` payload with `modelPositions` (and `modelTraversals` or paths across dangerous terrain/ledges) but no `modelPaths` passes `validateAction`, yet `getDiceSpecs` requests no jump/fall/hazard dice for the models and `applyAction` skips `applyModelPathTraversals`, allowing the squad to cross hazards or drop off ledges without rolling.
 - **Suggested fix:** Synthesize `modelPaths` as `living.map((m, i) => payload.modelPaths?.[i] ?? [m.position ?? unit.position, payload.modelPositions![i]])` in a shared helper used by `validateAction`, `getDiceSpecs`, `moveLegEntries`, and `applyAction` (matching `squadChargePaths` at `actions.ts:369-375`).
@@ -212,7 +212,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/specialRules.ts:65-67`, `shared/src/engine/distanceGates.ts:70-74, 139-143`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2f-rules` (PR 4)
 - **Defect:** `findCounterWeapons` in `specialRules.ts` and `weaponsInAttack` / `ownThresholdRings` in `distanceGates.ts` do not filter weapons by `isCarried(unit, w)` (and `distanceGates.ts` also omits `w.isEquipped` and `Assault` melee weapons).
 - **Failure scenario:** In a mixed-loadout squad where the only model carrying a `Counter` weapon (or a weapon with a distance-gated rule like `Relentless`) has been killed, `findCounterWeapons(unit)` still returns that weapon and `attackDistanceRules` / `ownThresholdRings` still display its distance badge and threshold ring; conversely, charging with an `Assault` ranged weapon (`type: 'ranged'` with `'assault'`) omits weapon distance gates because `distanceGates.ts:71, 141` checks `w.profile.type === 'melee'` instead of `isMeleeWeapon(w)`.
 - **Suggested fix:** Filter `findCounterWeapons` by `isCarried(unit, w)`, and in `distanceGates.ts` filter by `w.isEquipped && isCarried(unit, w)` using `isMeleeWeapon(w)` for `'charge'` context.
@@ -222,7 +222,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/push.ts:60-69`, `shared/src/engine/actions.ts:4458-4462`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** `pushAttackerFor` returns `active` or the melee partner from `state.turnState.meleePairs` without checking `!u.isDestroyed`.
 - **Failure scenario:** During a charge, the defender's `Counter` strike or `strike-back` destroys the charging unit while the defender also lost wounds and is at half strength; at `finishActivation`, the defender fails its Morale Test and becomes `shaken`, and `pushAttackerFor` returns the destroyed charger, prompting a 4+ `push` move by a dead unit.
 - **Suggested fix:** Check `if (!active.isDestroyed)` and `u && !u.isDestroyed` in `pushAttackerFor` (`push.ts:63, 67`).
@@ -232,7 +232,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/data/armies.ts:828-846`, `shared/src/data/scenario.ts:111-125`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** When `useDeploymentPhase` is `false`, `createUnitsFromStarterArmy` cycles unit X-coordinates through a 4-element array (`spread = [-9, -3, 3, 9]`) and `settleSpawnPositions` sets `unit.isDeployed = true` on all units including `Ambush` units.
 - **Failure scenario:** Starting an auto-deployed match (`useDeploymentPhase: false`) with `orc-marauders` (5 units), `test-scout-ambush-army` (6 units), or `test-special-rules-army` (8 units) spawns units 5–8 directly on top of units 1–4 at `x = -9, -3, 3, 9, z = ±12`, and places `Ambush` units on the board in Round 1 instead of holding them in reserve (`isDeployed: false`) for Round 2+.
 - **Suggested fix:** Space unit X-coordinates dynamically across the board width based on `army.fighters.length`, and skip `Ambush` units (`hasTrait(unit.specialRules, 'ambush')`) in `settleSpawnPositions` so they remain `isDeployed: false`.
@@ -242,7 +242,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:2363, 4599-4614`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** Movement dangerous-terrain tests call `resolveHazardTests` without a `WoundLedger` (bypassing `pick-casualties`) and delegate to `applyWounds`, which honors client-supplied `casualtyModelIds` ahead of already-wounded models.
 - **Failure scenario:** A Tough(3) squad where `m0` already has 1 wound remaining (`wounds: 1, maxWounds: 3`) moves across a `hazard-pool` and takes 1 wound; if the client passes `casualtyModelIds: ['m1']`, `applyWounds` (`actions.ts:4605-4608`) applies the wound to the unhurt `m1` instead of finishing off the already-wounded `m0`, violating the tabletop wound allocation rule (`allocateWounds` in `casualties.ts`).
 - **Suggested fix:** Route movement dangerous-terrain wounds through `applyTabletopWounds` / `deferCasualties` (or `allocateWounds`) and remove the legacy `casualtyModelIds` parameter from `applyWounds`.
@@ -272,7 +272,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/network/SignalingClient.ts:22-79, 86-101, 116-126`, `client/src/network/SignalingDiceProvider.ts:47-53, 78-84`, `client/src/ui/Lobby.ts:362-377`, `client/src/network/WebRTCClient.ts:49-56, 149-175`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2d-reconnect` (PR 5) (`SignalingClient.connect` deduplication, `SignalingDiceProvider` retry `ensureConnected()`, and `Lobby.reset()` `leaveRoom()`; `WebRTCClient.createPeerConnection` is already synchronous with no `fetchIceServers()` call)
 - **Defect:** Concurrent `ensureConnected()` and `scheduleReconnect()` calls open duplicate WebSockets; `SignalingDiceProvider`'s retry timer never reconnects a closed socket; `Lobby.reset()` sends raw `leave-room` without clearing `SignalingClient.currentRoomCode`; and `WebRTCClient.handleOffer` can run before `createPeerConnection`'s `fetchIceServers()` resolves.
 - **Failure scenario:** If the guest's `fetch('/ice-servers')` takes longer than the host's when joining a room, the host's `'offer'` arrives while the guest's `this.peerConnection` is still `null`, throwing `Error: No peer connection` (`WebRTCClient.ts:150`). Similarly, if a dice request triggers `ensureConnected()` while `scheduleReconnect()`'s socket is still `CONNECTING`, `SignalingClient.connect()` overwrites `this.ws` with a second WebSocket, causing both sockets to send `reconnect-room` and kick each other in a loop.
 - **Suggested fix:** Deduplicate in-flight connection promises on `SignalingClient` and `WebRTCClient` (`connectPromise` / `initPromise`), call `ensureConnected()` inside `SignalingDiceProvider`'s retry interval when disconnected, and call `this.signalingClient.leaveRoom()` in `Lobby.reset()`.
@@ -342,7 +342,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:3694-3697`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** In `resolveShoot`, `primaryTargetDestroyed` and `primaryTargetShaken` are only assigned during the loop iteration where `i === 0`, ignoring later allocations in `resolveOrder` that hit the same primary target.
 - **Failure scenario:** A unit fires two weapons at the same enemy unit `g1`, where allocation `0` is a `Deadly(3)` weapon and allocation `1` is a standard weapon; `resolveOrder` (`actions.ts:3560`) resolves `i = 0` first (wounding `g1`, so `primaryTargetDestroyed` is set to `false` at line 3695) and then resolves `i = 1` second (destroying `g1`), leaving `diceResolution.outcome.targetDestroyed` falsely set to `false`.
 - **Suggested fix:** Compute `primaryTargetDestroyed = primaryTarget?.isDestroyed ?? false` and `primaryTargetShaken = primaryTarget?.status.includes('shaken') ?? false` once after the `for (const i of resolveOrder)` loop finishes (`actions.ts:3724`).
@@ -382,7 +382,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** stale-doc
 - **Location:** `doc/SYSTEMS.md:66, 69, 92, 98, 115, 269-270, 297, 305-309, 390`, `doc/RULES_SPECIFICATION.md:260, 303-332`, `doc/DATA_MODEL.md:112, 129, 143-149, 232-238, 362-382`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2f-rules` (PR 4)
 - **Defect:** `doc/SYSTEMS.md`, `doc/RULES_SPECIFICATION.md`, and `doc/DATA_MODEL.md` contain stale pre-14C descriptions and type definitions that contradict the current v3.6 engine implementation.
 - **Failure scenario:** `SYSTEMS.md` still refers to a `12" hero aura` (`6"` in code, line 69), a `1.0" center opening of wall-doorway` (`1.5"` in code, line 66), cover giving `+1 on the effective Quality needed to hit` (`+1 Defense` in code, lines 269–270), per-model `m1_gap_jump` dice and `3+` jump target (`2+` single unit roll in code, lines 305–309), and elimination-only v1 missions (line 390); `RULES_SPECIFICATION.md:260` lists Strider's trait ID as `pathfinder` (`strider` in code); and `DATA_MODEL.md` omits `'objectives'`, `'fatigued'`, `'push'`, and setup/push action types.
 - **Suggested fix:** Update the stale paragraphs and schema blocks in `doc/SYSTEMS.md`, `doc/RULES_SPECIFICATION.md`, and `doc/DATA_MODEL.md` to match the current v3.6 implementation in `shared/src/`.
@@ -409,10 +409,10 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 
 ### Owner answers (2026-11-12)
 These are agreed rules decisions; they go into **2F Rules fixes** (shared engine, after 2C; update `doc/RULES_SPECIFICATION.md` and `doc/SYSTEMS.md` with them):
-1. **Counter and Fatigue:** a unit becomes Fatigued once the melee is resolved, not straight after its Counter strike. Its strike back with non-Counter weapons in the same melee hits normally (unless it was already Fatigued or is Shaken, as before).
-2. **Pushing:** only an enemy that attacked the unit can push it. A unit made Shaken by its own activation (e.g. dangerous-terrain wounds) is not pushed. A charger that loses its melee can still be pushed by the unit it fought.
-3. **One shooting action is one salvo:** every weapon's Blast caps and the units sharing its hits are worked out from the target as it stood when the shooting began; wounds are then applied in order (Deadly first, as now). This also fixes G-13.
-4. **Impact casualties:** the defender picks which models are removed by Impact hits with the same prompt rules as any other attack (mixed loadouts or Tough above 1), whether or not it has a Counter weapon. `findCounterWeapons` ignores weapons whose carriers are dead (G-18).
+1. **Counter and Fatigue (implemented in `bugfix-2f-rules`, PR 4):** a unit becomes Fatigued once the melee is resolved, not straight after its Counter strike. Its strike back with non-Counter weapons in the same melee hits normally (unless it was already Fatigued or is Shaken, as before).
+2. **Pushing (implemented in `bugfix-2f-rules`, PR 4):** only an enemy that attacked the unit can push it. A unit made Shaken by its own activation (e.g. dangerous-terrain wounds) is not pushed (note: `pushAttackerFor` already returned `null` for active non-melee self-tests; added the missing `attackedFrom`/`meleePairs` check for enemy units). A charger that loses its melee can still be pushed by the unit it fought.
+3. **One shooting action is one salvo (implemented in `bugfix-2f-rules`, PR 4):** every weapon's Blast caps and the units sharing its hits are worked out from the target as it stood when the shooting began; wounds are then applied in order (Deadly first, as now). This also fixes G-13.
+4. **Impact casualties (implemented in `bugfix-2f-rules`, PR 4):** the defender picks which models are removed by Impact hits with the same prompt rules as any other attack (mixed loadouts or Tough above 1), whether or not it has a Counter weapon. `findCounterWeapons` ignores weapons whose carriers are dead (G-18).
 5. **Consolidation:** no change. The 3" move when either unit is destroyed, and the 1" separation otherwise, are the v3.6 core rule, and the engine already lets whichever side survives make the 3" move.
 
 ---

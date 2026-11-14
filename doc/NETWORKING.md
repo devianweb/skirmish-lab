@@ -87,7 +87,14 @@ type GameMessage =
   | { type: 'request-state-sync' }                     // Host → Guest
   | { type: 'heartbeat-ping', timestamp: number }
   | { type: 'heartbeat-pong', timestamp: number }
-  | { type: 'select-army', armyId: string, playerId: string }
+  | { type: 'select-army', armyId: string, playerId: string } // Guest → Host
+  | {
+      type: 'lobby-state';
+      hostArmyId: string;
+      guestArmyId?: string;
+      mapName: string;
+      useDeploymentPhase: boolean;
+    }                                                     // Host → Guest
   | { type: 'request-snapshot' }                         // Guest → Host (if needed)
   | { type: 'snapshot', state: GameState }              // Host → Guest
   | { type: 'game-end', reason: string };
@@ -97,6 +104,7 @@ type GameMessage =
 - **Signaling Server:** Only routes signaling messages and dice roll requests/results. Never routes game messages.
 - **Host:** Receives action-requests from guest, validates, sends state-update or action-rejected
 - **Guest:** Sends action-requests to host, applies state-updates from host, caches snapshots
+- **Pre-game waiting room (14G):** On a newly created room, once the WebRTC data channel opens (`heartbeat-ping`), both peers stay in the waiting room instead of launching immediately. The Guest sends `{ type: 'select-army', armyId, playerId }` with their chosen army ID (and whenever they change `#armySelect`), and the Host validates it against `isKnownArmyId` (STARTER_ARMIES keys, independent of the Host's local developer mode; unknown IDs fall back to `'orc-marauders'`), broadcasts `{ type: 'lobby-state', hostArmyId, guestArmyId, mapName, useDeploymentPhase }` so both waiting rooms display both players' picks live, and launches the match when the Host clicks **Start Match** (`#startMatchBtn`). Mid-game reconnects and session resumes (`hasActiveMatch`, Host `!isCreatedRoom`, Guest cached snapshot, or incoming `state-update` / `state-sync`) skip the waiting room immediately.
 - **Dice:** Only the room's host socket may send `roll-dice-request` (with a non-empty `rollId` and 1–64 dice specs, each with integer `count` 1–500, integer `sides` 2–20, and total count ≤ 2000). The server rolls and broadcasts `roll-dice-result` to both peers simultaneously, and caches each roll's specs alongside its results (`room.rollCache`, up to 100 entries): an identical repeat `rollId` returns the cached results, while a repeat `rollId` with different specs is rejected with an `error` message.
 
 ## Host Authority Model
@@ -217,7 +225,7 @@ If the WebSocket disconnects unexpectedly (e.g. WiFi hiccup or Azure socket recy
 
 ### Seat Rejoin Tokens
 - `room-created` and `room-joined` return a random `rejoinToken` (`crypto.randomUUID()`) for the client's assigned seat (`host` or `guest`).
-- The client stores `rejoinToken` in `SignalingClient` and persists it with `ActiveSession` in `SessionStore` (`localStorage`), sending it with `reconnect-room` and with `join-room` when resuming a match.
+- The client stores `rejoinToken` in `SignalingClient` and persists it with `ActiveSession` in `SessionStore` (per-tab `sessionStorage`, while game snapshots are stored in `localStorage`), sending it with `reconnect-room` and with `join-room` when resuming a match.
 - Taking a seat whose current WebSocket is still `OPEN` requires the matching `rejoinToken` (preventing a second tab or another client with the invite code from hijacking an active seat). A vacant or closed seat can be taken with the invite code as before.
 - When a socket is replaced or leaves a room, its old `clientRooms` entry is removed immediately.
 

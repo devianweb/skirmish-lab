@@ -1,6 +1,6 @@
 # 14C-1: Renames to OPR terms, disclaimer, developer mode, project rules
 Status: done
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C (part 1 of 3). Umbrella: `doc/plans/14C-opr-v3.6-alignment.md`.
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14C (part 1 of 3). Umbrella: `doc/plans/archive/14C-opr-v3.6-alignment.md`.
 
 ## Goal
 The code and the screen use One Page Rules' own words: Tough, AP, Rending, Hero, Advance, Shaken and so on. Game mechanics stay **exactly as they are today**; 14C-2 changes the rules. A one-line disclaimer appears in the lobby and the README. The TEST armies hide behind a developer mode, toggled with F9 on the main menu. AGENTS.md, the implementer agent and the plan references stop enforcing clean-room naming and point at the v3.6 PDFs.

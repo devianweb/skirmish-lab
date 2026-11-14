@@ -1,6 +1,6 @@
 # Bugfix batch 1: playtest fixes + elevated-terrain rules alignment
-Status: approved (2026-11-02), split into sub-plans
-Roadmap: tick items under the existing `### 13.6 playtest fixes (bugfix batch 1, …)` heading in doc/ROADMAP.md (just above the 13.6 Acceptance Criteria). Don't create a new heading.
+Status: done (all batches 1A–1I merged; open follow-ups closed or deferred by owner)
+Roadmap: tick items under the existing `### 13.6 playtest fixes (bugfix batch 1, …)` heading in [doc/ROADMAP.md](../../ROADMAP.md) (just above the 13.6 Acceptance Criteria). Don't create a new heading.
 
 ## Goal
 A running list of small bugs the owner finds while playtesting, each fixed as its own small PR. Every item says what the player sees, why it happens, and the agreed fix. New bugs are appended as further PR sections. Each section can be handed to the `implementer` agent independently once its open questions are answered.
@@ -89,7 +89,7 @@ Fixture: [fixtures/testy-mctestface.json](fixtures/testy-mctestface.json) (owner
 2. ~~One mini or a squad?~~: answered. One mini (PR 1 alone covers the screenshot).
 3. ~~The warning~~: answered. It was the expected "can't finish the climb" warning.
 4. ~~Budget runs out over a gap~~: answered. Drop at the take-off edge and continue on the lower level toward the cursor (Decision 6).
-5. ~~Map export~~: received, saved as `doc/plans/fixtures/testy-mctestface.json`. Both screenshots reproduce in the engine.
+5. ~~Map export~~: received, saved as `doc/plans/archive/fixtures/testy-mctestface.json`. Both screenshots reproduce in the engine.
 6. ~~PR 5 step-off cost~~: answered. The ~0.55" step fully off the edge before a drop **counts** as movement (Decision 7).
 7. ~~Per-model rules for squads~~: answered. Yes (Decision 11).
 8. ~~Base-edge measuring~~: answered. Yes (Decision 12, PR 14).
