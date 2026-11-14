@@ -1,0 +1,384 @@
+[
+  {
+    "id": "ca-single-open-contact",
+    "category": "single-open",
+    "label": "single model reaches contact in open ground",
+    "result": {
+      "position": {
+        "x": 9,
+        "y": 0,
+        "z": 0
+      },
+      "path": [
+        {
+          "x": 10,
+          "y": 0,
+          "z": -6
+        },
+        {
+          "x": 9,
+          "y": 0,
+          "z": 0
+        }
+      ],
+      "gap": 0,
+      "cost": 6.08
+    }
+  },
+  {
+    "id": "ca-single-clamped",
+    "category": "single-clamped",
+    "label": "single model clamped by budget on open ground",
+    "result": {
+      "position": {
+        "x": 11.34,
+        "y": 0,
+        "z": -12.36
+      },
+      "path": [
+        {
+          "x": 10,
+          "y": 0,
+          "z": -20
+        },
+        {
+          "x": 11.57,
+          "y": 0,
+          "z": -16.69
+        },
+        {
+          "x": 11.34,
+          "y": 0,
+          "z": -12.36
+        }
+      ],
+      "gap": 11.43,
+      "cost": 8
+    }
+  },
+  {
+    "id": "ca-single-round-wall",
+    "category": "single-wall",
+    "label": "single model routes round wall (-10, -12) to reach target",
+    "result": {
+      "position": {
+        "x": -11,
+        "y": 0,
+        "z": -9
+      },
+      "path": [
+        {
+          "x": -10,
+          "y": 0,
+          "z": -15
+        },
+        {
+          "x": -12.57,
+          "y": 0,
+          "z": -12.69
+        },
+        {
+          "x": -12.57,
+          "y": 0,
+          "z": -11.3
+        },
+        {
+          "x": -11,
+          "y": 0,
+          "z": -9
+        }
+      ],
+      "gap": 0,
+      "cost": 7.63
+    }
+  },
+  {
+    "id": "ca-single-round-wall-long",
+    "category": "single-wall-long",
+    "label": "single model routes round wall-long (8, -16) toward target",
+    "result": {
+      "position": {
+        "x": 7,
+        "y": 0,
+        "z": -13
+      },
+      "path": [
+        {
+          "x": 8,
+          "y": 0,
+          "z": -19
+        },
+        {
+          "x": 4.43,
+          "y": 0,
+          "z": -16.69
+        },
+        {
+          "x": 4.43,
+          "y": 0,
+          "z": -15.3
+        },
+        {
+          "x": 7,
+          "y": 0,
+          "z": -13
+        }
+      ],
+      "gap": 0,
+      "cost": 9.09
+    }
+  },
+  {
+    "id": "ca-single-up-stairs-deck",
+    "category": "single-stairs-deck",
+    "label": "single model climbs stairs (-5, -4) onto platform (-5, 0) to target on deck",
+    "result": {
+      "position": {
+        "x": -6,
+        "y": 3,
+        "z": 0
+      },
+      "path": [
+        {
+          "x": -5,
+          "y": 0,
+          "z": -9
+        },
+        {
+          "x": -5,
+          "y": 0,
+          "z": -6.2
+        },
+        {
+          "x": -5,
+          "y": 3,
+          "z": -2
+        },
+        {
+          "x": -6,
+          "y": 3,
+          "z": 0
+        }
+      ],
+      "gap": 0,
+      "cost": 10.2
+    }
+  },
+  {
+    "id": "ca-single-up-ladder-deck",
+    "category": "single-ladder-deck",
+    "label": "single model climbs ladder (-7, 0) onto platform (-5, 0) to target on deck",
+    "result": {
+      "position": {
+        "x": -6,
+        "y": 3,
+        "z": 0
+      },
+      "path": [
+        {
+          "x": -10,
+          "y": 0,
+          "z": 0
+        },
+        {
+          "x": -7.55,
+          "y": 0,
+          "z": 0
+        },
+        {
+          "x": -7.55,
+          "y": 3,
+          "z": 0
+        },
+        {
+          "x": -6.45,
+          "y": 3,
+          "z": 0
+        },
+        {
+          "x": -6,
+          "y": 3,
+          "z": 0
+        }
+      ],
+      "gap": 0,
+      "cost": 5.9
+    }
+  },
+  {
+    "id": "ca-single-tall-deck-stays",
+    "category": "single-high-deck",
+    "label": "model on 4.5\" tall deck D stays on deck (no jump) when target is on ground east",
+    "result": {
+      "position": {
+        "x": -16.45,
+        "y": 4.5,
+        "z": -6
+      },
+      "path": [
+        {
+          "x": -17,
+          "y": 4.5,
+          "z": -6
+        },
+        {
+          "x": -16.45,
+          "y": 4.5,
+          "z": -6
+        }
+      ],
+      "gap": 3.45,
+      "cost": 0.55
+    }
+  },
+  {
+    "id": "ca-squad-coherency-held",
+    "category": "squad-coherency",
+    "label": "squad model moves forward up to 2\" coherency limit with stationary squad-mate",
+    "result": {
+      "position": {
+        "x": 11.57,
+        "y": 0,
+        "z": -16.15
+      },
+      "path": [
+        {
+          "x": 10,
+          "y": 0,
+          "z": -18
+        },
+        {
+          "x": 11.57,
+          "y": 0,
+          "z": -16.69
+        },
+        {
+          "x": 11.57,
+          "y": 0,
+          "z": -16.15
+        }
+      ],
+      "gap": 1.66,
+      "cost": 2.58
+    }
+  },
+  {
+    "id": "ca-squad-round-wall",
+    "category": "squad-wall",
+    "label": "4-model squad trailing model routes round wall (-10, -12) behind front models",
+    "result": {
+      "position": {
+        "x": -11,
+        "y": 0,
+        "z": -9
+      },
+      "path": [
+        {
+          "x": -10,
+          "y": 0,
+          "z": -16
+        },
+        {
+          "x": -12.57,
+          "y": 0,
+          "z": -12.69
+        },
+        {
+          "x": -12.57,
+          "y": 0,
+          "z": -11.3
+        },
+        {
+          "x": -11,
+          "y": 0,
+          "z": -9
+        }
+      ],
+      "gap": 0,
+      "cost": 8.37
+    }
+  },
+  {
+    "id": "ca-squad-up-stairs",
+    "category": "squad-stairs-deck",
+    "label": "squad model walks up stairs A onto 3\" deck A to join lead model",
+    "result": {
+      "position": {
+        "x": -9.99,
+        "y": 3,
+        "z": -5.89
+      },
+      "path": [
+        {
+          "x": -10,
+          "y": 0,
+          "z": -15
+        },
+        {
+          "x": -9,
+          "y": 0,
+          "z": -14.2
+        },
+        {
+          "x": -9,
+          "y": 3,
+          "z": -9.8
+        },
+        {
+          "x": -9.99,
+          "y": 3,
+          "z": -5.89
+        }
+      ],
+      "gap": 0,
+      "cost": 10.64
+    }
+  },
+  {
+    "id": "ca-squad-avoids-hazard",
+    "category": "squad-hazard",
+    "label": "model refuses dangerous path straight through hazard pool C (9, -8) and stays put",
+    "result": {
+      "position": {
+        "x": 9,
+        "y": 0,
+        "z": -14
+      },
+      "path": [
+        {
+          "x": 9,
+          "y": 0,
+          "z": -14
+        }
+      ],
+      "gap": 9,
+      "cost": 0
+    }
+  },
+  {
+    "id": "ca-squad-6-target-difficult",
+    "category": "squad-6-target",
+    "label": "squad model picks nearest of 6 target models with difficultBudget in rubble",
+    "result": {
+      "position": {
+        "x": 3.32,
+        "y": 0,
+        "z": -10.38
+      },
+      "path": [
+        {
+          "x": 4,
+          "y": 0,
+          "z": -16
+        },
+        {
+          "x": 3.32,
+          "y": 0,
+          "z": -10.38
+        }
+      ],
+      "gap": 0,
+      "cost": 5.66
+    }
+  }
+]
