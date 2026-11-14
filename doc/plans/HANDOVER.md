@@ -69,17 +69,17 @@ Status as of 2026-11-14 (`fba67a3`). Bugfix batch 2 findings (G-xx) are describe
 | 4 | **UI inventory re-take**: lobby "?", waking-up lobby, how-to-play modal, header mute, distance indicators, hazard highlight `47-hazard-highlight`, `s9-07` | `doc/ux/inventory/`, `tools/ux-inventory/` | Ready (tooling in `tools/ux-inventory/README.md`) | Hydrogen (text in `catalog.js`), owner takes screenshots if Gemini can't | Yes (docs) |
 | 5 | **G-24 client reconnect races**: duplicate sockets from concurrent `ensureConnected`/`scheduleReconnect`, dice retry never reconnecting a closed socket, `Lobby.reset()` leaving `currentRoomCode`, `handleOffer` before ICE servers load | `client/src/network/`, `client/src/ui/Lobby.ts` | Needs a plan | Argon | Yes, after a two-browser test (client-only) |
 | 6 | **14H docs sync**: stale default-scenario table in `doc/ASSETS.md`, old doorway opening in `doc/SYSTEMS.md`, record the 13.6E follow-ups, close `doc/plans/bugfix-playtest-batch-1.md` | `doc/` | Ready enough for a docs job | Hydrogen | Yes (docs) |
-| 7 | **2C Host validation** (no rule changes): G-07, G-08, G-12, G-14, G-16, G-17, G-19, G-20, G-21, G-31 | `shared/src/engine/` | Needs a plan | Argon | No, leave open for Claude |
+| 7 | **2C Host validation** (no rule changes): G-07, G-08, G-12, G-14, G-16, G-17, G-19, G-20, G-21, G-31, plus **14F F1** (vertical segment / stair-waypoint unit blocker) and **14F F4** (`closestApproach` routing around / stopping short of dangerous terrain) | `shared/src/engine/` | Needs a plan (F1 & F4 triaged) | Argon | No, leave open for Claude |
 | 8 | **2F Rules fixes** (after 2C): the owner's answers 1-4 at the end of the 14E findings file, with G-13 and G-18 | `shared/src/engine/` | Needs a plan; rules already answered | Argon | No |
-| 9 | **G-35** stale rules docs (after 2F) | `doc/` | After #8 | Hydrogen | Yes (docs) |
+| 9 | **G-35** stale rules docs & **14F F2** ladder-top descent zigzag cleanup (2E/2C) | `doc/`, `shared/src/engine/spatial.ts` | After #7/#8 | Hydrogen / Argon | Yes (docs); No (engine) |
 | 10 | **Each player picks their own army** (ROADMAP 14G) | protocol, `GameState.setup`, lobby | Needs a plan | Plan with Argon; implementation waits for Claude | No |
 | 11 | **14D Rules audit** | read-only | Waits for Claude (rule judgement) | — | — |
 | 12 | **14I MVP release** | — | After everything above | Owner | Owner's command |
 
 **A good weekend order** that never has two open PRs in the same area: #1 (Argon, engine) → while it's open, #4 and #6 (Hydrogen, docs) and the #3 plan (Argon) → #2 once #1 is merged → #3 and #5 implementations (client) → #7 plan. Leave #7's and #8's code PRs open for Claude.
 
-## Not decided, for the owner
-- **F3 from 14F:** should height count when the host judges "as close as possible" in a squad charge or pile-in? Today the gap is measured flat, so standing on the ground under a model on a deck counts as touching. Details in the 14F plan's "Findings from PR 1". F1, F2 and F4 there go into a bugfix batch once planned.
+## Deferred / Not decided
+- **Deferred (known bug) — F3 from 14F:** `modelGap` measures flat 2D horizontal distance (`shared/src/engine/unitGeometry.ts:23-30`), so standing on the ground under an elevated target model scores `gap = 0` in `closestApproach` / `validateSquadChargeMove`. On 2026-11-14 the owner decided not to change this for now and to document it as a known bug (see `doc/plans/14F-performance.md` and `doc/ROADMAP.md`). **F1, F2, and F4** from 14F are triaged into Bugfix batch 2 (`2C` / `2E`, details in `doc/plans/14F-performance.md`).
 
 ## Releasing
 Only when the owner decides to, and only by the owner:
