@@ -1,5 +1,5 @@
 # 14F: Performance
-Status: approved (owner, 2026-11-13). PR 1 and PR 2 may go to Gemini (see Decision 10).
+Status: in progress. Approved by the owner 2026-11-13; PR 1 done (Gemini, #407); PR 2 next (Gemini, see Decision 10).
 Roadmap: doc/ROADMAP.md § Phase 14, 14F Performance
 
 ## Goal
@@ -79,6 +79,25 @@ The ladder shuffle heuristic is accepted as it is (Decision 8); its documentatio
 ## PR 5: Client frame profile  (branch: `14F-perf-5`, planned after profiling)
 - **Layer:** client HUD / renderer
 - Profile a full game on the Standard Battlefield (Chrome performance panel) with squads, move preview, the LoS fan and F9 running, against the 60 fps target. Findings are written into this plan as their own PRs before any work starts; likely suspects to check first are the hover path (`hoverNav`, follower placement via `autoPlaceSquadFollowers`), the LoS fan and marker rebuilds on every sync.
+
+## PR 1 results (2026-11-14)
+Baseline from the PR 1 benchmark (`NAV_BENCH=1`), before any speed-up:
+
+| Measure | Baseline | Target (Decision 9) |
+|---|---|---|
+| `findNavPath`, 79 cases | mean 38 ms, p95 336 ms (Standard Battlefield p95 349 ms) | p95 under 10 ms |
+| `closestApproach`, 12 cases | mean 1.9 s, worst 11.9 s | — |
+| Squad charge 4 vs 3 (valid / "could get closer") | 5.7 s / 7.9 s | — |
+| Squad charge 6 vs 6 round terrain | 25.0 s | under 300 ms |
+| Squad charge 10 vs 5 (stress) | 43.5 s | generous guard only |
+
+The gap is far bigger than PR 2 alone is likely to close (about 35× on a search, about 80× on the 6 vs 6 charge). Expect PR 3, and possibly a PR that cuts how many searches `closestApproach` runs per model (it is the multiplier behind the charge times). That PR is planned after PR 2's numbers are in. The golden suite takes about 110 s a run until then; its long Vitest timeouts (60 s / 300 s) are deliberate.
+
+**Findings from PR 1, not part of 14F** (recorded as they are in the snapshots; each needs a failing test before any fix, and they go to a later bugfix batch):
+- **F1 Landing on a model at a ladder foot or stair point.** `findMoveBlocker` skips the overlap / keep-away checks for a purely vertical step (`spatial.ts:529`), and `findNavPath` keeps stair and ladder waypoints without checking them for units (`spatial.ts:2636`), so a path can drop or climb onto the spot where an enemy stands. Possibly a host-validation bug; unconfirmed.
+- **F2 Ladder-top zigzag** (`jr-ladder-2`): a descent goes back and forth once across the free shuffle at the top before climbing down. No movement is lost (the shuffle is free); cosmetic.
+- **F3 "As close as possible" is measured flat.** `modelGap` uses horizontal centre distance (`unitGeometry.ts:18`), so standing on the ground under a model on a deck scores a gap of 0. Confirmed in code. Whether height should count is a rules question for the owner.
+- **F4 Dangerous terrain in `closestApproach`.** `findNavPath` does not avoid dangerous terrain, and `closestApproach` rejects paths that cross it, so a model whose straight route crosses a dangerous piece gets "stay put" as its best (`ca-squad-avoids-hazard`). The host's closeness check is then too lenient for that model.
 
 ## Open questions
 None.
