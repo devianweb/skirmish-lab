@@ -72,7 +72,7 @@ Updated 2026-11-14 (following Bugfix batch 2 & 14H docs sync). Bugfix batch 2 fi
 | 7 | **2C Host validation & 14F pathfinder fixes** (`archive/bugfix-batch-2.md` PRs 1–3, no rule changes): 14F `F1`/`F2`/`F4` (`PR 1`), `G-07`/`G-08`/`G-17`/`G-20` (`PR 2`), `G-12`/`G-14`/`G-16`/`G-19`/`G-21`/`G-31` (`PR 3`) | `shared/src/engine/`, `shared/src/data/` | **Done** (#415, #416, #417) | Argon | Merged |
 | 8 | **2F Rules fixes & G-35 docs** (`archive/bugfix-batch-2.md` PR 4, after PRs 1–3): owner's answers 1–4 at the end of 14E findings file, with `G-13`, `G-18`, and `G-35` | `shared/src/engine/`, `doc/` | **Done** (#418) | Argon | Merged |
 | 9 | *(Merged into item #8 / `archive/bugfix-batch-2.md` PR 4)* **G-35** stale rules docs | `doc/` | **Done** (#418) | Argon / Hydrogen | Merged |
-| 10 | **Each player picks their own army** (ROADMAP 14G) | protocol, `GameState.setup`, lobby | **Open** — Needs a plan | Plan with Argon; implementation waits for Claude | No |
+| 10 | **Each player picks their own army** (ROADMAP 14G) | protocol, `GameState.setup`, lobby | **Planned** — [doc/plans/14G-player-picked-armies.md](14G-player-picked-armies.md) (`draft`, awaiting owner answers to 3 open UX questions) | Argon / Gemini | Plan PR merged; awaiting owner approval before implementation |
 | 11 | **14D Rules audit** | read-only | **Open** — Waits for Claude (rule judgement) | — | — |
 | 12 | **14I MVP release** | — | **Open** — After everything above | Owner | Owner's command |
 
