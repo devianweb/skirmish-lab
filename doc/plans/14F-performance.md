@@ -1,5 +1,5 @@
 # 14F: Performance
-Status: in progress. Approved by the owner 2026-11-13; PR 1 done (#407); PR 2 done (#409); Post-PR 2 profile in [doc/reviews/14F-profile.md](../reviews/14F-profile.md); PR 3 planned and next (`14F-perf-3`). While Claude is unavailable, follow [14F-handover.md](14F-handover.md).
+Status: in progress. Approved by the owner 2026-11-13; PR 1 done (#407); PR 2 done (#409); Post-PR 2 profile in [doc/reviews/14F-profile.md](../reviews/14F-profile.md) (#411); PR 3 done (`14F-perf-3`, Decision 9 engine targets met); PR 5 (Client frame profile) next. While Claude is unavailable, follow [14F-handover.md](14F-handover.md).
 Roadmap: doc/ROADMAP.md § Phase 14, 14F Performance
 
 ## Goal
@@ -105,6 +105,17 @@ The gap is far bigger than PR 2 alone is likely to close (about 35× on a search
 - **F2 Ladder-top zigzag** (`jr-ladder-2`): a descent goes back and forth once across the free shuffle at the top before climbing down. No movement is lost (the shuffle is free); cosmetic.
 - **F3 "As close as possible" is measured flat.** `modelGap` uses horizontal centre distance (`unitGeometry.ts:18`), so standing on the ground under a model on a deck scores a gap of 0. Confirmed in code. Whether height should count is a rules question for the owner.
 - **F4 Dangerous terrain in `closestApproach`.** `findNavPath` does not avoid dangerous terrain, and `closestApproach` rejects paths that cross it, so a model whose straight route crosses a dangerous piece gets "stay put" as its best (`ca-squad-avoids-hazard`). The host's closeness check is then too lenient for that model.
+
+## PR 2 & PR 3 results (2026-11-14)
+`NAV_BENCH=1` progression with all 96 golden snapshots unchanged:
+
+| Measure | PR 1 Baseline | PR 2 (`14F-perf-2`) | PR 3 (`14F-perf-3`) | Target (Decision 9) |
+|---|---|---|---|---|
+| `findNavPath`, 79 cases | mean 36.81 ms, p95 330.57 ms (Std p95 341.11 ms) | mean 26.02 ms, p95 195.60 ms (Std p95 214.16 ms) | mean 3.30 ms, p95 16.42 ms (Std p95 **9.73 ms**) | Std p95 under 10 ms |
+| `closestApproach`, 12 cases | mean 1875.85 ms, max 12160.72 ms | mean 1136.85 ms, max 6248.87 ms | mean 28.53 ms, max 132.37 ms | — |
+| Squad charge 4 vs 3 (valid / rejected) | 5685.97 ms / 7867.48 ms | 3158.30 ms / 4296.50 ms | 74.56 ms / 104.47 ms | — |
+| Squad charge 6 vs 6 round terrain | 25100.95 ms | 13340.24 ms | **246.95 ms** | under 300 ms |
+| Squad charge 10 vs 5 (stress) | 43420.83 ms | 25908.61 ms | 475.66 ms | generous guard only |
 
 ## Open questions
 None.

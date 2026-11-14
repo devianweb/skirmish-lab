@@ -193,7 +193,7 @@ export function classifySegment(
     // A hop that also crosses more than 1" of open air is a gap jump, whatever its height change. A jump is
     // measured like a tape: the straight line from take-off to landing (`length`), and a hop longer than 6"
     // cannot be jumped (it is not a fall either)
-    if (measureElevatedGap(state, [a, b]) > FREE_GAP_MAX) {
+    if (measureElevatedGap(state, [a, b], FREE_GAP_MAX) > FREE_GAP_MAX) {
       if (length > JUMP_GAP_MAX) return make('blocked', length, { distance: length });
       return make('jump-gap', 0, { distance: length, dice: calculateJumpDice(length, strider), target });
     }
@@ -207,7 +207,7 @@ export function classifySegment(
   // Level movement: open air beneath an elevated stretch is a gap
   if (flying) return make('walk', length);
   if (isSegmentOnRampOrStairs(state, a, b) && !isSegmentOnLadder(state, a, b)) return make('stairs', length);
-  const gap = measureElevatedGap(state, [a, b]);
+  const gap = measureElevatedGap(state, [a, b], FREE_GAP_MAX);
   if (gap <= 0) return make('walk', length);
   if (gap <= FREE_GAP_MAX) {
     // The short level step off a climb's top onto the floor, or off a floor's edge before a drop, is part of
@@ -496,7 +496,7 @@ export const JUMP_GAP_MAX = 6.05;
  * path (measured on the board) with no walkable floor beneath it. Walking onto an adjacent deck,
  * catwalk, stairs or ladder is not a gap; only space with nothing to stand on is.
  */
-export function measureElevatedGap(state: GameState, path: Vector3[]): number {
+export function measureElevatedGap(state: GameState, path: Vector3[], stopAbove: number = Infinity): number {
   let widest = 0;
   let run = 0;
   const step = 0.1;
@@ -511,8 +511,20 @@ export function measureElevatedGap(state: GameState, path: Vector3[]): number {
       run = 0;
       continue;
     }
-    const n = Math.max(1, Math.ceil(len / step));
     surfaces ??= collectWalkableSurfaces(state);
+    if (Math.abs(aY - bY) <= 0.5) {
+      const surfA = findWalkableSurfaceIn(surfaces, a, 0.05);
+      if (
+        surfA !== null &&
+        Math.abs(surfA.topY - aY) <= 0.5 &&
+        Math.abs(surfA.topY - bY) <= 0.5 &&
+        findWalkableSurfaceIn(surfaces, b, 0.05) === surfA
+      ) {
+        run = 0;
+        continue;
+      }
+    }
+    const n = Math.max(1, Math.ceil(len / step));
     for (let k = 0; k <= n; k++) {
       const t = k / n;
       const pt = { x: a.x + (b.x - a.x) * t, y: aY + (bY - aY) * t, z: a.z + (b.z - a.z) * t };
@@ -522,7 +534,12 @@ export function measureElevatedGap(state: GameState, path: Vector3[]): number {
         run = 0;
       } else {
         run += len / n;
-        widest = Math.max(widest, run);
+        if (run > widest) {
+          widest = run;
+          if (widest > stopAbove + 0.05) {
+            return Math.round(widest * 10) / 10;
+          }
+        }
       }
     }
   }

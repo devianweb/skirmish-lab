@@ -60,9 +60,10 @@ In Phase 6.5, the single-actor activation loop expands to support out-of-turn in
 
 ### 2D Visibility-Graph Auto-Pathfinding (`findNavPath`)
 Units automatically navigate around terrain obstacles and other fighters rather than halting prematurely:
+- Caches static terrain geometry (`getTerrainGeom(state)` — walkable surfaces with world XZ AABBs, stairs/ladders, obstacle pieces and fall columns) and static visibility-graph data (`getTerrainGraph`) keyed by canonical `state.terrain` content, and splits blocker checks cleanly into pure-terrain `findTerrainSegmentBlocker` and per-unit `findUnitSegmentBlocker`.
 - Generates clearance waypoints around all impassable obstacle bounding boxes (with unit base clearance `UNIT_COLLISION_RADIUS + 0.12"`).
 - Accounts for doorway jambs (allowing passage through the 1.0" center opening of `wall-doorway`).
-- Finds the shortest navigable path via visibility graph A* search: the open set is a binary min-heap (`engine/minHeap.ts`) ordered by `f` then insertion sequence with lazy deletion, and candidate edges are pre-filtered by a horizontal cost lower bound (0 for the free ladder step) before running surface, blocker and segment-classification checks.
+- Finds the shortest navigable path via visibility graph A* search: the open set is a binary min-heap (`engine/minHeap.ts`) ordered by `f` then insertion sequence with lazy deletion, terrain edge validity and costs are cached per map in `ptEdgeMatrix` (`Float64Array`, preserving static-to-static terrain edges across dynamic unit updates), and candidate edges are pre-filtered by a horizontal cost lower bound (0 for the free ladder step) and surface/gap fast paths before unit blocker checks.
 - Because the 1.1" step at the top of a ladder (`isLadderStepSegment`) costs 0 movement, the horizontal-distance heuristic can slightly overestimate near ladders and, without reopening closed nodes, a route through a ladder can come out up to about 1.1" per ladder longer than the shortest possible route.
 - Applies string-pulling shortcutting and cumulative distance clamping to the unit's remaining movement or double speed allowance.
 - Pathfinder outputs (`findNavPath`, `closestApproach`, and squad `charge` validations) are pinned by `shared/tests/engine/navGolden.test.ts` because the host uses them for movement and charge rulings.
