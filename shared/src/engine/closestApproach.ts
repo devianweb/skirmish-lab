@@ -202,7 +202,12 @@ export function closestApproach(
           z: r2(t.z + Math.sin(toStart + a) * contactCentre),
         };
         if (!isWithinBoard(state, dest)) continue;
-        const path = findNavPath(state, unit, dest, limit, { startPosition: start, ignoreUnitId, keepAway: true });
+        const path = findNavPath(state, unit, dest, limit, {
+          startPosition: start,
+          ignoreUnitId,
+          keepAway: true,
+          avoidDangerous: true,
+        });
         if (path.length < 2) continue;
         const total = polylineLength(path);
         for (const back of BACK_OFF_STEPS) {

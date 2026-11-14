@@ -11,6 +11,7 @@ import {
   findCoverSource,
   findMoveBlocker,
   findNavPath,
+  findUnitSegmentBlocker,
   getSquadModelPositions,
   getStairSurfaceHeight,
   getStairWaypoints,
@@ -23,7 +24,8 @@ import {
   isSegmentSurfaceConstrained,
   validateSquadCoherency,
 } from '../../src/engine/spatial';
-import { isPathDifficult, pathMovementCost } from '../../src/engine/traversal';
+import { isPathDangerous, isPathDifficult, pathMovementCost } from '../../src/engine/traversal';
+import { BUILTIN_MAPS } from '../../src/data/builtinMaps';
 import { WEAPONS } from '../../src/data/weapons';
 
 const HOST = 'host-1';
@@ -1626,6 +1628,104 @@ describe('spatial: Squad Coherency & Formation Engine (Phase 9A)', () => {
       const stateB = makeState([shooter, deep], [ruin]);
       expect(hasCoverAgainstAttack(stateA, shooter, manning)).toBe(true);
       expect(hasCoverAgainstAttack(stateB, shooter, deep)).toBe(false);
+    });
+  });
+
+  describe('14F pathfinder & unit-blocker fixes (F1, F2, F4)', () => {
+    it('F1: blocks vertical drops and climbs ending within 1" keep-away or unit separation', () => {
+      const mover = makeUnit('h1', HOST, { x: 0, y: 3, z: 0 });
+      const enemy = makeUnit('g1', GUEST, { x: 1.2, y: 0, z: 0 }); // 0.2" edge gap at ground level
+      const state = makeState([mover, enemy]);
+
+      const verticalDrop = [
+        { x: 0, y: 3, z: 0 },
+        { x: 0, y: 0, z: 0 },
+      ];
+      expect(findMoveBlocker(state, mover, verticalDrop, { keepAway: true }).blocked).toBe(true);
+
+      const overlappingEnemy = makeUnit('g2', GUEST, { x: 0.4, y: 4.5, z: 0 });
+      const climbState = makeState([makeUnit('h2', HOST, { x: 0, y: 0, z: 0 }), overlappingEnemy]);
+      const climbBlk = findUnitSegmentBlocker(
+        climbState,
+        climbState.units[0],
+        false,
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 4.5, z: 0 },
+        { x: 0, y: 0, z: 0 },
+        {}
+      );
+      expect(climbBlk?.blocked).toBe(true);
+    });
+
+    it('F1: blocks horizontal segments exiting an intermediate separation overlap vertex', () => {
+      const mover = makeUnit('h1', HOST, { x: -5, y: 0, z: 0 });
+      const enemy = makeUnit('g1', GUEST, { x: 0.5, y: 0, z: 0 });
+      const state = makeState([mover, enemy]);
+
+      // Mover started at (-5, 0, 0), NOT overlapping g1 at (0.5, 0, 0);
+      // exiting intermediate point (0, 0, 0) within g1's 1" separation circle must be rejected.
+      const blk = findUnitSegmentBlocker(
+        state,
+        mover,
+        false,
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 2 },
+        { x: -5, y: 0, z: 0 },
+        {}
+      );
+      expect(blk?.blocked).toBe(true);
+    });
+
+    it('F1: rejects stair/ramp static waypoints occupied by another fighter', () => {
+      const map = BUILTIN_MAPS['standard-battlefield']();
+      const mover = makeUnit('h1', HOST, { x: -5, y: 0, z: -9 });
+      // Stand directly on the foot of host stairs (-5, 0, -6) on standard-battlefield
+      const blocker = makeUnit('g1', GUEST, { x: -5, y: 0, z: -6 });
+      const state = makeState([mover, blocker], map.terrain);
+
+      const path = findNavPath(state, mover, { x: -5, y: 3, z: 0 }, 16, { keepAway: true });
+      expect(findMoveBlocker(state, mover, path, { keepAway: true }).blocked).toBe(false);
+    });
+
+    it('F2: descends a ladder without duplicating the top-of-ladder vertex', () => {
+      const map = BUILTIN_MAPS['jump-range']();
+      const mover = makeUnit('h1', HOST, { x: -18, y: 4.5, z: -6 });
+      const state = makeState([mover], map.terrain);
+
+      const path = findNavPath(state, mover, { x: -22, y: 0, z: -6 }, 12);
+      // Must not visit top (-20.55, 4.5, -6), step back to head (-19.45, 4.5, -6), then revisit top
+      expect(path).toEqual([
+        { x: -18, y: 4.5, z: -6 },
+        { x: -19.45, y: 4.5, z: -6 },
+        { x: -20.55, y: 4.5, z: -6 },
+        { x: -20.55, y: 0, z: -6 },
+        { x: -22, y: 0, z: -6 },
+      ]);
+    });
+
+    it('F4: routes around dangerous terrain when avoidDangerous is enabled', () => {
+      const pool: TerrainPiece = {
+        id: 'hazard-1',
+        terrainType: 'hazard-pool',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 0.1, z: 4 },
+        blocksLineOfSight: false,
+        providesCover: false,
+        isObstacle: false,
+        isArea: true,
+        isDangerous: true,
+      };
+      const mover = makeUnit('h1', HOST, { x: 0, y: 0, z: -6 });
+      const state = makeState([mover], [pool]);
+
+      const direct = findNavPath(state, mover, { x: 0, y: 0, z: 6 }, 18);
+      expect(isPathDangerous(state, direct, mover)).toBe(true);
+
+      const safe = findNavPath(state, mover, { x: 0, y: 0, z: 6 }, 18, { avoidDangerous: true });
+      expect(safe.length).toBeGreaterThanOrEqual(3);
+      expect(isPathDangerous(state, safe, mover)).toBe(false);
+      expect(safe[safe.length - 1]).toEqual({ x: 0, y: 0, z: 6 });
     });
   });
 });

@@ -208,11 +208,11 @@
   {
     "id": "ca-single-tall-deck-stays",
     "category": "single-high-deck",
-    "label": "model on 4.5\" tall deck D stays on deck (no jump) when target is on ground east",
+    "label": "model on 4.5\" tall deck D climbs down west ladder (no jump) toward ground target east",
     "result": {
       "position": {
-        "x": -16.45,
-        "y": 4.5,
+        "x": -15.5,
+        "y": 0,
         "z": -6
       },
       "path": [
@@ -222,13 +222,28 @@
           "z": -6
         },
         {
-          "x": -16.45,
+          "x": -19.45,
           "y": 4.5,
+          "z": -6
+        },
+        {
+          "x": -20.55,
+          "y": 4.5,
+          "z": -6
+        },
+        {
+          "x": -20.55,
+          "y": 0,
+          "z": -6
+        },
+        {
+          "x": -15.5,
+          "y": 0,
           "z": -6
         }
       ],
-      "gap": 3.45,
-      "cost": 0.55
+      "gap": 2.5,
+      "cost": 12
     }
   },
   {
@@ -340,19 +355,34 @@
     "label": "model refuses dangerous path straight through hazard pool C (9, -8) and stays put",
     "result": {
       "position": {
-        "x": 9,
+        "x": 8,
         "y": 0,
-        "z": -14
+        "z": -4
       },
       "path": [
         {
           "x": 9,
           "y": 0,
           "z": -14
+        },
+        {
+          "x": 6.43,
+          "y": 0,
+          "z": -10.57
+        },
+        {
+          "x": 6.43,
+          "y": 0,
+          "z": -5.43
+        },
+        {
+          "x": 8,
+          "y": 0,
+          "z": -4
         }
       ],
-      "gap": 9,
-      "cost": 0
+      "gap": 0,
+      "cost": 11.55
     }
   },
   {

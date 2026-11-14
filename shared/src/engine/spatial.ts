@@ -16,9 +16,9 @@ import {
   UNIT_BASE_RADIUS,
 } from './terrainStructure';
 
-import { classifySegment, CLIMB_MAX, distanceHorizontal, FREE_DROP_MAX, pathMovementCost } from './traversal';
+import { classifySegment, CLIMB_MAX, distanceHorizontal, FREE_DROP_MAX, isPathDangerous, pathMovementCost } from './traversal';
 import { MinHeap } from './minHeap';
-import { isAreaPiece, isClimbable, isDifficultPiece } from '../data/mapSchema';
+import { isAreaPiece, isClimbable, isDangerousPiece, isDifficultPiece } from '../data/mapSchema';
 
 export * from './terrainStructure';
 
@@ -940,11 +940,10 @@ export function findUnitSegmentBlocker(
   const dx = to.x - from.x;
   const dz = to.z - from.z;
   const segLen = Math.hypot(dx, dz);
-  if (segLen < 1e-6) return null;
-  const dirX = dx / segLen;
-  const dirZ = dz / segLen;
   const fromY = from.y ?? 0;
   const toY = to.y ?? 0;
+  const dirX = segLen >= 1e-6 ? dx / segLen : 0;
+  const dirZ = segLen >= 1e-6 ? dz / segLen : 0;
 
   for (const other of state.units) {
     if (other.isDestroyed || other.isDeployed === false || other.id === movingUnit.id) continue;
@@ -967,18 +966,28 @@ export function findUnitSegmentBlocker(
         continue;
       }
 
-      const hit = intersectRayCircle(from, dirX, dirZ, segLen, mPos, UNIT_SEPARATION_DISTANCE);
-      const endDist = Math.hypot(to.x - mPos.x, to.z - mPos.z);
-      const segY = (d: number) => fromY + (toY - fromY) * (segLen > 1e-6 ? d / segLen : 0);
-      if (
-        (endDist < UNIT_SEPARATION_DISTANCE - 0.01 && Math.abs(toY - otherY) < TIER_OVERLAP_DY) ||
-        (hit &&
-          hit.tExit > 0.02 &&
-          hit.tEntry > 0.001 &&
-          minVerticalOffset(segY(Math.max(0, hit.tEntry)), segY(Math.min(segLen, hit.tExit)), otherY) <
-            TIER_OVERLAP_DY)
-      ) {
-        return { blocked: true, reason: 'Move path is blocked by another fighter' };
+      if (segLen < 1e-6) {
+        const distXZ = Math.hypot(from.x - mPos.x, from.z - mPos.z);
+        if (distXZ < UNIT_SEPARATION_DISTANCE - 0.01 && minVerticalOffset(fromY, toY, otherY) < TIER_OVERLAP_DY) {
+          return { blocked: true, reason: 'Move path is blocked by another fighter' };
+        }
+      } else {
+        const hit = intersectRayCircle(from, dirX, dirZ, segLen, mPos, UNIT_SEPARATION_DISTANCE);
+        const endDist = Math.hypot(to.x - mPos.x, to.z - mPos.z);
+        const segY = (d: number) => fromY + (toY - fromY) * (d / segLen);
+        const startedOverlappingAtStart =
+          Math.hypot(pathStart.x - mPos.x, pathStart.z - mPos.z) < UNIT_SEPARATION_DISTANCE - 0.01 &&
+          Math.abs((pathStart.y ?? 0) - otherY) < TIER_OVERLAP_DY;
+        if (
+          (endDist < UNIT_SEPARATION_DISTANCE - 0.01 && Math.abs(toY - otherY) < TIER_OVERLAP_DY) ||
+          (hit &&
+            hit.tExit > 0.02 &&
+            (hit.tEntry > 0.001 || !startedOverlappingAtStart) &&
+            minVerticalOffset(segY(Math.max(0, hit.tEntry)), segY(Math.min(segLen, hit.tExit)), otherY) <
+              TIER_OVERLAP_DY)
+        ) {
+          return { blocked: true, reason: 'Move path is blocked by another fighter' };
+        }
       }
 
       if (options.keepAway) {
@@ -1016,7 +1025,6 @@ export function findMoveBlocker(
     }
     const terrainBlk = findTerrainSegmentBlocker(state, false, from, to);
     if (terrainBlk) return terrainBlk;
-    if (Math.hypot(to.x - from.x, to.z - from.z) < 1e-6) continue;
     const unitBlk = findUnitSegmentBlocker(state, movingUnit, false, from, to, path[0], options);
     if (unitBlk) return unitBlk;
   }
@@ -2220,20 +2228,21 @@ export function computeLosVisibilityPolygon(
 }
 
 /**
- * The first difficult piece that the segment p1 -> p2 enters from outside (a straight walk across it counts,
- * the far end need not be inside), with the stop point just before its edge. Null when p1 already stands in
- * (or at the edge of) a difficult piece, or the segment crosses none.
+ * The first piece matching `flagged` that the segment p1 -> p2 enters from outside (a straight walk across
+ * it counts, the far end need not be inside), with the stop point just before its edge. Null when p1 already
+ * stands in (or at the edge of) such a piece, or the segment crosses none.
  */
-function findEnteredDifficultPiece(
+function findEnteredFlaggedPiece(
   state: GameState,
   p1: Vector3,
-  p2: Vector3
+  p2: Vector3,
+  flagged: (piece: TerrainPiece) => boolean
 ): { piece: TerrainPiece; entry: Vector3 } | null {
   let best: { piece: TerrainPiece; entry: Vector3 } | null = null;
   let bestDist = Infinity;
   for (const piece of state.terrain) {
-    if (!isDifficultPiece(piece)) continue;
-    if (segmentCrossesFootprintAtLevel(piece, p1, p1)) return null; // already in difficult ground
+    if (!flagged(piece)) continue;
+    if (segmentCrossesFootprintAtLevel(piece, p1, p1)) return null; // already inside piece
     if (!segmentCrossesFootprintAtLevel(piece, p1, p2)) continue;
     const entry = findDifficultTerrainEntry(p1, p2, piece);
     if (!entry) continue;
@@ -2244,6 +2253,24 @@ function findEnteredDifficultPiece(
     }
   }
   return best;
+}
+
+/** First difficult terrain piece that p1 -> p2 enters from outside, with the stop point just before its edge. */
+function findEnteredDifficultPiece(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3
+): { piece: TerrainPiece; entry: Vector3 } | null {
+  return findEnteredFlaggedPiece(state, p1, p2, isDifficultPiece);
+}
+
+/** First dangerous terrain piece that p1 -> p2 enters from outside, with the stop point just before its edge. */
+function findEnteredDangerousPiece(
+  state: GameState,
+  p1: Vector3,
+  p2: Vector3
+): { piece: TerrainPiece; entry: Vector3 } | null {
+  return findEnteredFlaggedPiece(state, p1, p2, isDangerousPiece);
 }
 
 /**
@@ -2738,10 +2765,11 @@ function getTerrainGraph(
   state: GameState,
   halfW: number,
   halfH: number,
-  flying: boolean
+  flying: boolean,
+  avoidDangerous: boolean = false
 ): TerrainGraphCache {
   const geom = getTerrainGeom(state);
-  const key = `${geom.key}|${halfW}|${halfH}|${flying ? 1 : 0}`;
+  const key = `${geom.key}|${halfW}|${halfH}|${flying ? 1 : 0}|${avoidDangerous ? 1 : 0}`;
   const existing = terrainGraphByKey.get(key);
   if (existing) {
     // Refresh LRU order
@@ -2883,11 +2911,13 @@ function getTerrainGraph(
     surfacePieces.push({ deckPts, elevatedSurfaces });
   }
 
-  // 3c. Ground Obstacles
+  // 3c. Ground Obstacles (and Dangerous Terrain footprints when `avoidDangerous` is requested)
   const clearance = UNIT_COLLISION_RADIUS + 0.12;
   const wps3c: StaticWaypoint[] = [];
   for (const piece of state.terrain) {
-    if (!piece.isObstacle || isStepOverPiece(piece)) continue;
+    const addDangerCorners = avoidDangerous && !flying && isDangerousPiece(piece);
+    const addObstacleCorners = piece.isObstacle && !isStepOverPiece(piece);
+    if (!addObstacleCorners && !addDangerCorners) continue;
     const pieceBaseY = piece.position.y ?? 0;
 
     const addLocalBoxCorners = (minX: number, maxX: number, minZ: number, maxZ: number) => {
@@ -2910,22 +2940,29 @@ function getTerrainGraph(
       }
     };
 
-    for (const solid of resolveTerrainStructure(piece).solids) {
-      if (!solid.isObstacle || solid.minY >= 1.2) continue;
-      addLocalBoxCorners(solid.minX, solid.maxX, solid.minZ, solid.maxZ);
+    if (addDangerCorners) {
+      const { hx, hz } = terrainHalfExtents(piece);
+      addLocalBoxCorners(-hx, hx, -hz, hz);
     }
 
-    if (piece.terrainType === 'wall-doorway') {
-      const sw = tryStaticWp({ x: piece.position.x, y: pieceBaseY, z: piece.position.z });
-      if (sw) wps3c.push(sw);
-    } else if (piece.terrainType === 'ruin-l' || piece.terrainType === 'ruin') {
-      const court = localToWorldXZ(piece, 1.0, -1.0);
-      const sw = tryStaticWp({
-        x: Math.round(court.x * 100) / 100,
-        y: pieceBaseY,
-        z: Math.round(court.z * 100) / 100,
-      });
-      if (sw) wps3c.push(sw);
+    if (addObstacleCorners) {
+      for (const solid of resolveTerrainStructure(piece).solids) {
+        if (!solid.isObstacle || solid.minY >= 1.2) continue;
+        addLocalBoxCorners(solid.minX, solid.maxX, solid.minZ, solid.maxZ);
+      }
+
+      if (piece.terrainType === 'wall-doorway') {
+        const sw = tryStaticWp({ x: piece.position.x, y: pieceBaseY, z: piece.position.z });
+        if (sw) wps3c.push(sw);
+      } else if (piece.terrainType === 'ruin-l' || piece.terrainType === 'ruin') {
+        const court = localToWorldXZ(piece, 1.0, -1.0);
+        const sw = tryStaticWp({
+          x: Math.round(court.x * 100) / 100,
+          y: pieceBaseY,
+          z: Math.round(court.z * 100) / 100,
+        });
+        if (sw) wps3c.push(sw);
+      }
     }
   }
 
@@ -2982,6 +3019,8 @@ export function findNavPath(
     stopBeforeDifficult?: boolean;
     /** Obey the 1" keep-away rule against every unit but `ignoreUnitId` (moves, rushes and charges; not consolidation). */
     keepAway?: boolean;
+    /** Detour around dangerous terrain pieces (`isDangerousPiece`) for non-flying units. */
+    avoidDangerous?: boolean;
   } = {}
 ): Vector3[] {
   const from: Vector3 = options.startPosition
@@ -3000,11 +3039,14 @@ export function findNavPath(
   };
 
   const flying = hasTrait(unit.specialRules, 'flying');
-  const warmGraph = !flying ? getTerrainGraph(state, halfW, halfH, false) : undefined;
+  const avoidDangerous = Boolean(options.avoidDangerous);
+  const warmGraph = !flying ? getTerrainGraph(state, halfW, halfH, false, avoidDangerous) : undefined;
 
   // 2. Fast path: check if straight line [from, target] is unblocked AND surface-constrained
   const isDirectSurfaceValid =
-    isSegmentSurfaceConstrained(state, from, target, unit) && isOrdinarySegment(state, from, target, unit);
+    isSegmentSurfaceConstrained(state, from, target, unit) &&
+    isOrdinarySegment(state, from, target, unit) &&
+    !(avoidDangerous && !flying && isPathDangerous(state, [from, target], unit));
   if (isDirectSurfaceValid) {
     const directCheck = findMoveBlocker(state, unit, [from, target], options);
     if (!directCheck.blocked) {
@@ -3048,7 +3090,7 @@ export function findNavPath(
   }
 
   // 3. Waypoint generation (reuse cached static terrain graph + filter dynamic waypoints)
-  const graph = warmGraph ?? getTerrainGraph(state, halfW, halfH, flying);
+  const graph = warmGraph ?? getTerrainGraph(state, halfW, halfH, flying, avoidDangerous);
   const { allSurfaces, ladders, stride, shift, ptEdgeMatrix } = graph;
   if (graph.nextPtId >= stride - 128) {
     // Preserve static-to-static upper-left nStat x nStat entries; clear only dynamic rows/columns.
@@ -3111,14 +3153,13 @@ export function findNavPath(
   const pushStaticWp = (sw: StaticWaypoint) => {
     const wp = sw.pos;
     if (
-      !sw.isRampOrStair &&
       findUnitSegmentBlocker(
         state,
         unit,
         flying,
         wp,
         { x: wp.x + 0.001, y: wp.y ?? 0, z: wp.z },
-        wp,
+        from,
         options
       )
     ) {
@@ -3139,10 +3180,11 @@ export function findNavPath(
 
   const pushDynamicWp = (wp: Vector3, dropRole: 0 | 1 | 2 = 0, twinPos?: Vector3, climbPos?: Vector3) => {
     const wpY = wp.y ?? 0;
+    const probe = { x: wp.x + 0.001, y: wpY, z: wp.z };
     if (!isSegmentOnRampOrStairs(state, wp, wp)) {
-      const blk = findMoveBlocker(state, unit, [wp, { x: wp.x + 0.001, y: wpY, z: wp.z }], options);
-      if (blk.blocked) return;
+      if (findTerrainSegmentBlocker(state, flying, wp, probe)) return;
     }
+    if (findUnitSegmentBlocker(state, unit, flying, wp, probe, from, options)) return;
     allNodes.push({
       pos: wp,
       g: Infinity,
@@ -3331,6 +3373,8 @@ export function findNavPath(
 
         if (!isSegmentSurfaceConstrained(state, curPos, nbPos, unit)) {
           edgeCost = -1;
+        } else if (avoidDangerous && !flying && isPathDangerous(state, [curPos, nbPos], unit)) {
+          edgeCost = -1;
         } else if (findTerrainSegmentBlocker(state, flying, curPos, nbPos)) {
           edgeCost = -1;
         } else if (
@@ -3360,7 +3404,7 @@ export function findNavPath(
         if (edgeCost < 0 || current.g + edgeCost >= neighbor.g) continue;
       }
 
-      if (findUnitSegmentBlocker(state, unit, flying, curPos, nbPos, curPos, options)) continue;
+      if (findUnitSegmentBlocker(state, unit, flying, curPos, nbPos, from, options)) continue;
 
       const tentativeG = current.g + edgeCost;
       if (tentativeG < neighbor.g) {
@@ -3386,11 +3430,18 @@ export function findNavPath(
     const flatTarget = hasTrait(unit.specialRules, 'flying')
       ? destination
       : { ...destination, y: startY };
-    const clamped = clampMoveDestinationWithObstacles(state, unit, flatTarget, maxDistance);
+    let clamped = clampMoveDestinationWithObstacles(state, unit, flatTarget, maxDistance);
+    if (avoidDangerous && !flying) {
+      const enteredHazard = findEnteredDangerousPiece(state, from, clamped);
+      if (enteredHazard) {
+        clamped = enteredHazard.entry;
+      }
+    }
     // Never plan across a gap, off an edge or through a blocker: shorten the straight line to its legal prefix
     let end: Vector3 = clamped;
     // (Units are left to `settleEnd`, which pulls the end back to a legal spot beside them.)
     const throughTerrain = (e: Vector3): boolean => {
+      if (avoidDangerous && !flying && isPathDangerous(state, [from, e], unit)) return true;
       const blk = findMoveBlocker(state, unit, [from, e], options);
       return blk.blocked && blk.reason !== KEEP_AWAY_REASON && !blk.reason.includes('fighter');
     };
@@ -3425,6 +3476,7 @@ export function findNavPath(
         continue;
       }
       if (!isOrdinarySegment(state, rawPath[curIdx], rawPath[test], unit)) continue; // never shortcut over a gap
+      if (avoidDangerous && !flying && isPathDangerous(state, [rawPath[curIdx], rawPath[test]], unit)) continue;
       const blk = findMoveBlocker(state, unit, [rawPath[curIdx], rawPath[test]], options);
       if (!blk.blocked) {
         furthest = test;
@@ -3462,7 +3514,7 @@ export function findNavPath(
         // Ascent points sit on the deck face at the ladder itself; the standing spots replace them
         const atLadder = (pt: Vector3) =>
           Math.hypot(pt.x - ladder.position.x, pt.z - ladder.position.z) < 0.15;
-        if (climbed.length > 1 && atLadder(p1)) climbed.pop();
+        if (climbed.length > 1 && (atLadder(p1) || sameSpot(p1, top))) climbed.pop();
         for (const pt of sequence) {
           if (!sameSpot(climbed[climbed.length - 1], pt)) climbed.push({ ...pt });
         }

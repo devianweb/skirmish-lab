@@ -1,5 +1,5 @@
 # Bugfix Batch 2: 14E Code Review & 14F Pathfinder Fixes
-Status: draft (awaiting owner approval)
+Status: in progress (approved 2026-11-14)
 Roadmap: [doc/ROADMAP.md](../ROADMAP.md) (§ 14E Full codebase review & § 14F Performance)
 
 ## Goal
@@ -32,15 +32,16 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
 
 ---
 
-## PR 1: 14F Pathfinder & Spatial Fixes — F1, F2, F4 (branch: `bugfix-2c-spatial`)
+## PR 1: 14F Pathfinder & Spatial Fixes — F1, F2, F4 (branch: `bugfix-2c-spatial`) — **Done**
 - **Layer:** shared engine
 - **Files:**
   - `shared/src/engine/spatial.ts`
   - `shared/src/engine/closestApproach.ts`
   - `shared/tests/engine/spatial.test.ts`
   - `shared/tests/engine/closestApproach.test.ts`
+  - `shared/tests/fixtures/navGoldenCases.ts` (`ca-single-tall-deck-stays` updated after F2 eliminated the ladder-top zigzag overhead)
   - `shared/tests/fixtures/nav-golden/jump-range.json` (intentional F2 snapshot update: `jr-ladder-2`)
-  - `shared/tests/fixtures/nav-golden/closest-approach.json` (intentional F4 snapshot update: `ca-squad-avoids-hazard`)
+  - `shared/tests/fixtures/nav-golden/closest-approach.json` (intentional F2/F4 snapshot updates: `ca-single-tall-deck-stays`, `ca-squad-avoids-hazard`)
 - **Tests first:**
   1. **F1:** Reproduce a move/drop ending cleanly below a ledge (`segLen === 0`, `airPt -> groundPt`) 1.2" horizontally from an enemy on the ground (`0.2"` base-edge gap — inside 1" keep-away without base overlap) and confirm `findMoveBlocker` / `validateAction` previously allowed it and `findNavPath` could route through an intermediate unit at a ladder `foot` / `groundPt`; expect rejection / detour once fixed. Also test a unit standing at a stair waypoint (`wps3a` with `isRampOrStair: true`) so `pushStaticWp` does not route a path through it.
   2. **F2:** Assert `findNavPath` for the `jr-ladder-2` descent case starts descending at `[head, top, foot]` without repeating `top` before `head` (`start -> head -> top -> foot -> end`).
@@ -59,10 +60,10 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
      - Add `avoidDangerous?: boolean` to `findNavPath`'s `options`. When `options.avoidDangerous && !flying`:
        - Treat dangerous terrain pieces (`piece.isDangerous || piece.terrainType === 'dangerous'`) as avoidable obstacles: add clearance corners around each dangerous piece (`clearance = UNIT_COLLISION_RADIUS + 0.12` at `piece.position.y ?? 0`) as dynamic waypoints in `findNavPath`, reject any fast-path / A* / string-pull / fallback segment where `isPathDangerous(state, [a, b], unit)` is true, and when falling back / clamping toward an obstacle/hazard along the straight line, include `findEnteredDangerousPiece` (stopping cleanly outside the hazard edge).
      - Pass `avoidDangerous: true` in `closestApproach` (`closestApproach.ts:205`).
-  4. Re-capture only `jr-ladder-2` (F2) and `ca-squad-avoids-hazard` (F4) in `jump-range.json` and `closest-approach.json` (zero unintended changes to the other 94 golden snapshots), and run `npm test --workspace=shared`.
+  4. Re-capture only `jr-ladder-2` (F2) and `ca-single-tall-deck-stays` / `ca-squad-avoids-hazard` (F2/F4) in `jump-range.json` and `closest-approach.json` (zero unintended changes to the other 93 golden snapshots), and run `npm test --workspace=shared`.
 - **Docs:** Update `doc/plans/14F-performance.md` findings status and `doc/ROADMAP.md` (`NAV_BENCH=1` notes if any).
 - **Manual checks:** Verify move preview on `jump-range` ladder descent has no back-and-forth twitch at deck edge, and squad follow-through on `hazard-range` steps to/around hazard pool C.
-- **Done when:** All unit tests + `navGolden.test.ts` pass (only `jr-ladder-2` and `ca-squad-avoids-hazard` intentionally updated), and both Decision 9 performance budgets in `navBench.test.ts` stay met (`Std p95 < 10 ms`, `charge-6v6 < 300 ms`).
+- **Done when:** All unit tests + `navGolden.test.ts` pass (only `jr-ladder-2`, `ca-single-tall-deck-stays`, and `ca-squad-avoids-hazard` intentionally updated), and both Decision 9 performance budgets in `navBench.test.ts` stay met (`Std p95 < 10 ms`, `charge-6v6 < 300 ms`).
 
 ---
 
