@@ -1,5 +1,5 @@
 # 14F: Performance
-Status: in progress. Approved by the owner 2026-11-13; PR 1 done (Gemini, #407); PR 2 next (Gemini, see Decision 10). While Claude is unavailable, follow [14F-handover.md](14F-handover.md).
+Status: in progress. Approved by the owner 2026-11-13; PR 1 done (#407); PR 2 done (#409); Post-PR 2 profile in [doc/reviews/14F-profile.md](../reviews/14F-profile.md); PR 3 planned and next (`14F-perf-3`). While Claude is unavailable, follow [14F-handover.md](14F-handover.md).
 Roadmap: doc/ROADMAP.md § Phase 14, 14F Performance
 
 ## Goal
@@ -69,9 +69,16 @@ The roadmap's 14F note mentions `planFollowerCrossing`; it no longer exists (rem
 - **Manual checks:** add to `MANUAL_TEST_CHECKLIST.md`: on the Standard Battlefield, hover-preview Advance and Rush paths round containers, up stairs and ladders and off decks look the same as before and feel quicker; a squad charge that needs every model to path round a wall is accepted or rejected as before.
 - **Done when:** every PR 1 snapshot is unchanged, all workspaces build and pass, and the benchmark shows the improvement. If any snapshot changes, stop and report (Decision 2).
 
-## PR 3: Reuse the terrain part of the graph  (branch: `14F-perf-3`, only if PR 2 is not enough)
+## PR 3: Reuse the terrain part of the graph  (branch: `14F-perf-3`)
 - **Layer:** shared engine
-- Only planned in detail once PR 2's numbers are in and compared with the targets in Decision 9. The idea: waypoints from terrain (steps 3a-3c) and terrain-only edge results depend only on `state.terrain` and the unit's movement traits, so they can be cached per terrain layout (keyed by the terrain array's identity plus Flying/Strider), with unit waypoints (3d) and unit blocking added per call. That needs `findMoveBlocker` split into a terrain part and a unit part without changing its results, which is the risky step. Same snapshot rule (Decision 2).
+- **Files:** `shared/src/engine/spatial.ts`, `shared/tests/engine/terrainCache.test.ts` (new unit tests), `shared/tests/engine/closestApproach.test.ts` (tightened timing guards per Decision 6)
+- **Tests first:** `shared/tests/engine/terrainCache.test.ts` verifying (1) the `findMoveBlocker` terrain vs unit split across terrain obstacles, unit separation, `ignoreUnitId`, `keepAway`, and `flying`, and (2) `findNavPath` terrain graph cache reuse across repeated calls / cloned `state.terrain` arrays, responsiveness when other units move, and invalidation when `state.terrain` is mutated.
+- **Implementation steps:**
+  1. Add a per-terrain geometry cache (`getTerrainGeom(state)`) keyed by `state.terrain` content (fast numeric checksum + WeakMap + canonical piece descriptor string) precomputing `allSurfaces`, `ladders`, `rampsAndStairs`, `stairByPiece`, `obstaclePieces` (with world XZ bounding boxes), and `fallPieces`. Wire `collectWalkableSurfaces`, `getStairSurfaceHeight`, `isSegmentOnRampOrStairs`, `isSegmentOnLadder`, `findLadderForSegment`, `isLadderStepSegment`, `isShortLadderDescentStep`, `isFallColumnBlocked`, and `isBaseOverhanging` (optional `surfaces` param passed from `isSuspendedInMidAir`) to read from it.
+  2. Split `findMoveBlocker` into `findTerrainSegmentBlocker` (terrain-only fall column + obstacle checks) and `findUnitSegmentBlocker` (flyer stop or unit separation + `keepAway` against `path[0]`), keeping `findMoveBlocker` as their composition.
+  3. Cache the static visibility graph (`getTerrainGraph`) keyed by `(geom.key, halfW, halfH, flying, strider)`: precompute static terrain waypoints (steps 3a, 3b `deckPts` and fixed midpoints, 3c), preserve exact `allNodes` insertion order and `MinHeap` tie-breaking by splicing per-surface `[from, target]` drop spots immediately after each surface's fixed midpoints, intern 3D points to integer IDs (`ptId`), and lazily cache terrain-only edge costs (`isSegmentSurfaceConstrained` + `findTerrainSegmentBlocker` + `safeEdgeCost`) in a flat `Float64Array` matrix (`ptEdgeMatrix`). Check only `findUnitSegmentBlocker` per search on cached edges.
+- **Measure & Verify:** run `shared/tests/engine/navGolden.test.ts` (all 96 golden snapshots must remain 100% unchanged; never touch `shared/tests/fixtures/nav-golden/`) and `NAV_BENCH=1` to confirm Decision 9 targets (`findNavPath` Standard Battlefield p95 < 10 ms, `charge-6v6-round-terrain` < 300 ms). Tighten `closestApproach.test.ts` timing guards per Decision 6.
+- **Docs:** update `doc/SYSTEMS.md` pathfinding section, `doc/ROADMAP.md` 14F PR 3 bullet, and record PR 2 & PR 3 numbers in this plan.
 
 ## PR 4: dropped
 The ladder shuffle heuristic is accepted as it is (Decision 8); its documentation is part of PR 2.
