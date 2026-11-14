@@ -162,7 +162,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:3466, 3490, 3604-3656, 3685`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2f-rules` (PR 4)
 - **Defect:** In multi-weapon `shoot` actions, `resolveShoot` applies each weapon's wounds in place before resolving subsequent allocations, causing earlier allocations (and the auto-split trial in `blastSplitPause`) to mutate target model counts and blast participants for later Blast allocations.
 - **Failure scenario:** A unit fires two `Blast(3)` weapons at a 2-model squad `g1` with another 2-model squad `g2` within 3". During `blastSplitPause`'s trial run (`actions.ts:3466`), allocation 0's auto-split destroys `g2`, so allocation 1's `prompts[1]` is recorded with only 1 participant (`[g1]`). When the defender submits a custom split for allocation 0 that keeps `g2` alive, `applyBlastSplit` (`actions.ts:3490`) re-runs `resolveShoot`: allocation 1 now finds 2 participants (`[g1, g2]`), reads `shares[1] === undefined`, and passes `count: undefined` into `resolveAttack`, producing `NaN` hit counts.
 - **Suggested fix:** Compute `getBlastParticipants` (and range/cover/blast caps) for all allocations in a `shoot` action from the pre-salvo snapshot before applying any allocation's wounds, or defer applying wounds until all allocations in the salvo have been resolved.
@@ -212,7 +212,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/specialRules.ts:65-67`, `shared/src/engine/distanceGates.ts:70-74, 139-143`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2f-rules` (PR 4)
 - **Defect:** `findCounterWeapons` in `specialRules.ts` and `weaponsInAttack` / `ownThresholdRings` in `distanceGates.ts` do not filter weapons by `isCarried(unit, w)` (and `distanceGates.ts` also omits `w.isEquipped` and `Assault` melee weapons).
 - **Failure scenario:** In a mixed-loadout squad where the only model carrying a `Counter` weapon (or a weapon with a distance-gated rule like `Relentless`) has been killed, `findCounterWeapons(unit)` still returns that weapon and `attackDistanceRules` / `ownThresholdRings` still display its distance badge and threshold ring; conversely, charging with an `Assault` ranged weapon (`type: 'ranged'` with `'assault'`) omits weapon distance gates because `distanceGates.ts:71, 141` checks `w.profile.type === 'melee'` instead of `isMeleeWeapon(w)`.
 - **Suggested fix:** Filter `findCounterWeapons` by `isCarried(unit, w)`, and in `distanceGates.ts` filter by `w.isEquipped && isCarried(unit, w)` using `isMeleeWeapon(w)` for `'charge'` context.
@@ -382,7 +382,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** stale-doc
 - **Location:** `doc/SYSTEMS.md:66, 69, 92, 98, 115, 269-270, 297, 305-309, 390`, `doc/RULES_SPECIFICATION.md:260, 303-332`, `doc/DATA_MODEL.md:112, 129, 143-149, 232-238, 362-382`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2f-rules` (PR 4)
 - **Defect:** `doc/SYSTEMS.md`, `doc/RULES_SPECIFICATION.md`, and `doc/DATA_MODEL.md` contain stale pre-14C descriptions and type definitions that contradict the current v3.6 engine implementation.
 - **Failure scenario:** `SYSTEMS.md` still refers to a `12" hero aura` (`6"` in code, line 69), a `1.0" center opening of wall-doorway` (`1.5"` in code, line 66), cover giving `+1 on the effective Quality needed to hit` (`+1 Defense` in code, lines 269–270), per-model `m1_gap_jump` dice and `3+` jump target (`2+` single unit roll in code, lines 305–309), and elimination-only v1 missions (line 390); `RULES_SPECIFICATION.md:260` lists Strider's trait ID as `pathfinder` (`strider` in code); and `DATA_MODEL.md` omits `'objectives'`, `'fatigued'`, `'push'`, and setup/push action types.
 - **Suggested fix:** Update the stale paragraphs and schema blocks in `doc/SYSTEMS.md`, `doc/RULES_SPECIFICATION.md`, and `doc/DATA_MODEL.md` to match the current v3.6 implementation in `shared/src/`.
@@ -409,10 +409,10 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 
 ### Owner answers (2026-11-12)
 These are agreed rules decisions; they go into **2F Rules fixes** (shared engine, after 2C; update `doc/RULES_SPECIFICATION.md` and `doc/SYSTEMS.md` with them):
-1. **Counter and Fatigue:** a unit becomes Fatigued once the melee is resolved, not straight after its Counter strike. Its strike back with non-Counter weapons in the same melee hits normally (unless it was already Fatigued or is Shaken, as before).
-2. **Pushing:** only an enemy that attacked the unit can push it. A unit made Shaken by its own activation (e.g. dangerous-terrain wounds) is not pushed. A charger that loses its melee can still be pushed by the unit it fought.
-3. **One shooting action is one salvo:** every weapon's Blast caps and the units sharing its hits are worked out from the target as it stood when the shooting began; wounds are then applied in order (Deadly first, as now). This also fixes G-13.
-4. **Impact casualties:** the defender picks which models are removed by Impact hits with the same prompt rules as any other attack (mixed loadouts or Tough above 1), whether or not it has a Counter weapon. `findCounterWeapons` ignores weapons whose carriers are dead (G-18).
+1. **Counter and Fatigue (implemented in `bugfix-2f-rules`, PR 4):** a unit becomes Fatigued once the melee is resolved, not straight after its Counter strike. Its strike back with non-Counter weapons in the same melee hits normally (unless it was already Fatigued or is Shaken, as before).
+2. **Pushing (implemented in `bugfix-2f-rules`, PR 4):** only an enemy that attacked the unit can push it. A unit made Shaken by its own activation (e.g. dangerous-terrain wounds) is not pushed (note: `pushAttackerFor` already returned `null` for active non-melee self-tests; added the missing `attackedFrom`/`meleePairs` check for enemy units). A charger that loses its melee can still be pushed by the unit it fought.
+3. **One shooting action is one salvo (implemented in `bugfix-2f-rules`, PR 4):** every weapon's Blast caps and the units sharing its hits are worked out from the target as it stood when the shooting began; wounds are then applied in order (Deadly first, as now). This also fixes G-13.
+4. **Impact casualties (implemented in `bugfix-2f-rules`, PR 4):** the defender picks which models are removed by Impact hits with the same prompt rules as any other attack (mixed loadouts or Tough above 1), whether or not it has a Counter weapon. `findCounterWeapons` ignores weapons whose carriers are dead (G-18).
 5. **Consolidation:** no change. The 3" move when either unit is destroyed, and the 1" separation otherwise, are the v3.6 core rule, and the engine already lets whichever side survives make the 3" move.
 
 ---

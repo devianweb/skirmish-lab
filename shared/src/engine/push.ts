@@ -54,12 +54,18 @@ function living(unit: Unit): Model[] {
 
 /**
  * Who pushes if `unit` becomes Shaken at the end of the active unit's activation, or null when nobody does
- * (it was not attacked by an enemy). An enemy of the active unit was attacked by it; the active unit itself
- * was attacked only if it fought in melee, and then its opponent in that fight pushes.
+ * (it was not attacked by an enemy). An enemy of the active unit was attacked by it only if recorded in
+ * `attackedFrom` or paired in `meleePairs`; the active unit itself was attacked only if it fought in melee,
+ * and then its opponent in that fight pushes.
  */
 export function pushAttackerFor(state: GameState, unit: Unit, active: Unit | null | undefined): Unit | null {
   if (!active || active.isDestroyed) return null;
-  if (unit.ownerId !== active.ownerId) return active;
+  if (unit.ownerId !== active.ownerId) {
+    const inMelee = (state.turnState.meleePairs ?? []).some(
+      (p) => p.includes(unit.id) && p.includes(active.id)
+    );
+    return Boolean(state.turnState.attackedFrom?.[unit.id]) || inMelee ? active : null;
+  }
   if (unit.id === active.id) {
     const pair = (state.turnState.meleePairs ?? []).find((p) => p.includes(unit.id));
     const partnerId = pair?.find((id) => id !== unit.id);

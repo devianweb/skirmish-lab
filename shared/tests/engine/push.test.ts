@@ -84,12 +84,23 @@ function wound(unit: Unit, n: number): void {
 }
 
 /** The state when `h1` ends its activation having wounded the given enemy units to half strength. */
-function endOfActivation(units: Unit[], woundBy: Record<string, number>, terrain: TerrainPiece[] = []): GameState {
+function endOfActivation(
+  units: Unit[],
+  woundBy: Record<string, number>,
+  terrain: TerrainPiece[] = [],
+  { recordAttack = true }: { recordAttack?: boolean } = {}
+): GameState {
   const state = mkState(units, terrain);
   state.turnState.activeUnitId = 'h1';
   unitOf(state, 'h1').isActivated = true;
   recordWoundBaseline(state);
-  for (const [id, n] of Object.entries(woundBy)) wound(unitOf(state, id), n);
+  for (const [id, n] of Object.entries(woundBy)) {
+    wound(unitOf(state, id), n);
+    if (recordAttack && id !== 'h1' && n > 0) {
+      const attacked = state.turnState.attackedFrom ?? (state.turnState.attackedFrom = {});
+      attacked[id] = { shot: 10 };
+    }
+  }
   return state;
 }
 
@@ -520,5 +531,77 @@ describe('G-19: pushAttackerFor ignores destroyed attackers and destroyed melee 
     state.turnState.meleePairs = [['h1', 'g1']];
 
     expect(pushAttackerFor(state, h1, h1)).toBeNull();
+  });
+});
+
+describe('Rules Q2: only an attacking enemy can push a newly Shaken unit', () => {
+  it('returns null for an enemy unit that active never attacked (no attackedFrom and not in meleePairs)', () => {
+    const h1 = mkUnit('h1', HOST, 0, 0, 1);
+    const g1 = mkUnit('g1', GUEST, 0, 10, 4);
+    const state = endOfActivation([h1, g1], { g1: 2 }, [], { recordAttack: false });
+
+    expect(pushAttackerFor(state, g1, h1)).toBeNull();
+    const specs = getDiceSpecs(state, endAction()) ?? [];
+    expect(specs.some((s) => s.purpose === 'push')).toBe(false);
+    const out = endWith(state, { morale: [1] });
+    expect(out.state!.turnState.pendingReaction ?? null).toBeNull();
+  });
+
+  it('does not request push dice or prompt self-push when active unit takes dangerous terrain wounds down to half strength', () => {
+    const hazard: TerrainPiece = {
+      id: 'pool-1',
+      terrainType: 'hazard-pool',
+      position: P(0, 3),
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 0.1, z: 2 },
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+      isDangerous: true,
+    };
+    const h1 = mkUnit('h1', HOST, 0, 0, 2);
+    const g1 = mkUnit('g1', GUEST, 0, 20, 2);
+    const base = mkState([h1, g1], [hazard]);
+
+    const s1 = applyAction(base, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+    const adv = createAction(HOST, 'advance', {
+      type: 'advance',
+      unitId: 'h1',
+      path: [P(0, 0), P(0, 5.5)],
+      finalPosition: P(0, 5.5),
+      modelPositions: [P(0, 5.5), P(1, 5.5)],
+    });
+    const moved = applyAction(s1, adv, [roll('hazard_pool-1', [1, 6])]);
+    expect(moved.ok).toBe(true);
+    const pick = moved.state!.turnState.pendingReaction;
+    const afterPick =
+      pick?.type === 'pick-casualties'
+        ? applyAction(moved.state!, createAction(HOST, 'pick-casualties', { type: 'pick-casualties', unitId: 'h1', modelIds: ['h1-m0'] } as any)).state!
+        : moved.state!;
+
+    const specs = getDiceSpecs(afterPick, endAction()) ?? [];
+    expect(specs.some((s) => s.purpose === 'push')).toBe(false);
+    const ended = endWith(afterPick, { morale: [1] });
+    expect(unitOf(ended.state!, 'h1').status).toContain('shaken');
+    expect(ended.state!.turnState.pendingReaction ?? null).toBeNull();
+  });
+
+  it('a losing charger in meleePairs with living opponent can still be pushed by that opponent', () => {
+    const h1 = mkUnit('h1', HOST, 4, 9, 4);
+    const g1 = mkUnit('g1', GUEST, 4, 10, 4);
+    const state = endOfActivation([h1, g1], {});
+    // h1 lost melee by wounds+Fear without dropping to half strength -> Shaken -> g1 pushes
+    unitOf(state, 'g1').specialRules = ['fear(2)'];
+    state.turnState.meleePairs = [['h1', 'g1']];
+    state.turnState.meleeUnitIds = ['h1', 'g1'];
+
+    expect(pushAttackerFor(state, h1, h1)?.id).toBe('g1');
+    const out = endWith(state, { morale: [1], push: [5] });
+    expect(out.state!.turnState.pendingReaction).toMatchObject({
+      type: 'push',
+      promptingPlayerId: GUEST,
+      sourceUnitId: 'g1',
+      targetUnitId: 'h1',
+    });
   });
 });
