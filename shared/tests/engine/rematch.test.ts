@@ -128,8 +128,8 @@ describe('applyDefaultScenario records setup', () => {
     expect(startState({ hostArmyId: 'hdf' }).setup).toEqual({ hostArmyId: 'hdf' });
     expect(startState({ useDeploymentPhase: true }).setup).toEqual({ useDeploymentPhase: true });
     expect(
-      startState({ hostArmyId: 'a', guestArmyId: 'b', useDeploymentPhase: false, customMap: customMap() }).setup,
-    ).toEqual({ hostArmyId: 'a', guestArmyId: 'b', useDeploymentPhase: false });
+      startState({ hostArmyId: 'orc-marauders', guestArmyId: 'test-army', useDeploymentPhase: false, customMap: customMap() }).setup,
+    ).toEqual({ hostArmyId: 'orc-marauders', guestArmyId: 'test-army', useDeploymentPhase: false });
   });
 
   it('keeps the state JSON-safe (no undefined keys)', () => {

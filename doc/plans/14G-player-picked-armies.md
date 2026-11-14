@@ -1,5 +1,5 @@
 # 14G: Each player picks their own army
-Status: draft (awaiting owner approval)
+Status: in progress (approved 2026-11-14)
 Roadmap: doc/ROADMAP.md § 14G (line 792)
 
 ## Goal
@@ -11,8 +11,9 @@ Replace the host-picks-both-armies lobby flow with per-player army selection. Ea
 3. **`applyDefaultScenario` records only resolved IDs:** In `shared/src/data/scenario.ts`, when `options.hostArmyId` or `options.guestArmyId` is passed, record the resolved `hostStarter.id` and `guestStarter.id` (never raw unvalidated strings) in `state.setup.hostArmyId` and `state.setup.guestArmyId`, so `createRematchState` (`shared/src/engine/rematch.ts:30-34`) always reuses valid army IDs.
 4. **Protocol messages for waiting-room sync:** Reuse `{ type: 'select-army', armyId: string, playerId: string }` (already declared in `client/src/network/WebRTCClient.ts:9` and `doc/NETWORKING.md:90`) for Guest → Host selection updates, and add `{ type: 'lobby-state', hostArmyId: string, guestArmyId?: string, mapName: string, useDeploymentPhase: boolean }` for Host → Guest state sync in `GameMessage`.
 5. **Mid-game reconnects bypass the waiting room:** If the host has an active match in memory (`hasActiveMatch?.() === true`) or is resuming an existing room rather than creating a fresh one, or if the guest receives `state-update` / `state-sync`, `Lobby` immediately fires `onPeerReady` as today instead of pausing in the waiting room.
-
-*UX choices for newly created waiting rooms (waiting-room start button, untouched guest default, and read-only map/deployment in waiting room) are proposed in PR 2 below and listed under **Open questions** for owner confirmation before implementation.*
+6. **Host starts the match from the waiting room (owner, 2026-11-14):** Once the guest connects and sends `select-army`, both players stay in the waiting room seeing both picks (and can change **Your Army**); the **Host** clicks a **"Start Match"** button (`#startMatchBtn`) to launch the game. Mid-game reconnects/resumes still skip the waiting room automatically.
+7. **Default selection for "Your Army" (owner, 2026-11-14):** `#armySelect` defaults to **Human Defense Force** (`'hdf'`), and if the user hasn't manually changed `#armySelect` before joining as Guest (or loading `?room=<code>`), it automatically defaults the Guest's picker to **Orc Marauders** (`'orc-marauders'`).
+8. **Map and Deployment toggle in the waiting room (owner, 2026-11-14):** Host picks Map and Deployment phase on the initial Create Room screen; the waiting room displays the Map read-only to both players while keeping **Your Army** editable before start.
 
 ## Out of scope
 - Custom army list building or point-buy customization (Phase 10).
@@ -33,6 +34,8 @@ Replace the host-picks-both-armies lobby flow with per-player army selection. Ea
   - `shared/src/data/scenario.ts`
   - `shared/src/index.ts` (re-export `isKnownArmyId` if needed alongside `STARTER_ARMIES`)
   - `shared/tests/data/scenario.test.ts`
+  - `shared/tests/engine/rematch.test.ts`
+  - `client/tests/core/GameManager.test.ts`
 - **Tests first:**
   1. `isKnownArmyId` returns `true` for `'hdf'`, `'orc-marauders'`, and every `'test-*'` key in `STARTER_ARMIES`, and `false` for unknown strings (`'unknown-army'`, `'__proto__'`, `'constructor'`, `''`) and non-strings (`null`, `undefined`, `123`).
   2. `applyDefaultScenario` records the resolved starter IDs (`DEFAULT_HOST_ARMY_ID`, `DEFAULT_GUEST_ARMY_ID`) in `state.setup.hostArmyId` / `state.setup.guestArmyId` when invalid/unknown IDs are passed (never storing the bogus string in `GameState.setup`), while accepting any known `'test-*'` army ID without needing any dev-mode flag in `shared`.
@@ -82,22 +85,4 @@ Replace the host-picks-both-armies lobby flow with per-player army selection. Ea
 - **Done when:** All client & shared builds and test suites pass (`npm run build --workspace=shared && npm run build && npm test`), UX inventory scripts pass against the updated lobby selectors, and docs/checklist are updated.
 
 ## Open questions
-Please confirm these 3 UX details before implementation starts:
-
-1. **Starting the match from the waiting room:**
-   - **Options:**
-     - **(A — Recommended)** Once the guest connects and sends `select-army`, both players stay in the waiting room seeing both picks (and can change **Your Army**); the **Host** clicks a **"Start Match"** button (`#startMatchBtn`) to launch the game. Mid-game reconnects/resumes still skip the waiting room automatically.
-     - **(B)** Both players click "Ready" (or Host starts as soon as Guest clicks Ready).
-   - **Why A:** Simple, familiar lobby flow (only one player clicks Start once both picks look right), with zero extra ready/unready toggle edge cases if someone changes their army at the last second.
-
-2. **Default selection for "Your Army":**
-   - **Options:**
-     - **(A — Recommended)** `#armySelect` defaults to **Human Defense Force** (`hdf`), and if the user hasn't manually changed `#armySelect` before joining as Guest (or loading `?room=<code>`), it automatically defaults the Guest's picker to **Orc Marauders** (`orc-marauders`).
-     - **(B)** Both Host and Guest default to `'hdf'` unless manually changed.
-   - **Why A:** Keeps the initial single-picker UI clean while ensuring a quick two-tab Create + Join playtest still gets HDF vs Orc Marauders out of the box without requiring extra clicks, while letting the guest switch to HDF for mirror matches at any time.
-
-3. **Map and Deployment toggle in the waiting room:**
-   - **Options:**
-     - **(A — Recommended)** Host picks Map and Deployment phase on the initial Create Room screen; the waiting room displays the Map read-only to both players while keeping **Your Army** editable before start.
-     - **(B)** Also allow the host to change Map and Deployment phase inside the waiting room (and broadcast updates via `lobby-state`).
-   - **Why A:** Keeps host-only match setup (Map and Deployment phase) on the Create Room screen without cluttering the waiting room, while leaving **Your Army** editable for both players.
+None — all resolved 2026-11-14.

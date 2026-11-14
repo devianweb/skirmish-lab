@@ -1,5 +1,5 @@
 import { GameState, MatchSetup, Objective, SetupRolls, TerrainPiece } from '../gameTypes';
-import { STARTER_ARMIES, createUnitsFromStarterArmy } from './armies';
+import { STARTER_ARMIES, createUnitsFromStarterArmy, isKnownArmyId } from './armies';
 import { CustomMapDefinition, DEFAULT_BOARD_SIZE } from './mapSchema';
 import { settleSpawnPositions } from '../engine/activation';
 
@@ -40,12 +40,16 @@ export function createBlankMap(): CustomMapDefinition {
 
 /** Apply the default scenario to a fresh game state (host-side, at start). */
 export function applyDefaultScenario(state: GameState, options: ScenarioOptions = {}): void {
-  const hostStarter = STARTER_ARMIES[options.hostArmyId ?? ''] ?? STARTER_ARMIES[DEFAULT_HOST_ARMY_ID];
-  const guestStarter = STARTER_ARMIES[options.guestArmyId ?? ''] ?? STARTER_ARMIES[DEFAULT_GUEST_ARMY_ID];
+  const hostStarter =
+    (isKnownArmyId(options.hostArmyId) ? STARTER_ARMIES[options.hostArmyId] : undefined) ??
+    STARTER_ARMIES[DEFAULT_HOST_ARMY_ID];
+  const guestStarter =
+    (isKnownArmyId(options.guestArmyId) ? STARTER_ARMIES[options.guestArmyId] : undefined) ??
+    STARTER_ARMIES[DEFAULT_GUEST_ARMY_ID];
 
   const setup: MatchSetup = {};
-  if (options.hostArmyId !== undefined) setup.hostArmyId = options.hostArmyId;
-  if (options.guestArmyId !== undefined) setup.guestArmyId = options.guestArmyId;
+  if (options.hostArmyId !== undefined) setup.hostArmyId = hostStarter.id;
+  if (options.guestArmyId !== undefined) setup.guestArmyId = guestStarter.id;
   if (options.useDeploymentPhase !== undefined) setup.useDeploymentPhase = options.useDeploymentPhase;
   if (Object.keys(setup).length > 0) state.setup = setup;
 
