@@ -101,6 +101,7 @@ import {
   dangerousPieceIdsUnderUnit,
   woundsToDestroy,
   isPathDifficult,
+  isPathDangerous,
   pathMovementCost,
   resolveDangerousTerrain,
   calculateJumpDice,
@@ -373,6 +374,95 @@ function squadChargePaths(unit: Unit, payload: SquadChargePayload): Vector3[][] 
     const sent = payload.modelPaths?.[i];
     return sent && sent.length >= 2 ? sent : [start, payload.modelPositions![i]];
   });
+}
+
+/** Each living model's advance/rush path: the explicit path, or a straight segment from its current spot to `modelPositions[i]`. */
+function squadMovePaths(
+  unit: Unit,
+  payload: { modelPositions?: Vector3[]; modelPaths?: Vector3[][] }
+): Vector3[][] {
+  return livingModels(unit).map((m, i) => {
+    const start = m.position ?? unit.position;
+    const sent = payload.modelPaths?.[i];
+    return sent && sent.length >= 2 ? sent : [start, payload.modelPositions![i]];
+  });
+}
+
+/** Shared geometry, keep-away, traversal, and end-spot checks for a single consolidation path (unit or one squad model). */
+function validateConsolidationPath(
+  state: GameState,
+  unit: Unit,
+  path: Vector3[],
+  maxDistance: number,
+  actorId: string,
+  label?: string
+): ValidationResult {
+  const prefix = label ? `${label} ` : '';
+  for (const pt of path) {
+    if (!isWithinBoard(state, pt)) {
+      return { valid: false, reason: `${prefix}consolidation move leaves the board` };
+    }
+  }
+  const isDifficult = isPathDifficult(state, path, unit);
+  const effectiveCap = getEffectiveMaxMovement(unit, 'move', isDifficult);
+  const maxAllowed = Math.min(maxDistance, effectiveCap);
+  const distance = pathMovementCost(state, path, unit);
+  if (distance > maxAllowed + 0.05) {
+    return {
+      valid: false,
+      reason: isDifficult && effectiveCap === 6.0 && maxAllowed < maxDistance
+        ? `${prefix}consolidation move exceeds Difficult Terrain speed cap`
+        : `${prefix}consolidation move exceeds max distance (${maxDistance}")`,
+    };
+  }
+  const blocker = findMoveBlocker(state, unit, path, { keepAway: true });
+  if (blocker.blocked) {
+    return { valid: false, reason: label ? `${label} ${blocker.reason}` : blocker.reason };
+  }
+  const gap = detectPathGapJump(state, path, unit);
+  if (gap.isGapJump || gap.tooWide) {
+    return { valid: false, reason: `${prefix}consolidation move cannot jump across gaps` };
+  }
+  if (isPathDangerous(state, path, unit)) {
+    return { valid: false, reason: `${prefix}consolidation move cannot cross dangerous terrain` };
+  }
+  if (detectPathFall(path, state).maxDrop > FREE_DROP_MAX) {
+    return { valid: false, reason: `${prefix}consolidation move cannot drop more than ${FREE_DROP_MAX}"` };
+  }
+  const traversalProblem = validateDeclaredTraversal(state, unit, path, undefined);
+  if (traversalProblem) {
+    return { valid: false, reason: label ? `${label}: ${traversalProblem}` : traversalProblem };
+  }
+  const end = path[path.length - 1];
+  if (isSuspendedInMidAir(state, end)) {
+    return { valid: false, reason: `${prefix}models cannot end movement suspended in mid-air — stop at an edge or reach a floor` };
+  }
+  if (isBaseOverhanging(state, end)) {
+    return { valid: false, reason: label ? `${label}: ${OVERHANG_REASON}` : OVERHANG_REASON };
+  }
+  for (const piece of state.terrain) {
+    if (isLadderPiece(piece) && isOnLadderClimbLine(state, piece, end)) {
+      return {
+        valid: false,
+        reason: `${prefix}models cannot end movement suspended on ladder rungs — must reach the platform or stop at the ladder foot`,
+      };
+    }
+  }
+  const overlap = findEndOverlap(state, unit.id, end);
+  if (overlap) {
+    return { valid: false, reason: label ? `${label}: ${describeEndOverlap(overlap)}` : describeEndOverlap(overlap) };
+  }
+  const wouldEngage = state.units.some(
+    (u) =>
+      !u.isDestroyed &&
+      u.isDeployed !== false &&
+      u.ownerId !== actorId &&
+      pointEngagesUnit(end, u)
+  );
+  if (wouldEngage) {
+    return { valid: false, reason: 'Consolidation move cannot end in melee contact' };
+  }
+  return { valid: true };
 }
 
 /**
@@ -904,6 +994,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Engaged units cannot move away' };
       }
       const isSquad = Boolean(modelPositions && modelPositions.length > 0);
+      if (livingModels(unit.result).length > 1 && !isSquad) {
+        return { valid: false, reason: 'Multi-model squad move requires modelPositions' };
+      }
       if (!isSquad) {
         if (!path || path.length === 0) {
           return { valid: false, reason: 'Move path is empty' };
@@ -1393,6 +1486,9 @@ export function validateAction(state: GameState, action: GameAction): Validation
         return { valid: false, reason: 'Engaged units cannot rush' };
       }
       const isSquad = Boolean(modelPositions && modelPositions.length > 0);
+      if (livingModels(unit).length > 1 && !isSquad) {
+        return { valid: false, reason: 'Multi-model squad move requires modelPositions' };
+      }
       const currentRushBudget = unit.isRushing ? unit.remainingMovement : getEffectiveSpeed(unit) * 2;
 
       if (!isSquad) {
@@ -1688,9 +1784,11 @@ export function validateAction(state: GameState, action: GameAction): Validation
     }
 
     case 'consolidate-move': {
-      const { unitId, path } = action.payload as {
+      const { unitId, path, modelPositions, modelPaths } = action.payload as {
         unitId: string;
         path: Vector3[];
+        modelPositions?: Vector3[];
+        modelPaths?: Vector3[][];
       };
       const pending = state.turnState.pendingReaction;
       if (!pending || pending.type !== 'melee-consolidation') {
@@ -1706,17 +1804,77 @@ export function validateAction(state: GameState, action: GameAction): Validation
       if (!unit || unit.isDestroyed) {
         return { valid: false, reason: 'Consolidating unit is destroyed or missing' };
       }
-      if (!path || path.length < 2) {
-        return { valid: false, reason: 'Consolidation path is empty' };
-      }
-      const distance = pathMovementCost(state, path, unit);
       const maxDistance = pending.data?.maxDistance ?? 3.0;
-      if (distance > maxDistance + 0.05) {
-        return { valid: false, reason: `Consolidation move exceeds max distance (${maxDistance}")` };
+      const alive = livingModels(unit);
+      const isSquad = Boolean(modelPositions && modelPositions.length > 0);
+      if (alive.length > 1 && !isSquad) {
+        return { valid: false, reason: 'Multi-model squad consolidation requires modelPositions' };
       }
-      const blocker = findMoveBlocker(state, unit, path);
-      if (blocker.blocked) {
-        return { valid: false, reason: blocker.reason };
+
+      if (!isSquad) {
+        if (!path || path.length < 2) {
+          return { valid: false, reason: 'Consolidation path is empty' };
+        }
+        if (
+          boardDistance(path[0], unit.position) > 0.05 ||
+          Math.abs((path[0].y ?? 0) - (unit.position.y ?? 0)) > 0.05
+        ) {
+          return { valid: false, reason: 'Consolidation path must start at unit position' };
+        }
+        return validateConsolidationPath(state, unit, path, maxDistance, action.actorId);
+      }
+
+      if (alive.length > 1 && modelPositions!.length !== alive.length) {
+        return {
+          valid: false,
+          reason: `Model positions count mismatch (${modelPositions!.length} vs ${alive.length} active models)`,
+        };
+      }
+      if (modelPaths && modelPaths.length > modelPositions!.length) {
+        return { valid: false, reason: 'More model paths than squad models' };
+      }
+      const coherency = squadEndCoherency(unit, modelPositions!);
+      if (!coherency.valid) return coherency;
+      for (let i = 0; i < modelPositions!.length; i++) {
+        for (let j = i + 1; j < modelPositions!.length; j++) {
+          const dist = Math.hypot(
+            modelPositions![i].x - modelPositions![j].x,
+            modelPositions![i].z - modelPositions![j].z
+          );
+          if (dist < 0.90) {
+            return {
+              valid: false,
+              reason: `Squad models ${i + 1} and ${j + 1} cannot overlap (distance ${dist.toFixed(1)}" < 0.9")`,
+            };
+          }
+        }
+      }
+      const resolvedPaths = squadMovePaths(unit, { modelPositions, modelPaths });
+      for (let i = 0; i < resolvedPaths.length && i < modelPositions!.length; i++) {
+        const mStart = alive[i].position ?? unit.position;
+        const mEnd = modelPositions![i];
+        const mPath = resolvedPaths[i];
+        if (
+          boardDistance(mPath[0], mStart) > 0.05 ||
+          Math.abs((mPath[0].y ?? 0) - (mStart.y ?? 0)) > 0.05
+        ) {
+          return { valid: false, reason: `Squad model ${i + 1} consolidation path does not start at model position` };
+        }
+        if (
+          boardDistance(mPath[mPath.length - 1], mEnd) > 0.05 ||
+          Math.abs((mPath[mPath.length - 1].y ?? 0) - (mEnd.y ?? 0)) > 0.05
+        ) {
+          return { valid: false, reason: `Squad model ${i + 1} consolidation path does not end at model position` };
+        }
+        const check = validateConsolidationPath(
+          state,
+          unit,
+          mPath,
+          maxDistance,
+          action.actorId,
+          `Squad model ${i + 1}`
+        );
+        if (!check.valid) return check;
       }
       return { valid: true };
     }
@@ -1813,14 +1971,16 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
     const specs: DiceSpec[] = [];
     if (unit) specs.push(...legJumpSpecs(state, unit, moveLegEntries(unit, payload)));
     if (unit) {
-      // Mirrors the apply path: a squad move is judged on its model paths, a single model on its path
+      // Mirrors the apply path: a squad move is judged on its model paths (or synthesized straight segments), a single model on its path
       const carried = crosserSet(payload as { crossers?: number[] });
       const paths =
-        payload.modelPaths && payload.modelPaths.length > 0
-          ? payload.modelPaths.filter((_, i) => !carried.has(i))
-          : path && path.length > 0
-            ? [path]
-            : [];
+        payload.modelPositions && payload.modelPositions.length > 0
+          ? squadMovePaths(unit, payload).filter((_, i) => !carried.has(i))
+          : payload.modelPaths && payload.modelPaths.length > 0
+            ? payload.modelPaths.filter((_, i) => !carried.has(i))
+            : path && path.length > 0
+              ? [path]
+              : [];
       specs.push(...pathTraversalSpecs(state, unit, paths));
     }
     return specs.length > 0 ? specs : null;
@@ -2070,7 +2230,19 @@ function moveLegEntries(
   }
 ): LegEntry[] {
   const living = livingModels(unit);
-  if (payload.modelPositions && payload.modelPositions.length > 0 && payload.modelPaths && payload.modelPaths.length > 0) {
+  if (payload.modelPositions && payload.modelPositions.length > 0) {
+    const carried = crosserSet(payload);
+    return squadMovePaths(unit, payload)
+      .map((path, index) => ({
+        index,
+        path,
+        model: living[index],
+        declaration: payload.modelTraversals?.[index] ?? null,
+        leader: payload.jumpLeader === index,
+      }))
+      .filter((e) => !carried.has(e.index)); // carried models walk no route: no jump, fall or hazard of their own
+  }
+  if (payload.modelPaths && payload.modelPaths.length > 0) {
     const carried = crosserSet(payload);
     return payload.modelPaths
       .map((path, index) => ({
@@ -2080,7 +2252,7 @@ function moveLegEntries(
         declaration: payload.modelTraversals?.[index] ?? null,
         leader: payload.jumpLeader === index,
       }))
-      .filter((e) => !carried.has(e.index)); // carried models walk no route: no jump, fall or hazard of their own
+      .filter((e) => !carried.has(e.index));
   }
   if (payload.path && payload.path.length > 0) {
     return [{ index: 0, path: payload.path, model: living.length === 1 ? living[0] : undefined, declaration: null }];
@@ -2713,6 +2885,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (isSquad && modelPositions) {
         const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
         const prevPositions = activeModels.map((m) => ({ ...(m.position ?? unit.position) }));
+        const resolvedModelPaths = squadMovePaths(unit, { modelPositions, modelPaths });
         for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
           activeModels[i].position = { ...modelPositions[i] };
         }
@@ -2748,11 +2921,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.hasMoved = true;
         unit.remainingMovement = spendModelMovement(unit, unit.remainingMovement, modelDistances);
 
-        if (modelPaths && modelPaths.length > 0) {
-          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice, prevPositions);
-        } else if (path && path.length > 0) {
-          applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
-        }
+        applyModelPathTraversals(newState, unit, resolvedModelPaths, activeModels, action, dice, prevPositions);
 
         logEntry = acceptedEntry(action);
         break;
@@ -2944,6 +3113,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
       if (isSquad && modelPositions) {
         const activeModels = unit.models ? unit.models.filter((m) => !m.isDestroyed) : [];
         const prevPositions = activeModels.map((m) => ({ ...(m.position ?? unit.position) }));
+        const resolvedModelPaths = squadMovePaths(unit, { modelPositions, modelPaths });
         for (let i = 0; i < activeModels.length && i < modelPositions.length; i++) {
           activeModels[i].position = { ...modelPositions[i] };
         }
@@ -2983,11 +3153,7 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         unit.remainingMovement = spendModelMovement(unit, currentBudget, modelDistances);
         refreshEngagements(newState);
 
-        if (modelPaths && modelPaths.length > 0) {
-          applyModelPathTraversals(newState, unit, modelPaths, activeModels, action, dice, prevPositions);
-        } else if (path && path.length > 0) {
-          applyTraversalHazardsAndFalls(newState, unit, path, action, dice);
-        }
+        applyModelPathTraversals(newState, unit, resolvedModelPaths, activeModels, action, dice, prevPositions);
 
         logEntry = acceptedEntry(action);
         break;
@@ -3356,28 +3522,26 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
     }
 
     case 'consolidate-move': {
-      const { unitId, path } = action.payload as {
+      const { unitId, path, modelPositions } = action.payload as {
         unitId: string;
         path: Vector3[];
+        modelPositions?: Vector3[];
       };
       const unit = getUnit(newState, unitId)!;
-      const end = path[path.length - 1];
-      const deltaX = end.x - unit.position.x;
-      const deltaZ = end.z - unit.position.z;
-      if (Math.hypot(deltaX, deltaZ) > 1e-4) {
-        unit.rotation = { ...unit.rotation, y: Math.atan2(deltaX, deltaZ) };
-      }
-      unit.position = { ...end };
-      if (unit.models && unit.models.length > 0) {
-        for (const m of unit.models) {
-          if (!m.isDestroyed && m.position) {
-            m.position = {
-              x: Math.round((m.position.x + deltaX) * 100) / 100,
-              y: end.y ?? m.position.y ?? 0,
-              z: Math.round((m.position.z + deltaZ) * 100) / 100,
-            };
-            m.rotation = { ...unit.rotation };
-          }
+      if (modelPositions && modelPositions.length > 0 && livingModels(unit).length > 1) {
+        placeSquadModels(unit, modelPositions);
+      } else {
+        const end = path[path.length - 1];
+        const deltaX = end.x - unit.position.x;
+        const deltaZ = end.z - unit.position.z;
+        if (Math.hypot(deltaX, deltaZ) > 1e-4) {
+          unit.rotation = { ...unit.rotation, y: Math.atan2(deltaX, deltaZ) };
+        }
+        unit.position = { ...end };
+        const alive = livingModels(unit);
+        for (const m of alive) {
+          m.position = { ...end };
+          m.rotation = { ...unit.rotation };
         }
       }
       newState.turnState.pendingReaction = null;

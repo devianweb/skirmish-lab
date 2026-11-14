@@ -2233,6 +2233,46 @@ describe('GameHUD', () => {
       expect(action.payload.path[action.payload.path.length - 1].x).toBeCloseTo(2, 1);
     });
 
+    it('melee-consolidation reaction for a multi-model squad populates modelPositions and modelPaths (G-08)', () => {
+      const state = scenarioState();
+      state.terrain = [];
+      const squad = state.units.find((u) => u.ownerId === HOST && u.models.length > 1)!;
+      squad.models.forEach((m, idx) => {
+        m.isDestroyed = false;
+        m.position = { x: idx * 1.2, y: 0, z: 0 };
+      });
+      squad.position = { x: 1.2, y: 0, z: 0 };
+      for (const other of state.units) {
+        if (other.id !== squad.id) {
+          other.position = { x: 0, y: 0, z: 20 };
+          other.models.forEach((m) => (m.position = { x: 0, y: 0, z: 20 }));
+        }
+      }
+      state.turnState.pendingReaction = {
+        id: 'rx-squad',
+        type: 'melee-consolidation',
+        promptingPlayerId: HOST,
+        title: 'Victory Consolidation',
+        description: 'Move up to 3.0" in any direction, or stay put.',
+        data: {
+          unitId: squad.id,
+          destroyedUnitId: 'enemy-1',
+          maxDistance: 3.0,
+        },
+        options: [{ id: 'stay', label: 'Stay Put', style: 'secondary' }],
+        deadline: Date.now() + 15000,
+      };
+
+      const { hud, container, controller } = setup(HOST, state);
+      hud.handleBoardPick({ kind: 'position', position: { x: 0, y: 0, z: 2 } });
+      clickByText(container, 'Confirm');
+      expect(controller.submitAction).toHaveBeenCalledTimes(1);
+      const action = controller.submitAction.mock.calls[0][0];
+      expect(action.type).toBe('consolidate-move');
+      expect(action.payload.modelPositions).toHaveLength(squad.models.filter((m) => !m.isDestroyed).length);
+      expect(action.payload.modelPaths).toHaveLength(squad.models.filter((m) => !m.isDestroyed).length);
+    });
+
     it('reaction countdown respects expiresAt when durationMs is longer after reload (G-32)', () => {
       const state = scenarioState();
       state.turnState.pendingReaction = {

@@ -432,6 +432,7 @@ type ActionPayload =
   // its modelPaths entry is ignored (no path, no move spent) and its modelTraversals entry must be null. On a failed roll carried models are put back where they started.
   | { type: 'fight', attackerId: string, targetId: string, weaponId: string }
   | { type: 'respond-reaction', reactionId: string, choiceId: string }
+  | { type: 'consolidate-move', unitId: string, path: Vector3[], finalPosition?: Vector3, modelPositions?: Vector3[], modelPaths?: Vector3[][] } // winner's <= 3" ordinary consolidation; multi-model squads MUST send modelPositions (one per living model)
   | { type: 'use-ability', unitId: string, abilityId: string, targetIds?: string[] }
   | { type: 'hold', unitId: string }
   | { type: 'end-activation' }

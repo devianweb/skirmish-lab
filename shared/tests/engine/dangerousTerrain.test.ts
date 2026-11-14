@@ -76,6 +76,24 @@ const roll = (purpose: string, rolls: number[]): DiceResult => ({
 const activate = (unitId: string) => createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId });
 const advance = (unitId: string, path: Vector3[]) =>
   createAction(HOST, 'advance', { type: 'advance', unitId, path, finalPosition: path[path.length - 1] });
+const squadAdvance = (unit: Unit, path: Vector3[], extra: Record<string, unknown> = {}) => {
+  const start = path[0];
+  const modelPaths = unit.models.map((m) => {
+    const offX = (m.position?.x ?? start.x) - start.x;
+    const offZ = (m.position?.z ?? start.z) - start.z;
+    return path.map((p) => ({ x: p.x + offX, y: p.y ?? 0, z: p.z + offZ }));
+  });
+  return createAction(HOST, 'advance', {
+    type: 'advance',
+    unitId: unit.id,
+    path,
+    finalPosition: path[path.length - 1],
+    ...(unit.models.length > 1
+      ? { modelPaths, modelPositions: modelPaths.map((mp) => mp[mp.length - 1]) }
+      : {}),
+    ...extra,
+  });
+};
 
 const A = pool(0, 0); // x -2..2
 const B = pool(8, 0); // x 6..10
@@ -128,13 +146,7 @@ describe('dangerous terrain dice = wounds to destroy the unit', () => {
   it('the move casualty priority picks which squad models fall', () => {
     const s = makeState([makeUnit('s', P(-6, 0, 0), 3), enemy()], [A]);
     s.turnState.activeUnitId = 's';
-    const act = createAction(HOST, 'advance', {
-      type: 'advance',
-      unitId: 's',
-      path: [P(-6, 0, 0), P(4, 0, 0)],
-      finalPosition: P(4, 0, 0),
-      casualtyModelIds: ['s-m2'],
-    });
+    const act = squadAdvance(s.units[0], [P(-6, 0, 0), P(4, 0, 0)], { casualtyModelIds: ['s-m2'] });
     const out = applyAction(s, act, [roll('hazard_pool-0-0', [1, 5, 5])]);
     expect(out.ok, JSON.stringify(out)).toBe(true);
     const models = out.state!.units[0].models;
@@ -172,7 +184,7 @@ describe('one test per piece per activation', () => {
   it('crossing the same piece again on a later leg is not tested again', () => {
     const s = makeState([makeUnit('u', P(-6, 0, 0), 2), enemy()], [A]);
     const started = applyAction(s, activate('u')).state!;
-    const first = advance('u', [P(-6, 0, 0), P(4, 0, 0)]);
+    const first = squadAdvance(started.units[0], [P(-6, 0, 0), P(4, 0, 0)]);
     expect(getDiceSpecs(started, first)).toEqual([{ count: 2, sides: 6, purpose: 'hazard_pool-0-0' }]);
     const moved = applyAction(started, first, [roll('hazard_pool-0-0', [6, 6])]);
     expect(moved.ok).toBe(true);
@@ -202,7 +214,7 @@ describe('one test per piece per activation', () => {
   it('a multi-leg move resolves one test per new piece and records them both', () => {
     const s = makeState([makeUnit('u', P(-3, 0, 0), 2), enemy()], [A, B]);
     const started = applyAction(s, activate('u')).state!;
-    const move = advance('u', [P(-3, 0, 0), P(4, 0, 0), P(11, 0, 0)]);
+    const move = squadAdvance(started.units[0], [P(-3, 0, 0), P(4, 0, 0), P(11, 0, 0)]);
     const out = applyAction(started, move, [roll('hazard_pool-0-0', [1, 4]), roll('hazard_pool-8-0', [1, 1])]);
     expect(out.ok).toBe(true);
     const u = out.state!.units[0];
@@ -215,7 +227,7 @@ describe('one test per piece per activation', () => {
   it('a later piece uses only as many dice as wounds still needed to destroy the unit', () => {
     const s = makeState([makeUnit('u', P(-3, 0, 0), 2), enemy()], [A, B]);
     const started = applyAction(s, activate('u')).state!;
-    const move = advance('u', [P(-3, 0, 0), P(4, 0, 0), P(11, 0, 0)]);
+    const move = squadAdvance(started.units[0], [P(-3, 0, 0), P(4, 0, 0), P(11, 0, 0)]);
     const out = applyAction(started, move, [roll('hazard_pool-0-0', [1, 6]), roll('hazard_pool-8-0', [6, 1])]);
     expect(out.ok).toBe(true);
     const u = out.state!.units[0];

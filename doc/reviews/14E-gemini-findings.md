@@ -102,7 +102,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** architecture
 - **Location:** `shared/src/engine/actions.ts:906, 1395, 2774-2790, 3008-3024`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** Unlike `charge` and `charge-leg` (`actions.ts:1232, 1310`), `advance` and `rush` do not require `modelPositions` when `livingModels(unit).length > 1`, allowing a multi-model squad to move via a single centroid `path` that bypasses per-model validation.
 - **Failure scenario:** A guest submits an `advance` or `rush` action for a 5-model squad with a centroid `path` and omits `modelPositions`; `validateAction` checks only the centroid path, and `applyAction` (`actions.ts:2784-2789, 3018-3023`) translates every living model by `(deltaX, deltaZ)` and overwrites every model's `y` with `targetPos.y`, allowing squad members to pass through walls, end inside obstacles or off the board, violate the 1" keep-away zone, or float in mid-air.
 - **Suggested fix:** In `validateAction` for `advance` (`actions.ts:906`) and `rush` (`actions.ts:1395`), reject actions when `livingModels(unit).length > 1` and `!modelPositions || modelPositions.length === 0`.
@@ -112,7 +112,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:1690-1722, 3358-3387`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** `consolidate-move` does not validate that `path[0]` starts at `unit.position`, that waypoints stay within board bounds, that `{ keepAway: true }` and end-overlap/overhang/mid-air/traversal checks pass, or that multi-model squad members retain valid individual elevations.
 - **Failure scenario:** During a `melee-consolidation` prompt, a player submits `path: [{ x: 20, y: 0, z: 20 }, { x: 21, y: 0, z: 20 }]` (cost `1.0" <= 3.0"`) to teleport across the board or into base contact with a new enemy unit, or consolidates a multi-level squad onto a platform so `applyAction` (`actions.ts:3376`) sets `m.position.y = end.y` on all models and suspends off-platform models in mid-air.
 - **Suggested fix:** Validate in `validateAction` (`actions.ts:1690-1722`) that `path[0]` matches `unit.position`, enforce board bounds, `keepAway: true`, end-overlap, mid-air, overhang, and coherency checks, and require per-model positions/paths for multi-model squads on consolidation.
@@ -202,7 +202,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:1818-1824, 2073, 2751-2755, 2986-2990`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** For squad `advance` and `rush` actions that include `modelPositions` without `modelPaths`, `validateAction` synthesizes per-model straight paths `[mStart, modelPositions[i]]`, whereas `moveLegEntries`, `getDiceSpecs`, and `applyAction` only inspect `payload.modelPaths` and fall back to `payload.path`.
 - **Failure scenario:** A squad `advance` or `rush` payload with `modelPositions` (and `modelTraversals` or paths across dangerous terrain/ledges) but no `modelPaths` passes `validateAction`, yet `getDiceSpecs` requests no jump/fall/hazard dice for the models and `applyAction` skips `applyModelPathTraversals`, allowing the squad to cross hazards or drop off ledges without rolling.
 - **Suggested fix:** Synthesize `modelPaths` as `living.map((m, i) => payload.modelPaths?.[i] ?? [m.position ?? unit.position, payload.modelPositions![i]])` in a shared helper used by `validateAction`, `getDiceSpecs`, `moveLegEntries`, and `applyAction` (matching `squadChargePaths` at `actions.ts:369-375`).
@@ -232,7 +232,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/data/armies.ts:828-846`, `shared/src/data/scenario.ts:111-125`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-movement` (PR 2)
 - **Defect:** When `useDeploymentPhase` is `false`, `createUnitsFromStarterArmy` cycles unit X-coordinates through a 4-element array (`spread = [-9, -3, 3, 9]`) and `settleSpawnPositions` sets `unit.isDeployed = true` on all units including `Ambush` units.
 - **Failure scenario:** Starting an auto-deployed match (`useDeploymentPhase: false`) with `orc-marauders` (5 units), `test-scout-ambush-army` (6 units), or `test-special-rules-army` (8 units) spawns units 5–8 directly on top of units 1–4 at `x = -9, -3, 3, 9, z = ±12`, and places `Ambush` units on the board in Round 1 instead of holding them in reserve (`isDeployed: false`) for Round 2+.
 - **Suggested fix:** Space unit X-coordinates dynamically across the board width based on `army.fighters.length`, and skip `Ambush` units (`hasTrait(unit.specialRules, 'ambush')`) in `settleSpawnPositions` so they remain `isDeployed: false`.
