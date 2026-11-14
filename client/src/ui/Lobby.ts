@@ -378,7 +378,7 @@ export class Lobby {
     this.webrtcClient?.close();
     this.webrtcClient = null;
     if (this.roomCode) {
-      this.signalingClient.send({ type: 'leave-room' });
+      this.signalingClient.leaveRoom();
     }
     this.updateUrlRoomCode(null);
     this.roomCode = null;
@@ -436,10 +436,14 @@ export class Lobby {
       }
       this.updateUrlRoomCode(msg.code);
       this.options.onRoleAssigned?.(assignedRole);
-      this.webrtcClient = new WebRTCClient();
+      const client = new WebRTCClient();
+      this.webrtcClient = client;
       if (typeof RTCPeerConnection !== 'undefined') {
         if (assignedRole === 'host') {
           await this.setupWebRTCAsHost();
+          if (this.webrtcClient === client) {
+            await this.createAndSendOffer();
+          }
         } else {
           await this.setupWebRTCAsGuest();
         }
@@ -451,9 +455,12 @@ export class Lobby {
       if (this.role === 'host') {
         this.peerReadyFired = false;
         this.webrtcClient?.close();
-        this.webrtcClient = new WebRTCClient();
+        const client = new WebRTCClient();
+        this.webrtcClient = client;
         await this.setupWebRTCAsHost();
-        await this.createAndSendOffer();
+        if (this.webrtcClient === client) {
+          await this.createAndSendOffer();
+        }
       } else if (this.role === 'guest') {
         this.peerReadyFired = false;
         this.webrtcClient?.close();

@@ -117,4 +117,34 @@ describe('SignalingDiceProvider', () => {
     deliver({ type: 'roll-dice-result', rollId: 'roll-reconn', results });
     await expect(pending).resolves.toEqual(results);
   });
+
+  it('calls ensureConnected on retry tick if signaling disconnected mid-roll (G-24)', async () => {
+    vi.useFakeTimers();
+    let connected = true;
+    const ensureConnectedMock = vi.fn(async () => {
+      connected = true;
+    });
+    (signaling as any).isConnected = vi.fn(() => connected);
+    (signaling as any).ensureConnected = ensureConnectedMock;
+
+    const provider = new SignalingDiceProvider(signaling, {
+      timeoutMs: 5000,
+      retryIntervalMs: 1000,
+      maxRetries: 3,
+    });
+
+    const pending = provider.requestRoll('roll-drop', specs);
+    expect(signaling.requestDiceRoll).toHaveBeenCalledTimes(1);
+
+    // Socket drops before first retry tick
+    connected = false;
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+
+    expect(ensureConnectedMock).toHaveBeenCalledTimes(1);
+    expect(signaling.requestDiceRoll).toHaveBeenCalledTimes(2);
+
+    deliver({ type: 'roll-dice-result', rollId: 'roll-drop', results });
+    await expect(pending).resolves.toEqual(results);
+  });
 });

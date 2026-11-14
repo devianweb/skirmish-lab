@@ -79,7 +79,17 @@ export class SignalingDiceProvider {
         if (settled) return;
         if (retries < this.maxRetries) {
           retries++;
-          this.signaling.requestDiceRoll(rollId, specs);
+          if (typeof this.signaling.isConnected === 'function' && !this.signaling.isConnected()) {
+            void Promise.resolve(this.signaling.ensureConnected?.())
+              .catch(() => {})
+              .then(() => {
+                if (!settled) {
+                  this.signaling.requestDiceRoll(rollId, specs);
+                }
+              });
+          } else {
+            this.signaling.requestDiceRoll(rollId, specs);
+          }
         }
       }, this.retryIntervalMs);
 

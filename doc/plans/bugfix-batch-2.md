@@ -1,5 +1,5 @@
 # Bugfix Batch 2: 14E Code Review & 14F Pathfinder Fixes
-Status: in progress (approved 2026-11-14)
+Status: complete (PRs 1–5)
 Roadmap: [doc/ROADMAP.md](../ROADMAP.md) (§ 14E Full codebase review & § 14F Performance)
 
 ## Goal
@@ -149,7 +149,7 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
 
 ---
 
-## PR 5: 2D Resume as Host & Client Reconnect Races (branch: `bugfix-2d-reconnect`)
+## PR 5: 2D Resume as Host & Client Reconnect Races (branch: `bugfix-2d-reconnect`) — **Done**
 - **Layer:** client networking & storage (plus test updates)
 - **Files:**
   - `client/src/storage/SessionStore.ts`

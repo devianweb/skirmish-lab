@@ -12,38 +12,49 @@ export interface ActiveSession {
 
 /**
  * SessionStore manages client-side persistence of active room sessions
- * and authoritative GameState snapshots in localStorage.
+ * (per-tab sessionStorage) and authoritative GameState snapshots (localStorage).
  *
  * It provides resilience against browser tab reloads, network flickers,
- * and device restarts during the 5-minute room grace window.
+ * and device restarts during the 5-minute room grace window without
+ * overwriting seat/token metadata across multiple tabs in the same browser.
  */
 export class SessionStore {
-  private storage: Storage | null;
+  private snapshotStorage: Storage | null;
+  private sessionStorage: Storage | null;
   private memoryFallback: Map<string, string> = new Map();
 
   static readonly ACTIVE_SESSION_KEY = 'skirmish_lab_active_session';
   static readonly SNAPSHOT_PREFIX = 'skirmish_lab_snapshot_';
 
-  constructor(customStorage?: Storage) {
+  constructor(customStorage?: Storage, customSessionStorage?: Storage) {
     if (customStorage) {
-      this.storage = customStorage;
+      this.snapshotStorage = customStorage;
+      this.sessionStorage = customSessionStorage ?? customStorage;
     } else {
       try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          this.storage = window.localStorage;
-        } else {
-          this.storage = null;
-        }
+        this.snapshotStorage =
+          typeof window !== 'undefined' && window.localStorage ? window.localStorage : null;
       } catch {
-        this.storage = null;
+        this.snapshotStorage = null;
+      }
+
+      if (customSessionStorage) {
+        this.sessionStorage = customSessionStorage;
+      } else {
+        try {
+          this.sessionStorage =
+            typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null;
+        } catch {
+          this.sessionStorage = null;
+        }
       }
     }
   }
 
-  private getItem(key: string): string | null {
+  private getItem(key: string, storage: Storage | null): string | null {
     try {
-      if (this.storage) {
-        return this.storage.getItem(key);
+      if (storage) {
+        return storage.getItem(key);
       }
     } catch (e) {
       console.warn(`[SessionStore] Failed to read key "${key}":`, e);
@@ -51,10 +62,10 @@ export class SessionStore {
     return this.memoryFallback.get(key) ?? null;
   }
 
-  private setItem(key: string, value: string): void {
+  private setItem(key: string, value: string, storage: Storage | null): void {
     try {
-      if (this.storage) {
-        this.storage.setItem(key, value);
+      if (storage) {
+        storage.setItem(key, value);
         return;
       }
     } catch (e) {
@@ -63,10 +74,10 @@ export class SessionStore {
     this.memoryFallback.set(key, value);
   }
 
-  private removeItem(key: string): void {
+  private removeItem(key: string, storage: Storage | null): void {
     try {
-      if (this.storage) {
-        this.storage.removeItem(key);
+      if (storage) {
+        storage.removeItem(key);
       }
     } catch (e) {
       console.warn(`[SessionStore] Failed to remove key "${key}":`, e);
@@ -87,11 +98,11 @@ export class SessionStore {
       }
     }
     const payload = JSON.stringify(toSave);
-    this.setItem(SessionStore.ACTIVE_SESSION_KEY, payload);
+    this.setItem(SessionStore.ACTIVE_SESSION_KEY, payload, this.sessionStorage);
   }
 
   getActiveSession(): ActiveSession | null {
-    const raw = this.getItem(SessionStore.ACTIVE_SESSION_KEY);
+    const raw = this.getItem(SessionStore.ACTIVE_SESSION_KEY, this.sessionStorage);
     if (!raw) return null;
     try {
       const session = JSON.parse(raw) as ActiveSession;
@@ -107,7 +118,7 @@ export class SessionStore {
   }
 
   clearActiveSession(): void {
-    this.removeItem(SessionStore.ACTIVE_SESSION_KEY);
+    this.removeItem(SessionStore.ACTIVE_SESSION_KEY, this.sessionStorage);
   }
 
   saveSnapshot(roomCode: string, state: GameState): void {
@@ -115,7 +126,7 @@ export class SessionStore {
     try {
       const key = `${SessionStore.SNAPSHOT_PREFIX}${roomCode.toUpperCase()}`;
       const payload = JSON.stringify(state);
-      this.setItem(key, payload);
+      this.setItem(key, payload, this.snapshotStorage);
 
       // Refresh activity timestamp on active session if room code matches
       const active = this.getActiveSession();
@@ -131,7 +142,7 @@ export class SessionStore {
   getSnapshot(roomCode: string): GameState | null {
     if (!roomCode) return null;
     const key = `${SessionStore.SNAPSHOT_PREFIX}${roomCode.toUpperCase()}`;
-    const raw = this.getItem(key);
+    const raw = this.getItem(key, this.snapshotStorage);
     if (!raw) return null;
     try {
       const state = JSON.parse(raw) as GameState;
@@ -151,22 +162,22 @@ export class SessionStore {
   clearSnapshot(roomCode: string): void {
     if (!roomCode) return;
     const key = `${SessionStore.SNAPSHOT_PREFIX}${roomCode.toUpperCase()}`;
-    this.removeItem(key);
+    this.removeItem(key, this.snapshotStorage);
   }
 
   clearAll(): void {
     this.clearActiveSession();
     try {
-      if (this.storage) {
+      if (this.snapshotStorage) {
         const keysToRemove: string[] = [];
-        for (let i = 0; i < this.storage.length; i++) {
-          const key = this.storage.key(i);
+        for (let i = 0; i < this.snapshotStorage.length; i++) {
+          const key = this.snapshotStorage.key(i);
           if (key && (key === SessionStore.ACTIVE_SESSION_KEY || key.startsWith(SessionStore.SNAPSHOT_PREFIX))) {
             keysToRemove.push(key);
           }
         }
         for (const k of keysToRemove) {
-          this.storage.removeItem(k);
+          this.snapshotStorage.removeItem(k);
         }
       }
     } catch (e) {
