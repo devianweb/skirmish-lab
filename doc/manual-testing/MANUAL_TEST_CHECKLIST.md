@@ -27,6 +27,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 - All items verified.
 
 ## 7. Movement, rush and shooting
+- [ ] **Pathfinder speed-up parity (14F PR 2).** Setup: start a match on the Standard Battlefield with squads (e.g. Human Defense Force vs Orc Marauders). Hover-preview Advance and Rush paths round shipping containers, up stairs and ladders, and off elevated decks: verify the previewed routes and distances look the same as before and feel quicker when moving the cursor. Declare or execute a squad charge where every model must path round a wall to reach the target: verify it is accepted or rejected ("Model N could get closer to the target") as before.
 
 ## 8. Melee, objectives & setup
 - All items verified.

@@ -15,7 +15,8 @@ import {
   UNIT_BASE_RADIUS,
 } from './terrainStructure';
 
-import { classifySegment, CLIMB_MAX, FREE_DROP_MAX, pathMovementCost } from './traversal';
+import { classifySegment, CLIMB_MAX, distanceHorizontal, FREE_DROP_MAX, pathMovementCost } from './traversal';
+import { MinHeap } from './minHeap';
 import { isAreaPiece, isClimbable, isDifficultPiece } from '../data/mapSchema';
 
 export * from './terrainStructure';
@@ -2690,13 +2691,15 @@ export function findNavPath(
     })),
   ];
 
-  const openSet: Node[] = [startNode];
+  const openSet = new MinHeap<Node>();
+  openSet.push(startNode.f, startNode);
   const closedSet = new Set<Node>();
   let foundTarget: Node | null = null;
 
-  while (openSet.length > 0) {
-    openSet.sort((a, b) => a.f - b.f);
-    const current = openSet.shift()!;
+  while (openSet.size > 0) {
+    const popped = openSet.pop()!;
+    const current = popped.node;
+    if (closedSet.has(current) || popped.f !== current.f) continue;
     if (
       current === targetNode ||
       Math.hypot(
@@ -2710,42 +2713,33 @@ export function findNavPath(
     }
     closedSet.add(current);
 
-    // Try direct link to target if surface-constrained
-    if (
-      !closedSet.has(targetNode) &&
-      isSegmentSurfaceConstrained(state, current.pos, targetNode.pos, unit)
-    ) {
-      const directBlk = findMoveBlocker(state, unit, [current.pos, targetNode.pos], options);
-      const directCost = directBlk.blocked ? null : safeEdgeCost(current.pos, targetNode.pos);
-      if (directCost !== null) {
-        const tentG = current.g + directCost;
-        if (tentG < targetNode.g) {
-          targetNode.g = tentG;
-          targetNode.f = tentG;
-          targetNode.parent = current;
-          if (!openSet.includes(targetNode)) openSet.push(targetNode);
-        }
-      }
-    }
-
     for (const neighbor of allNodes) {
       if (neighbor === current || closedSet.has(neighbor) || neighbor === startNode) continue;
-      const d = Math.hypot(
-        neighbor.pos.x - current.pos.x,
-        (neighbor.pos.y ?? 0) - (current.pos.y ?? 0),
-        neighbor.pos.z - current.pos.z
-      );
-      if (d > 16.0) continue;
+      if (neighbor !== targetNode) {
+        const d = Math.hypot(
+          neighbor.pos.x - current.pos.x,
+          (neighbor.pos.y ?? 0) - (current.pos.y ?? 0),
+          neighbor.pos.z - current.pos.z
+        );
+        if (d > 16.0) continue;
+      }
 
-      // Drop spots only link level (walking) or from their air point straight down to their ground twin
-      const dropSpot = dropTwin.has(neighbor.pos) || dropTwin.has(current.pos);
-      if (dropSpot) {
-        const dyAbs = Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0));
-        const isTwinDescent =
-          dropAirPts.has(current.pos) && dropTwin.get(current.pos) === neighbor.pos;
-        const isTwinClimb = climbUp.get(current.pos) === neighbor.pos;
-        if (dyAbs > 0.35 && !isTwinDescent && !isTwinClimb) continue;
-        if (dropTwin.get(current.pos) === neighbor.pos && !isTwinDescent && !isTwinClimb) continue;
+      const lb = isLadderStepSegment(state, current.pos, neighbor.pos)
+        ? 0
+        : distanceHorizontal(current.pos, neighbor.pos);
+      if (current.g + lb >= neighbor.g) continue;
+
+      if (neighbor !== targetNode) {
+        // Drop spots only link level (walking) or from their air point straight down to their ground twin
+        const dropSpot = dropTwin.has(neighbor.pos) || dropTwin.has(current.pos);
+        if (dropSpot) {
+          const dyAbs = Math.abs((neighbor.pos.y ?? 0) - (current.pos.y ?? 0));
+          const isTwinDescent =
+            dropAirPts.has(current.pos) && dropTwin.get(current.pos) === neighbor.pos;
+          const isTwinClimb = climbUp.get(current.pos) === neighbor.pos;
+          if (dyAbs > 0.35 && !isTwinDescent && !isTwinClimb) continue;
+          if (dropTwin.get(current.pos) === neighbor.pos && !isTwinDescent && !isTwinClimb) continue;
+        }
       }
 
       // Surface constraint check: non-flying cannot fly diagonally across open air
@@ -2766,9 +2760,7 @@ export function findNavPath(
         neighbor.parent = current;
         neighbor.g = tentativeG;
         neighbor.f = tentativeG + neighbor.h;
-        if (!openSet.includes(neighbor)) {
-          openSet.push(neighbor);
-        }
+        openSet.push(neighbor.f, neighbor);
       }
     }
   }
