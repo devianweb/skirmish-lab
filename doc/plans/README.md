@@ -9,12 +9,11 @@ Each roadmap sub-phase that needs more than a one-line fix gets a plan file here
   - [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md) — per-PR Gemini implementer handover prompt and review checklist
 - **Active / Reference Plans**
   - [14F-performance.md](14F-performance.md) — *In progress:* PRs 1–3 and post-PR 2 profile merged; PR 5 (client frame profile) remaining
-  - [14G-player-picked-armies.md](14G-player-picked-armies.md) — *Draft (awaiting owner approval):* 2 PRs — per-player "Your Army" picker, waiting room sync, and authoritative host validation
   - [14C-3-armies.md](14C-3-armies.md) — *Done for MVP (HDF & Orc Marauders);* kept here as reference for deferred Prime Brothers & Alien Hives (Phase 16+)
 - **Completed Plans (`doc/plans/archive/`)**
   - **Phase 13 / 13.6E:** `archive/13.6E-default-scenario.md`, `archive/bugfix-playtest-batch-1.md` + `archive/batch-1a`–`1i` (`archive/fixtures/testy-mctestface.json`)
   - **Phase 14A–14C:** `archive/14A-match-end-concede.md`, `archive/14B-rematch.md`, `archive/14C-opr-v3.6-alignment.md`, `archive/14C-1-renames-housekeeping.md`, `archive/14C-2-core-rules-v3.6.md`
-  - **Phase 14F / 14G / Bugfix Batch 2:** `archive/14F-handover.md`, `archive/14G-build-stamp.md`, `archive/14G-distance-rule-indicators.md`, `archive/14G-indicator-polish.md`, `archive/14G-wake-up-indicator.md`, `archive/bugfix-batch-2.md`
+  - **Phase 14F / 14G / Bugfix Batch 2:** `archive/14F-handover.md`, `archive/14G-build-stamp.md`, `archive/14G-distance-rule-indicators.md`, `archive/14G-indicator-polish.md`, `archive/14G-wake-up-indicator.md`, `archive/bugfix-batch-2.md`, `archive/14G-player-picked-armies.md`
 
 ## Workflow
 1. **Research & plan (Fable, main session).** Read the relevant docs and code, check the rule references below, and ask the owner any rules questions. Write the plan using the template, split into small PRs (engine/schema → HUD → scene).

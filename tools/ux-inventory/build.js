@@ -21,7 +21,7 @@ const observations = [
   ['Icons', 'Emoji act as icons in some prompts (📍 placement, ⚠️ alerts, 🎯 objectives, ⏳ waiting) while the rest of the HUD is text-only.'],
   ['Reaction docks', 'The docks share a pattern (title, countdown, description, buttons), but button order and colours differ: Push = Auto (green) / Confirm / Don\'t push (red); Pile in = Auto place / Confirm (green) / Reset; Casualties = Auto pick / Confirm.'],
   ['Board scale', 'The default camera frames the whole 48" board, so units are small and the action often sits far from the camera. A focus-on-selection camera or zoom shortcut would help.'],
-  ['Lobby', 'The guest has no army choice (the host picks both; already a 14G item). The deployment checkbox reads "Interactive Pre-Match Deployment (12" Zones)" and without it a game starts with no objectives.'],
+  ['Lobby', 'The deployment checkbox reads "Interactive Pre-Match Deployment (12" Zones)" and without it a game starts with a minimal objectives phase (auto-placed forces). (14G resolved per-player army picking via "Your Army" and the waiting room.)'],
   ['Map Builder', 'The top toolbar is crowded with two-line button labels; the status pill (Ready / Notice) looks like a button.'],
   ['Match end', 'The results modal sits over the live HUD; the roster, Dice/Log and data card stay visible behind it.'],
   ['Setup header', 'During setup the header still shows the objective score (Host 0 — Guest 0), and the "Round N started" toast fires before the Ambush step of that round.'],
