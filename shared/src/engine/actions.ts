@@ -701,7 +701,7 @@ function resolveHazardTests(
     if (wounds > 0) {
       // Tracked wounds let the squad's owner pick who goes (the caller defers the casualties afterwards)
       if (ledger) applyTrackedWounds(ledger, unit, wounds);
-      else applyWounds(unit, wounds, 1, priority && livingModels(unit).length > 1 ? [...priority] : undefined);
+      else applyTabletopWounds(unit, wounds, 1, priority && livingModels(unit).length > 1 ? [...priority] : undefined);
     }
   }
 }
@@ -1936,14 +1936,25 @@ function getBaseDiceSpecs(state: GameState, action: GameAction): DiceSpec[] | nu
 
   if (action.type === 'end-activation') {
     // Every unit that took a wound this activation and is now at half strength or less tests Morale
-    const counts = moraleDiceCounts(getUnitsRequiringMorale(state));
+    const active = getActiveUnit(state);
+    // Match finishActivation: an active Shaken unit sheds Shaken before end-of-activation Morale Tests run
+    const stateForMorale =
+      active && active.status.includes('shaken')
+        ? {
+            ...state,
+            units: state.units.map((u) =>
+              u.id === active.id ? { ...u, status: u.status.filter((s) => s !== 'shaken') } : u
+            ),
+          }
+        : state;
+    const unitsForMorale = getUnitsRequiringMorale(stateForMorale);
+    const counts = moraleDiceCounts(unitsForMorale);
     const specs: DiceSpec[] = [];
     if (counts.morale > 0) specs.push({ count: counts.morale, sides: 6, purpose: 'morale' });
     if (counts.fearless > 0) specs.push({ count: counts.fearless, sides: 6, purpose: 'fearless' });
     // One push die per tested unit that an enemy attacked and that is not Shaken yet (used only if it becomes Shaken)
-    const active = getActiveUnit(state);
-    const pushable = getUnitsRequiringMorale(state).filter(
-      (u) => !u.status.includes('shaken') && pushAttackerFor(state, u, active)
+    const pushable = unitsForMorale.filter(
+      (u) => !u.status.includes('shaken') && pushAttackerFor(stateForMorale, u, active)
     ).length;
     if (pushable > 0) specs.push({ count: pushable, sides: 6, purpose: 'push' });
     return specs.length > 0 ? specs : null;
@@ -2535,7 +2546,7 @@ function applyLegTraversals(
   resolveHazardTests(unit, dangerousPieceIdsOnPaths(state, walked, unit), dice, events, 'Dangerous terrain', payload.casualtyModelIds);
 
   recordTraversal(action, unit, events, dice);
-  if (fallen) {
+  if (fallen || unit.isDestroyed) {
     unit.hasMoved = true;
     unit.remainingMovement = 0;
     if (state.turnState.activeUnitId === unit.id) finishActivation(state, dice, action);
@@ -3855,10 +3866,6 @@ function resolveShoot(
     allBlockedRolls.push(...outcome.blockedRolls);
     totalRegenerationSavedCount += outcome.regenerationSavedCount;
     totalWounds += outcome.wounds;
-    if (i === 0) {
-      primaryTargetDestroyed = target.isDestroyed;
-      primaryTargetShaken = target.status.includes('shaken');
-    }
 
     allocationOutcomes[i] = {
       weaponId: weapon.id,
@@ -3885,6 +3892,8 @@ function resolveShoot(
       apApplied: outcome.apApplied,
     };
   }
+  primaryTargetDestroyed = primaryTarget?.isDestroyed ?? false;
+  primaryTargetShaken = primaryTarget?.status.includes('shaken') ?? false;
   prompts?.sort((a, b) => a.allocIndex - b.allocIndex);
 
   // Surviving squads that lost models: their owners pick who goes (the outcome above is unchanged)
@@ -4140,7 +4149,13 @@ function resolveChargeStrike(
   return {
     rollId: action.id,
     specs: resumed ? [] : getDiceSpecs(state, action) ?? [],
-    results: !resumed ? dice : stage === 'strike' ? dice.filter((d) => !/^(impact|counter\d+-)/.test(d.purpose ?? '')) : [],
+    results: !resumed
+      ? dice
+      : stage === 'strike'
+        ? dice.filter((d) => !/^(impact|counter\d+-)/.test(d.purpose ?? ''))
+        : paused
+          ? dice.filter((d) => /^counter\d+-/.test(d.purpose ?? ''))
+          : dice.filter((d) => !/^impact/.test(d.purpose ?? '')),
     context: {
       attackerId,
       targetId,
@@ -4765,11 +4780,11 @@ function applyWounds(unit: Unit, wounds: number, deadlyValue: number = 1, victim
     const alive = unit.models.filter((m) => !m.isDestroyed);
     if (alive.length === 0) break;
     if (!victim || victim.isDestroyed) {
-      const wanted = victimIds?.shift();
-      victim =
-        (wanted ? alive.find((m) => m.id === wanted) : undefined) ??
-        alive.find((m) => m.wounds < m.maxWounds) ??
-        alive[0];
+      victim = alive.find((m) => m.wounds < m.maxWounds);
+      if (!victim) {
+        const wanted = victimIds?.shift();
+        victim = (wanted ? alive.find((m) => m.id === wanted) : undefined) ?? alive[0];
+      }
     }
     const chunk = Math.min(remaining, step);
     victim.wounds = Math.max(0, victim.wounds - chunk);
@@ -4820,7 +4835,10 @@ function applyFallWounds(unit: Unit, fallen: Model | undefined, wounds: number):
     return;
   }
   const taken = Math.min(wounds, Math.max(0, fallen.wounds));
-  applyWounds(unit, taken, 1, Array(taken).fill(fallen.id));
+  if (taken <= 0) return;
+  fallen.wounds = Math.max(0, fallen.wounds - taken);
+  if (fallen.wounds <= 0) fallen.isDestroyed = true;
+  settleAfterWounds(unit);
 }
 
 function markUnitDestroyed(unit: Unit): void {

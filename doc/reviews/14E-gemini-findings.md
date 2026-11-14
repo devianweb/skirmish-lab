@@ -152,7 +152,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:2363-2372, 2751-2758, 2986-2993, 3073, 3167`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** When a unit is destroyed by dangerous terrain during `advance`, `rush`, `charge-leg`, or `charge` without a jump/drop fall (`fallen === null`), `applyLegTraversals` returns `{ terminated: false }` and `finishActivation` is never called.
 - **Failure scenario:** An active unit with 1 wound remaining moves, rushes, or charges across a `hazard-pool` and rolls a `1` on its hazard test; `resolveHazardTests` marks `unit.isDestroyed = true`, but `applyLegTraversals` only calls `finishActivation` inside `if (fallen)` (`actions.ts:2369`), leaving `state.turnState.activeUnitId` pointing to the destroyed unit and preventing the turn from advancing.
 - **Suggested fix:** In `applyLegTraversals` (`actions.ts:2366`), check `if (fallen || unit.isDestroyed)` so fatal dangerous-terrain rolls terminate and finish the activation, and include end-of-activation morale specs in `getDiceSpecs` when hazard specs are requested.
@@ -172,7 +172,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:1779-1792, 4453-4463`, `shared/src/engine/activation.ts:403-413, 471-475`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** When a `shaken` active unit is wounded to half strength during its activation (via an `activate-unit` dangerous-terrain test) and then executes `end-activation`, `getDiceSpecs('end-activation')` requests 0 morale dice while `finishActivation` clears `shaken` before calling `applyEndOfActivationMorale`.
 - **Failure scenario:** A 2-model `shaken` squad standing in a `hazard-pool` activates (`activate-unit`), loses 1 model to the activation hazard test (now at 50% strength), and sends `end-activation`. In `getDiceSpecs` (`actions.ts:1781`), `active.status.includes('shaken')` is still `true`, so `moraleDiceCounts` (`activation.ts:408`) requests `0` morale dice; then `finishActivation` (`actions.ts:4454`) strips `'shaken'` before calling `applyEndOfActivationMorale` (`actions.ts:4463`), which sees `alreadyShaken === false`, reads `moraleRolls[0] === undefined` (`activation.ts:475`), and executes `break`, skipping the morale test (and any subsequent units' morale tests).
 - **Suggested fix:** In `getDiceSpecs('end-activation')` (`actions.ts:1781`), exclude the active unit's `'shaken'` status when computing `moraleDiceCounts` (matching `finishActivation` clearing `'shaken'` before `applyEndOfActivationMorale`), or clear the active unit's `'shaken'` status only if it did not take a new morale test.
@@ -192,7 +192,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:3974-3979`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** When `resolveChargeStrike` resumes at `stage = 'counter'` after an Impact `pick-casualties` prompt, `resumed` is `true` and `stage === 'strike'` is `false`, causing `DiceResolution.results` to be set to `[]`.
 - **Failure scenario:** A charger with `Impact` wounds a multi-model defender equipped with a `Counter` weapon; the charge pauses at stage `'impact'` for the defender to pick casualties, and when `applyPickCasualties` calls `resumeChargeStrike` with `stage = 'counter'`, line 3979 (`!resumed ? dice : stage === 'strike' ? ... : []`) evaluates to `[]`, wiping all Counter and charger melee dice rolls from the resulting `ActionLogEntry.dice.results`.
 - **Suggested fix:** When `stage === 'counter'` in `resolveChargeStrike` (`actions.ts:3979`), include the `counter*` dice (and when `!paused`, also the non-`impact`/non-`counter` strike dice) in `results` instead of returning `[]`.
@@ -222,7 +222,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/push.ts:60-69`, `shared/src/engine/actions.ts:4458-4462`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** `pushAttackerFor` returns `active` or the melee partner from `state.turnState.meleePairs` without checking `!u.isDestroyed`.
 - **Failure scenario:** During a charge, the defender's `Counter` strike or `strike-back` destroys the charging unit while the defender also lost wounds and is at half strength; at `finishActivation`, the defender fails its Morale Test and becomes `shaken`, and `pushAttackerFor` returns the destroyed charger, prompting a 4+ `push` move by a dead unit.
 - **Suggested fix:** Check `if (!active.isDestroyed)` and `u && !u.isDestroyed` in `pushAttackerFor` (`push.ts:63, 67`).
@@ -242,7 +242,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:2363, 4599-4614`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** Movement dangerous-terrain tests call `resolveHazardTests` without a `WoundLedger` (bypassing `pick-casualties`) and delegate to `applyWounds`, which honors client-supplied `casualtyModelIds` ahead of already-wounded models.
 - **Failure scenario:** A Tough(3) squad where `m0` already has 1 wound remaining (`wounds: 1, maxWounds: 3`) moves across a `hazard-pool` and takes 1 wound; if the client passes `casualtyModelIds: ['m1']`, `applyWounds` (`actions.ts:4605-4608`) applies the wound to the unhurt `m1` instead of finishing off the already-wounded `m0`, violating the tabletop wound allocation rule (`allocateWounds` in `casualties.ts`).
 - **Suggested fix:** Route movement dangerous-terrain wounds through `applyTabletopWounds` / `deferCasualties` (or `allocateWounds`) and remove the legacy `casualtyModelIds` parameter from `applyWounds`.
@@ -342,7 +342,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** low
 - **Category:** correctness
 - **Location:** `shared/src/engine/actions.ts:3694-3697`
-- **Status:** verified
+- **Status:** fixed in `bugfix-2c-combat-morale` (PR 3)
 - **Defect:** In `resolveShoot`, `primaryTargetDestroyed` and `primaryTargetShaken` are only assigned during the loop iteration where `i === 0`, ignoring later allocations in `resolveOrder` that hit the same primary target.
 - **Failure scenario:** A unit fires two weapons at the same enemy unit `g1`, where allocation `0` is a `Deadly(3)` weapon and allocation `1` is a standard weapon; `resolveOrder` (`actions.ts:3560`) resolves `i = 0` first (wounding `g1`, so `primaryTargetDestroyed` is set to `false` at line 3695) and then resolves `i = 1` second (destroying `g1`), leaving `diceResolution.outcome.targetDestroyed` falsely set to `false`.
 - **Suggested fix:** Compute `primaryTargetDestroyed = primaryTarget?.isDestroyed ?? false` and `primaryTargetShaken = primaryTarget?.status.includes('shaken') ?? false` once after the `for (const i of resolveOrder)` loop finishes (`actions.ts:3724`).

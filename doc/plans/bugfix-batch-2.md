@@ -91,7 +91,7 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
 
 ---
 
-## PR 3: 2C Hazard Termination, Morale, Push & Combat Outcomes (branch: `bugfix-2c-combat-morale`)
+## PR 3: 2C Hazard Termination, Morale, Push & Combat Outcomes (branch: `bugfix-2c-combat-morale`) — **Done**
 - **Layer:** shared engine
 - **Files:**
   - `shared/src/engine/actions.ts`
@@ -99,19 +99,19 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
   - `shared/tests/engine/actions.test.ts`
   - `shared/tests/engine/push.test.ts`
 - **Tests first:**
-  1. **G-12:** Unit with 1 wound remaining dying to dangerous terrain during `advance`, `rush`, `charge-leg`, or `charge` finishes activation (`activeUnitId` cleared / advances) and requests self-morale specs alongside hazard specs in `getDiceSpecs`.
+  1. **G-12:** Unit with 1 wound remaining dying to dangerous terrain during `advance`, `rush`, `charge-leg`, or `charge` finishes activation (`activeUnitId` cleared / advances) rather than leaving `activeUnitId` pointing to the dead unit (no extra `morale` spec on movement `hazard_*`, since `applyLegTraversals` only ends activation prematurely without a fall when `unit.isDestroyed` is true and destroyed units never test Morale).
   2. **G-14:** A `shaken` squad reduced to `<= 50%` strength by an `activate-unit` dangerous-terrain wound requests morale dice in `getDiceSpecs('end-activation')` and takes its end-of-activation Morale Test instead of silently routing on `undefined` roll.
   3. **G-16:** When an Impact + Counter charge pauses for Impact `pick-casualties` and resumes at `stage = 'counter'`, `DiceResolution.results` contains the `counter*` dice (and strike dice if not paused again) rather than `[]`.
   4. **G-19:** If a defender's `Counter` / `strike-back` destroys the charger while taking enough wounds to fail end-of-activation Morale, `pushAttackerFor` returns `null` rather than prompting a push by the destroyed charger.
-  5. **G-21:** A Tough(3) squad with an already-wounded model `m0` taking a movement dangerous-terrain wound applies that wound to `m0` even if `casualtyModelIds` names unhurt `m1`.
+  5. **G-21:** A Tough(3) squad with an already-wounded model `m0` taking a movement dangerous-terrain wound applies that wound to `m0` even if `casualtyModelIds` names unhurt `m1` (and an unhurt model `m1` falling still takes its fall wound itself rather than transferring to wounded `m0`).
   6. **G-31:** Multi-weapon `shoot` action where allocation index `0` wounds the primary target and allocation index `1` destroys/shakes it reports `outcome.targetDestroyed === true` (and `targetShaken`).
 - **Implementation steps:**
-  1. **G-12 (`actions.ts:1824, 1837, 2006, 2366-2371`):** In `applyLegTraversals` (`actions.ts:2366`), change `if (fallen)` to `if (fallen || unit.isDestroyed)`. In `getDiceSpecs` for `advance`, `rush`, `charge-leg`, include `selfMoraleSpecs(unit)` when dangerous-terrain or fall dice are requested (and avoid duplicate `morale`/`fearless` specs).
-  2. **G-14 (`actions.ts:1780-1792`):** In `getDiceSpecs('end-activation')`, strip `'shaken'` from a shallow clone of `active` when evaluating `moraleDiceCounts(getUnitsRequiringMorale(...))` so it matches `finishActivation` (`actions.ts:4453-4463`).
-  3. **G-16 (`actions.ts:3979`):** In `resolveChargeStrike`, when `resumed` is true and `stage === 'counter'`, return the dice used in that resumed step (`paused ? dice.filter((d) => /^counter\d+-/.test(d.purpose ?? '')) : dice.filter((d) => !/^impact/.test(d.purpose ?? ''))`).
-  4. **G-19 (`push.ts:60-69`):** Return `null` if `active.isDestroyed`, and require `u && !u.isDestroyed` for `partnerId`.
-  5. **G-21 (`actions.ts:4603-4608`):** In `applyWounds`, check `alive.find((m) => m.wounds < m.maxWounds)` **before** shifting from `victimIds` (`const wanted = victimIds?.shift();`), falling back to `alive[0]` when `wanted` is absent/dead. (That way `victimIds` is not consumed while finishing off an already-wounded model.)
-  6. **G-31 (`actions.ts:3694-3697, 3724`):** Compute `primaryTargetDestroyed` and `primaryTargetShaken` once after the `for (const i of resolveOrder)` loop finishes.
+  1. **G-12 (`actions.ts`):** In `applyLegTraversals`, change `if (fallen)` to `if (fallen || unit.isDestroyed)`. Leave `getDiceSpecs` (`^(jump|fall)$`) unchanged so surviving units test at `end-activation` and existing hazard-only `getDiceSpecs` contracts stay intact.
+  2. **G-14 (`actions.ts`):** In `getDiceSpecs('end-activation')`, strip `'shaken'` from a shallow clone of `active` when evaluating `getUnitsRequiringMorale(...)` and `moraleDiceCounts(...)` so it matches `finishActivation`.
+  3. **G-16 (`actions.ts`):** In `resolveChargeStrike`, when `resumed` is true and `stage === 'counter'`, return the dice used in that resumed step (`paused ? dice.filter((d) => /^counter\d+-/.test(d.purpose ?? '')) : dice.filter((d) => !/^impact/.test(d.purpose ?? ''))`).
+  4. **G-19 (`push.ts`):** Return `null` if `!active || active.isDestroyed`, and require `partner && !partner.isDestroyed` for `partnerId`.
+  5. **G-21 (`actions.ts`):** Route `resolveHazardTests` non-ledger wounds through `applyTabletopWounds` (prioritizing most-wounded living models before `casualtyModelIds`), have `applyFallWounds` damage `fallen` directly before `settleAfterWounds`, and check `alive.find((m) => m.wounds < m.maxWounds)` before shifting `victimIds` in `applyWounds`.
+  6. **G-31 (`actions.ts`):** Compute `primaryTargetDestroyed` and `primaryTargetShaken` once after the `for (const i of resolveOrder)` loop finishes.
 - **Docs:** Update `doc/reviews/14E-gemini-findings.md` statuses.
 - **Manual checks:** Verify charge dice log after Impact -> pick-casualties -> Counter shows the Counter dice batch, and losing the last wound to a `hazard-pool` passes activation cleanly.
 - **Done when:** All workspace tests pass (`shared`, `client`, `server`) with reproducing tests for all 6 findings.

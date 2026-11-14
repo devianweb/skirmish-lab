@@ -8,7 +8,7 @@ import { TERRAIN_PALETTE_CATALOG } from '../../src/data/mapSchema';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
 import { recordWoundBaseline } from '../../src/engine/activation';
 import { validateSquadCoherency } from '../../src/engine/spatial';
-import { PUSH_AUTO_CHOICE, PUSH_CONFIRM_CHOICE, PUSH_DECLINE_CHOICE, autoPush, createPushReaction, planPush } from '../../src/engine/push';
+import { PUSH_AUTO_CHOICE, PUSH_CONFIRM_CHOICE, PUSH_DECLINE_CHOICE, autoPush, createPushReaction, planPush, pushAttackerFor } from '../../src/engine/push';
 
 const HOST = 'host-1';
 const GUEST = 'guest-1';
@@ -499,5 +499,26 @@ describe('push: the built-in Jump Range map supports hand-testing a push-fall', 
     const low = mk(-7.5, -6, 3);
     const lowPlan = planPush(low.state, low.g1, low.g1.models[0], { x: -5.5, z: -6 });
     expect(lowPlan.ok && lowPlan.fallDice).toBe(3);
+  });
+});
+
+describe('G-19: pushAttackerFor ignores destroyed attackers and destroyed melee partners', () => {
+  it('returns null when the active attacker was destroyed (e.g. by Counter / strike-back)', () => {
+    const h1 = mkUnit('h1', HOST, 0, 0, 1);
+    h1.isDestroyed = true;
+    const g1 = mkUnit('g1', GUEST, 0, 1, 2);
+    const state = mkState([h1, g1]);
+
+    expect(pushAttackerFor(state, g1, h1)).toBeNull();
+  });
+
+  it('returns null when the active unit meleePairs partner was destroyed', () => {
+    const h1 = mkUnit('h1', HOST, 0, 0, 2);
+    const g1 = mkUnit('g1', GUEST, 0, 1, 1);
+    g1.isDestroyed = true;
+    const state = mkState([h1, g1]);
+    state.turnState.meleePairs = [['h1', 'g1']];
+
+    expect(pushAttackerFor(state, h1, h1)).toBeNull();
   });
 });

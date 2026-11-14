@@ -58,12 +58,13 @@ function living(unit: Unit): Model[] {
  * was attacked only if it fought in melee, and then its opponent in that fight pushes.
  */
 export function pushAttackerFor(state: GameState, unit: Unit, active: Unit | null | undefined): Unit | null {
-  if (!active) return null;
+  if (!active || active.isDestroyed) return null;
   if (unit.ownerId !== active.ownerId) return active;
   if (unit.id === active.id) {
     const pair = (state.turnState.meleePairs ?? []).find((p) => p.includes(unit.id));
     const partnerId = pair?.find((id) => id !== unit.id);
-    return partnerId ? (state.units.find((u) => u.id === partnerId) ?? null) : null;
+    const partner = partnerId ? state.units.find((u) => u.id === partnerId) : undefined;
+    return partner && !partner.isDestroyed ? partner : null;
   }
   return null;
 }
