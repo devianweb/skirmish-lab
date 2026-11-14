@@ -46,7 +46,7 @@ One living checklist for things automated tests can't prove: feel, visuals, and 
 
 - Verified items removed (owner pass, 2026-11-12, evening): the 14G polish checks (dashed side-coloured Hero aura, Blast outline and sharing ring, Hero ring vs objectives). Follow-ups from that pass: aura labels float and face the camera instead of lying flat, overlapping labels stack instead of covering each other (also the per-weapon aim-line labels), and the Blast outline shows when the weapon that would fire is a Blast weapon even if it isn't the first weapon (Grenade Launcher on the Veterans).
 
-- Verified items removed (owner pass, 2026-11-12, later): every 14G distance-indicator check (badges, 9" and 6" rings, HDF cases, Hero aura, Blast outline, nothing floating elsewhere). Follow-ups from that pass (aura style and label, Blast sharing mark) are plan `doc/plans/14G-indicator-polish.md`.
+- Verified items removed (owner pass, 2026-11-12, later): every 14G distance-indicator check (badges, 9" and 6" rings, HDF cases, Hero aura, Blast outline, nothing floating elsewhere). Follow-ups from that pass (aura style and label, Blast sharing mark) are plan `doc/plans/archive/14G-indicator-polish.md`.
 
 - Verified items removed (owner pass, 2026-11-12): the Orc Marauders list and data cards, Bad Shot, Ferocious when shooting and charging, Heavy Flamer-Mod Limited, Orc Biker Fast (PR 2), and the two-army pickers with the HDF vs Orc Marauders default (PR 2B).
 

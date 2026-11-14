@@ -1,6 +1,6 @@
 # 14C-2: Core rules to Firefight v3.6
-Status: approved (owner, 2026-11-10; detail decisions reviewed with the owner the same day)
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C (part 2 of 3). Umbrella: `doc/plans/14C-opr-v3.6-alignment.md` (its Decisions 8–11 and the "v3.6 vs our engine" tables are binding here).
+Status: done (all PRs merged)
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14C (part 2 of 3). Umbrella: `doc/plans/archive/14C-opr-v3.6-alignment.md` (its Decisions 8–11 and the "v3.6 vs our engine" tables are binding here).
 
 ## Goal
 The engine plays the v3.6 core rules: wounds kill at Tough, morale is tested at the end of an activation, melee results decide who tests, Shaken units sit idle, melee reaches 3", shooting splits over at most two targets, Blast spreads its hits, jumps are one roll for the unit, falls and dangerous terrain roll wounds directly, Pushing replaces the old knockback, and objectives are placed by the players after a roll-off. The HUD and renderer keep up so the game stays playable after every merge.

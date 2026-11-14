@@ -1,5 +1,6 @@
 # 14F handover: carrying on with Gemini while Claude is unavailable
-Written 2026-11-14 by Claude for the owner. Plan: [14F-performance.md](14F-performance.md). General Gemini rules: [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md).
+Status: done (PR 2 #409, post-PR 2 profile #411, and PR 3 #412 merged)
+Written 2026-11-14 by Claude for the owner. Plan: [14F-performance.md](../14F-performance.md). General Gemini rules: [GEMINI_HANDOVER.md](../GEMINI_HANDOVER.md).
 
 ## Where things stand
 - The 14F plan is approved and on `master` (#406).

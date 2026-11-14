@@ -1,6 +1,6 @@
 # 14G: Build stamp and "new version" notice
-Status: approved (owner, 2026-11-12: "Go ahead with the build stamp"; Decisions 1–5 confirmed as written)
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G (Playtest & UX polish)
+Status: done (PR #369 merged)
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14G (Playtest & UX polish)
 
 ## Goal
 After a release, a player can see at a glance which build their browser tab is running, and a tab that is running an older build than the one deployed says so and offers a reload. This removes the "did it deploy?" guesswork: on 2026-11-11 a tab kept showing the previous build for several minutes after a release because the browser reused its cached copy of the page.

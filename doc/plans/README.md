@@ -2,13 +2,26 @@
 
 Each roadmap sub-phase that needs more than a one-line fix gets a plan file here, `doc/plans/<phase>-<slug>.md` (e.g. `13.6E-default-scenario.md`). The plan is the **only** context the implementation agent receives, so everything agreed in chat must be written into it.
 
+## Directory Index
+- **Workflow & Handover Guides**
+  - [README.md](README.md) — planning workflow, plan template, and local rule references
+  - [HANDOVER.md](HANDOVER.md) — current Claude-away workflow and queue status
+  - [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md) — per-PR Gemini implementer handover prompt and review checklist
+- **Active / Reference Plans**
+  - [14F-performance.md](14F-performance.md) — *In progress:* PRs 1–3 and post-PR 2 profile merged; PR 5 (client frame profile) remaining
+  - [14C-3-armies.md](14C-3-armies.md) — *Done for MVP (HDF & Orc Marauders);* kept here as reference for deferred Prime Brothers & Alien Hives (Phase 16+)
+- **Completed Plans (`doc/plans/archive/`)**
+  - **Phase 13 / 13.6E:** `archive/13.6E-default-scenario.md`, `archive/bugfix-playtest-batch-1.md` + `archive/batch-1a`–`1i` (`archive/fixtures/testy-mctestface.json`)
+  - **Phase 14A–14C:** `archive/14A-match-end-concede.md`, `archive/14B-rematch.md`, `archive/14C-opr-v3.6-alignment.md`, `archive/14C-1-renames-housekeeping.md`, `archive/14C-2-core-rules-v3.6.md`
+  - **Phase 14F / 14G / Bugfix Batch 2:** `archive/14F-handover.md`, `archive/14G-build-stamp.md`, `archive/14G-distance-rule-indicators.md`, `archive/14G-indicator-polish.md`, `archive/14G-wake-up-indicator.md`, `archive/bugfix-batch-2.md`
+
 ## Workflow
 1. **Research & plan (Fable, main session).** Read the relevant docs and code, check the rule references below, and ask the owner any rules questions. Write the plan using the template, split into small PRs (engine/schema → HUD → scene).
 2. **Approve (owner).** Don't implement anything until the owner approves the plan.
 3. **Implement (Sonnet `implementer` agent, `.claude/agents/implementer.md`).** One agent per PR section, preferably in an isolated git worktree. It writes tests first, runs all workspaces, updates the docs and checklist, opens a PR to `master`, and does not merge. If a rules question comes up, it stops and reports instead of guessing.
 4. **Review (Fable).** Check the diff against the plan and the rules. Send fixes back to the same agent, or patch small issues directly.
 5. **Merge to `master`** (squash). Then start the next PR section. **Releases** (`master` → `release`) happen only when the owner explicitly asks in that turn.
-6. When a batch (sub-plan) is fully merged, Fable posts that batch's manual checks to the owner (the items its PRs added to `MANUAL_TEST_CHECKLIST.md`). When every section is merged, mark the plan `Status: done` and keep the file as a record.
+6. When a batch (sub-plan) is fully merged, Fable posts that batch's manual checks to the owner (the items its PRs added to `MANUAL_TEST_CHECKLIST.md`). When every section is merged, mark the plan `Status: done` and move it to `doc/plans/archive/`.
 
 **Gemini:** one approved PR section can go to Gemini instead of a Claude implementer. See [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md) for what suits it, the prompt to paste and how its PR is reviewed.
 

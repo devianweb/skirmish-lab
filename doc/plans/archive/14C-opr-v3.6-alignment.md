@@ -1,7 +1,7 @@
 # 14C: Line up with One Page Rules (Firefight v3.6)
-Status: approved (umbrella, 2026-11-10); sub-plans: 14C-1 (`14C-1-renames-housekeeping.md`), 14C-2, 14C-3 to follow
-Scope note (owner, 2026-11-11): 14C-3 is narrowed to Human Defense Force and Orc Marauders. Prime Brothers and Alien Hives are deferred to ROADMAP "Future Considerations"; see `doc/plans/14C-3-armies.md`.
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C
+Status: done (2026-11-12; 14C-1, 14C-2, and 14C-3 merged)
+Scope note (owner, 2026-11-11): 14C-3 is narrowed to Human Defense Force and Orc Marauders. Prime Brothers and Alien Hives are deferred to ROADMAP "Future Considerations"; see [doc/plans/14C-3-armies.md](../14C-3-armies.md).
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14C
 
 ## Goal
 SkirmishLab plays Grimdark Future: Firefight **v3.6.0** as written. It uses OPR's own names for stats, actions, statuses and special rules, and it ships four ready-made armies with official v3.6 stats: Human Defense Force, Orc Marauders, Prime Brothers and Alien Hives. It's a non-commercial fan project. It keeps a one-line "unofficial, not affiliated" disclaimer, uses no OPR logos or art, and copies no rulebook text: in-app rule help is a short summary in our own words, plus a link to OPR's free rules.
