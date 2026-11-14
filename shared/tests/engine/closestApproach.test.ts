@@ -187,7 +187,7 @@ describe('closestApproach: speed of the host check for a 10-model squad', () => 
     const res = validateAction(state, action);
     const ms = performance.now() - t0;
     // Whether the back row is close enough is the rule's business; the check must be fast either way
-    expect(ms).toBeLessThan(500);
+    expect(ms).toBeLessThan(150);
   });
 
   it('finds spots for ten models round a wall (worst case: every model has to path-find)', () => {
@@ -206,6 +206,6 @@ describe('closestApproach: speed of the host check for a 10-model squad', () => 
     });
     const ms = performance.now() - t0;
     expect(placed.length).toBeGreaterThan(5);
-    expect(ms).toBeLessThan(800);
+    expect(ms).toBeLessThan(250);
   });
 });
