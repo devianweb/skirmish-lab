@@ -2632,3 +2632,477 @@ describe('Bugfix Batch 2 — PR 2: G-07, G-17, G-08', () => {
     });
   });
 });
+
+describe('Bugfix Batch 2 — PR 3: G-12, G-14, G-16, G-21, G-31', () => {
+  function pr3Squad(
+    id: string,
+    ownerId: string,
+    modelCoords: Vector3[],
+    overrides: Partial<Unit> = {},
+    modelTough = 1
+  ): Unit {
+    return makeUnit(id, ownerId, {
+      position: { ...modelCoords[0] },
+      wounds: modelCoords.length * modelTough,
+      maxWounds: modelTough,
+      speed: 6,
+      remainingMovement: 6,
+      models: modelCoords.map((p, i) => ({
+        id: `${id}-m${i}`,
+        wounds: modelTough,
+        maxWounds: modelTough,
+        isDestroyed: false,
+        position: { ...p },
+        rotation: { x: 0, y: 0, z: 0 },
+      })),
+      ...overrides,
+    });
+  }
+
+  function hazardPool(id: string, x: number, z: number, sx = 4, sz = 2): TerrainPiece {
+    return {
+      id,
+      terrainType: 'hazard-pool',
+      position: { x, y: 0, z },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: sx, y: 0.1, z: sz },
+      blocksLineOfSight: false,
+      providesCover: false,
+      isObstacle: false,
+      isDangerous: true,
+    };
+  }
+
+  describe('G-12: unit destroyed by dangerous terrain during movement/charge finishes activation', () => {
+    it('finishes activation and passes turn when advancing across hazard-pool destroys the last wound', () => {
+      const h1 = makeUnit('h1', HOST, {
+        position: { x: 0, y: 0, z: 0 },
+        models: [
+          {
+            id: 'h1-m0',
+            wounds: 1,
+            maxWounds: 1,
+            isDestroyed: false,
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+          },
+        ],
+      });
+      const h2 = makeUnit('h2', HOST, { position: { x: -20, y: 0, z: -20 } });
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, h2, g1], { terrain: [hazardPool('pool-1', 0, 3)] });
+
+      const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const moved = act(
+        started,
+        createAction(HOST, 'advance', {
+          type: 'advance',
+          unitId: 'h1',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 5.5 },
+          ],
+          finalPosition: { x: 0, y: 0, z: 5.5 },
+        }),
+        [{ rolls: [1], total: 1, finalTotal: 1, purpose: 'hazard_pool-1' }]
+      );
+
+      expect(moved.ok).toBe(true);
+      expect(moved.state!.units.find((u) => u.id === 'h1')!.isDestroyed).toBe(true);
+      expect(moved.state!.turnState.activeUnitId).toBeNull();
+      expect(moved.state!.turnState.currentPlayerId).toBe(GUEST);
+    });
+
+    it('finishes activation when charging through hazard-pool destroys the last wound', () => {
+      const h1 = makeUnit('h1', HOST, {
+        position: { x: 0, y: 0, z: 0 },
+        weapons: [weapon('rifle'), weapon('blade')],
+        models: [
+          {
+            id: 'h1-m0',
+            wounds: 1,
+            maxWounds: 1,
+            isDestroyed: false,
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+          },
+        ],
+      });
+      const h2 = makeUnit('h2', HOST, { position: { x: -20, y: 0, z: -20 } });
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 6.5 } });
+      const state = makeState([h1, h2, g1], { terrain: [hazardPool('pool-1', 0, 3)] });
+
+      const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const begun = act(
+        started,
+        createAction(HOST, 'begin-charge', { type: 'begin-charge', attackerId: 'h1', targetId: 'g1' })
+      ).state!;
+      const charged = act(
+        begun,
+        createAction(HOST, 'charge', {
+          type: 'charge',
+          attackerId: 'h1',
+          targetId: 'g1',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 5.5 },
+          ],
+        }),
+        [
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'hazard_pool-1' },
+          { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'to-hit' },
+        ]
+      );
+
+      expect(charged.ok).toBe(true);
+      expect(charged.state!.units.find((u) => u.id === 'h1')!.isDestroyed).toBe(true);
+      expect(charged.state!.turnState.activeUnitId).toBeNull();
+      expect(charged.state!.turnState.charge).toBeNull();
+      expect(charged.state!.turnState.currentPlayerId).toBe(GUEST);
+    });
+  });
+
+  describe('G-14: shaken active unit reduced to <=50% by activation hazard requests and rolls morale on end-activation', () => {
+    it('requests 1 morale die in getDiceSpecs(end-activation) and rolls it in finishActivation', () => {
+      const h1 = pr3Squad(
+        'h1',
+        HOST,
+        [
+          { x: -0.6, y: 0, z: 0 },
+          { x: 0.6, y: 0, z: 0 },
+        ],
+        { status: ['shaken'] }
+      );
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, g1], { terrain: [hazardPool('pool-1', 0, 0, 4, 4)] });
+
+      const activated = act(
+        state,
+        createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' }),
+        [{ rolls: [1, 6], total: 7, finalTotal: 7, purpose: 'hazard_pool-1' }]
+      );
+      expect(activated.ok).toBe(true);
+      const afterPick = settlePicks(activated.state!);
+      const damaged = afterPick.units.find((u) => u.id === 'h1')!;
+      expect(damaged.wounds).toBe(1);
+      expect(damaged.status).toContain('shaken');
+
+      const endAction = createAction(HOST, 'end-activation', { type: 'end-activation' });
+      expect(getDiceSpecs(afterPick, endAction)).toEqual([{ count: 1, sides: 6, purpose: 'morale' }]);
+
+      const ended = act(afterPick, endAction, [{ rolls: [1], total: 1, finalTotal: 1, purpose: 'morale' }]);
+      expect(ended.ok).toBe(true);
+      expect(ended.state!.units.find((u) => u.id === 'h1')!.status).toContain('shaken');
+      expect(ended.logEntry.dice?.outcome.moraleTests).toEqual([
+        expect.objectContaining({ unitId: 'h1', roll: 1, passed: false, outcome: 'shaken' }),
+      ]);
+    });
+  });
+
+  describe('G-16: resumed charge strike at stage counter records dice results', () => {
+    it('includes counter dice (and strike dice when not paused again) in logEntry.dice.results', () => {
+      const counterBlade: Weapon = {
+        id: 'counter-blade',
+        weaponType: 'blade',
+        name: 'Counter Blade',
+        profile: { type: 'melee', range: 1, attacks: 2, specialRules: ['counter'] },
+        isEquipped: true,
+      };
+      const meleeSword: Weapon = {
+        id: 'sword',
+        weaponType: 'blade',
+        name: 'Sword',
+        profile: { type: 'melee', range: 1, attacks: 1, specialRules: [] },
+        isEquipped: true,
+      };
+
+      // Case A: Counter pauses again on a Tough-5 squad charger -> results hold counter0-* dice only
+      const chargerSquad = pr3Squad(
+        'h1',
+        HOST,
+        [
+          { x: -0.6, y: 0, z: 0 },
+          { x: 0.6, y: 0, z: 0 },
+        ],
+        {
+          weapons: [meleeSword],
+          specialRules: ['impact(1)'],
+        },
+        5
+      );
+      const defenderSquad = pr3Squad(
+        'g1',
+        GUEST,
+        [
+          { x: -0.6, y: 0, z: 5 },
+          { x: 0.6, y: 0, z: 5 },
+        ],
+        { weapons: [counterBlade] }
+      );
+      const stateA = makeState([
+        chargerSquad,
+        defenderSquad,
+        makeUnit('h2', HOST, { position: { x: -20, y: 0, z: -20 } }),
+      ]);
+      const startedA = act(stateA, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const begunA = act(
+        startedA,
+        createAction(HOST, 'begin-charge', { type: 'begin-charge', attackerId: 'h1', targetId: 'g1' })
+      ).state!;
+      const chargeActionA = createAction(HOST, 'charge', {
+        type: 'charge',
+        attackerId: 'h1',
+        targetId: 'g1',
+        path: [
+          { x: -0.6, y: 0, z: 0 },
+          { x: -0.6, y: 0, z: 4 },
+        ],
+        modelPositions: [
+          { x: -0.6, y: 0, z: 4 },
+          { x: 0.6, y: 0, z: 4 },
+        ],
+      });
+      const chargeOutcomeA = act(begunA, chargeActionA, [
+        { rolls: [6, 1], total: 7, finalTotal: 7, purpose: 'impact' },
+        { rolls: [1], total: 1, finalTotal: 1, purpose: 'impact-defense' },
+        { rolls: [6, 6], total: 12, finalTotal: 12, purpose: 'counter0-to-hit' },
+        { rolls: [1, 6], total: 7, finalTotal: 7, purpose: 'counter0-defense' },
+        { rolls: [1, 1], total: 2, finalTotal: 2, purpose: 'to-hit' },
+      ]);
+      expect(chargeOutcomeA.ok).toBe(true);
+      expect(chargeOutcomeA.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
+      const resumedPaused = act(
+        chargeOutcomeA.state!,
+        createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: 'g1', modelIds: ['g1-m0'] } as any)
+      );
+      expect(resumedPaused.ok).toBe(true);
+      expect(resumedPaused.state!.turnState.pendingReaction?.type).toBe('pick-casualties');
+      const pausedPurposes = resumedPaused.logEntry.dice!.results.map((d) => d.purpose);
+      expect(pausedPurposes).toContain('counter0-to-hit');
+      expect(pausedPurposes).toContain('counter0-defense');
+      expect(pausedPurposes).not.toContain('impact');
+      expect(pausedPurposes).not.toContain('to-hit');
+
+      // Case B: Single-model Tough-5 charger does not pause after Counter -> results contain counter0-* and strike to-hit
+      const soloCharger = makeUnit('h1', HOST, {
+        position: { x: 0, y: 0, z: 0 },
+        wounds: 5,
+        maxWounds: 5,
+        weapons: [meleeSword],
+        specialRules: ['impact(2)'],
+        models: [
+          {
+            id: 'h1-m0',
+            wounds: 5,
+            maxWounds: 5,
+            isDestroyed: false,
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+          },
+        ],
+      });
+      const defenderSquadB = pr3Squad(
+        'g1',
+        GUEST,
+        [
+          { x: -0.5, y: 0, z: 4.8 },
+          { x: 0.5, y: 0, z: 4.8 },
+        ],
+        { weapons: [counterBlade] }
+      );
+      const stateB = makeState([
+        soloCharger,
+        defenderSquadB,
+        makeUnit('h2', HOST, { position: { x: -20, y: 0, z: -20 } }),
+      ]);
+      const startedB = act(stateB, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const begunB = act(
+        startedB,
+        createAction(HOST, 'begin-charge', { type: 'begin-charge', attackerId: 'h1', targetId: 'g1' })
+      ).state!;
+      const chargeOutcomeB = act(
+        begunB,
+        createAction(HOST, 'charge', {
+          type: 'charge',
+          attackerId: 'h1',
+          targetId: 'g1',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 3.9 },
+          ],
+        }),
+        [
+          { rolls: [6, 1], total: 7, finalTotal: 7, purpose: 'impact' },
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'impact-defense' },
+          { rolls: [6, 1], total: 7, finalTotal: 7, purpose: 'counter0-to-hit' },
+          { rolls: [1, 6], total: 7, finalTotal: 7, purpose: 'counter0-defense' },
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'to-hit' },
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'defense' },
+        ]
+      );
+      expect(chargeOutcomeB.ok).toBe(true);
+      const resumedFull = act(
+        chargeOutcomeB.state!,
+        createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: 'g1', modelIds: ['g1-m0'] } as any)
+      );
+      expect(resumedFull.ok).toBe(true);
+      const fullPurposes = resumedFull.logEntry.dice!.results.map((d) => d.purpose);
+      expect(fullPurposes).toContain('counter0-to-hit');
+      expect(fullPurposes).toContain('to-hit');
+      expect(fullPurposes).not.toContain('impact');
+    });
+  });
+
+  describe('G-21: Tough squad dangerous terrain finishes already-wounded model before unhurt picks; fall still hits fallen model', () => {
+    it('applies movement hazard wounds to an already-wounded Tough(3) model even if casualtyModelIds names an unhurt model', () => {
+      const h1 = pr3Squad(
+        'h1',
+        HOST,
+        [
+          { x: -0.6, y: 0, z: 0 },
+          { x: 0.6, y: 0, z: 0 },
+        ],
+        {},
+        3
+      );
+      h1.models[0].wounds = 2;
+      h1.wounds = 5;
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, g1], { terrain: [hazardPool('pool-1', 0, 3)] });
+
+      const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const moved = act(
+        started,
+        createAction(HOST, 'advance', {
+          type: 'advance',
+          unitId: 'h1',
+          path: [
+            { x: -0.6, y: 0, z: 0 },
+            { x: -0.6, y: 0, z: 5.5 },
+          ],
+          finalPosition: { x: 0, y: 0, z: 5.5 },
+          modelPositions: [
+            { x: -0.6, y: 0, z: 5.5 },
+            { x: 0.6, y: 0, z: 5.5 },
+          ],
+          casualtyModelIds: ['h1-m1'],
+        }),
+        [{ rolls: [1, 6, 6, 6, 6], total: 25, finalTotal: 25, purpose: 'hazard_pool-1' }]
+      );
+
+      expect(moved.ok).toBe(true);
+      const after = moved.state!.units.find((u) => u.id === 'h1')!;
+      expect(after.models[0].wounds).toBe(1);
+      expect(after.models[1].wounds).toBe(3);
+    });
+
+    it('still applies fall wounds to the unhurt model that fell rather than an already-wounded bystander', () => {
+      const platform: TerrainPiece = {
+        id: 'plat-1',
+        terrainType: 'platform-small',
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 4, y: 4, z: 4 },
+        blocksLineOfSight: true,
+        providesCover: true,
+        isObstacle: true,
+        isWalkable: true,
+        elevation: 4,
+      };
+      const start0 = { x: -0.6, y: 4, z: 1.5 };
+      const start1 = { x: 0.6, y: 4, z: 1.5 };
+      const end0 = { x: -0.6, y: 0, z: 3.0 };
+      const end1 = { x: 0.6, y: 0, z: 3.0 };
+      const h1 = pr3Squad('h1', HOST, [start0, start1], {}, 3);
+      h1.models[0].wounds = 2;
+      h1.wounds = 5;
+      const g1 = makeUnit('g1', GUEST, { position: { x: 0, y: 0, z: 20 } });
+      const state = makeState([h1, g1], { terrain: [platform] });
+
+      const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const moved = act(
+        started,
+        createAction(HOST, 'rush', {
+          type: 'rush',
+          unitId: 'h1',
+          path: [],
+          finalPosition: { x: 0, y: 0, z: 3.0 },
+          modelPositions: [end0, end1],
+          modelTraversals: [
+            { kind: 'jump-drop', takeoff: start0, landing: end0 },
+            { kind: 'jump-drop', takeoff: start1, landing: end1 },
+          ],
+          jumpLeader: 1,
+        } as any),
+        [
+          { rolls: [1, 1, 1, 1], total: 4, finalTotal: 4, purpose: 'jump' },
+          { rolls: [1, 6, 6, 6], total: 19, finalTotal: 19, purpose: 'fall' },
+        ]
+      );
+
+      expect(moved.ok).toBe(true);
+      const after = moved.state!.units.find((u) => u.id === 'h1')!;
+      expect(after.models[0].wounds).toBe(2);
+      expect(after.models[1].wounds).toBe(2);
+    });
+  });
+
+  describe('G-31: multi-weapon shoot reports final primaryTargetDestroyed', () => {
+    it('reports outcome.targetDestroyed === true when allocation 0 wounds and allocation 1 kills the primary target', () => {
+      const deadlyGun: Weapon = {
+        id: 'deadly-gun',
+        weaponType: 'heavy-rifle',
+        name: 'Deadly Gun',
+        profile: { type: 'ranged', range: 24, attacks: 1, specialRules: ['deadly(3)'] },
+        isEquipped: true,
+      };
+      const lightGun: Weapon = {
+        id: 'light-gun',
+        weaponType: 'rifle',
+        name: 'Light Gun',
+        profile: { type: 'ranged', range: 24, attacks: 1, specialRules: [] },
+        isEquipped: true,
+      };
+      const h1 = makeUnit('h1', HOST, { position: { x: 0, y: 0, z: 0 }, weapons: [deadlyGun, lightGun] });
+      const g1 = makeUnit('g1', GUEST, {
+        position: { x: 0, y: 0, z: 10 },
+        wounds: 4,
+        maxWounds: 4,
+        models: [
+          {
+            id: 'g1-m0',
+            wounds: 4,
+            maxWounds: 4,
+            isDestroyed: false,
+            position: { x: 0, y: 0, z: 10 },
+            rotation: { x: 0, y: 0, z: 0 },
+          },
+        ],
+      });
+      const state = makeState([h1, g1]);
+
+      const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+      const shot = act(
+        started,
+        createAction(HOST, 'shoot', {
+          type: 'shoot',
+          attackerId: 'h1',
+          allocations: [
+            { weaponId: 'deadly-gun', targetId: 'g1' },
+            { weaponId: 'light-gun', targetId: 'g1' },
+          ],
+        }),
+        [
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'alloc_0_to-hit' },
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'alloc_0_defense' },
+          { rolls: [6], total: 6, finalTotal: 6, purpose: 'alloc_1_to-hit' },
+          { rolls: [1], total: 1, finalTotal: 1, purpose: 'alloc_1_defense' },
+        ]
+      );
+
+      expect(shot.ok).toBe(true);
+      expect(shot.state!.units.find((u) => u.id === 'g1')!.isDestroyed).toBe(true);
+      expect(shot.logEntry.dice!.outcome.targetDestroyed).toBe(true);
+    });
+  });
+});
