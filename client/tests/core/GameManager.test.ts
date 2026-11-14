@@ -1927,14 +1927,14 @@ describe('GameManager', () => {
       const guest = new GameManager(guestWebRTC, false, {
         sessionStore: guestStore, roomCode: 'ABC-123', onSessionResume: guestResume,
       });
-      startPlay(host, 'Host', 'Guest', { hostArmyId: 'a', guestArmyId: 'b' } as any);
+      startPlay(host, 'Host', 'Guest', { hostArmyId: 'orc-marauders', guestArmyId: 'test-army' } as any);
       return { host, guest, hostStore, guestStore, hostResume, guestResume };
     }
     const act = (m: GameManager, who: string, type: any) => m.sendAction(createAction(who, type, { type } as any));
 
     it('passes the lobby options through so the setup is recorded on the state', () => {
       const { host } = setup();
-      expect(host.getGameState()!.setup).toMatchObject({ hostArmyId: 'a', guestArmyId: 'b' });
+      expect(host.getGameState()!.setup).toMatchObject({ hostArmyId: 'orc-marauders', guestArmyId: 'test-army' });
     });
 
     it('a rematch re-saves snapshots and the active session on both peers and resets the history', () => {

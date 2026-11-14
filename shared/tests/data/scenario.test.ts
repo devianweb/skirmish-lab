@@ -3,11 +3,15 @@ import { createInitialGameState, HOST_PLAYER_ID, GUEST_PLAYER_ID } from '../../s
 import {
   applyDefaultScenario,
   createBlankMap,
+  DEFAULT_HOST_ARMY_ID,
+  DEFAULT_GUEST_ARMY_ID,
 } from '../../src/data/scenario';
 import {
   STARTER_ARMIES,
   createUnitsFromStarterArmy,
+  isKnownArmyId,
 } from '../../src/data/armies';
+import { createRematchState } from '../../src/engine/rematch';
 import {
   CustomMapDefinition,
   TERRAIN_PALETTE_CATALOG,
@@ -543,5 +547,65 @@ describe('spawning without a deployment phase', () => {
       expect(u.isDeployed).toBe(true);
       expect(deploymentFootprintProblem(ambushState, u, u.position)).toBeNull();
     }
+  });
+
+  describe('14G: isKnownArmyId and player-picked setup recording', () => {
+    it('recognizes all starter and TEST army IDs and rejects unknown or non-string values', () => {
+      expect(isKnownArmyId(DEFAULT_HOST_ARMY_ID)).toBe(true);
+      expect(isKnownArmyId(DEFAULT_GUEST_ARMY_ID)).toBe(true);
+      const keys = Object.keys(STARTER_ARMIES);
+      expect(keys.some((k) => k.startsWith('test-'))).toBe(true);
+      for (const id of keys) {
+        expect(isKnownArmyId(id)).toBe(true);
+      }
+
+      for (const bad of ['unknown-army', '__proto__', 'constructor', 'toString', '', null, undefined, 123, {}]) {
+        expect(isKnownArmyId(bad)).toBe(false);
+      }
+    });
+
+    it('records resolved fallback army IDs in GameState.setup when invalid IDs are supplied', () => {
+      const state = createInitialGameState(HOST, GUEST);
+      applyDefaultScenario(state, {
+        hostArmyId: 'constructor',
+        guestArmyId: 'not-a-real-army',
+        useDeploymentPhase: false,
+      });
+
+      expect(state.setup?.hostArmyId).toBe(DEFAULT_HOST_ARMY_ID);
+      expect(state.setup?.guestArmyId).toBe(DEFAULT_GUEST_ARMY_ID);
+      expect(state.units.filter((u) => u.ownerId === HOST).length).toBeGreaterThan(0);
+      expect(state.units.filter((u) => u.ownerId === GUEST).length).toBeGreaterThan(0);
+    });
+
+    it('accepts known TEST army IDs unconditionally and preserves both players picks across rematch', () => {
+      const state = createInitialGameState(HOST, GUEST);
+      applyDefaultScenario(state, {
+        hostArmyId: 'hdf',
+        guestArmyId: 'test-squad-army',
+        useDeploymentPhase: false,
+      });
+
+      expect(state.setup?.hostArmyId).toBe('hdf');
+      expect(state.setup?.guestArmyId).toBe('test-squad-army');
+
+      const guestUnits = state.units.filter((u) => u.ownerId === GUEST);
+      expect(guestUnits.map((u) => u.name)).toEqual(['Test Squad 1']);
+
+      const rematch = createRematchState(state);
+      expect(rematch.setup?.hostArmyId).toBe('hdf');
+      expect(rematch.setup?.guestArmyId).toBe('test-squad-army');
+      expect(rematch.units.filter((u) => u.ownerId === GUEST).map((u) => u.name)).toEqual(['Test Squad 1']);
+
+      const mirror = createInitialGameState(HOST, GUEST);
+      applyDefaultScenario(mirror, {
+        hostArmyId: 'hdf',
+        guestArmyId: 'hdf',
+        useDeploymentPhase: false,
+      });
+      expect(mirror.setup?.hostArmyId).toBe('hdf');
+      expect(mirror.setup?.guestArmyId).toBe('hdf');
+      expect(createRematchState(mirror).setup).toEqual(mirror.setup);
+    });
   });
 });

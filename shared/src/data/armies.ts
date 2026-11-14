@@ -812,6 +812,11 @@ export const STARTER_ARMIES: Record<string, StarterArmy> = {
   },
 };
 
+/** True when `id` is a known army key in `STARTER_ARMIES` (starter or TEST army). */
+export function isKnownArmyId(id: unknown): id is string {
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(STARTER_ARMIES, id);
+}
+
 /**
  * Creates full Unit instances from a StarterArmy definition for game setup or interactive deployment.
  */
