@@ -532,4 +532,88 @@ describe('Lobby UI', () => {
       expect(container.innerHTML).toContain('&lt;img src=x onerror=alert(1)&gt;');
     });
   });
+
+  describe('Reconnect & Reset (G-09, G-24)', () => {
+    it('creates and sends an SDP offer when room-joined assigns host role (G-09)', async () => {
+      vi.stubGlobal('RTCPeerConnection', class {} as any);
+      try {
+        const lobby = new Lobby(container, { sessionStore: new SessionStore(createMockStorage()) });
+        const setupHostSpy = vi.spyOn(lobby as any, 'setupWebRTCAsHost').mockResolvedValue(undefined);
+        const sendOfferSpy = vi.spyOn(lobby as any, 'createAndSendOffer').mockResolvedValue(undefined);
+
+        await (lobby as any).signalingClient.handleMessage({
+          type: 'room-joined',
+          code: 'RES-100',
+          role: 'host',
+        });
+
+        await Promise.resolve();
+        expect(setupHostSpy).toHaveBeenCalledTimes(1);
+        expect(sendOfferSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('does not send a duplicate offer if peer-joined supersedes room-joined mid-setup (G-09)', async () => {
+      vi.stubGlobal('RTCPeerConnection', class {} as any);
+      try {
+        const lobby = new Lobby(container, { sessionStore: new SessionStore(createMockStorage()) });
+        let resolveFirstSetup!: () => void;
+        const firstSetupPromise = new Promise<void>((resolve) => {
+          resolveFirstSetup = resolve;
+        });
+
+        const setupHostSpy = vi
+          .spyOn(lobby as any, 'setupWebRTCAsHost')
+          .mockImplementationOnce(() => firstSetupPromise)
+          .mockResolvedValueOnce(undefined);
+        const sendOfferSpy = vi.spyOn(lobby as any, 'createAndSendOffer').mockResolvedValue(undefined);
+
+        const roomJoinedPromise = (lobby as any).signalingClient.handleMessage({
+          type: 'room-joined',
+          code: 'RES-101',
+          role: 'host',
+        });
+
+        // Concurrent peer-joined arrives before room-joined's setup resolves
+        const peerJoinedPromise = (lobby as any).signalingClient.handleMessage({
+          type: 'peer-joined',
+        });
+
+        await peerJoinedPromise;
+        resolveFirstSetup();
+        await roomJoinedPromise;
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(setupHostSpy).toHaveBeenCalledTimes(2);
+        // Only the winning peer-joined setup sends an offer
+        expect(sendOfferSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('calls signalingClient.leaveRoom() on Lobby.reset() so room state and rejoinToken clear (G-24)', () => {
+      const lobby = new Lobby(container, { sessionStore: new SessionStore(createMockStorage()) });
+      const signaling = (lobby as any).signalingClient;
+      vi.spyOn(signaling, 'send').mockImplementation(() => {});
+
+      signaling.handleMessage({
+        type: 'room-created',
+        code: 'RST-123',
+        rejoinToken: 'tok-reset-1',
+      });
+      (lobby as any).roomCode = 'RST-123';
+      const leaveSpy = vi.spyOn(signaling, 'leaveRoom');
+
+      lobby.reset();
+
+      expect(leaveSpy).toHaveBeenCalledTimes(1);
+      expect((signaling as any).currentRoomCode).toBeNull();
+      expect((signaling as any).currentRole).toBeNull();
+      expect(signaling.getRejoinToken()).toBeNull();
+    });
+  });
 });

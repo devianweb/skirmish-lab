@@ -122,7 +122,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** high
 - **Category:** correctness
 - **Location:** `client/src/ui/Lobby.ts:408-439`, `client/src/network/SignalingClient.ts:156-159`, `server/src/Room.ts:69-74`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2d-reconnect` (PR 5)
 - **Defect:** When a disconnected host clicks "Resume Match" (which sends `join-room` via `Lobby.joinRoom`) while the guest is still connected in the room, neither peer initiates a WebRTC SDP offer and `SignalingClient` overwrites `this.currentRole` with `'guest'`.
 - **Failure scenario:** The host reloads the page mid-match and clicks "Resume Match" (`Lobby.ts:704`); `RoomManager.joinRoom` (`Room.ts:69-74`) assigns the vacant host slot (`role: 'host'`) and sends `room-joined` (`role: 'host'`) to the host and `peer-joined` to the guest. In `Lobby.ts:408-424`, `room-joined` with `assignedRole === 'host'` calls `setupWebRTCAsHost()` without calling `createAndSendOffer()`, while `peer-joined` on the guest (`Lobby.ts:433-438`) calls `setupWebRTCAsGuest()` and waits for an offer, hanging both peers at `"Waiting for peer..."`.
 - **Suggested fix:** Have the "Resume Match" flow call `signalingClient.reconnectRoom(code, role)` (or in `Lobby.ts:413`, call `await this.createAndSendOffer()` when `room-joined` assigns `role === 'host'` and a guest is present), and set `this.currentRole = message.role` in `SignalingClient.ts:158`.
@@ -272,7 +272,7 @@ Bugfix batch 2, as small PRs (any of them can go to Gemini via `doc/plans/GEMINI
 - **Severity:** medium
 - **Category:** correctness
 - **Location:** `client/src/network/SignalingClient.ts:22-79, 86-101, 116-126`, `client/src/network/SignalingDiceProvider.ts:47-53, 78-84`, `client/src/ui/Lobby.ts:362-377`, `client/src/network/WebRTCClient.ts:49-56, 149-175`
-- **Status:** verified
+- **Status:** verified — fixed in `bugfix-2d-reconnect` (PR 5) (`SignalingClient.connect` deduplication, `SignalingDiceProvider` retry `ensureConnected()`, and `Lobby.reset()` `leaveRoom()`; `WebRTCClient.createPeerConnection` is already synchronous with no `fetchIceServers()` call)
 - **Defect:** Concurrent `ensureConnected()` and `scheduleReconnect()` calls open duplicate WebSockets; `SignalingDiceProvider`'s retry timer never reconnects a closed socket; `Lobby.reset()` sends raw `leave-room` without clearing `SignalingClient.currentRoomCode`; and `WebRTCClient.handleOffer` can run before `createPeerConnection`'s `fetchIceServers()` resolves.
 - **Failure scenario:** If the guest's `fetch('/ice-servers')` takes longer than the host's when joining a room, the host's `'offer'` arrives while the guest's `this.peerConnection` is still `null`, throwing `Error: No peer connection` (`WebRTCClient.ts:150`). Similarly, if a dice request triggers `ensureConnected()` while `scheduleReconnect()`'s socket is still `CONNECTING`, `SignalingClient.connect()` overwrites `this.ws` with a second WebSocket, causing both sockets to send `reconnect-room` and kick each other in a loop.
 - **Suggested fix:** Deduplicate in-flight connection promises on `SignalingClient` and `WebRTCClient` (`connectPromise` / `initPromise`), call `ensureConnected()` inside `SignalingDiceProvider`'s retry interval when disconnected, and call `this.signalingClient.leaveRoom()` in `Lobby.reset()`.
