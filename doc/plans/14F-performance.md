@@ -1,5 +1,5 @@
 # 14F: Performance
-Status: in progress. Approved by the owner 2026-11-13; PR 1 done (Gemini, #407); PR 2 next (Gemini, see Decision 10).
+Status: in progress. Approved by the owner 2026-11-13; PR 1 done (Gemini, #407); PR 2 next (Gemini, see Decision 10). While Claude is unavailable, follow [14F-handover.md](14F-handover.md).
 Roadmap: doc/ROADMAP.md § Phase 14, 14F Performance
 
 ## Goal
