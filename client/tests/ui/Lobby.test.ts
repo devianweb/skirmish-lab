@@ -40,54 +40,53 @@ describe('Lobby UI', () => {
     };
   }
 
-  it('renders starter army selection controls and deployment checkbox', () => {
+  it('renders single Your Army selection control and deployment checkbox (no split pickers)', () => {
     const lobby = new Lobby(container);
     (lobby as any).render();
 
-    const hostSelect = container.querySelector('#hostArmySelect') as HTMLSelectElement;
-    const guestSelect = container.querySelector('#guestArmySelect') as HTMLSelectElement;
+    const armySelect = container.querySelector('#armySelect') as HTMLSelectElement;
     const deployCheck = container.querySelector('#deployPhaseCheck') as HTMLInputElement;
 
-    expect(hostSelect).toBeTruthy();
-    expect(guestSelect).toBeTruthy();
+    expect(armySelect).toBeTruthy();
+    expect(container.querySelector('#hostArmySelect')).toBeNull();
+    expect(container.querySelector('#guestArmySelect')).toBeNull();
     expect(deployCheck).toBeTruthy();
     expect(deployCheck.checked).toBe(true);
 
-    expect(hostSelect.value).toBe('hdf');
-    expect(guestSelect.value).toBe('orc-marauders');
+    expect(armySelect.value).toBe('hdf');
   });
 
-  it('offers exactly Human Defense Force and Orc Marauders to both players without dev mode', () => {
+  it('offers exactly Human Defense Force and Orc Marauders in Your Army without dev mode', () => {
     const lobby = new Lobby(container);
     (lobby as any).render();
-    for (const id of ['#hostArmySelect', '#guestArmySelect']) {
-      const select = container.querySelector(id) as HTMLSelectElement;
-      expect([...select.options].map((o) => o.value)).toEqual(['hdf', 'orc-marauders']);
-      expect(select.options[0].textContent).toContain('Human Defense Force (400 pts)');
-      expect(select.options[1].textContent).toContain('Orc Marauders (400 pts)');
-    }
+    const select = container.querySelector('#armySelect') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual(['hdf', 'orc-marauders']);
+    expect(select.options[0].textContent).toContain('Human Defense Force (400 pts)');
+    expect(select.options[1].textContent).toContain('Orc Marauders (400 pts)');
+    expect((lobby as any).yourArmyId).toBe('hdf');
     expect((lobby as any).hostArmyId).toBe('hdf');
     expect((lobby as any).guestArmyId).toBe('orc-marauders');
   });
 
-  it('updates starter force selection and deployment mode on user change', () => {
+  it('updates Your Army selection and deployment mode on user change', () => {
     const lobby = new Lobby(container);
     (lobby as any).render();
 
-    const hostSelect = container.querySelector('#hostArmySelect') as HTMLSelectElement;
+    const armySelect = container.querySelector('#armySelect') as HTMLSelectElement;
     const deployCheck = container.querySelector('#deployPhaseCheck') as HTMLInputElement;
 
-    hostSelect.value = 'orc-marauders';
-    hostSelect.dispatchEvent(new Event('change'));
+    armySelect.value = 'orc-marauders';
+    armySelect.dispatchEvent(new Event('change'));
 
     deployCheck.checked = false;
     deployCheck.dispatchEvent(new Event('change'));
 
+    expect((lobby as any).yourArmyId).toBe('orc-marauders');
     expect((lobby as any).hostArmyId).toBe('orc-marauders');
     expect((lobby as any).useDeploymentPhase).toBe(false);
   });
 
-  it('passes selected starter armies and deployment settings to onPeerReady', () => {
+  it('passes selected host and guest armies and deployment settings to onPeerReady', () => {
     let capturedContext: PeerReadyContext | null = null;
     const lobby = new Lobby(container, {
       onPeerReady: (ctx) => {
@@ -96,9 +95,9 @@ describe('Lobby UI', () => {
     });
     (lobby as any).render();
 
-    const hostSelect = container.querySelector('#hostArmySelect') as HTMLSelectElement;
-    hostSelect.value = 'orc-marauders';
-    hostSelect.dispatchEvent(new Event('change'));
+    const armySelect = container.querySelector('#armySelect') as HTMLSelectElement;
+    armySelect.value = 'orc-marauders';
+    armySelect.dispatchEvent(new Event('change'));
 
     (lobby as any).roomCode = 'TEST-123';
     (lobby as any).role = 'host';
@@ -396,11 +395,10 @@ describe('Lobby UI', () => {
 
     it('falls back to the default army when a TEST army is selected with dev mode off', () => {
       lobby = new Lobby(container);
+      (lobby as any).yourArmyId = 'test-army';
       (lobby as any).hostArmyId = 'test-army';
-      (lobby as any).guestArmyId = 'test-squad-army';
       (lobby as any).render();
-      expect((container.querySelector('#hostArmySelect') as HTMLSelectElement).value).toBe('hdf');
-      expect((container.querySelector('#guestArmySelect') as HTMLSelectElement).value).toBe('orc-marauders');
+      expect((container.querySelector('#armySelect') as HTMLSelectElement).value).toBe('hdf');
     });
 
     it('F9 on the lobby turns dev mode on, then off', () => {
@@ -408,12 +406,10 @@ describe('Lobby UI', () => {
       (lobby as any).render();
       f9();
       expect(container.querySelector('#devBadge')).toBeTruthy();
-      for (const id of ['hostArmySelect', 'guestArmySelect']) {
-        expect(container.querySelector(`#${id} option[value="test-army"]`)).toBeTruthy();
-        expect(container.querySelector(`#${id} option[value="test-squad-army"]`)).toBeTruthy();
-        expect(container.querySelector(`#${id} option[value="test-rules-army"]`)).toBeTruthy();
-        expect(container.querySelector(`#${id} option[value="test-jump-army"]`)).toBeTruthy();
-      }
+      expect(container.querySelector('#armySelect option[value="test-army"]')).toBeTruthy();
+      expect(container.querySelector('#armySelect option[value="test-squad-army"]')).toBeTruthy();
+      expect(container.querySelector('#armySelect option[value="test-rules-army"]')).toBeTruthy();
+      expect(container.querySelector('#armySelect option[value="test-jump-army"]')).toBeTruthy();
       expect(document.body.querySelector('.sl-lobby-toast')?.textContent).toBe('Developer mode on');
 
       f9();
@@ -437,10 +433,11 @@ describe('Lobby UI', () => {
       lobby = new Lobby(container);
       (lobby as any).render();
       f9();
-      const sel = container.querySelector('#hostArmySelect') as HTMLSelectElement;
+      const sel = container.querySelector('#armySelect') as HTMLSelectElement;
       sel.value = 'test-army';
       sel.dispatchEvent(new Event('change'));
       f9();
+      expect((lobby as any).yourArmyId).toBe('hdf');
       expect((lobby as any).hostArmyId).toBe('hdf');
     });
 
@@ -614,6 +611,289 @@ describe('Lobby UI', () => {
       expect((signaling as any).currentRoomCode).toBeNull();
       expect((signaling as any).currentRole).toBeNull();
       expect(signaling.getRejoinToken()).toBeNull();
+    });
+  });
+
+  describe('14G: Per-player army selection and waiting room sync', () => {
+    function makeFakePeerClient() {
+      const handlers = new Map<string, Array<(msg: any) => void>>();
+      const sent: any[] = [];
+      return {
+        sent,
+        isConnected: () => true,
+        close: vi.fn(),
+        on: (type: string, fn: (msg: any) => void) => {
+          if (!handlers.has(type)) handlers.set(type, []);
+          handlers.get(type)!.push(fn);
+        },
+        send: (msg: any) => sent.push(msg),
+        emit: (type: string, msg: any) => {
+          (handlers.get(type) ?? []).forEach((fn) => fn(msg));
+        },
+      };
+    }
+
+    it('defaults untouched guest army to orc-marauders on ?room= and Join, while preserving explicit HDF picks', async () => {
+      const origLocation = window.location;
+      try {
+        delete (window as any).location;
+        (window as any).location = { search: '?room=GUE-111' };
+        const inviteLobby = new Lobby(container);
+        await inviteLobby.init();
+        expect((container.querySelector('#armySelect') as HTMLSelectElement).value).toBe('orc-marauders');
+        inviteLobby.destroy();
+      } finally {
+        (window as any).location = origLocation;
+      }
+
+      // Fresh page without ?room=: untouched click on Join defaults Guest to orc-marauders
+      const joinLobby = new Lobby(container);
+      (joinLobby as any).connectionState.connection = 'connected';
+      (joinLobby as any).render();
+      vi.spyOn((joinLobby as any).signalingClient, 'joinRoom').mockImplementation(() => {});
+      (container.querySelector('#codeInput') as HTMLInputElement).value = 'ABC-222';
+      (container.querySelector('#joinBtn') as HTMLButtonElement).click();
+      expect((joinLobby as any).yourArmyId).toBe('orc-marauders');
+      expect((joinLobby as any).guestArmyId).toBe('orc-marauders');
+      joinLobby.destroy();
+
+      // Explicit HDF pick before Join stays HDF for mirror match
+      const mirrorLobby = new Lobby(container);
+      (mirrorLobby as any).connectionState.connection = 'connected';
+      (mirrorLobby as any).render();
+      vi.spyOn((mirrorLobby as any).signalingClient, 'joinRoom').mockImplementation(() => {});
+      const sel = container.querySelector('#armySelect') as HTMLSelectElement;
+      sel.value = 'hdf';
+      sel.dispatchEvent(new Event('change'));
+      (container.querySelector('#codeInput') as HTMLInputElement).value = 'ABC-333';
+      (container.querySelector('#joinBtn') as HTMLButtonElement).click();
+      expect((mirrorLobby as any).yourArmyId).toBe('hdf');
+      expect((mirrorLobby as any).guestArmyId).toBe('hdf');
+      mirrorLobby.destroy();
+    });
+
+    it('keeps Host in waiting room until Guest sends select-army and Host clicks Start Match, syncing edits live', () => {
+      let captured: PeerReadyContext | null = null;
+      const lobby = new Lobby(container, {
+        onPeerReady: (ctx) => {
+          captured = ctx;
+        },
+      });
+      (lobby as any).connectionState.connection = 'connected';
+      (lobby as any).render();
+      vi.spyOn((lobby as any).signalingClient, 'createRoom').mockImplementation(() => {});
+      (container.querySelector('#createBtn') as HTMLButtonElement).click();
+
+      const fakeClient = makeFakePeerClient();
+      ((lobby as any).signalingClient as any).handleMessage({ type: 'room-created', code: 'HUB-100' });
+      (lobby as any).webrtcClient = fakeClient;
+      (lobby as any).registerPeerReadyListeners(fakeClient);
+
+      expect(container.querySelector('#hostPickDisplay')!.textContent).toContain('Human Defense Force');
+      expect(container.querySelector('#guestPickDisplay')!.textContent).toContain('Waiting for guest');
+      const btnBefore = container.querySelector('#startMatchBtn') as HTMLButtonElement;
+      expect(btnBefore.disabled).toBe(true);
+
+      // First heartbeat connects peer and sends lobby-state, without auto-starting the match
+      fakeClient.emit('heartbeat-ping', { type: 'heartbeat-ping', timestamp: 1 });
+      expect(captured).toBeNull();
+      expect(fakeClient.sent[0]).toMatchObject({
+        type: 'lobby-state',
+        hostArmyId: 'hdf',
+        guestArmyId: undefined,
+      });
+      expect((container.querySelector('#startMatchBtn') as HTMLButtonElement).disabled).toBe(true);
+
+      // Guest sends select-army -> Host validates, updates display, broadcasts lobby-state, enables Start Match
+      fakeClient.emit('select-army', { type: 'select-army', armyId: 'hdf', playerId: 'player-guest' });
+      expect(container.querySelector('#guestPickDisplay')!.textContent).toContain('Human Defense Force');
+      expect(fakeClient.sent[fakeClient.sent.length - 1]).toMatchObject({
+        type: 'lobby-state',
+        hostArmyId: 'hdf',
+        guestArmyId: 'hdf',
+      });
+      const startBtn = container.querySelector('#startMatchBtn') as HTMLButtonElement;
+      expect(startBtn.disabled).toBe(false);
+      expect(startBtn.textContent).toBe('Start Match');
+
+      // Host changes army in waiting room -> broadcasts updated lobby-state
+      const waitSelect = container.querySelector('#armySelect') as HTMLSelectElement;
+      waitSelect.value = 'orc-marauders';
+      waitSelect.dispatchEvent(new Event('change'));
+      expect(container.querySelector('#hostPickDisplay')!.textContent).toContain('Orc Marauders');
+      expect(fakeClient.sent[fakeClient.sent.length - 1]).toMatchObject({
+        type: 'lobby-state',
+        hostArmyId: 'orc-marauders',
+        guestArmyId: 'hdf',
+      });
+
+      // Host clicks Start Match -> fires onPeerReady with both picks
+      (container.querySelector('#startMatchBtn') as HTMLButtonElement).click();
+      expect(captured).toBeTruthy();
+      expect(captured!.hostArmyId).toBe('orc-marauders');
+      expect(captured!.guestArmyId).toBe('hdf');
+      lobby.destroy();
+    });
+
+    it('guest sends select-army on heartbeat, updates from lobby-state, changes army in waiting room, and launches on state-update', () => {
+      let captured: PeerReadyContext | null = null;
+      const lobby = new Lobby(container, {
+        onPeerReady: (ctx) => {
+          captured = ctx;
+        },
+      });
+      const fakeClient = makeFakePeerClient();
+      (lobby as any).connectionState.connection = 'connected';
+      (lobby as any).render();
+      vi.spyOn((lobby as any).signalingClient, 'joinRoom').mockImplementation(() => {});
+      (container.querySelector('#codeInput') as HTMLInputElement).value = 'GUE-200';
+      (container.querySelector('#joinBtn') as HTMLButtonElement).click();
+
+      ((lobby as any).signalingClient as any).handleMessage({
+        type: 'room-joined',
+        code: 'GUE-200',
+        role: 'guest',
+      });
+      (lobby as any).webrtcClient = fakeClient;
+      (lobby as any).registerPeerReadyListeners(fakeClient);
+
+      expect(container.querySelector('#startMatchBtn')).toBeNull();
+
+      fakeClient.emit('heartbeat-ping', { type: 'heartbeat-ping', timestamp: 1 });
+      expect(captured).toBeNull();
+      expect(fakeClient.sent[0]).toEqual({
+        type: 'select-army',
+        armyId: 'orc-marauders',
+        playerId: 'player-guest',
+      });
+
+      fakeClient.emit('lobby-state', {
+        type: 'lobby-state',
+        hostArmyId: 'hdf',
+        guestArmyId: 'orc-marauders',
+        mapName: 'Standard Battlefield',
+        useDeploymentPhase: true,
+      });
+      expect(container.textContent).toContain('Map: Standard Battlefield');
+      expect(container.querySelector('#hostPickDisplay')!.textContent).toContain('Human Defense Force');
+      expect(container.querySelector('#guestPickDisplay')!.textContent).toContain('Orc Marauders');
+
+      // Guest changes pick in waiting room
+      const waitSelect = container.querySelector('#armySelect') as HTMLSelectElement;
+      waitSelect.value = 'hdf';
+      waitSelect.dispatchEvent(new Event('change'));
+      expect(fakeClient.sent[fakeClient.sent.length - 1]).toEqual({
+        type: 'select-army',
+        armyId: 'hdf',
+        playerId: 'player-guest',
+      });
+
+      // Host starts game and broadcasts initial state-update -> guest launches into match
+      const fakeInitialState = { gameId: 'g1', units: [] };
+      fakeClient.emit('state-update', { type: 'state-update', state: fakeInitialState, actionId: 'a1' });
+      expect(captured).toBeTruthy();
+      expect(captured!.initialState).toEqual(fakeInitialState);
+      lobby.destroy();
+    });
+
+    it('accepts Guest TEST armies even when Host dev mode is off, rejects unknown IDs, and keeps F9 reset local', () => {
+      localStorage.clear();
+      let captured: PeerReadyContext | null = null;
+      const lobby = new Lobby(container, {
+        onPeerReady: (ctx) => {
+          captured = ctx;
+        },
+      });
+      const fakeClient = makeFakePeerClient();
+      (lobby as any).isCreatedRoom = true;
+      (lobby as any).connectionState.connection = 'connected';
+      ((lobby as any).signalingClient as any).handleMessage({ type: 'room-created', code: 'VAL-100' });
+      (lobby as any).webrtcClient = fakeClient;
+      (lobby as any).registerPeerReadyListeners(fakeClient);
+
+      // Unknown / malicious ID falls back to DEFAULT_GUEST_ARMY
+      fakeClient.emit('select-army', { type: 'select-army', armyId: 'constructor', playerId: 'player-guest' });
+      expect(fakeClient.sent[fakeClient.sent.length - 1]).toMatchObject({
+        type: 'lobby-state',
+        guestArmyId: 'orc-marauders',
+      });
+
+      // Guest TEST army passes even though Host dev mode is OFF
+      fakeClient.emit('select-army', { type: 'select-army', armyId: 'test-squad-army', playerId: 'player-guest' });
+      expect(container.querySelector('#guestPickDisplay')!.textContent).toContain('TEST: Single Squad');
+
+      // Host turns F9 on, picks a TEST army, then turns F9 off: Host resets to hdf, Guest TEST pick stays intact
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+      const sel = container.querySelector('#armySelect') as HTMLSelectElement;
+      sel.value = 'test-army';
+      sel.dispatchEvent(new Event('change'));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9' }));
+
+      expect((container.querySelector('#armySelect') as HTMLSelectElement).value).toBe('hdf');
+      expect(container.querySelector('#guestPickDisplay')!.textContent).toContain('TEST: Single Squad');
+
+      (container.querySelector('#startMatchBtn') as HTMLButtonElement).click();
+      expect(captured!.hostArmyId).toBe('hdf');
+      expect(captured!.guestArmyId).toBe('test-squad-army');
+      lobby.destroy();
+    });
+
+    it('skips the waiting room on mid-game reconnects via hasActiveMatch or saved resume state', () => {
+      let onReadyCount = 0;
+      const lobby = new Lobby(container, {
+        hasActiveMatch: () => true,
+        onPeerReady: () => {
+          onReadyCount++;
+        },
+      });
+      const fakeClient = makeFakePeerClient();
+      (lobby as any).isCreatedRoom = true;
+      (lobby as any).roomCode = 'REC-123';
+      (lobby as any).role = 'host';
+      (lobby as any).webrtcClient = fakeClient;
+      (lobby as any).registerPeerReadyListeners(fakeClient);
+
+      fakeClient.emit('heartbeat-ping', { type: 'heartbeat-ping', timestamp: 1 });
+      expect(onReadyCount).toBe(1);
+      lobby.destroy();
+
+      // Host resuming an existing room (isCreatedRoom === false) skips waiting room even before GameManager loads snapshot
+      let hostResumeCount = 0;
+      const hostResumeLobby = new Lobby(container, {
+        hasActiveMatch: () => false,
+        onPeerReady: () => {
+          hostResumeCount++;
+        },
+      });
+      const hostResumeClient = makeFakePeerClient();
+      (hostResumeLobby as any).isCreatedRoom = false;
+      (hostResumeLobby as any).roomCode = 'REC-124';
+      (hostResumeLobby as any).role = 'host';
+      (hostResumeLobby as any).webrtcClient = hostResumeClient;
+      (hostResumeLobby as any).registerPeerReadyListeners(hostResumeClient);
+      hostResumeClient.emit('heartbeat-ping', { type: 'heartbeat-ping', timestamp: 2 });
+      expect(hostResumeCount).toBe(1);
+      hostResumeLobby.destroy();
+
+      // Guest with a saved local snapshot skips the waiting room on reconnect
+      const guestStore = new SessionStore(createMockStorage());
+      guestStore.saveSnapshot('REC-125', { gameId: 'saved', board: { width: 48, height: 48 }, units: [], terrain: [] } as any);
+      let guestResumeCount = 0;
+      const guestResumeLobby = new Lobby(container, {
+        sessionStore: guestStore,
+        onPeerReady: () => {
+          guestResumeCount++;
+        },
+      });
+      const guestResumeClient = makeFakePeerClient();
+      (guestResumeLobby as any).isCreatedRoom = false;
+      (guestResumeLobby as any).roomCode = 'REC-125';
+      (guestResumeLobby as any).role = 'guest';
+      (guestResumeLobby as any).webrtcClient = guestResumeClient;
+      (guestResumeLobby as any).registerPeerReadyListeners(guestResumeClient);
+      guestResumeClient.emit('heartbeat-ping', { type: 'heartbeat-ping', timestamp: 3 });
+      expect(guestResumeCount).toBe(1);
+      guestResumeLobby.destroy();
     });
   });
 });

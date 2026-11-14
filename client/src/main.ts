@@ -157,6 +157,7 @@ let activeCustomMap: CustomMapDefinition | null = null;
 // UI overlay (lobby) on top of the battlefield. Once the peer connection is
 // live, the lobby hands over to the full game wiring below.
 const lobby = new Lobby(lobbyContainer, {
+  hasActiveMatch: () => gameManager !== null && gameManager.getGameState() !== null,
   onOpenMapEditor: () => {
     lobby.hide();
     if (!mapEditor) {

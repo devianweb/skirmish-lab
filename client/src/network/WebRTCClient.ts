@@ -7,6 +7,13 @@ export type GameMessage =
   | { type: 'heartbeat-ping', timestamp: number }
   | { type: 'heartbeat-pong', timestamp: number }
   | { type: 'select-army', armyId: string, playerId: string }
+  | {
+      type: 'lobby-state';
+      hostArmyId: string;
+      guestArmyId?: string;
+      mapName: string;
+      useDeploymentPhase: boolean;
+    }
   | { type: 'request-snapshot' }
   | { type: 'snapshot', state: any }
   | { type: 'game-end', reason: string };

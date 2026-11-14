@@ -1,5 +1,5 @@
 # 14G: Each player picks their own army
-Status: in progress (approved 2026-11-14)
+Status: done (merged 2026-11-14)
 Roadmap: doc/ROADMAP.md § 14G (line 792)
 
 ## Goal
@@ -55,12 +55,17 @@ Replace the host-picks-both-armies lobby flow with per-player army selection. Ea
   - `client/src/ui/Lobby.ts`
   - `client/src/main.ts`
   - `client/tests/ui/Lobby.test.ts`
+  - `client/tests/ui/Lobby.wakeUp.test.ts`
   - `tools/ux-inventory/scenes/08-lobby.js`
   - `tools/ux-inventory/scenes/11-p2p-objectives.js`
-  - `doc/ux/inventory/index.html` (plus regenerated lobby screenshot if visually changed)
+  - `tools/ux-inventory/catalog.js`
+  - `tools/ux-inventory/build.js`
+  - `doc/ux/inventory/index.html` (text updated; lobby image re-takes queued in `HANDOVER.md` row #4)
   - `doc/NETWORKING.md`
   - `doc/ROADMAP.md`
   - `doc/manual-testing/MANUAL_TEST_CHECKLIST.md`
+  - `doc/plans/README.md`
+  - `doc/plans/HANDOVER.md`
 - **Tests first:**
   1. Initial lobby renders a single `#armySelect` ("Your Army") picker and does not render `#hostArmySelect` or `#guestArmySelect`.
   2. Creating a room enters the waiting room showing `Host Force (South)` (host's pick), `Guest Force (North)` ("Waiting for guest…"), the selected map, the host's `#armySelect` picker, and a disabled `#startMatchBtn` until the guest connects and sends `select-army`.

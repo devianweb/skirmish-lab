@@ -182,16 +182,14 @@ describe('Lobby wake-up loading indicator (14G)', () => {
     const resumeBtn = () => container.querySelector('#resumeBtn') as HTMLButtonElement;
     const mapEditorBtn = () => container.querySelector('#openMapEditorBtn') as HTMLButtonElement;
     const mapSelect = () => container.querySelector('#mapSelect') as HTMLSelectElement;
-    const hostSelect = () => container.querySelector('#hostArmySelect') as HTMLSelectElement;
-    const guestSelect = () => container.querySelector('#guestArmySelect') as HTMLSelectElement;
+    const armySelect = () => container.querySelector('#armySelect') as HTMLSelectElement;
 
     expect(createBtn().disabled).toBe(true);
     expect(joinBtn().disabled).toBe(true);
     expect(resumeBtn().disabled).toBe(true);
     expect(mapEditorBtn().disabled).toBe(false);
     expect(mapSelect().disabled).toBe(false);
-    expect(hostSelect().disabled).toBe(false);
-    expect(guestSelect().disabled).toBe(false);
+    expect(armySelect().disabled).toBe(false);
 
     // Map Builder works while connecting
     mapEditorBtn().click();
