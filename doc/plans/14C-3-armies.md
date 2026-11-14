@@ -1,6 +1,6 @@
 # 14C-3: v3.6 armies at 400 pts (Human Defense Force and Orc Marauders; Prime Brothers and Alien Hives deferred)
-Status: approved, PR 1 re-split into 1A–1D with Decisions 3, 3b, 5d on 2026-11-11 (owner, 2026-11-10: "Go ahead with all of 14C"; 2026-11-11: "Just make sure the lists make sense". Opus re-checked every unit, cost, stat and upgrade against the four v3.6 army book PDFs on 2026-11-11: all four lists total 400 pts and meet Decision 1, and every rule they use exists in the engine or is added here)
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14C (part 3 of 3). Umbrella: `doc/plans/14C-opr-v3.6-alignment.md` (Decisions 3, 4, 10). Depends on 14C-2 being merged.
+Status: done for MVP (HDF & Orc Marauders merged; Prime Brothers & Alien Hives deferred to Phase 16+ — kept here as reference)
+Roadmap: [doc/ROADMAP.md](../ROADMAP.md) § Phase 14, sub-phase 14C (part 3 of 3). Umbrella: [doc/plans/archive/14C-opr-v3.6-alignment.md](archive/14C-opr-v3.6-alignment.md) (Decisions 3, 4, 10). Depends on 14C-2 being merged.
 
 ## Goal
 **Scope narrowed (owner, 2026-11-11: "I think polish is more important than armies right now"):** this phase ships Human Defense Force (done) and Orc Marauders (PR 2). Prime Brothers (PR 3) and Alien Hives (PR 4) move to ROADMAP "Future Considerations"; their lists, rules and PR notes stay below as the record to pick up later. The original goal follows.

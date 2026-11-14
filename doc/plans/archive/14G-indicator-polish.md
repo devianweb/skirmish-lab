@@ -1,9 +1,9 @@
 # 14G: Distance-indicator polish (owner pass follow-ups)
-Status: approved (owner, 2026-11-12, answers to the PR 3 pass notes). For Gemini; see `doc/plans/GEMINI_HANDOVER.md`.
-Roadmap: doc/ROADMAP.md § Phase 14, sub-phase 14G, "Indicators for distance-gated rules" (follow-up)
+Status: done (PRs #384 and #394 merged). For Gemini; see [GEMINI_HANDOVER.md](../GEMINI_HANDOVER.md).
+Roadmap: [doc/ROADMAP.md](../../ROADMAP.md) § Phase 14, sub-phase 14G, "Indicators for distance-gated rules" (follow-up)
 
 ## Goal
-After the owner's pass on the distance indicators (`doc/plans/14G-distance-rule-indicators.md`, PRs #370/#371/#373): Hero aura rings no longer look like objective markers, each aura says what it is, and the units that would share a Blast's hits stand out from the other enemies in range.
+After the owner's pass on the distance indicators ([14G-distance-rule-indicators.md](14G-distance-rule-indicators.md), PRs #370/#371/#373): Hero aura rings no longer look like objective markers, each aura says what it is, and the units that would share a Blast's hits stand out from the other enemies in range.
 
 ## Decisions (agreed)
 1. **Hero aura style.** Hero aura rings are **dashed** (not a solid band) and drawn in the **Hero's side colour**: host Heroes blue `0x29b6f6`, guest Heroes red `0xef5350` (the existing selection / outcome colours in `MarkerRenderer`). Still bright when that Hero lends its Quality to the selected/hovered unit and faint when not (keep the current opacities, 0.85 / 0.25). The ring radius and when auras show are unchanged.

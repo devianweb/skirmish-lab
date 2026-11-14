@@ -1,6 +1,6 @@
 # 14F: Performance
-Status: in progress. Approved by the owner 2026-11-13; PR 1 done (#407); PR 2 done (#409); Post-PR 2 profile in [doc/reviews/14F-profile.md](../reviews/14F-profile.md) (#411); PR 3 done (`14F-perf-3`, Decision 9 engine targets met); PR 5 (Client frame profile) next. While Claude is unavailable, follow [14F-handover.md](14F-handover.md).
-Roadmap: doc/ROADMAP.md § Phase 14, 14F Performance
+Status: in progress. Approved by the owner 2026-11-13; PR 1 done (#407); PR 2 done (#409); Post-PR 2 profile in [doc/reviews/14F-profile.md](../reviews/14F-profile.md) (#411); PR 3 done (#412, Decision 9 engine targets met); PR 5 (Client frame profile) remaining. Historical handover notes archived in [doc/plans/archive/14F-handover.md](archive/14F-handover.md).
+Roadmap: [doc/ROADMAP.md](../ROADMAP.md) § Phase 14, 14F Performance
 
 ## Goal
 The game stays smooth through a full match on the Standard Battlefield with squads, the move preview, the line-of-sight fan and the F9 debugger running, and host checks that search for paths (squad charges, pile-in) answer quickly. The first target is the pathfinder (`findNavPath`), which costs about 30-150 ms a call today and runs both in the HUD's hover preview and in host rules checks. Rendering is profiled afterwards, and whatever that turns up gets its own PR.

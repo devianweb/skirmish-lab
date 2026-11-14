@@ -217,7 +217,7 @@ If the WebSocket disconnects unexpectedly (e.g. WiFi hiccup or Azure socket recy
 
 ### Seat Rejoin Tokens
 - `room-created` and `room-joined` return a random `rejoinToken` (`crypto.randomUUID()`) for the client's assigned seat (`host` or `guest`).
-- The client stores `rejoinToken` in `SignalingClient` and persists it with `ActiveSession` in `SessionStore` (`localStorage`), sending it with `reconnect-room` and with `join-room` when resuming a match.
+- The client stores `rejoinToken` in `SignalingClient` and persists it with `ActiveSession` in `SessionStore` (per-tab `sessionStorage`, while game snapshots are stored in `localStorage`), sending it with `reconnect-room` and with `join-room` when resuming a match.
 - Taking a seat whose current WebSocket is still `OPEN` requires the matching `rejoinToken` (preventing a second tab or another client with the invite code from hijacking an active seat). A vacant or closed seat can be taken with the invite code as before.
 - When a socket is replaced or leaves a room, its old `clientRooms` entry is removed immediately.
 

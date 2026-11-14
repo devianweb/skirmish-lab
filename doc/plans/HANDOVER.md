@@ -1,5 +1,5 @@
 # Working without Claude: handover to Gemini
-Written 2026-11-14 by Claude, for the owner and for Gemini (Argon, Hydrogen). Use it whenever Claude is unavailable (out of usage, weekend). Day-to-day Gemini rules are in [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md); the 14F details are in [14F-handover.md](14F-handover.md). When Claude is back, tell it: "Read doc/plans/HANDOVER.md and catch up."
+Written 2026-11-14 by Claude, for the owner and for Gemini (Argon, Hydrogen). Use it whenever Claude is unavailable (out of usage, weekend). Day-to-day Gemini rules are in [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md); the historical 14F details are archived in [archive/14F-handover.md](archive/14F-handover.md). When Claude is back, tell it: "Read doc/plans/HANDOVER.md and catch up."
 
 ## Who does what while Claude is away
 | Role | Normally | While Claude is away |
@@ -18,7 +18,7 @@ Gemini never merges. The owner merges, but only the low-risk kinds of PR. Everyt
 - docs-only PRs;
 - tests-only PRs (no file under any `src/` changed);
 - client-only PRs (`client/src/` only) with no rule logic, after playing the change in two browsers;
-- 14F PR 2, only if every check in [14F-handover.md](14F-handover.md) passes.
+- 14F PR 2, only if every check in [archive/14F-handover.md](archive/14F-handover.md) passes.
 
 **Leave open for Claude:**
 - anything that changes `shared/src/engine/` rules or host validation (except 14F PR 2 above), the P2P protocol, `GameState` or the signaling server;
@@ -59,22 +59,22 @@ Report: the PR URL and the open questions, numbered, so the owner can answer the
 The owner then answers the questions (reply on the PR or in Gemini: "add these answers to the plan's Decisions and set Status: approved"), merges the plan PR (docs only), and hands each PR section to Argon or Hydrogen with the implementation prompt in [GEMINI_HANDOVER.md](GEMINI_HANDOVER.md#the-prompt).
 
 ## The queue, in the agreed order
-Status as of 2026-11-14 (`fba67a3`). Bugfix batch 2 findings (G-xx) are described in [doc/reviews/14E-gemini-findings.md](../reviews/14E-gemini-findings.md); each fix must first reproduce its finding with a failing test, and drops it if it can't.
+Updated 2026-11-14 (following Bugfix batch 2 & 14H docs sync). Bugfix batch 2 findings (G-xx) are described in [doc/reviews/14E-gemini-findings.md](../reviews/14E-gemini-findings.md).
 
-| # | Item | Area (files) | Ready? | Who | Owner may merge? |
+| # | Item | Area (files) | Status / Ready? | Who | Owner may merge? |
 |---|---|---|---|---|---|
-| 1 | **14F PR 2**: A* speed-ups | `shared/src/engine/spatial.ts` | Plan approved; prompt in 14F-handover | Argon | Only via the 14F-handover checklist |
-| 2 | **14F profile** (read-only) | `doc/reviews/` | Prompt in 14F-handover; after #1 | Argon or Hydrogen | Yes (docs) |
-| 3 | **2D Resume as host** (`bugfix-batch-2.md` PR 5): confirm G-09 against current code; keep active session / rejoin token in `sessionStorage` (`SessionStore`), initiate SDP offer on host resume, and fix G-24 reconnect races | `client/src/storage/`, `client/src/network/`, `client/src/ui/Lobby.ts` | Planned in `bugfix-batch-2.md` PR 5 (awaiting approval) | Argon | Client-only part yes, after a two-browser test |
-| 4 | **UI inventory re-take**: lobby "?", waking-up lobby, how-to-play modal, header mute, distance indicators, hazard highlight `47-hazard-highlight`, `s9-07` | `doc/ux/inventory/`, `tools/ux-inventory/` | Ready (tooling in `tools/ux-inventory/README.md`) | Hydrogen (text in `catalog.js`), owner takes screenshots if Gemini can't | Yes (docs) |
-| 5 | *(Merged into item #3 / `bugfix-batch-2.md` PR 5)* **G-24 client reconnect races** | `client/src/network/`, `client/src/ui/Lobby.ts` | Planned in `bugfix-batch-2.md` PR 5 | Argon | Yes, after a two-browser test (client-only) |
-| 6 | **14H docs sync**: stale default-scenario table in `doc/ASSETS.md`, old doorway opening in `doc/SYSTEMS.md`, record the 13.6E follow-ups, close `doc/plans/bugfix-playtest-batch-1.md` | `doc/` | Ready enough for a docs job | Hydrogen | Yes (docs) |
-| 7 | **2C Host validation & 14F pathfinder fixes** (`bugfix-batch-2.md` PRs 1–3, no rule changes): 14F `F1`/`F2`/`F4` (`PR 1`), `G-07`/`G-08`/`G-17`/`G-20` (`PR 2`), `G-12`/`G-14`/`G-16`/`G-19`/`G-21`/`G-31` (`PR 3`) | `shared/src/engine/`, `shared/src/data/` | Planned in `bugfix-batch-2.md` PRs 1–3 (awaiting approval) | Argon | No, leave open for Claude |
-| 8 | **2F Rules fixes & G-35 docs** (`bugfix-batch-2.md` PR 4, after PRs 1–3): owner's answers 1–4 at the end of 14E findings file, with `G-13`, `G-18`, and `G-35` | `shared/src/engine/`, `doc/` | Planned in `bugfix-batch-2.md` PR 4 (rules already answered; awaiting approval) | Argon | No |
-| 9 | *(Merged into item #8 / `bugfix-batch-2.md` PR 4)* **G-35** stale rules docs | `doc/` | Planned in `bugfix-batch-2.md` PR 4 | Argon / Hydrogen | Yes (docs) |
-| 10 | **Each player picks their own army** (ROADMAP 14G) | protocol, `GameState.setup`, lobby | Needs a plan | Plan with Argon; implementation waits for Claude | No |
-| 11 | **14D Rules audit** | read-only | Waits for Claude (rule judgement) | — | — |
-| 12 | **14I MVP release** | — | After everything above | Owner | Owner's command |
+| 1 | **14F PR 2**: A* speed-ups | `shared/src/engine/spatial.ts` | **Done** (#409) | Argon | Merged |
+| 2 | **14F profile** (read-only) | `doc/reviews/` | **Done** (#411) | Argon / Hydrogen | Merged |
+| 3 | **2D Resume as host** (`archive/bugfix-batch-2.md` PR 5): `sessionStorage` in `SessionStore`, host SDP offer on resume, and `G-24` reconnect races *(14F PR 3 `#412` also merged; PR 5 client frame profile pending owner profile)* | `client/src/storage/`, `client/src/network/`, `client/src/ui/Lobby.ts` | **Done** (#419; 14F PR 3 #412 done) | Argon | Merged |
+| 4 | **UI inventory re-take**: lobby "?", waking-up lobby, how-to-play modal, header mute, distance indicators, hazard highlight `47-hazard-highlight`, `s9-07` | `doc/ux/inventory/`, `tools/ux-inventory/` | **Open** — Ready (tooling in `tools/ux-inventory/README.md`) | Hydrogen (text in `catalog.js`), owner takes screenshots if Gemini can't | Yes (docs) |
+| 5 | *(Merged into item #3 / `archive/bugfix-batch-2.md` PR 5)* **G-24 client reconnect races** | `client/src/network/`, `client/src/ui/Lobby.ts` | **Done** (#419) | Argon | Merged |
+| 6 | **14H docs sync**: stale default-scenario table / hazard wording in `doc/ASSETS.md`, `NETWORKING.md` `SessionStore`, record 13.6E follow-ups, close `archive/bugfix-playtest-batch-1.md`, consolidate `doc/plans/` | `doc/` | **Done** (this PR; `SYSTEMS.md` doorway fixed in #418) | Hydrogen / Gemini | Yes (docs) |
+| 7 | **2C Host validation & 14F pathfinder fixes** (`archive/bugfix-batch-2.md` PRs 1–3, no rule changes): 14F `F1`/`F2`/`F4` (`PR 1`), `G-07`/`G-08`/`G-17`/`G-20` (`PR 2`), `G-12`/`G-14`/`G-16`/`G-19`/`G-21`/`G-31` (`PR 3`) | `shared/src/engine/`, `shared/src/data/` | **Done** (#415, #416, #417) | Argon | Merged |
+| 8 | **2F Rules fixes & G-35 docs** (`archive/bugfix-batch-2.md` PR 4, after PRs 1–3): owner's answers 1–4 at the end of 14E findings file, with `G-13`, `G-18`, and `G-35` | `shared/src/engine/`, `doc/` | **Done** (#418) | Argon | Merged |
+| 9 | *(Merged into item #8 / `archive/bugfix-batch-2.md` PR 4)* **G-35** stale rules docs | `doc/` | **Done** (#418) | Argon / Hydrogen | Merged |
+| 10 | **Each player picks their own army** (ROADMAP 14G) | protocol, `GameState.setup`, lobby | **Open** — Needs a plan | Plan with Argon; implementation waits for Claude | No |
+| 11 | **14D Rules audit** | read-only | **Open** — Waits for Claude (rule judgement) | — | — |
+| 12 | **14I MVP release** | — | **Open** — After everything above | Owner | Owner's command |
 
 **A good weekend order** that never has two open PRs in the same area: #1 (Argon, engine) → while it's open, #4 and #6 (Hydrogen, docs) and the #3 plan (Argon) → #2 once #1 is merged → #3 and #5 implementations (client) → #7 plan. Leave #7's and #8's code PRs open for Claude.
 
@@ -88,4 +88,4 @@ Only when the owner decides to, and only by the owner:
 3. Merging it deploys the client to GitHub Pages and the signaling server to Azure. Check the lobby's build stamp afterwards.
 
 ## When Claude is back
-Claude should: read this file and `14F-handover.md`; list the PRs merged and still open since `fba67a3` (`gh pr list --state all --limit 30`); review the open ones first (engine before client); re-check anything the owner merged under this policy; update `doc/ROADMAP.md` ticks; and then carry on with the queue.
+Claude should: read this file (and [archive/14F-handover.md](archive/14F-handover.md) if historical 14F context is needed); list the PRs merged and still open since `fba67a3` (`gh pr list --state all --limit 30`); review the open ones first (engine before client); re-check anything the owner merged under this policy; update `doc/ROADMAP.md` ticks; and then carry on with the queue.
