@@ -99,7 +99,13 @@ function endOfActivation(units: Unit[], woundBy: Record<string, number>): GameSt
   state.turnState.activeUnitId = 'h1';
   unitOf(state, 'h1').isActivated = true;
   recordWoundBaseline(state);
-  for (const [id, n] of Object.entries(woundBy)) wound(unitOf(state, id), n);
+  for (const [id, n] of Object.entries(woundBy)) {
+    wound(unitOf(state, id), n);
+    if (id !== 'h1' && n > 0) {
+      const attacked = state.turnState.attackedFrom ?? (state.turnState.attackedFrom = {});
+      attacked[id] = { shot: 10 };
+    }
+  }
   return state;
 }
 

@@ -61,9 +61,11 @@ export function hasMeleeWeapon(unit: Pick<Unit, 'weapons' | 'models'>): boolean 
   return findMeleeWeapons(unit).length > 0;
 }
 
-/** Every equipped melee weapon with Counter, in equipment order: all of them strike first when the unit is charged. */
-export function findCounterWeapons(unit: Pick<Unit, 'weapons'>): Weapon[] {
-  return unit.weapons.filter((w) => w.isEquipped && isMeleeWeapon(w) && hasTrait(w.profile.specialRules, 'counter'));
+/** Every equipped melee weapon with Counter carried by at least one living model, in equipment order. */
+export function findCounterWeapons(unit: Pick<Unit, 'weapons' | 'models'>): Weapon[] {
+  return unit.weapons.filter(
+    (w) => w.isEquipped && isCarried(unit, w) && isMeleeWeapon(w) && hasTrait(w.profile.specialRules, 'counter')
+  );
 }
 
 /** The equipped melee weapons without Counter (Assault counts) that a living model carries: what a charged unit strikes back with after its Counter strikes. */

@@ -10,6 +10,8 @@ import {
   Weapon,
 } from '../../src/gameTypes';
 import { applyAction, getDiceSpecs, validateAction } from '../../src/engine/actions';
+import { BlastSplitData } from '../../src/engine/blastSplit';
+import { findCounterWeapons } from '../../src/engine/specialRules';
 import { hasLineOfSight } from '../../src/engine/spatial';
 import { WEAPONS } from '../../src/data/weapons';
 
@@ -3103,6 +3105,295 @@ describe('Bugfix Batch 2 — PR 3: G-12, G-14, G-16, G-21, G-31', () => {
       expect(shot.ok).toBe(true);
       expect(shot.state!.units.find((u) => u.id === 'g1')!.isDestroyed).toBe(true);
       expect(shot.logEntry.dice!.outcome.targetDestroyed).toBe(true);
+    });
+  });
+
+  describe('Bugfix Batch 2 — PR 4: Rules Q1, Q3/G-13, Q4/G-18', () => {
+    const mkMeleeWeapon = (id: string, name: string, attacks = 2, rules: string[] = []): Weapon => ({
+      id,
+      weaponType: 'blade',
+      name,
+      profile: { type: 'melee', range: 1, attacks, specialRules: rules },
+      isEquipped: true,
+    });
+
+    const mkRangedBlastWeapon = (id: string, name: string, attacks = 1, blast = 3): Weapon => ({
+      id,
+      weaponType: 'frag-launcher',
+      name,
+      profile: { type: 'ranged', range: 24, attacks, specialRules: [`blast(${blast})`] },
+      isEquipped: true,
+    });
+
+    describe('Rules Q1: Counter & Fatigue timing', () => {
+      it('defending unit with Counter + non-Counter melee hits on normal Quality in strike-back and gains fatigued only after retaliation', () => {
+        const chargerSword = mkMeleeWeapon('charger-sword', 'Charger Sword', 1);
+        const counterSpear = mkMeleeWeapon('counter-spear', 'Counter Spear', 1, ['counter']);
+        const backBlade = mkMeleeWeapon('back-blade', 'Back Blade', 2, []);
+        const h1 = pr3Squad('h1', HOST, [{ x: 0, y: 0, z: 0 }], { weapons: [chargerSword] }, 6);
+        const g1 = pr3Squad('g1', GUEST, [{ x: 0, y: 0, z: 5 }], { weapons: [counterSpear, backBlade], quality: 4 }, 6);
+        const h2 = makeUnit('h2', HOST, { position: { x: -20, y: 0, z: -20 } });
+        const state = makeState([h1, g1, h2]);
+
+        const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+        const charge = createAction(HOST, 'charge', {
+          type: 'charge',
+          attackerId: 'h1',
+          targetId: 'g1',
+          weaponId: 'charger-sword',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 4 },
+          ],
+        });
+        const specs = getDiceSpecs(started, charge)!;
+        const chargeDice: DiceResult[] = specs.map((s) => ({
+          rolls: s.purpose === 'counter0-to-hit' ? [4] : s.purpose === 'counter0-defense' ? [6] : [1],
+          total: s.count,
+          finalTotal: s.count,
+          purpose: s.purpose,
+        }));
+        const charged = act(started, charge, chargeDice);
+        expect(charged.ok).toBe(true);
+        expect(charged.logEntry.dice!.outcome.counterStrikes?.[0].hitCount).toBe(1);
+
+        // Pending melee-retaliation offers Back Blade; g1 must NOT be fatigued yet
+        const pending = charged.state!.turnState.pendingReaction!;
+        expect(pending.type).toBe('melee-retaliation');
+        expect(pending.data?.weaponIds).toEqual(['back-blade']);
+        expect(charged.state!.units.find((u) => u.id === 'g1')!.status).not.toContain('fatigued');
+
+        // Normal Quality 4+: rolls of [4, 4] must both hit (not need 6+ from premature fatigue)
+        const strikeBack = createAction(GUEST, 'respond-reaction', {
+          type: 'respond-reaction',
+          reactionId: pending.id,
+          choiceId: 'strike-back',
+        });
+        const backSpecs = getDiceSpecs(charged.state!, strikeBack)!;
+        const backDice: DiceResult[] = backSpecs.map((s) => ({
+          rolls: s.purpose === 'to-hit' ? [4, 4] : [1, 1],
+          total: s.count,
+          finalTotal: s.count,
+          purpose: s.purpose,
+        }));
+        const resolved = act(charged.state!, strikeBack, backDice);
+        expect(resolved.ok).toBe(true);
+        expect(resolved.logEntry.dice!.outcome.hitCount).toBe(2);
+        expect(resolved.state!.units.find((u) => u.id === 'g1')!.status).toContain('fatigued');
+      });
+
+      it('declining strike-back after Counter still marks the defender fatigued', () => {
+        const counterSpear = mkMeleeWeapon('counter-spear', 'Counter Spear', 1, ['counter']);
+        const backBlade = mkMeleeWeapon('back-blade', 'Back Blade', 2, []);
+        const h1 = pr3Squad('h1', HOST, [{ x: 0, y: 0, z: 0 }], { weapons: [mkMeleeWeapon('cs', 'Sword', 1)] }, 6);
+        const g1 = pr3Squad('g1', GUEST, [{ x: 0, y: 0, z: 5 }], { weapons: [counterSpear, backBlade] }, 6);
+        const state = makeState([h1, g1]);
+
+        const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+        const charge = createAction(HOST, 'charge', {
+          type: 'charge',
+          attackerId: 'h1',
+          targetId: 'g1',
+          weaponId: 'cs',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 4 },
+          ],
+        });
+        const specs = getDiceSpecs(started, charge)!;
+        const charged = act(
+          started,
+          charge,
+          specs.map((s) => ({ rolls: Array(s.count).fill(1), total: s.count, finalTotal: s.count, purpose: s.purpose }))
+        );
+        const pending = charged.state!.turnState.pendingReaction!;
+        expect(charged.state!.units.find((u) => u.id === 'g1')!.status).not.toContain('fatigued');
+
+        const declined = act(
+          charged.state!,
+          createAction(GUEST, 'respond-reaction', {
+            type: 'respond-reaction',
+            reactionId: pending.id,
+            choiceId: 'decline',
+          })
+        );
+        expect(declined.ok).toBe(true);
+        expect(declined.state!.units.find((u) => u.id === 'g1')!.status).toContain('fatigued');
+      });
+
+      it('Counter-only defender still becomes fatigued when Counter destroys the charger or when surviving with no non-Counter strike-back', () => {
+        const counterSpear = mkMeleeWeapon('counter-spear', 'Counter Spear', 2, ['counter']);
+        // Case 1: Counter kills the charger -> defender still ends fatigued
+        const h1 = pr3Squad('h1', HOST, [{ x: 0, y: 0, z: 0 }], { weapons: [mkMeleeWeapon('cs', 'Sword', 1)] }, 2);
+        const g1 = pr3Squad('g1', GUEST, [{ x: 0, y: 0, z: 5 }], { weapons: [counterSpear] }, 4);
+        const h2 = makeUnit('h2', HOST, { position: { x: -20, y: 0, z: -20 } });
+        const state = makeState([h1, g1, h2]);
+
+        const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+        const charge = createAction(HOST, 'charge', {
+          type: 'charge',
+          attackerId: 'h1',
+          targetId: 'g1',
+          weaponId: 'cs',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 4 },
+          ],
+        });
+        const specs = getDiceSpecs(started, charge)!;
+        const killed = act(
+          started,
+          charge,
+          specs.map((s) => ({
+            rolls: s.purpose === 'counter0-to-hit' ? [6, 6] : Array(s.count).fill(1),
+            total: s.count,
+            finalTotal: s.count,
+            purpose: s.purpose,
+          }))
+        );
+        expect(killed.ok).toBe(true);
+        expect(killed.state!.units.find((u) => u.id === 'h1')!.isDestroyed).toBe(true);
+        expect(killed.state!.units.find((u) => u.id === 'g1')!.status).toContain('fatigued');
+      });
+    });
+
+    describe('Rules Q3 / G-13: Salvo simultaneous Blast', () => {
+      it('captures pre-salvo Blast participants and caps so an earlier allocation auto-wiping g2 does not drop g2 from later Blast splits', () => {
+        const b0 = mkRangedBlastWeapon('blast-0', 'Heavy Mortar', 1, 3);
+        const b1 = mkRangedBlastWeapon('blast-1', 'Light Mortar', 1, 3);
+        const h1 = pr3Squad('h1', HOST, [{ x: 0, y: 0, z: 0 }], { weapons: [b0, b1], quality: 4 });
+        const g1 = pr3Squad(
+          'g1',
+          GUEST,
+          [
+            { x: -1.1, y: 0, z: 10 },
+            { x: 0, y: 0, z: 10 },
+            { x: 1.1, y: 0, z: 10 },
+          ],
+          { defense: 6 }
+        );
+        const g2 = pr3Squad('g2', GUEST, [{ x: 0, y: 0, z: 13 }], { defense: 6 });
+        const state = makeState([h1, g1, g2]);
+
+        const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+        const shoot = createAction(HOST, 'shoot', {
+          type: 'shoot',
+          attackerId: 'h1',
+          allocations: [
+            { weaponId: 'blast-0', targetId: 'g1' },
+            { weaponId: 'blast-1', targetId: 'g1' },
+          ],
+        });
+        const specs = getDiceSpecs(started, shoot)!;
+        // Both allocations hit once -> 3 Blast(3) hits each. Auto split on alloc_0 is [2, 1],
+        // wiping 1-model g2 in the trial run if state is mutated in-place; defense rolls are 1 (fail).
+        const diceResults: DiceResult[] = specs.map((s) => ({
+          rolls: s.purpose.endsWith('to-hit') ? [5] : Array(s.count).fill(1),
+          total: s.count,
+          finalTotal: s.count,
+          purpose: s.purpose,
+        }));
+
+        const paused = act(started, shoot, diceResults);
+        expect(paused.ok).toBe(true);
+        const pending = paused.state!.turnState.pendingReaction!;
+        expect(pending.type).toBe('blast-split');
+        const data = pending.data as unknown as BlastSplitData;
+        expect(data.blasts).toHaveLength(2);
+        // Both Blast allocations must see [g1, g2] with pre-salvo caps [3, 1]
+        expect(data.blasts[1].participants.map((p) => [p.unitId, p.cap])).toEqual([
+          ['g1', 3],
+          ['g2', 1],
+        ]);
+
+        // Custom split: spare g2 from alloc_0 ([3, 0]), then put 1 hit on g2 from alloc_1 ([2, 1])
+        const resolved = act(
+          paused.state!,
+          createAction(GUEST, 'blast-split', { type: 'blast-split', splits: [[3, 0], [2, 1]] })
+        );
+        expect(resolved.ok).toBe(true);
+        const outcome = resolved.logEntry.dice!.outcome;
+        expect(Number.isNaN(outcome.hitCount)).toBe(false);
+        expect(outcome.blastSplits![1].shares.map((s) => s.hits)).toEqual([2, 1]);
+        expect(resolved.state!.units.find((u) => u.id === 'g1')!.isDestroyed).toBe(true);
+        expect(resolved.state!.units.find((u) => u.id === 'g2')!.isDestroyed).toBe(true);
+      });
+    });
+
+    describe('Rules Q4 / G-18: Impact casualties & findCounterWeapons', () => {
+      it('pauses for pick-casualties after Impact wounds even when defender has no Counter weapons and resumes at stage strike', () => {
+        const sword = mkMeleeWeapon('sword', 'Sword', 1);
+        const heavyAxe = mkMeleeWeapon('axe', 'Heavy Axe', 3);
+        const h1 = pr3Squad('h1', HOST, [{ x: 0, y: 0, z: 0 }], {
+          weapons: [mkMeleeWeapon('cs', 'Charger Sword', 1)],
+          specialRules: ['impact(2)'],
+        });
+        const g1 = pr3Squad(
+          'g1',
+          GUEST,
+          [
+            { x: -0.6, y: 0, z: 5 },
+            { x: 0.6, y: 0, z: 5 },
+          ],
+          { weapons: [sword, heavyAxe] }
+        );
+        g1.models[0].weaponIds = ['sword'];
+        g1.models[1].weaponIds = ['axe'];
+        const state = makeState([h1, g1]);
+
+        const started = act(state, createAction(HOST, 'activate-unit', { type: 'activate-unit', unitId: 'h1' })).state!;
+        const charge = createAction(HOST, 'charge', {
+          type: 'charge',
+          attackerId: 'h1',
+          targetId: 'g1',
+          weaponId: 'cs',
+          path: [
+            { x: 0, y: 0, z: 0 },
+            { x: 0, y: 0, z: 4 },
+          ],
+        });
+        const specs = getDiceSpecs(started, charge)!;
+        const chargeDice: DiceResult[] = specs.map((s) => ({
+          rolls:
+            s.purpose === 'impact'
+              ? [6, 1]
+              : Array(s.count).fill(1),
+          total: s.count,
+          finalTotal: s.count,
+          purpose: s.purpose,
+        }));
+
+        const paused = act(started, charge, chargeDice);
+        expect(paused.ok).toBe(true);
+        const pending = paused.state!.turnState.pendingReaction!;
+        expect(pending?.type).toBe('pick-casualties');
+        expect((pending.data as any).entry.unitId).toBe('g1');
+
+        // Defender sacrifices m0 (sword) so m1 (heavy axe) survives to strike back
+        const picked = act(
+          paused.state!,
+          createAction(GUEST, 'pick-casualties', { type: 'pick-casualties', unitId: 'g1', modelIds: ['g1-m0'] } as any)
+        );
+        expect(picked.ok).toBe(true);
+        const ret = picked.state!.turnState.pendingReaction!;
+        expect(ret.type).toBe('melee-retaliation');
+        expect(ret.data?.weaponIds).toEqual(['axe']);
+      });
+
+      it('findCounterWeapons ignores Counter weapons whose only carrier model is destroyed', () => {
+        const counterSpear = mkMeleeWeapon('counter-spear', 'Counter Spear', 1, ['counter']);
+        const sword = mkMeleeWeapon('sword', 'Sword', 1);
+        const u = pr3Squad('g1', GUEST, [
+          { x: 0, y: 0, z: 0 },
+          { x: 1, y: 0, z: 0 },
+        ], { weapons: [sword, counterSpear] });
+        u.models[0].weaponIds = ['sword'];
+        u.models[1].weaponIds = ['counter-spear'];
+        expect(findCounterWeapons(u).map((w) => w.id)).toEqual(['counter-spear']);
+
+        u.models[1].isDestroyed = true;
+        expect(findCounterWeapons(u)).toEqual([]);
+      });
     });
   });
 });

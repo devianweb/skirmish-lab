@@ -118,7 +118,7 @@ Resolve the remaining verified correctness, host-validation, pathfinding, and cl
 
 ---
 
-## PR 4: 2F Agreed Rules Fixes & Stale Rules Docs (branch: `bugfix-2f-rules`)
+## PR 4: 2F Agreed Rules Fixes & Stale Rules Docs (branch: `bugfix-2f-rules`) — **Done**
 - **Layer:** shared engine & docs
 - **Files:**
   - `shared/src/engine/actions.ts`

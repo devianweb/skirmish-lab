@@ -3453,6 +3453,8 @@ export function applyAction(state: GameState, action: GameAction, dice?: DiceRes
         if (!defender.status.includes('fatigued')) {
           defender.status.push('fatigued');
         }
+      } else if (pending.data?.counterStruck && !defender.status.includes('fatigued')) {
+        defender.status.push('fatigued');
       }
 
       const chargerShaken = charger.status.includes('shaken');
@@ -3731,17 +3733,11 @@ function resolveShoot(
     }
   }
 
-  // Deadly weapons put their wounds on first (the dice stay numbered by declared index)
-  const resolveOrder = deadlyFirst(
-    allocations.map((_, i) => i),
-    (i) => getWeapon(attacker, allocations[i].weaponId)
-  );
-  for (const i of resolveOrder) {
-    const alloc = allocations[i];
+  // Capture pre-salvo target/firing state so earlier weapons' casualties don't shift later Blast splits or model counts
+  const salvoSnapshots = allocations.map((alloc) => {
     const weapon = getWeapon(attacker, alloc.weaponId)!;
     const target = getUnit(newState, alloc.targetId)!;
     const distance = unitDistance(attacker, target);
-    noteAttackedFrom(newState, target.id, 'shot', distance);
     // An Indirect weapon fired from a Hold ignores cover from sight blockers; after a move it is a normal shot
     const sightless = ignoresSight(attacker, weapon);
     const firing = firingModels(newState, attacker, target, weapon);
@@ -3750,6 +3746,21 @@ function resolveShoot(
       (!sightless && targetCoverByMajority(newState, firing, attacker, target));
     const aliveModels = Math.max(1, target.models.filter((m) => !m.isDestroyed).length);
     const totalAttacks = (weapon.profile.attacks as number) * Math.max(1, firing.length);
+    const participants = hasTrait(weapon.profile.specialRules, 'blast')
+      ? getBlastParticipants(newState, attacker, target)
+      : undefined;
+    return { weapon, target, distance, inCover, aliveModels, totalAttacks, participants };
+  });
+
+  // Deadly weapons put their wounds on first (the dice stay numbered by declared index)
+  const resolveOrder = deadlyFirst(
+    allocations.map((_, i) => i),
+    (i) => getWeapon(attacker, allocations[i].weaponId)
+  );
+  for (const i of resolveOrder) {
+    const { weapon, target, distance, inCover, aliveModels, totalAttacks, participants: preParticipants } =
+      salvoSnapshots[i];
+    noteAttackedFrom(newState, target.id, 'shot', distance);
 
     const attackerStats = {
       quality: attacker.quality,
@@ -3776,7 +3787,7 @@ function resolveShoot(
       const rolls = isSingle ? extractAttackRolls(dice) : extractAllocationRolls(dice, i);
       if (isBlast) {
         // Spread the shot's hits over the target and its neighbours; each unit rolls its own defense batch
-        const participants = getBlastParticipants(newState, attacker, target);
+        const participants = preParticipants!;
         const shotHits = countShotHits(attackerStats, targetStats, totalAttacks, rolls.toHit);
         const auto = autoSplitForParticipants(shotHits, participants);
       const chosen = splits?.[i];
@@ -4049,8 +4060,16 @@ function resolveChargeStrike(
         targetDestroyed: target.isDestroyed,
       };
     }
-    // A squad that is about to Counter has its Impact casualties picked first: the Counter counts the survivors
-    if (counterStrikeEntries(target, attacker).length > 0 && deferCasualties(newState, ledger, action.id, attacker, resumeAt('counter'))) {
+    // Impact casualties on a surviving multi-model squad are picked before Counter or normal strikes run
+    if (
+      deferCasualties(
+        newState,
+        ledger,
+        action.id,
+        attacker,
+        resumeAt(counterStrikeEntries(target, attacker).length > 0 ? 'counter' : 'strike')
+      )
+    ) {
       paused = true;
     }
   }
@@ -4104,7 +4123,6 @@ function resolveChargeStrike(
     }
     if (counterStrikes.length > 0) {
       counterStruck = true;
-      if (!target.status.includes('fatigued')) target.status.push('fatigued');
       // Counter casualties on a surviving squad charger are picked before it strikes: it strikes with the survivors
       if (!attacker.isDestroyed && deferCasualties(newState, ledger, action.id, target, resumeAt('strike'))) paused = true;
     }
@@ -4210,8 +4228,13 @@ function settleChargeStrike(
   target: Unit,
   counterStruck: boolean = false
 ): { pushedBack: boolean; pushBackPos?: Vector3 } {
-  // The charger fell to the Counter strike: it is the defender's win
-  if (attacker.isDestroyed) return settleStrikeBack(newState, actionId, attacker, target);
+  // The charger fell to the Counter strike: it is the defender's win (Counter already spent its fatigue)
+  if (attacker.isDestroyed) {
+    if (counterStruck && !target.isDestroyed && !target.status.includes('fatigued')) {
+      target.status.push('fatigued');
+    }
+    return settleStrikeBack(newState, actionId, attacker, target);
+  }
   const defenderMelee = strikeBackWeapons(target, counterStruck);
   let pushedBack = false;
   let pushBackPos: Vector3 | undefined;
@@ -4221,6 +4244,9 @@ function settleChargeStrike(
     newState.turnState.pendingReaction = createConsolidationReaction(actionId, attacker, target.name);
     refreshEngagements(newState);
   } else if (defenderMelee.length === 0) {
+    if (counterStruck && !target.status.includes('fatigued')) {
+      target.status.push('fatigued');
+    }
     pushBackPos = pushBackChargerModels(newState, attacker, target);
     pushedBack = true;
     attacker.status = attacker.status.filter((s) => s !== 'engaged');
@@ -4260,6 +4286,7 @@ function settleChargeStrike(
         targetId: target.id,
         weaponId: defenderMelee[0].id,
         weaponIds: defenderMelee.map((w) => w.id),
+        ...(counterStruck ? { counterStruck: true } : {}),
       },
     };
   }
