@@ -79,6 +79,7 @@ SkirmishLab is an unofficial, unendorsed tabletop skirmish simulator for One Pag
 - **Implement (Sonnet):** one `implementer` agent ([.claude/agents/implementer.md](.claude/agents/implementer.md)) per PR section, ideally in an isolated worktree. It writes tests first, runs all workspaces, updates docs and the manual checklist, opens a PR to `master`, and never merges or touches `release`. On a rules ambiguity it stops and reports instead of guessing.
 - **Review & merge (Fable):** check each PR against the plan and the rules, send fixes back to the same agent, squash-merge to `master`, then remove that agent's worktree and delete its local branch (`git worktree remove <path>`, `git branch -D <branch>`; check it has no uncommitted or unmerged work first), then start the next section. Releases still require the owner's explicit command.
 - **Gemini handover:** a self-contained, approved PR section can go to Gemini instead of a Claude implementer, using the prompt and review steps in [doc/plans/GEMINI_HANDOVER.md](doc/plans/GEMINI_HANDOVER.md). Fable still reviews and merges.
+- **Working without Claude:** when Claude is unavailable, Gemini plans and implements and the owner merges, following [doc/plans/HANDOVER.md](doc/plans/HANDOVER.md) (roles, merge policy, house rules, the work queue).
 - **Rule references** (the v3.6 core rules, Beginner's Guide, Tournament Guidelines, army book PDFs) live in the gitignored `assets-src/`. Worktrees don't have them, so use the absolute paths listed in `doc/plans/README.md`.
 
 ## Git Workflow
